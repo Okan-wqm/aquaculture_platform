@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, useAuth, createTenantQueryKey, colors } from '@aquaculture/shared-ui';
+import { cn, useAuth, createTenantQueryKey, colors, PageHeader } from '@aquaculture/shared-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from '../../hooks/useGraphQL';
 
@@ -491,86 +491,85 @@ export function WeeklySchedulePage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <PageHeader
+          title={
+            <>
               <Calendar className="h-6 w-6 text-indigo-600" />
               İş Çizelgesi
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Çalışanların programlarını planlama ve yönetim
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* View Mode Toggle */}
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
-              {(['daily', 'weekly', 'monthly'] as ViewMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                    viewMode === mode
-                      ? 'bg-white text-indigo-700 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700',
-                  )}
-                >
-                  {mode === 'daily' ? 'Günlük' : mode === 'weekly' ? 'Haftalık' : 'Aylık'}
-                </button>
-              ))}
-            </div>
-
-            {/* Navigation */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={navigatePrev}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ChevronLeft className="h-5 w-5 text-gray-600" />
-              </button>
-
-              <div className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg min-w-[200px] justify-center">
-                <Calendar className="h-4 w-4 text-indigo-600" />
-                <span className="text-sm font-semibold text-gray-900">{navTitle}</span>
+            </>
+          }
+          description="Çalışanların programlarını planlama ve yönetim"
+          actions={
+            <div className="flex items-center gap-3">
+              {/* View Mode Toggle */}
+              <div className="flex bg-gray-100 rounded-lg p-0.5">
+                {(['daily', 'weekly', 'monthly'] as ViewMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                      viewMode === mode
+                        ? 'bg-white text-indigo-700 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700',
+                    )}
+                  >
+                    {mode === 'daily' ? 'Günlük' : mode === 'weekly' ? 'Haftalık' : 'Aylık'}
+                  </button>
+                ))}
               </div>
 
-              <button
-                onClick={navigateNext}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ChevronRight className="h-5 w-5 text-gray-600" />
-              </button>
+              {/* Navigation */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={navigatePrev}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <ChevronLeft className="h-5 w-5 text-gray-600" />
+                </button>
 
-              <button
-                onClick={navigateToday}
-                className="ml-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                <div className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg min-w-[200px] justify-center">
+                  <Calendar className="h-4 w-4 text-indigo-600" />
+                  <span className="text-sm font-semibold text-gray-900">{navTitle}</span>
+                </div>
+
+                <button
+                  onClick={navigateNext}
+                  className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <ChevronRight className="h-5 w-5 text-gray-600" />
+                </button>
+
+                <button
+                  onClick={navigateToday}
+                  className="ml-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                >
+                  Bugüne Dön
+                </button>
+              </div>
+
+              {/* Save */}
+              {hasUnsaved && (
+                <button
+                  onClick={handleSave}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  <Save className="h-4 w-4" />
+                  Kaydet
+                </button>
+              )}
+
+              {/* Settings Link */}
+              <Link
+                to="/hr/scheduling/settings"
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
               >
-                Bugüne Dön
-              </button>
+                <Settings className="h-4 w-4" />
+                Ayarlar
+              </Link>
             </div>
-
-            {/* Save */}
-            {hasUnsaved && (
-              <button
-                onClick={handleSave}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <Save className="h-4 w-4" />
-                Kaydet
-              </button>
-            )}
-
-            {/* Settings Link */}
-            <Link
-              to="/hr/scheduling/settings"
-              className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              <Settings className="h-4 w-4" />
-              Ayarlar
-            </Link>
-          </div>
-        </div>
+          }
+        />
       </div>
 
       {/* Category Legend */}

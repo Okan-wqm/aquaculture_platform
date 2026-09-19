@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, DataTable, Input, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   SubscriptionOverview,
@@ -255,14 +255,10 @@ const SubscriptionManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Subscription Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage tenant subscriptions, billing cycles, and plan changes
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Subscription Management"
+        description="Manage tenant subscriptions, billing cycles, and plan changes"
+      />
 
       {/* Stats Cards */}
       {stats && (

@@ -6,7 +6,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { useAuthContext, PageHeader } from '@aquaculture/shared-ui';
 import { useModuleIds, useModuleUsageStats } from '../hooks/useTenantData';
 import { ModuleCard, AssignManagerModal, ModuleDetailsModal } from '../components/modules';
 import type { DisplayModule } from '../components/modules';
@@ -110,26 +110,24 @@ const TenantModules: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Modules</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage your tenant&apos;s modules and assign managers
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => refreshAuth()}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          <span className="px-3 py-1.5 rounded-lg bg-tenant-50 text-tenant-700 text-sm font-medium">
-            {modules.filter((m) => m.status === 'active').length} Active
-          </span>
-        </div>
-      </div>
+      <PageHeader
+        title="Modules"
+        description="Manage your tenant&apos;s modules and assign managers"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => refreshAuth()}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500" />
+            </button>
+            <span className="px-3 py-1.5 rounded-lg bg-tenant-50 text-tenant-700 text-sm font-medium">
+              {modules.filter((m) => m.status === 'active').length} Active
+            </span>
+          </div>
+        }
+      />
 
       {/* FIX MED-17: Error state when fetch fails */}
       {fetchError && (

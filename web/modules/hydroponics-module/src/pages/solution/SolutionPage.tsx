@@ -10,6 +10,7 @@ import DrainageCompositionTab from './tabs/DrainageCompositionTab';
 import PreviousDrainageTab from './tabs/PreviousDrainageTab';
 import CurrentNsFormulaTab from './tabs/CurrentNsFormulaTab';
 import ReadjustmentSettingsTab from './tabs/ReadjustmentSettingsTab';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 // Always-visible tabs
 const BASE_TAB_COMPONENTS: Record<string, React.FC> = {
@@ -42,12 +43,11 @@ const SolutionPageInner: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Nutrient Solution Calculator</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Configure nutrient solution parameters for your hydroponic systems
-        </p>
-      </div>
+      <PageHeader
+        title="Nutrient Solution Calculator"
+        description="Configure nutrient solution parameters for your hydroponic systems"
+        className="mb-6"
+      />
 
       {/* Tab Bar */}
       <div className="border-b border-gray-200 mb-6">

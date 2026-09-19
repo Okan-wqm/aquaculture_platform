@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
@@ -146,22 +146,20 @@ const MessagingTenantsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Per-tenant messaging management and controls
-          </p>
-        </div>
-        <Button
-          onClick={() => void overviewQuery.refresh()}
-          disabled={overviewQuery.loading}
-          variant="secondary"
-          size="sm"
-        >
-          {overviewQuery.loading ? 'Refreshing...' : 'Refresh'}
-        </Button>
-      </div>
+      <PageHeader
+        title="Messaging Tenants"
+        description="Per-tenant messaging management and controls"
+        actions={
+          <Button
+            onClick={() => void overviewQuery.refresh()}
+            disabled={overviewQuery.loading}
+            variant="secondary"
+            size="sm"
+          >
+            {overviewQuery.loading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
 
       {/* Tenant Overview */}
       <Card>

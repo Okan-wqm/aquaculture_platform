@@ -4,17 +4,7 @@
  * Includes full lifecycle workflow: submit, approve, start, verify, cancel, hold, resume.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import {
-  Card,
-  Button,
-  Modal,
-  Input,
-  Select,
-  Badge,
-  Spinner,
-  Alert,
-  useConfirm,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, useConfirm, PageHeader } from '@aquaculture/shared-ui';
 import {
   useWorkOrders,
   useCreateWorkOrder,
@@ -673,15 +663,13 @@ export const WorkOrdersPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">İş Emirleri</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Bakım iş emirlerini görüntüleyin ve yönetin
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate}>Yeni İş Emri</Button>
-      </div>
+      <PageHeader
+        title="İş Emirleri"
+        description="Bakım iş emirlerini görüntüleyin ve yönetin"
+        actions={
+          <Button onClick={handleOpenCreate}>Yeni İş Emri</Button>
+        }
+      />
 
       {/* Filters */}
       <Card className="p-4">

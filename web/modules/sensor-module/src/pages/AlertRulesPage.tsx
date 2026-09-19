@@ -11,7 +11,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ConfirmModal, Spinner } from '@aquaculture/shared-ui';
+import { ConfirmModal, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
@@ -795,39 +795,41 @@ const AlertRulesPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Alarm Kuralları</h1>
-          <p className="text-gray-500 mt-1">
+      <PageHeader
+        title="Alarm Kuralları"
+        description={
+          <>
             {ruleList.length} kural tanımlı
             {ruleList.filter((r) => r.isActive).length > 0 && (
               <span className="text-green-600 font-medium">
                 {' '}({ruleList.filter((r) => r.isActive).length} aktif)
               </span>
             )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => refetch()}
-            disabled={isLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            Yenile
-          </button>
-          <button
-            onClick={() => {
-              setEditingRule(null);
-              setFormMode('create');
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Yeni Kural
-          </button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => refetch()}
+              disabled={isLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              Yenile
+            </button>
+            <button
+              onClick={() => {
+                setEditingRule(null);
+                setFormMode('create');
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Yeni Kural
+            </button>
+          </div>
+        }
+      />
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">

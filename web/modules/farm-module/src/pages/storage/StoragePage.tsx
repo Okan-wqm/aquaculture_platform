@@ -2,7 +2,7 @@
  * Storage & Stock Management Page
  * 8-tab page for warehouse, inventory, and procurement management
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, PageHeader } from '@aquaculture/shared-ui';
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStorageOverview } from '../../hooks/useStorageInventory';
@@ -156,12 +156,11 @@ const StoragePage: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 py-6">
-          <h1 className="text-2xl font-bold text-gray-900">Storage & Stock Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage warehouses, inventory, stock movements and procurement
-          </p>
-        </div>
+        <PageHeader
+          title="Storage & Stock Management"
+          description="Manage warehouses, inventory, stock movements and procurement"
+          className="px-4 sm:px-6 py-6"
+        />
       </div>
 
       {/* Summary Cards */}

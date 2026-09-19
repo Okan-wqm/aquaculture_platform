@@ -5,7 +5,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, chartChrome, colors, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, Modal, chartChrome, colors, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -759,35 +759,33 @@ export const SecurityDashboardPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent={dashboard !== null} onRetry={loadData} />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Security Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Real-time security monitoring and threat intelligence
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setAutoRefresh(!autoRefresh)}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border ${
-              autoRefresh
-                ? 'bg-green-50 text-green-700 border-green-200'
-                : 'bg-gray-50 text-gray-700 border-gray-200'
-            }`}
-          >
-            {autoRefresh ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-            Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
-          </button>
-          <button
-            onClick={() => void loadData()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Security Dashboard"
+        description="Real-time security monitoring and threat intelligence"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setAutoRefresh(!autoRefresh)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border ${
+                autoRefresh
+                  ? 'bg-green-50 text-green-700 border-green-200'
+                  : 'bg-gray-50 text-gray-700 border-gray-200'
+              }`}
+            >
+              {autoRefresh ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+              Auto-refresh {autoRefresh ? 'ON' : 'OFF'}
+            </button>
+            <button
+              onClick={() => void loadData()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
       {/* Health Score & Stats */}
       {dashboard && (

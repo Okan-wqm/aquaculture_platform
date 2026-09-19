@@ -7,7 +7,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner } from '@aquaculture/shared-ui';
+import { graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -134,14 +134,10 @@ export const CompanyPage: React.FC = () => {
       {/* Page Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="px-4 sm:px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Company Information</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Manage your company details and registration information
-              </p>
-            </div>
-          </div>
+          <PageHeader
+            title="Company Information"
+            description="Manage your company details and registration information"
+          />
         </div>
       </div>
 

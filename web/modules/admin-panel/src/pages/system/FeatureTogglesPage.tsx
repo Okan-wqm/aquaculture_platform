@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, DataTable, Input, Select, Modal, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Select, Modal, useConfirm, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -368,20 +368,18 @@ export const FeatureTogglesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Feature Toggles</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage feature flags and rollouts across the platform
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Create Toggle
-        </Button>
-      </div>
+      <PageHeader
+        title="Feature Toggles"
+        description="Manage feature flags and rollouts across the platform"
+        actions={
+          <Button onClick={() => setShowCreateModal(true)}>
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Create Toggle
+          </Button>
+        }
+      />
 
       {/* A failed read or a rejected flag action, named where the operator is
           looking rather than in a fixed toast in the corner. */}

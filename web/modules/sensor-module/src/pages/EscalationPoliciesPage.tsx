@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ConfirmModal, Modal, Spinner } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
@@ -1251,13 +1251,15 @@ const EscalationPoliciesPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+      <PageHeader
+        title={
+          <>
             <ShieldCheck className="w-7 h-7 text-cyan-600" />
             Eskalasyon Politikalari
-          </h1>
-          <p className="text-gray-500 mt-1">
+          </>
+        }
+        description={
+          <>
             {policyList.length} politika tanimli
             {policyList.filter((p) => p.isActive).length > 0 && (
               <span className="text-green-600 font-medium">
@@ -1267,29 +1269,31 @@ const EscalationPoliciesPage: React.FC = () => {
             {policyList.find((p) => p.isDefault) && (
               <span className="text-indigo-600 font-medium"> | 1 varsayilan</span>
             )}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => refetch()}
-            disabled={isLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            Yenile
-          </button>
-          <button
-            onClick={() => {
-              setEditingPolicy(null);
-              setFormMode('create');
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Yeni Politika
-          </button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => refetch()}
+              disabled={isLoading}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+              Yenile
+            </button>
+            <button
+              onClick={() => {
+                setEditingPolicy(null);
+                setFormMode('create');
+              }}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Yeni Politika
+            </button>
+          </div>
+        }
+      />
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">

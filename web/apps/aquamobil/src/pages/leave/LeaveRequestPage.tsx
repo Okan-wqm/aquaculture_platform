@@ -4,6 +4,7 @@ import { ArrowLeft, CalendarOff, AlertCircle } from 'lucide-react';
 import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { LeaveTypeSwatch } from '@/components/LeaveTypeSwatch';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { Spinner } from '@/components/ui/Spinner';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
@@ -167,10 +168,7 @@ export function LeaveRequestPage(): JSX.Element {
               )}
             >
               <div className="flex items-center gap-2">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: type.color || '#6366f1' }}
-                />
+                <LeaveTypeSwatch color={type.color} />
                 <span className="text-sm font-semibold text-gray-900 dark:text-white">{type.name}</span>
               </div>
               {type.isPaid && <span className="text-[10px] text-green-600 font-medium mt-1">Paid</span>}

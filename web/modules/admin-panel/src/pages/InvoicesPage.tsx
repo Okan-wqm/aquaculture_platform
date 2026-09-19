@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import CreateInvoiceModal, { type CreateInvoicePayload } from '../components/CreateInvoiceModal';
 import { billingApi, InvoiceOverview } from '../services/adminApi';
@@ -445,28 +445,26 @@ const InvoicesPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Invoices</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage and track all tenant invoices
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={handleExportCsv}
-            className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Export
-          </button>
-          <button
-            onClick={openCreateInvoice}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Create Invoice
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Invoices"
+        description="Manage and track all tenant invoices"
+        actions={
+          <div className="flex gap-2">
+            <button
+              onClick={handleExportCsv}
+              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Export
+            </button>
+            <button
+              onClick={openCreateInvoice}
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Create Invoice
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

@@ -7,7 +7,7 @@
 
 import React, { useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Select } from '@aquaculture/shared-ui';
+import { Select, PageHeader } from '@aquaculture/shared-ui';
 import { TanksAnalyticsTab } from './tabs';
 
 // ============================================================================
@@ -54,26 +54,24 @@ const AnalyticsPage: React.FC = () => {
       {/* Page Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="px-4 sm:px-6 py-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Performance metrics and operational insights
-              </p>
-            </div>
-            <div className="mt-4 sm:mt-0">
-              <Select
-                value={dateRange}
-                onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
-                options={[
-                  { value: '7days', label: 'Last 7 Days' },
-                  { value: '30days', label: 'Last 30 Days' },
-                  { value: '90days', label: 'Last 90 Days' },
-                  { value: 'year', label: 'This Year' },
-                ]}
-              />
-            </div>
-          </div>
+          <PageHeader
+            title="Analytics"
+            description="Performance metrics and operational insights"
+            actions={
+              <div className="mt-4 sm:mt-0">
+                <Select
+                  value={dateRange}
+                  onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
+                  options={[
+                    { value: '7days', label: 'Last 7 Days' },
+                    { value: '30days', label: 'Last 30 Days' },
+                    { value: '90days', label: 'Last 90 Days' },
+                    { value: 'year', label: 'This Year' },
+                  ]}
+                />
+              </div>
+            }
+          />
         </div>
       </div>
 

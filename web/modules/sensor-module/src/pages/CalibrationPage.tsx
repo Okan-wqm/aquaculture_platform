@@ -33,7 +33,7 @@ import {
   getStatusLabel,
   getStatusColor,
 } from '../hooks/useCalibration';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Components
@@ -370,20 +370,20 @@ const CalibrationPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Kalibrasyon Yönetimi</h1>
-          <p className="text-gray-500 mt-1">Sensör kalibrasyon takibi ve ayarları</p>
-        </div>
-        <button
-          onClick={refetch}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Yenile
-        </button>
-      </div>
+      <PageHeader
+        title="Kalibrasyon Yönetimi"
+        description="Sensör kalibrasyon takibi ve ayarları"
+        actions={
+          <button
+            onClick={refetch}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Yenile
+          </button>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

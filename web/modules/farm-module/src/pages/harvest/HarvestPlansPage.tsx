@@ -10,11 +10,7 @@
  * - Create/Edit form with all plan fields
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import {
-  Modal,
-  formatCurrency as sharedFormatCurrency,
-  DEFAULT_CURRENCY,
-} from '@aquaculture/shared-ui';
+import { Modal, formatCurrency as sharedFormatCurrency, DEFAULT_CURRENCY, PageHeader } from '@aquaculture/shared-ui';
 import {
   useHarvestPlanList,
   useHarvestPlanStats,
@@ -2681,39 +2677,37 @@ export const HarvestPlansPage: React.FC = () => {
       {/* Page Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="px-4 sm:px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Harvest Plans</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Manage harvest planning, scheduling, and execution
-              </p>
-            </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
-                  showFilters
-                    ? 'border-blue-500 text-blue-700 bg-blue-50'
-                    : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
-                }`}
-              >
-                <Filter className="w-4 h-4 mr-2" />
-                Filters
-                {showFilters ? (
-                  <ChevronDown className="w-4 h-4 ml-1" />
-                ) : (
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                )}
-              </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                New Plan
-              </button>
-            </div>
-          </div>
+          <PageHeader
+            title="Harvest Plans"
+            description="Manage harvest planning, scheduling, and execution"
+            actions={
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`inline-flex items-center px-3 py-2 border rounded-md text-sm font-medium transition-colors ${
+                    showFilters
+                      ? 'border-blue-500 text-blue-700 bg-blue-50'
+                      : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  <Filter className="w-4 h-4 mr-2" />
+                  Filters
+                  {showFilters ? (
+                    <ChevronDown className="w-4 h-4 ml-1" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowCreateModal(true)}
+                  className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Plan
+                </button>
+              </div>
+            }
+          />
         </div>
       </div>
 

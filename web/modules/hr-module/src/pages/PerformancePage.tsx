@@ -8,7 +8,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Award, TrendingUp, Star, Target, BarChart3, Calendar, ChevronRight } from 'lucide-react';
 import { usePerformanceReviews, usePendingReviews, useCurrentEmployeeId } from '../hooks';
-import { cn, Spinner } from '@aquaculture/shared-ui';
+import { cn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { ReviewStatus } from '../types';
 
 const PerformancePage: React.FC = () => {
@@ -23,21 +23,19 @@ const PerformancePage: React.FC = () => {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Performance</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Performance reviews and goal tracking
-          </p>
-        </div>
-        <Link
-          to="/hr/performance/reviews"
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <Award className="h-4 w-4" />
-          New Review
-        </Link>
-      </div>
+      <PageHeader
+        title="Performance"
+        description="Performance reviews and goal tracking"
+        actions={
+          <Link
+            to="/hr/performance/reviews"
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Award className="h-4 w-4" />
+            New Review
+          </Link>
+        }
+      />
 
       {/* Pending Reviews Alert */}
       {pending && pending.length > 0 && (

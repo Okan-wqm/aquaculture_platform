@@ -28,7 +28,7 @@ import {
 import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
@@ -493,27 +493,25 @@ const TenantDatabase: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Database</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            View your tenant database information and statistics
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
-          <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors">
-            <Download className="w-4 h-4" />
-            Export Schema
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Database"
+        description="View your tenant database information and statistics"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRefresh}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </button>
+            <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors">
+              <Download className="w-4 h-4" />
+              Export Schema
+            </button>
+          </div>
+        }
+      />
 
       {/* Info Banner */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">

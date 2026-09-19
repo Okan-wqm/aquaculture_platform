@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
   Bell,
@@ -242,30 +242,31 @@ const PlcAlarmsPage: React.FC = () => {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">PLC Alarmlari</h1>
-          <p className="mt-1 text-sm text-gray-500">Alarm izleme, filtreleme ve onaylama</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {selectedIds.size > 0 && unacknowledgedSelected > 0 && (
+      <PageHeader
+        title="PLC Alarmlari"
+        description="Alarm izleme, filtreleme ve onaylama"
+        actions={
+          <div className="flex items-center gap-3">
+            {selectedIds.size > 0 && unacknowledgedSelected > 0 && (
+              <button
+                onClick={() => setShowBulkAck(true)}
+                className="inline-flex items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-yellow-600"
+              >
+                <CheckSquare className="h-4 w-4" />
+                {unacknowledgedSelected} Alarm Onayla
+              </button>
+            )}
             <button
-              onClick={() => setShowBulkAck(true)}
-              className="inline-flex items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-yellow-600"
+              onClick={() => refetch()}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
             >
-              <CheckSquare className="h-4 w-4" />
-              {unacknowledgedSelected} Alarm Onayla
+              <RefreshCw className="h-4 w-4" />
+              Yenile
             </button>
-          )}
-          <button
-            onClick={() => refetch()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Yenile
-          </button>
-        </div>
-      </div>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {/* Stats */}
       {stats && <AlarmStatsCards stats={stats} />}

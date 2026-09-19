@@ -9,7 +9,7 @@ import {
   ChevronRight,
   Lock,
 } from 'lucide-react';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { useAuthContext, PageHeader } from '@aquaculture/shared-ui';
 import {
   GeneralSettings,
   NotificationSettings,
@@ -114,18 +114,20 @@ const TenantSettings: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage your tenant settings and preferences</p>
-        </div>
-        {!canEditSettings && (
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg border border-amber-200">
-            <Lock className="w-3.5 h-3.5" />
-            Read-only access
-          </div>
-        )}
-      </div>
+      <PageHeader
+        title="Settings"
+        description="Manage your tenant settings and preferences"
+        actions={
+          <>
+            {!canEditSettings && (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg border border-amber-200">
+                <Lock className="w-3.5 h-3.5" />
+                Read-only access
+              </div>
+            )}
+          </>
+        }
+      />
 
       {/* Settings Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">

@@ -4,8 +4,8 @@ import { ReactNode, type ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 // WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
-// classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
-// These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
+// classes with dark: variants that use Konsta's internal surface tokens (iOS grouped grey,
+// Material near-black). These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
 // to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
 import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
 import { Spinner } from '@/components/ui/Spinner';

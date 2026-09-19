@@ -5,12 +5,7 @@
  *
  * Ported from Python v1.py PyQt5 application.
  */
-import {
-  buildDeffeyesData,
-  computeWaterChemistryOutputs,
-  useCanMutate,
-  type WaterChemistryInputs,
-} from '@aquaculture/shared-ui';
+import { buildDeffeyesData, computeWaterChemistryOutputs, useCanMutate, type WaterChemistryInputs, PageHeader } from '@aquaculture/shared-ui';
 import { alkMgToMeq, calcDicOfAlk, calcForwardDosing, REAGENTS } from '@platform/aquaculture-engines';
 import React, { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
@@ -262,10 +257,11 @@ const WaterChemistryPage: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white shadow">
-        <div className="px-4 sm:px-6 py-6">
-          <h1 className="text-2xl font-bold text-gray-900">Water Chemistry</h1>
-          <p className="mt-1 text-sm text-gray-500">Calculator, analysis, and historical water quality data</p>
-        </div>
+        <PageHeader
+          title="Water Chemistry"
+          description="Calculator, analysis, and historical water quality data"
+          className="px-4 sm:px-6 py-6"
+        />
       </div>
 
       {/* Tabs */}

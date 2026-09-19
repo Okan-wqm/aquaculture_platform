@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 import { expectedTotalPages } from '@platform/pagination-contracts';
@@ -185,27 +185,25 @@ const MessagingAuditPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Audit Log</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Audit trail of all messaging operations across tenants
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button onClick={handleExportCsv} variant="secondary" size="sm" disabled={entries.length === 0}>
-            Export CSV
-          </Button>
-          <Button
-            onClick={() => void fetchAuditLog()}
-            disabled={loading}
-            variant="secondary"
-            size="sm"
-          >
-            {loading ? 'Loading...' : 'Refresh'}
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Messaging Audit Log"
+        description="Audit trail of all messaging operations across tenants"
+        actions={
+          <div className="flex items-center gap-3">
+            <Button onClick={handleExportCsv} variant="secondary" size="sm" disabled={entries.length === 0}>
+              Export CSV
+            </Button>
+            <Button
+              onClick={() => void fetchAuditLog()}
+              disabled={loading}
+              variant="secondary"
+              size="sm"
+            >
+              {loading ? 'Loading...' : 'Refresh'}
+            </Button>
+          </div>
+        }
+      />
 
       {/* Error Banner */}
       {error && (

@@ -28,7 +28,7 @@ import {
   Calendar,
   ArrowUpCircle,
 } from 'lucide-react';
-import { parseMoney, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling';
 
@@ -327,26 +327,24 @@ const TenantBillingPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing & Subscription</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            View your subscription details, invoices, and usage metrics
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => refetch()}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-medium">
-            Read-Only
-          </span>
-        </div>
-      </div>
+      <PageHeader
+        title="Billing & Subscription"
+        description="View your subscription details, invoices, and usage metrics"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => refetch()}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500" />
+            </button>
+            <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-medium">
+              Read-Only
+            </span>
+          </div>
+        }
+      />
 
       {/* Error Message */}
       {error && (

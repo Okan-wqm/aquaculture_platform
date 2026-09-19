@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import { messagingApi, type RetentionPolicy } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 
@@ -348,27 +348,25 @@ const MessagingRetentionPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Retention Policies</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage message retention periods, channel-level overrides, and cleanup schedules
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5">
-            Next cleanup: 02:00 UTC
+      <PageHeader
+        title="Retention Policies"
+        description="Manage message retention periods, channel-level overrides, and cleanup schedules"
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5">
+              Next cleanup: 02:00 UTC
+            </div>
+            <Button
+              onClick={() => void fetchData()}
+              disabled={loading}
+              variant="secondary"
+              size="sm"
+            >
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </div>
-          <Button
-            onClick={() => void fetchData()}
-            disabled={loading}
-            variant="secondary"
-            size="sm"
-          >
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Error Banner */}
       {error && (

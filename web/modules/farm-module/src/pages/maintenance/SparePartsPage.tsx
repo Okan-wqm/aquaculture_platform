@@ -3,20 +3,7 @@
  * Displays and manages spare parts inventory with full CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import {
-  Card,
-  Button,
-  Modal,
-  Input,
-  Select,
-  Badge,
-  Spinner,
-  Alert,
-  formatCurrency as sharedFormatCurrency,
-  parseMoney,
-  DEFAULT_CURRENCY,
-  useConfirm,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, useConfirm, PageHeader } from '@aquaculture/shared-ui';
 import {
   useSpareParts,
   useCreateSparePart,
@@ -396,15 +383,13 @@ export const SparePartsPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Yedek Parçalar</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Yedek parça envanterini görüntüleyin ve yönetin
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate}>Yeni Yedek Parça</Button>
-      </div>
+      <PageHeader
+        title="Yedek Parçalar"
+        description="Yedek parça envanterini görüntüleyin ve yönetin"
+        actions={
+          <Button onClick={handleOpenCreate}>Yeni Yedek Parça</Button>
+        }
+      />
 
       {/* Summary Cards */}
       {stockSummary && (

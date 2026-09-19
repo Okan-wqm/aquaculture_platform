@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Spinner } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   ModulePricingWithModule,
@@ -327,8 +327,10 @@ const CustomPlanBuilderPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
+      <PageHeader
+        title="Custom Plan Builder"
+        description="Create custom plans for tenants with specific module configurations"
+        eyebrow={
           <button
             onClick={() => navigate('/admin/billing/custom-plans')}
             className="text-sm text-blue-600 hover:text-blue-800 mb-1 flex items-center gap-1"
@@ -338,12 +340,8 @@ const CustomPlanBuilderPage: React.FC = () => {
             </svg>
             Back to Custom Plans
           </button>
-          <h1 className="text-2xl font-bold text-gray-900">Custom Plan Builder</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Create custom plans for tenants with specific module configurations
-          </p>
-        </div>
-      </div>
+        }
+      />
 
       {/* Alerts */}
       {error && (

@@ -22,7 +22,7 @@ import {
   Anchor,
   Clock,
 } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import {
   useEmployees,
   useWorkAreas,
@@ -261,27 +261,25 @@ export function CrewAssignmentsPage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Crew Assignments</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Manage offshore and onshore crew distribution
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/hr/crew/rotations"
-            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Rotations
-          </Link>
-          <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            <Plus className="h-4 w-4" />
-            New Assignment
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Crew Assignments"
+        description="Manage offshore and onshore crew distribution"
+        actions={
+          <div className="flex items-center gap-3">
+            <Link
+              to="/hr/crew/rotations"
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Rotations
+            </Link>
+            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+              <Plus className="h-4 w-4" />
+              New Assignment
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">

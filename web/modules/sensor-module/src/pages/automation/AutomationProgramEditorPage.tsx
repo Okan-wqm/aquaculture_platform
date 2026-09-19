@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Modal, useAuth, createTenantQueryKey, createTenantInvalidationKey, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Modal, useAuth, createTenantQueryKey, createTenantInvalidationKey, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
   Save,
@@ -1174,76 +1174,79 @@ const AutomationProgramEditorPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
+      <PageHeader
+        title={isNew ? 'New Automation Program' : formData.name || 'Program'}
+        description={
+          <>
+            {program && (
+              <span className="flex items-center gap-2">
+                <span className="font-mono">{program.programCode}</span>
+                <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(program.status)}`}>
+                  {getStatusText(program.status)}
+                </span>
+              </span>
+            )}
+          </>
+        }
+        leading={
           <Link
             to="/sensor/automation"
             className="p-2 rounded-lg hover:bg-gray-100"
           >
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {isNew ? 'New Automation Program' : formData.name || 'Program'}
-            </h1>
-            {program && (
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-sm text-gray-500 font-mono">{program.programCode}</span>
-                <span className={`text-xs px-2 py-0.5 rounded ${getStatusColor(program.status)}`}>
-                  {getStatusText(program.status)}
-                </span>
-              </div>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            {program?.status === ProgramStatus.DRAFT && (
+              <button
+                onClick={() => submitForReviewMutation.mutate()}
+                disabled={submitForReviewMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+              >
+                <Send className="h-4 w-4" />
+                Submit for Review
+              </button>
             )}
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {program?.status === ProgramStatus.DRAFT && (
+            {program?.status === ProgramStatus.PENDING_REVIEW && (
+              <>
+                <button
+                  onClick={() => approveMutation.mutate()}
+                  disabled={approveMutation.isPending}
+                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                >
+                  {approveMutation.isPending ? (
+                    <Spinner size="sm" color="inherit" />
+                  ) : (
+                    <CheckCircle className="h-4 w-4" />
+                  )}
+                  Approve
+                </button>
+                <button
+                  onClick={() => setShowRejectModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
+                  <XCircle className="h-4 w-4" />
+                  Reject
+                </button>
+              </>
+            )}
             <button
-              onClick={() => submitForReviewMutation.mutate()}
-              disabled={submitForReviewMutation.isPending}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+              onClick={handleSave}
+              disabled={createMutation.isPending || updateMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
             >
-              <Send className="h-4 w-4" />
-              Submit for Review
+              {(createMutation.isPending || updateMutation.isPending) ? (
+                <Spinner size="sm" color="inherit" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              Save
             </button>
-          )}
-          {program?.status === ProgramStatus.PENDING_REVIEW && (
-            <>
-              <button
-                onClick={() => approveMutation.mutate()}
-                disabled={approveMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-              >
-                {approveMutation.isPending ? (
-                  <Spinner size="sm" color="inherit" />
-                ) : (
-                  <CheckCircle className="h-4 w-4" />
-                )}
-                Approve
-              </button>
-              <button
-                onClick={() => setShowRejectModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-              >
-                <XCircle className="h-4 w-4" />
-                Reject
-              </button>
-            </>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={createMutation.isPending || updateMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {(createMutation.isPending || updateMutation.isPending) ? (
-              <Spinner size="sm" color="inherit" />
-            ) : (
-              <Save className="h-4 w-4" />
-            )}
-            Save
-          </button>
-        </div>
-      </div>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {/* Approval/Rejection Info */}
       {program?.approvedBy && (

@@ -6,7 +6,7 @@
  * Uses real API data from backend reports service.
  */
 
-import { Card, Button, Badge, DataTable, Modal, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Modal, Input, PageHeader } from '@aquaculture/shared-ui';
 import React, { useCallback, useState } from 'react';
 
 import { reportsApi, type ReportExecution as ApiReportExecution } from '../services/adminApi';
@@ -494,12 +494,10 @@ const ReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-          <p className="text-gray-500 mt-1">Generate and download detailed reports</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Reports"
+        description="Generate and download detailed reports"
+      />
 
       {/* A failed history read, a refused execution, or a download the server
           would not produce — each named, with a retry. */}

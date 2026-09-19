@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Select, Modal, Alert, formatDate, formatNumber, Spinner } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Modal, Alert, formatDate, formatNumber, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -343,43 +343,45 @@ const TenantDetailPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent onRetry={reload} />
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start space-x-4">
-          <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Button>
-          <div>
-            <div className="flex items-center space-x-3">
-              <h1 className="text-2xl font-bold text-gray-900">{tenant.name}</h1>
+      <PageHeader
+        title={
+          <>
+            <span className="flex items-center gap-3">
+              {tenant.name}
               <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>
               <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>
               {tenant.isTrialActive && (
                 <Badge variant="warning">Trial Active</Badge>
               )}
-            </div>
-            <p className="text-gray-500 mt-1">
-              {tenant.slug} {tenant.domain && `• ${tenant.domain}`}
-            </p>
-          </div>
-        </div>
-        <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setIsEditModalOpen(true)}>
-            Edit
+            </span>
+          </>
+        }
+        description={<>{tenant.slug} {tenant.domain && `• ${tenant.domain}`}</>}
+        leading={
+          <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
           </Button>
-          {getAvailableActions(tenant).has('suspend') && (
-            <Button variant="danger" onClick={() => setIsSuspendModalOpen(true)}>
-              Suspend
+        }
+        actions={
+          <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setIsEditModalOpen(true)}>
+              Edit
             </Button>
-          )}
-          {getAvailableActions(tenant).has('activate') && (
-            <Button variant="outline" onClick={handleActivate}>
-              Activate
-            </Button>
-          )}
-        </div>
-      </div>
+            {getAvailableActions(tenant).has('suspend') && (
+              <Button variant="danger" onClick={() => setIsSuspendModalOpen(true)}>
+                Suspend
+              </Button>
+            )}
+            {getAvailableActions(tenant).has('activate') && (
+              <Button variant="outline" onClick={handleActivate}>
+                Activate
+              </Button>
+            )}
+          </div>
+        }
+      />
 
       {/* Tabs */}
       <SimpleTabs

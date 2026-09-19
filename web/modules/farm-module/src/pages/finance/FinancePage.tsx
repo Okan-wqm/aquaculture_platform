@@ -12,7 +12,7 @@
  * - Charts: cost trends (day/week/month/year), per-category, per-batch
  * - Settings: tenant default currency (SSoT) + fiscal year start
  */
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, PageHeader } from '@aquaculture/shared-ui';
 import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -101,34 +101,34 @@ const FinancePage: React.FC = () => {
       {/* Header */}
       <div className="bg-white shadow">
         <div className="px-4 sm:px-6 py-6">
-          <div className="md:flex md:items-center md:justify-between">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
-                Farm Finance
-              </h1>
-              <p className="mt-1 text-sm text-gray-500">
+          <PageHeader
+            title="Farm Finance"
+            description={
+              <>
                 Operational costs, revenue and budgeting — feed, fingerlings, maintenance and
                 treatments flow in automatically from their source records
-              </p>
-            </div>
-            <div className="mt-4 flex md:mt-0 md:ml-4 items-center space-x-3">
-              <label htmlFor="finance-period" className="text-sm text-gray-600">
-                Period:
-              </label>
-              <select
-                id="finance-period"
-                value={presetId}
-                onChange={(e) => setPresetId(e.target.value)}
-                className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-              >
-                {PERIOD_PRESETS.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
+              </>
+            }
+            actions={
+              <div className="mt-4 flex md:mt-0 md:ml-4 items-center space-x-3">
+                <label htmlFor="finance-period" className="text-sm text-gray-600">
+                  Period:
+                </label>
+                <select
+                  id="finance-period"
+                  value={presetId}
+                  onChange={(e) => setPresetId(e.target.value)}
+                  className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                >
+                  {PERIOD_PRESETS.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            }
+          />
         </div>
 
         {/* Tab bar */}

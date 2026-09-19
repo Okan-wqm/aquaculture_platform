@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge, Input, Select, Modal, useConfirm, usePrompt } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Modal, useConfirm, usePrompt, PageHeader } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
@@ -295,20 +295,18 @@ export const MaintenancePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Maintenance Mode</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Schedule and manage system maintenance windows
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Schedule Maintenance
-        </Button>
-      </div>
+      <PageHeader
+        title="Maintenance Mode"
+        description="Schedule and manage system maintenance windows"
+        actions={
+          <Button onClick={() => setShowCreateModal(true)}>
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Schedule Maintenance
+          </Button>
+        }
+      />
 
       {/* A failed read or a rejected maintenance action, named on the page.
           It used to go to a fixed toast in the bottom-right corner, while the

@@ -21,7 +21,7 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import {
   useWorkRotations,
   useEmployees,
@@ -321,27 +321,25 @@ export function OffshoreRotationsPage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Offshore Rotations</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Manage work rotation schedules and crew transitions
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/hr/crew"
-            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <Users className="h-4 w-4" />
-            Crew
-          </Link>
-          <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            <Plus className="h-4 w-4" />
-            New Rotation
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Offshore Rotations"
+        description="Manage work rotation schedules and crew transitions"
+        actions={
+          <div className="flex items-center gap-3">
+            <Link
+              to="/hr/crew"
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <Users className="h-4 w-4" />
+              Crew
+            </Link>
+            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+              <Plus className="h-4 w-4" />
+              New Rotation
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">

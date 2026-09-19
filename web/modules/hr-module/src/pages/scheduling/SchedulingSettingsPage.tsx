@@ -20,7 +20,7 @@ import {
   Tag,
   Trash2,
 } from 'lucide-react';
-import { cn, useAuth, colors } from '@aquaculture/shared-ui';
+import { cn, useAuth, colors, PageHeader } from '@aquaculture/shared-ui';
 import {
   useSchedulingSettings,
   useUpdateSchedulingSettings,
@@ -319,44 +319,45 @@ export function SchedulingSettingsPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <PageHeader
+          title={
+            <>
               <Settings className="h-6 w-6 text-indigo-600" />
               Cizelge Ayarlari
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Haftalik planlama yapilandirmasi
-            </p>
-          </div>
-
-          {hasChanges && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleReset}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Iptal
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={updateMutation.isPending}
-                className={cn(
-                  'flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg',
-                  'hover:bg-indigo-700 transition-colors',
-                  'disabled:opacity-50'
-                )}
-              >
-                {updateMutation.isPending ? (
-                  <RefreshCw className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                Kaydet
-              </button>
-            </div>
-          )}
-        </div>
+            </>
+          }
+          description="Haftalik planlama yapilandirmasi"
+          actions={
+            <>
+              {hasChanges && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleReset}
+                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Iptal
+                  </button>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={updateMutation.isPending}
+                    className={cn(
+                      'flex items-center gap-2 px-4 py-2 text-white bg-indigo-600 rounded-lg',
+                      'hover:bg-indigo-700 transition-colors',
+                      'disabled:opacity-50'
+                    )}
+                  >
+                    {updateMutation.isPending ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Kaydet
+                  </button>
+                </div>
+              )}
+            </>
+          }
+        />
       </div>
 
       {/* Content */}

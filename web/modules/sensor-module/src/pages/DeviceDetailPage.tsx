@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { useConfirm, useToast, Spinner } from '@aquaculture/shared-ui';
+import { useConfirm, useToast, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { graphqlFetch } from '../config/api';
 import {
@@ -340,37 +340,37 @@ const DeviceDetailPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <PageHeader
+        title={device.name}
+        description={device.serialNumber}
+        leading={
           <Link
             to="/sensor/devices"
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
           >
             <ArrowLeft className="w-5 h-5 text-gray-600" />
           </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{device.name}</h1>
-            <p className="text-gray-500">{device.serialNumber}</p>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              Yenile
+            </button>
+            <Link
+              to={`/sensor/devices/${deviceId}/edit`}
+              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+            >
+              <Edit className="w-4 h-4" />
+              Düzenle
+            </Link>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-            Yenile
-          </button>
-          <Link
-            to={`/sensor/devices/${deviceId}/edit`}
-            className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            <Edit className="w-4 h-4" />
-            Düzenle
-          </Link>
-        </div>
-      </div>
+        }
+      />
 
       {/* Tab Bar (L1: Turkish labels) */}
       <div className="flex border-b border-gray-200">

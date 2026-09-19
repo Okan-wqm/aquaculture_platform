@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Cog,
 } from 'lucide-react';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 interface Template {
   id: string;
@@ -105,20 +106,20 @@ const ProcessTemplatesPage: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-8">
-        <Link
-          to="/sensor/processes"
-          className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Processes
-        </Link>
-
-        <h1 className="text-2xl font-bold text-gray-900">Process Templates</h1>
-        <p className="text-gray-500 mt-1">
-          Start with a pre-built template and customize it for your needs
-        </p>
-      </div>
+      <PageHeader
+        title="Process Templates"
+        description="Start with a pre-built template and customize it for your needs"
+        eyebrow={
+          <Link
+            to="/sensor/processes"
+            className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Processes
+          </Link>
+        }
+        className="mb-8"
+      />
 
       {/* Templates Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

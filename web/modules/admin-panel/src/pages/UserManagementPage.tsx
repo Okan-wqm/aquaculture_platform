@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Button, Input, Select, Badge, Table, Modal, ConfirmModal, Alert, formatDate, Spinner } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Select, Badge, Table, Modal, ConfirmModal, Alert, formatDate, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import {
   usersApi,
@@ -458,34 +458,32 @@ const UserManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">User Management</h1>
-          {/* The FILTERED result total, labelled as one — the "Total" card
+      {/* The FILTERED result total, labelled as one — the "Total" card
               below holds the platform figure, and with a filter applied the
               two disagree by design. */}
-          <p className="mt-1 text-sm text-gray-500">
-            {matchingUsers.toLocaleString()} user{matchingUsers === 1 ? '' : 's'} match
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex space-x-2">
-          <Button variant="outline" onClick={reload} disabled={usersQuery.isFetching}>
-            Refresh
-          </Button>
-          <Button variant="outline" onClick={openInviteModal}>
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-            </svg>
-            Send Invite
-          </Button>
-          <Button onClick={() => openEditModal(null)}>
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New User
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="User Management"
+        description={<>{matchingUsers.toLocaleString()} user{matchingUsers === 1 ? '' : 's'} match</>}
+        actions={
+          <div className="mt-4 sm:mt-0 flex space-x-2">
+            <Button variant="outline" onClick={reload} disabled={usersQuery.isFetching}>
+              Refresh
+            </Button>
+            <Button variant="outline" onClick={openInviteModal}>
+              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Send Invite
+            </Button>
+            <Button onClick={() => openEditModal(null)}>
+              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+              </svg>
+              New User
+            </Button>
+          </div>
+        }
+      />
 
       <QueryFailureNotice
         errors={queryErrors}

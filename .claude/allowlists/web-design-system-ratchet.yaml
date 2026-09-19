@@ -22,6 +22,8 @@
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
 #                 the same way), per package. shared-ui Spinner (aquamobil:
 #                 components/ui/Spinner) is the loading indicator.
+#   rawPageTitle — hand-written page titles (an h1 in text-2xl/text-xl bold or
+#                 semibold), per package. shared-ui PageHeader is the title row.
 #
 # Per-package ceilings are EXACT live counts (the spec rejects slack), so the
 # workflow is: remove occurrences, run the spec, lower the ceiling to the number
@@ -79,19 +81,7 @@ overlays:
       findingId: FE-HIGH-065
       reason: full-screen dark ST editor surface; needs a Modal theme variant before migrating
 rawHex:
-  entries:
-    - package: web/apps/aquamobil
-      ceiling: 9
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-066
-      reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
-    - package: web/modules/hydroponics-module
-      ceiling: 10
-      owner: okan
-      expiry: 2027-03-31
-      findingId: FE-HIGH-066
-      reason: raw hex colours outside theme.css; map each to a theme token (bg-primary-*, text-error-*, var(--color-*)) and lower this ceiling
+  entries: []
 rawTable:
   entries:
     - package: web/modules/farm-module
@@ -114,6 +104,38 @@ rawTable:
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
 rawSpinner:
   entries: []
+rawPageTitle:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: the error boundary fallback — a centred message, not a page header (mobile top bars are their own primitive)
+    - package: web/modules/hr-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: the HR module load-failure state — a centred message, not a page header
+    - package: web/modules/hydroponics-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: the pH/EC dosing simulator strip — the title is one control in a dense tool layout, compact by design
+    - package: web/modules/sensor-module
+      ceiling: 3
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: toolbars of full-screen tools (SCADA view, widget dashboard, water-chemistry monitor) — the title is one control in a dense strip, compact by design; a page header would break the strip
+    - package: web/shell
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: the 404 page — a centred message, not a page header
 inlineStyle:
   entries:
     - package: web/modules/sensor-module

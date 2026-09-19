@@ -14,7 +14,7 @@ import {
   XCircle,
   Eye,
 } from 'lucide-react';
-import { cn, Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { cn, Modal, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,
@@ -260,18 +260,16 @@ export function LeavesPage() {
         </Modal>
       )}
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Leave Management</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Track and manage employee leave requests
-          </p>
-        </div>
-        <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto">
-          <Plus className="h-4 w-4" />
-          New Request
-        </button>
-      </div>
+      <PageHeader
+        title="Leave Management"
+        description="Track and manage employee leave requests"
+        actions={
+          <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto">
+            <Plus className="h-4 w-4" />
+            New Request
+          </button>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-4 overflow-x-auto border-b border-gray-200 dark:border-gray-700">

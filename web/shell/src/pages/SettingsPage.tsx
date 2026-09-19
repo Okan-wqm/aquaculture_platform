@@ -8,7 +8,7 @@
  * - Privacy: GDPR consent management (view/toggle/withdraw consents, history)
  */
 
-import { useAuthContext, Button, Input, Alert, Card, Modal, useToast, graphqlClient, Spinner } from '@aquaculture/shared-ui';
+import { useAuthContext, Button, Input, Alert, Card, Modal, useToast, graphqlClient, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -1431,10 +1431,11 @@ const SettingsPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="mt-1 text-sm text-gray-500">Manage your account settings and preferences</p>
-      </div>
+      <PageHeader
+        title="Settings"
+        description="Manage your account settings and preferences"
+        className="mb-8"
+      />
 
       {/* Tab Navigation */}
       <div className="border-b border-gray-200 mb-6">

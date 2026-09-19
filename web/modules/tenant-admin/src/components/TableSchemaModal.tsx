@@ -222,7 +222,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       title="Table Schema"
       description={
         <>
-          <span className="text-tenant-600 font-medium">{schemaName}</span>
+          <span className="text-green-600 font-medium">{schemaName}</span>
           <span className="mx-1">.</span>
           <span className="font-semibold text-gray-700 dark:text-gray-300">{tableOnly}</span>
         </>

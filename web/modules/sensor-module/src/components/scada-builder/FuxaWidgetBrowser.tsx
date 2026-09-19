@@ -439,8 +439,7 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
             </div>
           ) : (
             <div
-              className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}
+              className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]"
               data-testid="fuxa-widget-grid"
             >
               {filteredWidgets.map((entry) => (

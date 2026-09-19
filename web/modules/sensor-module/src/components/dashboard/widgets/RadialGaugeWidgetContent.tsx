@@ -160,8 +160,7 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={valueOffset}
-            className="transition-all duration-500"
-            style={{ transformOrigin: 'center', transform: 'rotate(180deg)' }}
+            className="transition-all duration-500 origin-center rotate-180"
           />
         </svg>
 

@@ -118,8 +118,7 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
       >
         {/* Connection Point - Top */}
         <div
-          className="absolute left-1/2 -translate-x-1/2 cursor-pointer z-10"
-          style={{ top: -8 }}
+          className="absolute left-1/2 -translate-x-1/2 cursor-pointer z-10 -top-2"
           onContextMenu={(e) => handleConnectionPointContextMenu(e, 'top')}
         >
           <Handle
@@ -133,8 +132,7 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
 
         {/* Connection Point - Right */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 cursor-pointer z-10"
-          style={{ right: -8 }}
+          className="absolute top-1/2 -translate-y-1/2 cursor-pointer z-10 -right-2"
           onContextMenu={(e) => handleConnectionPointContextMenu(e, 'right')}
         >
           <Handle
@@ -148,8 +146,7 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
 
         {/* Connection Point - Bottom */}
         <div
-          className="absolute left-1/2 -translate-x-1/2 cursor-pointer z-10"
-          style={{ bottom: -8 }}
+          className="absolute left-1/2 -translate-x-1/2 cursor-pointer z-10 -bottom-2"
           onContextMenu={(e) => handleConnectionPointContextMenu(e, 'bottom')}
         >
           <Handle
@@ -163,8 +160,7 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
 
         {/* Connection Point - Left */}
         <div
-          className="absolute top-1/2 -translate-y-1/2 cursor-pointer z-10"
-          style={{ left: -8 }}
+          className="absolute top-1/2 -translate-y-1/2 cursor-pointer z-10 -left-2"
           onContextMenu={(e) => handleConnectionPointContextMenu(e, 'left')}
         >
           <Handle

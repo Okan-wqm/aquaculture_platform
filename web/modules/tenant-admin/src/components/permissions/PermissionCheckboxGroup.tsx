@@ -109,7 +109,7 @@ const ActionCheckbox = React.memo<ActionCheckboxProps>(({
             ? 'cursor-not-allowed opacity-60'
             : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'
         }
-        ${checked ? 'text-tenant-700' : 'text-gray-500 dark:text-gray-400'}
+        ${checked ? 'text-green-700' : 'text-gray-500 dark:text-gray-400'}
       `}
     >
       <input
@@ -124,12 +124,12 @@ const ActionCheckbox = React.memo<ActionCheckboxProps>(({
           flex items-center justify-center w-4 h-4 rounded border transition-all
           ${
             checked
-              ? 'bg-tenant-600 border-tenant-600'
+              ? 'bg-green-600 border-green-600'
               : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600'
           }
           ${
             !disabled && !readOnly && !checked
-              ? 'group-hover:border-tenant-400'
+              ? 'group-hover:border-green-400'
               : ''
           }
         `}
@@ -181,19 +181,19 @@ const ResourceRow = React.memo<ResourceRowProps>(({
           disabled={disabled || readOnly}
           className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
-            focus:outline-hidden focus:ring-2 focus:ring-tenant-500
+            focus:outline-hidden focus:ring-2 focus:ring-green-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allSelected
-                ? 'bg-tenant-600 border-tenant-600'
+                ? 'bg-green-600 border-green-600'
                 : someSelected
-                ? 'bg-tenant-100 border-tenant-400'
-                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-tenant-400'
+                ? 'bg-green-100 border-green-400'
+                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
             }
           `}
         >
           {allSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
-          {someSelected && <Minus className="w-3 h-3 text-tenant-600" aria-hidden="true" />}
+          {someSelected && <Minus className="w-3 h-3 text-green-600" aria-hidden="true" />}
         </button>
         <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {formatResourceName(resource.name)}
@@ -286,25 +286,25 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
           onClick={() => onSelectAllCategory(!allResourcesSelected)}
           className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
-            focus:outline-hidden focus:ring-2 focus:ring-tenant-500
+            focus:outline-hidden focus:ring-2 focus:ring-green-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allResourcesSelected
-                ? 'bg-tenant-600 border-tenant-600'
+                ? 'bg-green-600 border-green-600'
                 : someResourcesSelected
-                ? 'bg-tenant-100 border-tenant-400'
-                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-tenant-400'
+                ? 'bg-green-100 border-green-400'
+                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
             }
           `}
         >
           {allResourcesSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
           {someResourcesSelected && (
-            <Minus className="w-3 h-3 text-tenant-600" aria-hidden="true" />
+            <Minus className="w-3 h-3 text-green-600" aria-hidden="true" />
           )}
         </button>
         <button
           type="button"
-          className="flex-1 flex items-center justify-between cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:ring-inset"
+          className="flex-1 flex items-center justify-between cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:ring-inset"
           onClick={() => setIsExpanded(!isExpanded)}
           aria-expanded={isExpanded}
           aria-controls={contentId}
@@ -482,7 +482,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
   return (
     <div className="space-y-4">
       {/* Global Select All */}
-      <div className="flex items-center justify-between px-4 py-3 bg-tenant-50 rounded-xl border border-tenant-100">
+      <div className="flex items-center justify-between px-4 py-3 bg-green-50 rounded-xl border border-green-100">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -493,15 +493,15 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
               ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
               ${
                 allSelected
-                  ? 'bg-tenant-600 border-tenant-600'
+                  ? 'bg-green-600 border-green-600'
                   : someSelected
-                  ? 'bg-tenant-100 border-tenant-400'
-                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-tenant-400'
+                  ? 'bg-green-100 border-green-400'
+                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
               }
             `}
           >
             {allSelected && <Check className="w-4 h-4 text-white" />}
-            {someSelected && <Minus className="w-4 h-4 text-tenant-600" />}
+            {someSelected && <Minus className="w-4 h-4 text-green-600" />}
           </button>
           <div>
             <span className="font-semibold text-gray-900 dark:text-gray-100">All Permissions</span>
@@ -515,7 +515,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
             type="button"
             onClick={() => handleSelectAll(true)}
             disabled={disabled || readOnly}
-            className="px-3 py-1.5 text-xs font-medium text-tenant-700 bg-white dark:bg-gray-900 border border-tenant-200 rounded-lg hover:bg-tenant-50 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-xs font-medium text-green-700 bg-white dark:bg-gray-900 border border-green-200 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
           >
             Select All
           </button>

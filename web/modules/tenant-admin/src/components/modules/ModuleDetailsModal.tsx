@@ -20,7 +20,7 @@ const ModuleDetailsModal: React.FC<{
       size="md"
       title={
         <span className="flex items-center gap-3">
-          <span className="w-12 h-12 rounded-xl bg-tenant-50 flex items-center justify-center text-2xl">
+          <span className="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center text-2xl">
             {module.icon}
           </span>
           <span>{module.name}</span>
@@ -60,7 +60,7 @@ const ModuleDetailsModal: React.FC<{
         <div className="grid grid-cols-2 gap-2">
           {module.features.map((feature, idx) => (
             <div key={idx} className="flex items-center gap-2 p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
-              <CheckCircle className="w-4 h-4 text-tenant-500" />
+              <CheckCircle className="w-4 h-4 text-green-500" />
               <span className="text-sm text-gray-700 dark:text-gray-300">{feature}</span>
             </div>
           ))}
@@ -81,7 +81,7 @@ const ModuleDetailsModal: React.FC<{
         <div>
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Module Manager</h4>
           <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-sm font-medium">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white text-sm font-medium">
               {module.manager.name.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()}
             </div>
             <div>

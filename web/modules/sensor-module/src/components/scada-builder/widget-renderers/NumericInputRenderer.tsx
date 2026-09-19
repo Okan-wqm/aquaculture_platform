@@ -36,7 +36,7 @@ const NumericInputRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
       }}
     >
       <span style={{ fontSize: 10, color: colors.gray[400], fontWeight: 500 }}>{label}</span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+      <div className="flex items-center gap-1">
         <input
           type="text"
           readOnly={isEditing}

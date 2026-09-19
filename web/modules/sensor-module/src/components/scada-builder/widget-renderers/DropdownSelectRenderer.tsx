@@ -257,12 +257,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
         }}
       >
         <span
-          style={{
-            overflow: 'hidden',
-            whiteSpace: 'nowrap',
-            textOverflow: 'ellipsis',
-            flex: 1,
-          }}
+          className="overflow-hidden whitespace-nowrap text-ellipsis flex-1"
         >
           {displayText}
         </span>

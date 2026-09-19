@@ -34,7 +34,7 @@ export const UserAvatar = memo<UserAvatarProps>(({ name, avatarUrl, size = 'md' 
   }
 
   return (
-    <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white font-medium`}>
+    <div className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white font-medium`}>
       {initials || '??'}
     </div>
   );

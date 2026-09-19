@@ -166,7 +166,6 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
           spellCheck={false}
           className="flex-1 px-3 py-2 text-xs font-mono leading-[1.375rem] resize-y border-none focus:outline-hidden focus:ring-0"
           placeholder="// Write your script here..."
-          style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace' }}
           data-testid="script-code-textarea"
         />
       </div>

@@ -146,8 +146,8 @@ const NewTicketModal: React.FC<{
       size="md"
       title={
         <span className="flex items-center gap-3">
-          <span className="w-10 h-10 rounded-lg bg-tenant-100 flex items-center justify-center">
-            <Ticket className="w-5 h-5 text-tenant-600" />
+          <span className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+            <Ticket className="w-5 h-5 text-green-600" />
           </span>
           <span>Create Support Ticket</span>
         </span>
@@ -166,7 +166,7 @@ const NewTicketModal: React.FC<{
           <button
             type="submit"
             form="create-ticket-form"
-            className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
           >
             Create Ticket
           </button>
@@ -183,7 +183,7 @@ const NewTicketModal: React.FC<{
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Brief description of your issue"
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
             required
           />
         </div>
@@ -195,7 +195,7 @@ const NewTicketModal: React.FC<{
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value as TicketCategory)}
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500"
           >
             <option value="technical">Technical Issue</option>
             <option value="billing">Billing</option>
@@ -214,14 +214,14 @@ const NewTicketModal: React.FC<{
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Please provide as much detail as possible..."
             rows={5}
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 resize-none focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 resize-none focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
             required
           />
         </div>
 
         <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Paperclip className="w-4 h-4" />
-          <button type="button" className="text-tenant-600 hover:underline">
+          <button type="button" className="text-green-600 hover:underline">
             Attach files
           </button>
         </div>
@@ -265,7 +265,7 @@ const RatingModal: React.FC<{
             type="button"
             onClick={() => rating > 0 && onSubmit(rating)}
             disabled={rating === 0}
-            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg disabled:opacity-50"
+            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg disabled:opacity-50"
           >
             Submit
           </button>
@@ -532,7 +532,7 @@ export const TenantSupportPage: React.FC = () => {
           actions={
             <button
               onClick={() => { setNewTicketOpen(true); setActionError(null); }}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             >
               <Plus className="w-4 h-4" />
               New Ticket
@@ -611,14 +611,14 @@ export const TenantSupportPage: React.FC = () => {
                 placeholder="Search tickets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500 focus:border-tenant-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
               />
             </div>
             <div className="flex items-center gap-2">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
               >
                 <option value="all">All Status</option>
                 <option value="open">Open</option>
@@ -638,7 +638,7 @@ export const TenantSupportPage: React.FC = () => {
                 onClick={() => setSelectedTicketId(ticket.id)}
                 className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                   selectedTicket?.id === ticket.id
-                    ? 'bg-tenant-50 border-l-4 border-l-tenant-500'
+                    ? 'bg-green-50 border-l-4 border-l-green-500'
                     : ''
                 }`}
               >
@@ -793,7 +793,7 @@ export const TenantSupportPage: React.FC = () => {
                         className={`w-8 h-8 rounded-full flex items-center justify-center ${
                           comment.authorType === 'admin'
                             ? 'bg-blue-200 text-blue-700'
-                            : 'bg-tenant-200 text-tenant-700'
+                            : 'bg-green-200 text-green-700'
                         }`}
                       >
                         <User size={16} />
@@ -842,7 +842,7 @@ export const TenantSupportPage: React.FC = () => {
                     onChange={(e) => setNewComment(e.target.value)}
                     placeholder="Write a reply..."
                     rows={3}
-                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-tenant-500 focus:border-tenant-500"
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
                   <div className="flex flex-col gap-2">
                     <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -851,7 +851,7 @@ export const TenantSupportPage: React.FC = () => {
                     <button
                       onClick={handleAddComment}
                       disabled={!newComment.trim() || addCommentMutation.isPending}
-                      className="p-3 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Send size={20} />
                     </button>

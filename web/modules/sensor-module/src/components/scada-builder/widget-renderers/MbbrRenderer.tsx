@@ -52,7 +52,7 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
         height="100%"
         viewBox="0 0 140 106"
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         {/* Tank body */}
         <rect

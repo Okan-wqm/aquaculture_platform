@@ -416,7 +416,7 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
     <div ref={containerRef} className="w-full h-full">
       <canvas
         ref={canvasRef}
-        style={{ display: 'block', width: '100%', height: '100%' }}
+        className="block w-full h-full"
         onMouseMove={handleMouseMove}
         onMouseLeave={() => onTooltip(null)}
       />

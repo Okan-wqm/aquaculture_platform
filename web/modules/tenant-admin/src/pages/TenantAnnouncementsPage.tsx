@@ -263,7 +263,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllRead}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-tenant-600 hover:bg-tenant-50 rounded-lg transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                 >
                   <CheckCircle className="w-4 h-4" />
                   Mark all as read
@@ -318,13 +318,13 @@ export const TenantAnnouncementsPage: React.FC = () => {
               placeholder="Search announcements..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500 focus:border-tenant-500"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
             />
           </div>
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as AnnouncementType | 'all')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
           >
             <option value="all">All Types</option>
             <option value="info">Info</option>
@@ -336,7 +336,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
           <select
             value={readFilter}
             onChange={(e) => setReadFilter(e.target.value as 'all' | 'unread' | 'requires_ack')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
           >
             <option value="all">All Announcements</option>
             <option value="unread">Unread Only</option>
@@ -386,7 +386,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                   key={announcement.id}
                   onClick={() => handleViewAnnouncement(announcement)}
                   className={`p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors border-l-4 ${getTypeBgColor(announcement.type)} ${
-                    selectedAnnouncement?.id === announcement.id ? 'bg-tenant-50' : ''
+                    selectedAnnouncement?.id === announcement.id ? 'bg-green-50' : ''
                   } ${!announcement.isRead ? 'bg-blue-50/50' : ''}`}
                 >
                   <div className="flex items-start gap-3">
@@ -525,7 +525,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                     </div>
                     <button
                       onClick={() => handleAcknowledge(selectedAnnouncement.id)}
-                      className="w-full px-4 py-2.5 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 font-medium transition-colors flex items-center justify-center gap-2"
+                      className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors flex items-center justify-center gap-2"
                     >
                       <CheckCircle size={18} />
                       I have read and understand this announcement

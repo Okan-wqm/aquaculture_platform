@@ -161,8 +161,7 @@ const EventDetail = memo<EventDetailProps>(({ event, color, anchorRef, onClose }
       ref={popRef}
       role="tooltip"
       aria-label={`Event details: ${event.name}`}
-      className="absolute z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 w-52 text-xs pointer-events-auto"
-      style={{ top: '100%', left: 0, marginTop: 4 }}
+      className="absolute z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 w-52 text-xs pointer-events-auto top-full left-0 mt-1"
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5">

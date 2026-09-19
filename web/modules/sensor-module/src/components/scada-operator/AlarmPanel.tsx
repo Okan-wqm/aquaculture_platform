@@ -359,8 +359,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
   return (
     <div
       className={`flex flex-col bg-white dark:bg-gray-900 rounded-lg shadow-xl border
-                  border-gray-200 dark:border-gray-700 ${className}`}
-      style={{ minWidth: 720, maxHeight: '80vh' }}
+                  border-gray-200 dark:border-gray-700 ${className} min-w-[720px] max-h-[80vh]`}
     >
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">

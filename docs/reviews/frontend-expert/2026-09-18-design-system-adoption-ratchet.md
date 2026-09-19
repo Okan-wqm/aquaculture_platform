@@ -107,7 +107,12 @@ viewers). Remaining
 files are listed
 per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only
-decreases. **Owner:** okan · **Expiry:** 2027-03-31 (runtime surfaces 2027-06-30).
+decreases. **Closed at its structural floor** — the five files that remain
+are not dialogs (the operator kiosk, the SCADA popup-view layer, the
+barcode camera viewfinder, two media viewers); each is a governed
+allowlist entry with its reason, re-evaluated at expiry, and the ceiling
+cannot rise. **Owner:** okan · **Expiry:** 2027-03-31 (runtime surfaces
+2027-06-30).
 
 #### FE-HIGH-066 — Raw hex colours outside theme.css
 
@@ -190,7 +195,16 @@ gradient moved from the component into `index.css`, which also takes the
 shell's raw hex to 0); the 133 that remain are SCADA symbol geometry
 (absolute positions and sizes inside process-node drawings), pinned as
 sensor-module's ceiling until the symbol layer draws with SVG attributes.
-**Owner:** okan · **Expiry:** 2027-06-30.
+Batch 32: the 133 are read declaration by declaration — display,
+pointer-events, position and the symbols' absolute geometry, transforms,
+transitions (`transition-[stroke-dashoffset,stroke] duration-300
+ease-out`), fonts, z-index, the overlay tints — and every one maps to a
+utility (spacing on the scale when it fits, `[Npx]` otherwise, arbitrary
+properties for `pointer-events: all|stroke`), merged into the element's
+existing `className` (string, template or `cn()` call) or written where
+the style attribute was; each emitted class was compiled with the repo's
+Tailwind to confirm it yields a rule. 133 → 0 in 67 files; every package
+holds at zero. **Closed.** **Owner:** okan · **Expiry:** 2027-06-30.
 
 #### FE-HIGH-069 — Hand-rolled `<table>` re-implements DataTable
 
@@ -324,8 +338,14 @@ tray's own scroll) and the ST simulation watch tables (the value column
 a control for inputs, a display otherwise) render through it; its
 private loading arc is the shared `Spinner`. sensor 7 → 5: the SCADA
 runtime grid widgets, whose columns and colours are widget
-configuration, and the heat-map grid. **Owner:** okan ·
-**Expiry:** 2027-06-30.
+configuration, and the heat-map grid. **Closed at its structural floor**
+— the 13 `<table>` elements that remain are not lists: two feeding matrix
+editors (a spreadsheet — editable header cells, rows and columns added
+and removed), three report-export HTML strings and a print document (not
+React), two schedule calendar grids, the SCADA runtime grid widgets whose
+columns and colours are widget configuration, and the heat-map grid; each
+package's ceiling is a governed entry re-evaluated at expiry and cannot
+rise. **Owner:** okan · **Expiry:** 2027-06-30.
 
 #### FE-MEDIUM-070 — Hand-rolled loading spinners beside `Spinner`
 
@@ -390,7 +410,12 @@ bar and hub shapes; the record pages' theme and the stock-movement config
 name a `tone` instead of a gradient class); the four that stay are the home
 and account heroes, the channel list whose title row swaps into a search
 field, and the error boundary. The ratchet counts `text-lg` titles too, so
-the mobile band sits under the same ceiling.
+the mobile band sits under the same ceiling. **Closed at its structural
+floor** — the seven web titles that remain are not page headers (five
+dense tool strips, the 404 page, the HR load-failure state) and
+AquaMobil's four are its heroes, a title row that swaps into a search
+field, and the error boundary; each package's ceiling is a governed entry
+re-evaluated at expiry and cannot rise.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
 #### FE-MEDIUM-072 — Dark mode: two mechanisms, no dark-aware primitives
@@ -457,13 +482,12 @@ light on purpose. **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Out of this cycle (tracked above, not done)
 
-- Remaining overlay entries (5 runtime surfaces; see allowlist entries).
-- Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 13 remain after batch 26 (hr 3, sensor 5,
-  farm 5): the SCADA runtime grid widgets and heat map (widget
-  configuration drives columns and colours), the two feeding matrix editors (editable
-  header cells, add/remove rows and columns — a spreadsheet, not a list),
-  three report-export HTML strings, two calendar grids and a print document.
-- Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
-  single palette across web + AquaMobil, i18n reach) — design
-  work with product decisions attached; not gated here.
+- Governed floors (re-evaluated at expiry, never raised): 5 runtime
+  overlays, 13 non-list `<table>` elements, 11 non-header titles.
+- Wave 2/3 of the design map (messaging to web, dashboard redesign,
+  AquaMobil on Tailwind 4, i18n reach, the super-admin language) — design
+  work with product decisions attached; not gated here. The tenant-admin
+  and messaging palettes are done: their private `@theme` (Tailwind's green
+  and slate under the names `tenant-*` and `dark-*`) is gone, both read the
+  design system's scales, and `web-theme-token-parity.spec.ts` refuses a
+  second `@theme` under `web/`.

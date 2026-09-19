@@ -105,7 +105,7 @@ const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
         height="100%"
         viewBox={`0 0 ${totalVbW} ${totalVbH}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         {/* Background */}
         <rect x={1} y={1} width={totalVbW - 2} height={totalVbH - 2} rx={6} fill={themeColors.neutral[50]} stroke={themeColors.neutral[300]} strokeWidth={1.5} />

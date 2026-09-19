@@ -121,7 +121,7 @@ const TenantMessagesPage: React.FC = () => {
               </button>
               <button
                 onClick={() => setShowNewThreadModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
               >
                 <Plus size={18} />
                 New Message
@@ -136,9 +136,9 @@ const TenantMessagesPage: React.FC = () => {
             <div className="text-sm text-gray-500 dark:text-gray-400">Total Threads</div>
             <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{threads.length}</div>
           </div>
-          <div className="bg-tenant-50 rounded-lg p-3">
-            <div className="text-sm text-tenant-600">Active</div>
-            <div className="text-xl font-semibold text-tenant-700">
+          <div className="bg-green-50 rounded-lg p-3">
+            <div className="text-sm text-green-600">Active</div>
+            <div className="text-xl font-semibold text-green-700">
               {threads.filter((t) => !t.isClosed).length}
             </div>
           </div>
@@ -177,14 +177,14 @@ const TenantMessagesPage: React.FC = () => {
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
             </div>
             <div className="flex items-center gap-2">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as 'all' | 'open' | 'closed')}
-                className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
+                className="flex-1 px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
               >
                 <option value="all">All Threads</option>
                 <option value="open">Open</option>
@@ -229,7 +229,7 @@ const TenantMessagesPage: React.FC = () => {
                 key={thread.id}
                 onClick={() => setSelectedThread(thread)}
                 className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
-                  selectedThread?.id === thread.id ? 'bg-tenant-50 border-l-4 border-l-tenant-500' : ''
+                  selectedThread?.id === thread.id ? 'bg-green-50 border-l-4 border-l-green-500' : ''
                 }`}
               >
                 <div className="flex items-start justify-between">
@@ -237,7 +237,7 @@ const TenantMessagesPage: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-gray-900 dark:text-gray-100 truncate">{thread.subject}</span>
                       {thread.unreadCount > 0 && (
-                        <span className="px-1.5 py-0.5 bg-tenant-600 text-white text-xs rounded-full">
+                        <span className="px-1.5 py-0.5 bg-green-600 text-white text-xs rounded-full">
                           {thread.unreadCount}
                         </span>
                       )}
@@ -322,21 +322,21 @@ const TenantMessagesPage: React.FC = () => {
                     <div
                       className={`max-w-2xl rounded-lg p-4 ${
                         message.senderType === 'tenant_admin'
-                          ? 'bg-tenant-600 text-white'
+                          ? 'bg-green-600 text-white'
                           : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-1">
                         <span
                           className={`text-sm font-medium ${
-                            message.senderType === 'tenant_admin' ? 'text-tenant-100' : 'text-gray-700 dark:text-gray-300'
+                            message.senderType === 'tenant_admin' ? 'text-green-100' : 'text-gray-700 dark:text-gray-300'
                           }`}
                         >
                           {message.senderName}
                         </span>
                         <span
                           className={`text-xs ${
-                            message.senderType === 'tenant_admin' ? 'text-tenant-200' : 'text-gray-500 dark:text-gray-400'
+                            message.senderType === 'tenant_admin' ? 'text-green-200' : 'text-gray-500 dark:text-gray-400'
                           }`}
                         >
                           {formatTime(message.createdAt)}
@@ -349,9 +349,9 @@ const TenantMessagesPage: React.FC = () => {
                       {message.senderType === 'tenant_admin' && (
                         <div className="flex justify-end mt-2">
                           {message.status === 'read' ? (
-                            <CheckCheck size={14} className="text-tenant-200" />
+                            <CheckCheck size={14} className="text-green-200" />
                           ) : (
-                            <CheckCheck size={14} className="text-tenant-300 opacity-50" />
+                            <CheckCheck size={14} className="text-green-300 opacity-50" />
                           )}
                         </div>
                       )}
@@ -372,7 +372,7 @@ const TenantMessagesPage: React.FC = () => {
                         onChange={(e) => setNewMessage(e.target.value)}
                         placeholder="Type your message..."
                         rows={3}
-                        className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-lg resize-none focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-200 dark:border-gray-700 rounded-lg resize-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                             handleSendMessage();
@@ -387,7 +387,7 @@ const TenantMessagesPage: React.FC = () => {
                       <button
                         onClick={handleSendMessage}
                         disabled={!newMessage.trim() || sendMessageMutation.isPending}
-                        className="p-3 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        className="p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
                         <Send size={20} />
                       </button>
@@ -490,7 +490,7 @@ const NewThreadModal: React.FC<{
           <button
             onClick={handleSubmit}
             disabled={!subject || !message || submitting}
-            className="flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {submitting ? (
               <Spinner size="sm" color="inherit" />
@@ -508,7 +508,7 @@ const NewThreadModal: React.FC<{
           type="text"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
           placeholder="Enter subject..."
         />
       </div>
@@ -519,7 +519,7 @@ const NewThreadModal: React.FC<{
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           rows={5}
-          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-tenant-500 focus:border-transparent resize-none"
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
           placeholder="Describe your question or issue..."
         />
       </div>

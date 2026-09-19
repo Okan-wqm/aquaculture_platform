@@ -296,7 +296,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
       </button>
 
       {expanded && (
-        <div className="flex flex-col" style={{ maxHeight: 280 }}>
+        <div className="flex flex-col max-h-[280px]">
           {/* Toolbar */}
           <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex-1 relative">

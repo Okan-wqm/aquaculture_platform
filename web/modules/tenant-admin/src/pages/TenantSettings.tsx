@@ -141,13 +141,13 @@ const TenantSettings: React.FC = () => {
                   onClick={() => setActiveSection(section.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
                     activeSection === section.id
-                      ? 'bg-tenant-50 text-tenant-700'
+                      ? 'bg-green-50 text-green-700'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   <span
                     className={`flex-shrink-0 ${
-                      activeSection === section.id ? 'text-tenant-600' : 'text-gray-500 dark:text-gray-400'
+                      activeSection === section.id ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'
                     }`}
                   >
                     {section.icon}
@@ -160,7 +160,7 @@ const TenantSettings: React.FC = () => {
                   </div>
                   <ChevronRight
                     className={`w-4 h-4 flex-shrink-0 ${
-                      activeSection === section.id ? 'text-tenant-600' : 'text-gray-500 dark:text-gray-400'
+                      activeSection === section.id ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'
                     }`}
                   />
                 </button>

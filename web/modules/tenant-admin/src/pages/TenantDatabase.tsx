@@ -399,7 +399,7 @@ const TenantDatabase: React.FC = () => {
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
           <button
             onClick={handleRefresh}
-            className="mt-4 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700"
+            className="mt-4 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700"
           >
             Try Again
           </button>
@@ -480,7 +480,7 @@ const TenantDatabase: React.FC = () => {
           </button>
           <button
             onClick={() => handleViewSchema(table.name)}
-            className="inline-flex items-center gap-1 text-sm text-tenant-600 hover:text-tenant-700 font-medium transition-colors"
+            className="inline-flex items-center gap-1 text-sm text-green-600 hover:text-green-700 font-medium transition-colors"
           >
             View Schema
             <ChevronRight className="w-4 h-4" />
@@ -505,7 +505,7 @@ const TenantDatabase: React.FC = () => {
               <RefreshCw className="w-4 h-4" />
               Refresh
             </button>
-            <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors">
+            <button className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors">
               <Download className="w-4 h-4" />
               Export Schema
             </button>
@@ -562,8 +562,8 @@ const TenantDatabase: React.FC = () => {
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl bg-tenant-50">
-              <Server className="w-6 h-6 text-tenant-600" />
+            <div className="p-3 rounded-xl bg-green-50">
+              <Server className="w-6 h-6 text-green-600" />
             </div>
             <div>
               <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
@@ -622,12 +622,12 @@ const TenantDatabase: React.FC = () => {
                 placeholder="Search tables..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
               />
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as 'name' | 'rows' | 'size')}
-                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
               >
                 <option value="name">Sort by Name</option>
                 <option value="rows">Sort by Rows</option>

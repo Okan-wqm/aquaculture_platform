@@ -63,7 +63,7 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} style={{ pointerEvents: 'auto' }}>
+      <svg width={WIDTH} height={HEIGHT} className="pointer-events-auto">
         {/* Vertical pipe */}
         <rect
           x={25}
@@ -94,15 +94,7 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
 
       {/* Top Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 30,
-          top: 20,
-          width: 12,
-          height: 12,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[30px] top-5 w-3 h-3 -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => handleTypeChange(e, top, setTop, 'top')}
       >
         <Handle
@@ -127,15 +119,7 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
 
       {/* Bottom Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 30,
-          top: 140,
-          width: 12,
-          height: 12,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[30px] top-[140px] w-3 h-3 -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => handleTypeChange(e, bottom, setBottom, 'bottom')}
       >
         <Handle

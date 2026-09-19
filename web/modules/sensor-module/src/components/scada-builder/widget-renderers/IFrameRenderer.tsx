@@ -121,8 +121,8 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
         }}
         data-testid="iframe-error"
       >
-        <span style={{ fontSize: 22 }}>{'\u26A0'}</span>
-        <span style={{ fontWeight: 600 }}>IFrame</span>
+        <span className="text-[22px]">{'\u26A0'}</span>
+        <span className="font-semibold">IFrame</span>
         <span style={{ fontSize: 11, color: colors.warning[700] }}>{validationError}</span>
       </div>
     );
@@ -152,8 +152,8 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
         }}
         data-testid="iframe-preview"
       >
-        <span style={{ fontSize: 24 }}>{'\uD83C\uDF10'}</span>
-        <span style={{ fontWeight: 600 }}>IFrame Widget</span>
+        <span className="text-2xl">{'\uD83C\uDF10'}</span>
+        <span className="font-semibold">IFrame Widget</span>
         {label && <span style={{ fontSize: 11, color: colors.primary[500] }}>{label}</span>}
         <span
           style={{
@@ -217,12 +217,7 @@ const IFrameRenderer: React.FC<WidgetRendererProps> = ({
         src={url}
         sandbox={sandboxValue}
         title={label || 'Embedded content'}
-        style={{
-          width: '100%',
-          height: '100%',
-          border: 'none',
-          display: 'block',
-        }}
+        className="w-full h-full border-0 block"
         onLoad={() => setIsLoading(false)}
         onError={() => setIsLoading(false)}
         referrerPolicy="no-referrer"

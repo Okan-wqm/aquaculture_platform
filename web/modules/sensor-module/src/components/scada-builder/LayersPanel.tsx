@@ -196,7 +196,7 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
       <IconComponent className="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
       {/* Widget name (truncated) */}
-      <span className="flex-1 min-w-0 truncate" style={{ maxWidth: 120 }}>
+      <span className="flex-1 min-w-0 truncate max-w-[120px]">
         {displayName}
       </span>
 

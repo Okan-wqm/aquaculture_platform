@@ -134,7 +134,7 @@ const MobileSettings: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <RefreshCw className="w-6 h-6 animate-spin text-tenant-600" />
+        <RefreshCw className="w-6 h-6 animate-spin text-green-600" />
       </div>
     );
   }
@@ -185,7 +185,7 @@ const MobileSettings: React.FC = () => {
           user.email.split('@')[0];
         return (
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-xs font-semibold">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white text-xs font-semibold">
               {name
                 .split(' ')
                 .map((n) => n[0])
@@ -243,14 +243,14 @@ const MobileSettings: React.FC = () => {
         searchable={false}
         sortable={false}
         stickyHeader={false}
-        rowClassName={(user) => (dirtyUserIds.has(user.id) ? 'bg-tenant-50/30' : '')}
+        rowClassName={(user) => (dirtyUserIds.has(user.id) ? 'bg-green-50/30' : '')}
         className="shadow-none rounded-none"
       />
 
       {/* Dirty indicator + Save */}
       <div className="flex items-center justify-between">
         {dirtyUserIds.size > 0 && (
-          <div className="flex items-center gap-2 text-sm text-tenant-600">
+          <div className="flex items-center gap-2 text-sm text-green-600">
             <Info className="w-4 h-4" />
             <span>{dirtyUserIds.size} user(s) have unsaved changes</span>
           </div>
@@ -258,7 +258,7 @@ const MobileSettings: React.FC = () => {
         <button
           onClick={saveMobileSettings}
           disabled={mobileSaving || dirtyUserIds.size === 0}
-          className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saved ? (
             <>

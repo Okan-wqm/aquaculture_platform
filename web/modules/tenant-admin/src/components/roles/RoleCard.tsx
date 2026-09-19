@@ -121,7 +121,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             {onEdit && (
               <button
                 onClick={() => onEdit(role)}
-                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
                 title="Edit role"
                 aria-label={`Edit ${role.name} role`}
               >

@@ -66,7 +66,7 @@ const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ i
         borderRadius: 8,
       }}
     >
-      <svg width={WIDTH} height={HEIGHT} style={{ pointerEvents: 'auto' }}>
+      <svg width={WIDTH} height={HEIGHT} className="pointer-events-auto">
         {/* Tank Body */}
         <rect x="20" y="40" width="80" height="80" fill={colors.gray[400]} opacity="0.8" />
         {/* Settling Cone */}
@@ -93,15 +93,7 @@ const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ i
 
       {/* Left Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 10,
-          top: 60,
-          width: 12,
-          height: 12,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[10px] top-15 w-3 h-3 -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => handleRightClick(e, 'left')}
       >
         <Handle
@@ -126,15 +118,7 @@ const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ i
 
       {/* Right Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 110,
-          top: 60,
-          width: 12,
-          height: 12,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[110px] top-15 w-3 h-3 -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => handleRightClick(e, 'right')}
       >
         <Handle
@@ -159,15 +143,7 @@ const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ i
 
       {/* Bottom Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 60,
-          top: 160,
-          width: 12,
-          height: 12,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-15 top-[160px] w-3 h-3 -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => handleRightClick(e, 'bottom')}
       >
         <Handle

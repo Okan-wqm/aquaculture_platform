@@ -78,7 +78,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
         height="100%"
         viewBox="0 0 120 160"
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         {/* ---- Motor housing ---- */}
         <rect

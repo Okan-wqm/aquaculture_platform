@@ -266,8 +266,8 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
         }}
         data-testid="fuxa-empty"
       >
-        <span style={{ fontSize: 22 }}>{'\u2699'}</span>
-        <span style={{ fontWeight: 600 }}>FUXA Widget</span>
+        <span className="text-[22px]">{'\u2699'}</span>
+        <span className="font-semibold">FUXA Widget</span>
         <span style={{ fontSize: 11, color: colors.success[700] }}>
           Upload an SVG from the FUXA community library
         </span>
@@ -302,8 +302,8 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
         }}
         data-testid="fuxa-preview"
       >
-        <span style={{ fontSize: 20 }}>{'\u2699'}</span>
-        <span style={{ fontWeight: 600 }}>FUXA Widget</span>
+        <span className="text-xl">{'\u2699'}</span>
+        <span className="font-semibold">FUXA Widget</span>
         {label && <span style={{ fontSize: 11, color: colors.success[700] }}>{label}</span>}
         <span style={{ fontSize: 10, color: colors.neutral[500] }}>
           {exportVariables.length} variable{exportVariables.length !== 1 ? 's' : ''} detected
@@ -337,12 +337,7 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
           srcDoc={srcdoc}
           sandbox="allow-scripts"
           title={label || 'FUXA Widget'}
-          style={{
-            width: '100%',
-            height: '100%',
-            border: 'none',
-            display: 'block',
-          }}
+          className="w-full h-full border-0 block"
           onLoad={handleIframeLoad}
           data-testid="fuxa-iframe"
         />

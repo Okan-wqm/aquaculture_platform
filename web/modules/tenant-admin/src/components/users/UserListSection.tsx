@@ -116,7 +116,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onEditUser(user)}
               aria-label={`Edit ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
               title="Edit user"
             >
               <Edit className="w-4 h-4" aria-hidden="true" />
@@ -127,7 +127,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onManageSiteAccess(user)}
               aria-label={`Manage site access for ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
               title="Manage site access"
             >
               <MapPin className="w-4 h-4" aria-hidden="true" />
@@ -176,7 +176,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onViewPermissions(user)}
               aria-label={`Effective permissions for ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
               title="Effective permissions"
             >
               <ShieldCheck className="w-4 h-4" aria-hidden="true" />

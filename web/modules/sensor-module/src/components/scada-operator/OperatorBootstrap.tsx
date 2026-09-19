@@ -86,7 +86,7 @@ class OperatorErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryS
             padding: '32px',
           }}
         >
-          <strong style={{ fontSize: '1.25rem' }}>Operator HMI error</strong>
+          <strong className="text-xl">Operator HMI error</strong>
           <pre style={{ fontSize: '0.8rem', color: colors.error[100], maxWidth: '600px', whiteSpace: 'pre-wrap' }}>
             {this.state.error?.message ?? 'Unknown error'}
           </pre>

@@ -9,7 +9,7 @@ import React, { useState, useMemo, useCallback } from 'react';
 import { Search, Lock, AlertTriangle, Shield, ChevronDown, Eye, Plus, Columns } from 'lucide-react';
 import { VfdParameterDefinition, VfdProgrammingParameterCategory } from '../../types/vfd.types';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
-import { Spinner, Button, SeverityBadge } from '@aquaculture/shared-ui';
+import { Spinner, Button, SeverityBadge, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -322,19 +322,16 @@ export function VfdParameterBrowser({ definitions, loading, error }: VfdParamete
           <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
             Category
           </h3>
-          <select
+          <Select
+            aria-label="Filter by category"
+            size="sm"
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="w-full rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1.5 text-sm"
-            aria-label="Filter by category"
-          >
-            <option value="">All Categories</option>
-            {CATEGORY_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Categories' },
+              ...CATEGORY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
+            ]}
+          />
         </div>
 
         <div className="mt-4 border-t pt-4">
@@ -369,19 +366,17 @@ export function VfdParameterBrowser({ definitions, loading, error }: VfdParamete
 
           {/* Mobile category dropdown */}
           <div className="lg:hidden">
-            <select
+            <Select
+              aria-label="Filter by category"
+              fullWidth={false}
+              size="sm"
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-2 text-sm"
-              aria-label="Filter by category"
-            >
-              <option value="">All</option>
-              {CATEGORY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: '', label: 'All' },
+                ...CATEGORY_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
+              ]}
+            />
           </div>
 
           <button

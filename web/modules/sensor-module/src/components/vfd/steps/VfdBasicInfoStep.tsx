@@ -1,5 +1,5 @@
 import React from 'react';
-import { Input, Textarea } from '@aquaculture/shared-ui';
+import { Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { VfdBrandInfo, RegisterVfdInput } from '../../../types/vfd.types';
 import { Info } from 'lucide-react';
 
@@ -62,26 +62,18 @@ export function VfdBasicInfoStep({
 
         {/* Model Series */}
         <div>
-          <label
-            htmlFor="modelSeries"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-          >
-            Model Serisi
-          </label>
-          <select
+          <Select
             id="modelSeries"
             name="modelSeries"
+            label="Model Serisi"
+            placeholder="Seçiniz..."
             value={selectedModelSeries || ''}
             onChange={(e) => onModelSeriesChange(e.target.value || undefined)}
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
-          >
-            <option value="">Seçiniz...</option>
-            {brand.modelSeries.map((model) => (
-              <option key={model.code} value={model.code}>
-                {model.code} - {model.name}
-              </option>
-            ))}
-          </select>
+            options={brand.modelSeries.map((model) => ({
+              value: model.code,
+              label: `${model.code} - ${model.name}`,
+            }))}
+          />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Model serisi seçimi, varsayılan register ayarlarını yapılandırır.
           </p>

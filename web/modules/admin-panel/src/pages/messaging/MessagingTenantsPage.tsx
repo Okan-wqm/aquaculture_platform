@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
@@ -44,49 +44,49 @@ interface ExportResult {
 // Sub-components
 // ============================================================================
 
+const tenantMessagingOverviewRowColumns: DataTableColumn<TenantMessagingOverviewRow>[] = [
+  {
+    key: 'tenantId',
+    header: 'Tenant ID',
+    render: (_value, tenant) => tenant.tenantId,
+  },
+  {
+    key: 'messages24h',
+    header: 'Messages (24h)',
+    align: 'right',
+    render: (_value, tenant) => tenant.messageCount24h.toLocaleString(),
+  },
+  {
+    key: 'messages7d',
+    header: 'Messages (7d)',
+    align: 'right',
+    render: (_value, tenant) => tenant.messageCount7d.toLocaleString(),
+  },
+  {
+    key: 'totalMessages',
+    header: 'Total Messages',
+    align: 'right',
+    render: (_value, tenant) => tenant.totalMessages.toLocaleString(),
+  },
+  {
+    key: 'activeChannels',
+    header: 'Active Channels',
+    align: 'right',
+    render: (_value, tenant) => tenant.activeChannels.toLocaleString(),
+  }
+];
+
 const OverviewTable: React.FC<{ tenants: TenantMessagingOverviewRow[] }> = ({ tenants }) => (
-  <div className="overflow-x-auto">
-    <table className="min-w-full divide-y divide-gray-200">
-      <thead>
-        <tr>
-          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Tenant ID
-          </th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Messages (24h)
-          </th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Messages (7d)
-          </th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Total Messages
-          </th>
-          <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-            Active Channels
-          </th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-gray-100">
-        {tenants.map((tenant) => (
-          <tr key={tenant.tenantId} className="hover:bg-gray-50">
-            <td className="px-4 py-3 text-sm font-mono text-gray-900">{tenant.tenantId}</td>
-            <td className="px-4 py-3 text-sm text-gray-700 text-right">
-              {tenant.messageCount24h.toLocaleString()}
-            </td>
-            <td className="px-4 py-3 text-sm text-gray-700 text-right">
-              {tenant.messageCount7d.toLocaleString()}
-            </td>
-            <td className="px-4 py-3 text-sm text-gray-700 text-right">
-              {tenant.totalMessages.toLocaleString()}
-            </td>
-            <td className="px-4 py-3 text-sm text-gray-700 text-right">
-              {tenant.activeChannels.toLocaleString()}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
+  <DataTable<TenantMessagingOverviewRow>
+    data={tenants}
+    columns={tenantMessagingOverviewRowColumns}
+    keyExtractor={(tenant) => tenant.tenantId}
+    emptyMessage="No records found"
+    searchable={false}
+    sortable={false}
+    stickyHeader={false}
+    className="shadow-none"
+  />
 );
 
 // ============================================================================

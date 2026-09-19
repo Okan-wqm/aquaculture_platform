@@ -1,7 +1,7 @@
 import React from 'react';
 import { Key, Link2, Loader2, AlertCircle, Hash, Type } from 'lucide-react';
 import { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 interface TableSchemaModalProps {
   isOpen: boolean;
@@ -65,6 +65,152 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
   const parts = tableName.split('.');
   const schemaName = parts.length > 1 ? parts[0] : 'public';
   const tableOnly = parts.length > 1 ? parts[1] : parts[0];
+
+  const indexInfoColumns: DataTableColumn<IndexInfo>[] = [
+    {
+      key: 'indexName',
+      header: 'Index Name',
+      render: (_value, idx) => (
+        <span className="font-mono text-sm text-gray-700">
+          {idx.indexName}
+        </span>
+      ),
+    },
+    {
+      key: 'column',
+      header: 'Column',
+      render: (_value, idx) => (
+        <span className="font-mono text-sm text-gray-600">
+          {idx.columnName}
+        </span>
+      ),
+    },
+    {
+      key: 'unique',
+      header: 'Unique',
+      align: 'center',
+      render: (_value, idx) => (
+        <>
+          {idx.isUnique ? (
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+              Y
+            </span>
+          ) : (
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">
+              N
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'primary',
+      header: 'Primary',
+      align: 'center',
+      render: (_value, idx) => (
+        <>
+          {idx.isPrimary ? (
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium">
+              Y
+            </span>
+          ) : (
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">
+              N
+            </span>
+          )}
+        </>
+      ),
+    }
+  ];
+
+  const columnInfoColumns: DataTableColumn<ColumnInfo>[] = [
+    {
+      key: 'column',
+      header: 'Column',
+      render: (_value, col) => (
+        <div className="flex items-center gap-2">
+          <Hash className={`w-3.5 h-3.5 ${getTypeColor(col.dataType)}`} />
+          <span className="font-mono text-sm font-medium text-gray-900">
+            {col.columnName}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, col) => (
+        <code className={`text-xs px-2 py-1 rounded-md bg-gray-100 ${getTypeColor(col.dataType)}`}>
+          {formatDataType(col)}
+        </code>
+      ),
+    },
+    {
+      key: 'nullable',
+      header: 'Nullable',
+      align: 'center',
+      render: (_value, col) => (
+        <>
+          <span
+            className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ${
+              col.isNullable
+                ? 'bg-yellow-100 text-yellow-700'
+                : 'bg-gray-100 text-gray-500'
+            }`}
+          >
+            {col.isNullable ? 'Y' : 'N'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'default',
+      header: 'Default',
+      render: (_value, col) => (
+        <>
+          {col.columnDefault ? (
+            <code className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded max-w-[150px] truncate inline-block">
+              {col.columnDefault.length > 30
+                ? `${col.columnDefault.substring(0, 30)}...`
+                : col.columnDefault}
+            </code>
+          ) : (
+            <span className="text-xs text-gray-500">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'keys',
+      header: 'Keys',
+      align: 'center',
+      render: (_value, col) => (
+        <div className="flex items-center justify-center gap-1">
+          {col.isPrimaryKey && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium"
+              title="Primary Key"
+            >
+              <Key className="w-3 h-3" />
+              PK
+            </span>
+          )}
+          {col.isForeignKey && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium"
+              title={`Foreign Key → ${col.foreignKeyTable}.${col.foreignKeyColumn}`}
+            >
+              <Link2 className="w-3 h-3" />
+              FK
+            </span>
+          )}
+          {!col.isPrimaryKey && !col.isForeignKey && (
+            <span className="text-xs text-gray-500">-</span>
+          )}
+        </div>
+      ),
+    }
+  ];
 
   return (
     <Modal
@@ -131,96 +277,16 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
               Columns ({columns.length})
             </h3>
             <div className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-100/50">
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Column
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Type
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Nullable
-                    </th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Default
-                    </th>
-                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Keys
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {columns.map((col, index) => (
-                    <tr
-                      key={col.columnName}
-                      className={`hover:bg-white transition-colors ${index % 2 === 0 ? 'bg-white/50' : ''}`}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Hash className={`w-3.5 h-3.5 ${getTypeColor(col.dataType)}`} />
-                          <span className="font-mono text-sm font-medium text-gray-900">
-                            {col.columnName}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <code className={`text-xs px-2 py-1 rounded-md bg-gray-100 ${getTypeColor(col.dataType)}`}>
-                          {formatDataType(col)}
-                        </code>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span
-                          className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ${
-                            col.isNullable
-                              ? 'bg-yellow-100 text-yellow-700'
-                              : 'bg-gray-100 text-gray-500'
-                          }`}
-                        >
-                          {col.isNullable ? 'Y' : 'N'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {col.columnDefault ? (
-                          <code className="text-xs text-gray-600 bg-gray-100 px-2 py-1 rounded max-w-[150px] truncate inline-block">
-                            {col.columnDefault.length > 30
-                              ? `${col.columnDefault.substring(0, 30)}...`
-                              : col.columnDefault}
-                          </code>
-                        ) : (
-                          <span className="text-xs text-gray-500">-</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-center gap-1">
-                          {col.isPrimaryKey && (
-                            <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium"
-                              title="Primary Key"
-                            >
-                              <Key className="w-3 h-3" />
-                              PK
-                            </span>
-                          )}
-                          {col.isForeignKey && (
-                            <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium"
-                              title={`Foreign Key → ${col.foreignKeyTable}.${col.foreignKeyColumn}`}
-                            >
-                              <Link2 className="w-3 h-3" />
-                              FK
-                            </span>
-                          )}
-                          {!col.isPrimaryKey && !col.isForeignKey && (
-                            <span className="text-xs text-gray-500">-</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable<ColumnInfo>
+                data={columns}
+                columns={columnInfoColumns}
+                keyExtractor={(col) => col.columnName}
+                emptyMessage="No columns"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+                className="shadow-none rounded-none"
+              />
             </div>
           </div>
 
@@ -232,65 +298,16 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
                 Indexes ({indexes.length})
               </h3>
               <div className="bg-gray-50 rounded-xl overflow-hidden border border-gray-100">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-100/50">
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Index Name
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Column
-                      </th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Unique
-                      </th>
-                      <th className="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        Primary
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {indexes.map((idx, index) => (
-                      <tr
-                        key={`${idx.indexName}-${idx.columnName}`}
-                        className={`hover:bg-white transition-colors ${index % 2 === 0 ? 'bg-white/50' : ''}`}
-                      >
-                        <td className="px-4 py-3">
-                          <span className="font-mono text-sm text-gray-700">
-                            {idx.indexName}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className="font-mono text-sm text-gray-600">
-                            {idx.columnName}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {idx.isUnique ? (
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 text-green-700 text-xs font-medium">
-                              Y
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">
-                              N
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {idx.isPrimary ? (
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium">
-                              Y
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">
-                              N
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <DataTable<IndexInfo>
+                  data={indexes}
+                  columns={indexInfoColumns}
+                  keyExtractor={(idx) => `${idx.indexName}-${idx.columnName}`}
+                  emptyMessage="No indexes"
+                  searchable={false}
+                  sortable={false}
+                  stickyHeader={false}
+                  className="shadow-none rounded-none"
+                />
               </div>
             </div>
           )}

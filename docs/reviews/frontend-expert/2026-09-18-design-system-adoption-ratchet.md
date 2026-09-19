@@ -171,6 +171,57 @@ shell's raw hex to 0); the 133 that remain are SCADA symbol geometry
 sensor-module's ceiling until the symbol layer draws with SVG attributes.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
+#### FE-HIGH-069 — Hand-rolled `<table>` re-implements DataTable
+
+152 `<table>` elements across the web tree (farm 59, sensor 37, admin-panel 28,
+hydroponics 10, tenant-admin 9, hr 8 — plus hr's private `DataTable` copy with
+a narrower API behind seven pages — shell 1). shared-ui's `DataTable` owns
+header semantics, sorting, selection, pagination, empty and loading states and
+export; the super-admin panel used it on zero pages.
+
+**Root cause:** the panel's pages predate `DataTable`; nothing detected a new
+raw table, and `DataTable` rendered an empty toolbar strip when a page kept its
+own filters above it, which made it look wrong to adopt.
+
+**Fix (this cycle):** the ratchet gains a per-package `rawTable` ceiling (same
+shape as raw hex). `DataTable` renders its toolbar only when it has content
+and accepts readonly row arrays. Batch 11: 25 of the super-admin panel's 28
+tables render through `DataTable` (28 → 3) — invoices, payments, custom plans
+(its pagination replaces a private one), discount codes, subscriptions,
+feature toggles, the activity log (its private expand-row state becomes
+`expandable`/`renderExpandedRow`), report previews, job queues, audit trail
+and retention policies, compliance requests, threat intelligence, service
+health, messaging tenants/retention/audit/compliance, database schemas,
+migrations, storage and slow queries, and AI personas (whose `Scope` header
+had no cell behind it). The three that remain are the database explorer and
+query-editor result grids (dynamic, sortable-by-server columns with key and
+sensitivity markers in their headers — they need `DataTable` header slots)
+and a static actuation-policy reference. Batch 12: the tenant-admin panel
+follows (9 → 1) — the user list (its select-all header cell and per-row
+checkboxes become `DataTable` selection, so the page's own toggle helpers go),
+the audit log, invoices and payments, the database table list per module,
+mobile feature flags and mobile users, and the table-schema dialog's columns
+and indexes. `DataTable`'s `emptyMessage` now takes a node, so the user list's
+heading-plus-hint empty state renders inside the table instead of as a second
+empty state underneath it; a `DataTable` spec pins the toolbar-only-when-
+needed and empty-body behaviours the pages used to hand-roll around. The one
+that remains is the table-data dialog (server-described columns; needs the
+same header slots as the explorer grids). Batch 13: hr-module's private
+`DataTable` copy (a narrower API: `accessor` columns, a `Set` selection, an
+`onSort` that its seven pages never wired, so the sort icons only flipped)
+is deleted and employees, certifications, payroll, crew assignments,
+rotations, leaves and attendance render through the shared one; the
+rotations page pages its flat arrays client-side, so its pagination bar now
+moves the rows and not only the label. The finance tabs follow: salaries,
+the personnel table and HR expenses through `DataTable` (which gains a
+`summaryRow` totals slot so the salary and headcount totals stay in the
+table), the labour-cost ledger as a definition list (label/value lines, no
+header — never a grid). `DataTable`'s rows-per-page select renders only
+when a page can act on it; before, every paginated page showed an inert
+one. hr 8 → 3: the weekly schedule and team overview are calendar grids and
+the print schedule is a print document. **Owner:** okan ·
+**Expiry:** 2027-06-30.
+
 ## Enforcement
 
 `tests/invariants/web-design-system-ratchet.spec.ts` (layer-1 shard) +
@@ -182,6 +233,8 @@ sensor-module's ceiling until the symbol layer draws with SVG attributes.
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
+- Raw `<table>` → `DataTable`: 114 remain after batch 13 (admin-panel 3,
+  tenant-admin 1, hr 3, shell 1, then hydroponics 10, sensor 37, farm 59).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

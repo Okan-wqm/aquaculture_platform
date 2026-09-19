@@ -22,7 +22,7 @@
  *      and a reason; every listed file must still contain one, so a migrated
  *      file cannot hold the ceiling up. The ceiling only decreases.
  *
- *   2. **Raw hex and inline style are keyed by PACKAGE.** Each web package has
+ *   2. **Raw hex, inline style and raw tables are keyed by PACKAGE.** Each web package has
  *      an occurrence ceiling; a package not listed must be at zero. Counting is
  *      by occurrence, not by file, so moving colours between files is not
  *      progress and adding one to a listed file is caught. Inline style counts
@@ -59,6 +59,12 @@ function isPrimitive(file: string): boolean {
 
 const OVERLAY = /fixed inset-0/;
 const RAW_HEX = /#[0-9a-fA-F]{6}\b/g;
+/**
+ * FE-HIGH-069: a hand-rolled `<table>` re-implements what shared-ui's DataTable
+ * owns — header semantics, sorting, selection, pagination, empty and loading
+ * states, export. Counted per package the same way as raw hex.
+ */
+const RAW_TABLE = /<table\b/g;
 /**
  * FE-MEDIUM-067 counts STATIC inline style blocks: every value a string or
  * number literal, so the block could have been a utility class or a token. A
@@ -151,6 +157,7 @@ interface Allowlist {
   overlays: { ceiling: number; entries: OverlayEntry[] };
   rawHex: { entries: PackageCeiling[] };
   inlineStyle: { entries: PackageCeiling[] };
+  rawTable: { entries: PackageCeiling[] };
 }
 
 /** Tracked source files under ROOTS, tests and generated code excluded (see admin-panel-data-layer.spec.ts on why not a `**` pathspec). */
@@ -251,6 +258,29 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067): web design-system adoption
     for (const entry of doc.rawHex.entries) {
       assertGoverned(entry, today);
       // A ceiling above the live count is slack nobody earned: tighten it.
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets hand-rolled <table> elements per package (FE-HIGH-069)', () => {
+    const actual = countByPackage(files, RAW_TABLE);
+    const ceilings = new Map(doc.rawTable.entries.map((entry) => [entry.package, entry]));
+
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} raw tables, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} hand-rolled <table> elements, ceiling ${entry.ceiling}. Render lists through shared-ui DataTable; lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawTable.entries) {
+      assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling
           ? ''

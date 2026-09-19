@@ -2,7 +2,7 @@
  * HR Expenses tab — manual HR expense ledger (training, recruitment,
  * PPE, travel, custom) with dynamic category management.
  */
-import { parseMoney, useConfirm } from '@aquaculture/shared-ui';
+import { DataTable, parseMoney, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 
 import {
@@ -55,6 +55,57 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
       setErrorMessage(err instanceof Error ? err.message : 'Creating the category failed.');
     }
   };
+
+  const expenseColumns: DataTableColumn<HrFinanceEntry>[] = [
+    {
+      key: 'entryDate',
+      header: 'Date',
+      render: (_value, entry) => <span className="whitespace-nowrap">{entry.entryDate.slice(0, 10)}</span>,
+    },
+    {
+      key: 'categoryId',
+      header: 'Category',
+      render: (_value, entry) => <span className="text-gray-900">{categoryName.get(entry.categoryId) ?? '—'}</span>,
+    },
+    {
+      key: 'description',
+      header: 'Description',
+      render: (_value, entry) => (
+        <span className="block max-w-xs truncate text-gray-500">{entry.description ?? '—'}</span>
+      ),
+    },
+    {
+      key: 'amountDecimal',
+      header: 'Amount',
+      align: 'right',
+      render: (_value, entry) => (
+        <span className="whitespace-nowrap font-medium text-gray-900">
+          {formatMoney(parseMoney(entry.amountDecimal), entry.currency)}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (_value, entry) => (
+        <span className="space-x-3 whitespace-nowrap">
+          <button
+            onClick={() => setModal({ open: true, entry })}
+            className="font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => void handleDeleteEntry(entry.id)}
+            className="font-medium text-red-600 hover:text-red-800 dark:text-red-400"
+          >
+            Delete
+          </button>
+        </span>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-6">
@@ -119,70 +170,19 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
       </div>
 
       {/* Entries table */}
-      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead className="bg-gray-50 dark:bg-gray-900/40">
-            <tr>
-              {['Date', 'Category', 'Description', 'Amount', ''].map((h) => (
-                <th
-                  key={h}
-                  className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400"
-                >
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 bg-white dark:divide-gray-700 dark:bg-gray-800">
-            {entriesQuery.isLoading && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                  Loading expenses…
-                </td>
-              </tr>
-            )}
-            {!entriesQuery.isLoading && (entriesQuery.data ?? []).length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
-                  No HR expenses booked this year
-                </td>
-              </tr>
-            )}
-            {(entriesQuery.data ?? []).map((entry) => (
-              <tr key={entry.id}>
-                <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
-                  {entry.entryDate.slice(0, 10)}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-900 dark:text-gray-100">
-                  {categoryName.get(entry.categoryId) ?? '—'}
-                </td>
-                <td className="max-w-xs truncate px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                  {entry.description ?? '—'}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {formatMoney(parseMoney(entry.amountDecimal), entry.currency)}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-right text-sm">
-                  <span className="space-x-3">
-                    <button
-                      onClick={() => setModal({ open: true, entry })}
-                      className="font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => void handleDeleteEntry(entry.id)}
-                      className="font-medium text-red-600 hover:text-red-800 dark:text-red-400"
-                    >
-                      Delete
-                    </button>
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<HrFinanceEntry>
+        data={entriesQuery.data ?? []}
+        columns={expenseColumns}
+        keyExtractor={(entry) => entry.id}
+        loading={entriesQuery.isLoading}
+        loadingMessage="Loading expenses…"
+        emptyMessage="No HR expenses booked this year"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        compact
+        className="rounded-xl border border-gray-100 shadow-sm"
+      />
 
       {modal.open && <HrExpenseFormModal entry={modal.entry} onClose={() => setModal({ open: false })} />}
     </div>

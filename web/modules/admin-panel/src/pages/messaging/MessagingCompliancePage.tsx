@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/api/messaging';
 import type {
@@ -272,6 +272,123 @@ const MessagingCompliancePage: React.FC = () => {
 
   const scoreColor = stats.complianceScore >= 90 ? 'green' : stats.complianceScore >= 70 ? 'yellow' : 'red';
 
+  const exportRecordColumns: DataTableColumn<ExportRecord>[] = [
+    {
+      key: 'tenant',
+      header: 'Tenant',
+      render: (_value, exp) => exp.tenantName,
+    },
+    {
+      key: 'format',
+      header: 'Format',
+      render: (_value, exp) => exp.format,
+    },
+    {
+      key: 'records',
+      header: 'Records',
+      align: 'right',
+      render: (_value, exp) => exp.recordCount.toLocaleString(),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'center',
+      render: (_value, exp) => (
+        <ExportStatusBadge status={exp.status} />
+      ),
+    },
+    {
+      key: 'legalHold',
+      header: 'Legal Hold',
+      align: 'center',
+      render: (_value, exp) => (
+        <>
+          {exp.isUnderLegalHold && (
+            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800">
+              HOLD
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'exported',
+      header: 'Exported',
+      align: 'right',
+      render: (_value, exp) => new Date(exp.createdAt).toLocaleString(),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      align: 'right',
+      render: (_value, exp) => (
+        <>
+          {exp.status === 'completed' && exp.downloadUrl && (
+            <button
+              onClick={() => handleDownloadExport(exp.id)}
+              className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
+            >
+              Download
+            </button>
+          )}
+        </>
+      ),
+    }
+  ];
+
+  const legalHoldColumns: DataTableColumn<LegalHold>[] = [
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, hold) => (
+        <HoldStatusBadge active={hold.isActive} />
+      ),
+    },
+    {
+      key: 'tenant',
+      header: 'Tenant',
+      render: (_value, hold) => hold.tenantName,
+    },
+    {
+      key: 'scope',
+      header: 'Scope',
+      render: (_value, hold) => hold.channelName ?? 'Tenant-wide',
+    },
+    {
+      key: 'reason',
+      header: 'Reason',
+      render: (_value, hold) => hold.reason,
+    },
+    {
+      key: 'started',
+      header: 'Started',
+      render: (_value, hold) => new Date(hold.startedAt).toLocaleDateString(),
+    },
+    {
+      key: 'released',
+      header: 'Released',
+      render: (_value, hold) => hold.releasedAt ? new Date(hold.releasedAt).toLocaleDateString() : '--',
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      align: 'right',
+      render: (_value, hold) => (
+        <>
+          {hold.isActive && (
+            <button
+              onClick={() => void handleReleaseLegalHold(hold.id, hold.tenantId)}
+              disabled={releaseLoading === hold.id}
+              className="text-xs px-2 py-1 rounded font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              {releaseLoading === hold.id ? 'Releasing...' : 'Release'}
+            </button>
+          )}
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -400,52 +517,16 @@ const MessagingCompliancePage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenant</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Scope</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reason</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Released</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {legalHolds.map((hold) => (
-                    <tr key={hold.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <HoldStatusBadge active={hold.isActive} />
-                      </td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{hold.tenantName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600">
-                        {hold.channelName ?? 'Tenant-wide'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">{hold.reason}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {new Date(hold.startedAt).toLocaleDateString()}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {hold.releasedAt ? new Date(hold.releasedAt).toLocaleDateString() : '--'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {hold.isActive && (
-                          <button
-                            onClick={() => void handleReleaseLegalHold(hold.id, hold.tenantId)}
-                            disabled={releaseLoading === hold.id}
-                            className="text-xs px-2 py-1 rounded font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                          >
-                            {releaseLoading === hold.id ? 'Releasing...' : 'Release'}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<LegalHold>
+              data={legalHolds}
+              columns={legalHoldColumns}
+              keyExtractor={(hold) => hold.id}
+              emptyMessage="No legal holds"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
           )}
         </div>
       </Card>
@@ -464,53 +545,16 @@ const MessagingCompliancePage: React.FC = () => {
               No export jobs found.
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tenant</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Format</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Records</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Legal Hold</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Exported</th>
-                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {exports.map((exp) => (
-                    <tr key={exp.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{exp.tenantName}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 uppercase">{exp.format}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 text-right">{exp.recordCount.toLocaleString()}</td>
-                      <td className="px-4 py-3 text-center">
-                        <ExportStatusBadge status={exp.status} />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {exp.isUnderLegalHold && (
-                          <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800">
-                            HOLD
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500 text-right">
-                        {new Date(exp.createdAt).toLocaleString()}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {exp.status === 'completed' && exp.downloadUrl && (
-                          <button
-                            onClick={() => handleDownloadExport(exp.id)}
-                            className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
-                          >
-                            Download
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<ExportRecord>
+              data={exports}
+              columns={exportRecordColumns}
+              keyExtractor={(exp) => exp.id}
+              emptyMessage="No exports"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
           )}
         </div>
       </Card>

@@ -19,15 +19,13 @@ import {
   Clock,
   MapPin,
   Monitor,
-  ChevronDown,
-  ChevronRight,
   AlertTriangle,
   Info,
   AlertCircle,
   XCircle,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -441,7 +439,6 @@ const ActivityDetailModal: React.FC<{
 
 export const ActivityLogPage: React.FC = () => {
   const [selectedActivity, setSelectedActivity] = useState<ActivityLog | null>(null);
-  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const limit = ACTIVITY_PAGE_SIZE;
 
@@ -500,16 +497,6 @@ export const ActivityLogPage: React.FC = () => {
     void statsQuery.refetch();
   };
 
-  const toggleRowExpand = (id: string): void => {
-    const newExpanded = new Set(expandedRows);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedRows(newExpanded);
-  };
-
   const handleExport = (): void => {
     const csvContent = [
       ['ID', 'Timestamp', 'Category', 'Action', 'Severity', 'User', 'IP', 'Status'].join(','),
@@ -552,6 +539,120 @@ export const ActivityLogPage: React.FC = () => {
       />
     );
   }
+
+  const activityColumns: DataTableColumn<ActivityLog>[] = [
+    {
+      key: 'createdAt',
+      header: 'Timestamp',
+      render: (_value, activity) => (
+        <>
+          <div className="text-sm text-gray-900">{formatTimeAgo(activity.createdAt)}</div>
+          <div className="text-xs text-gray-500">{formatDate(activity.createdAt)}</div>
+        </>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, activity) => (
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
+        >
+          {getCategoryIcon(activity.category)}
+          {activity.category.replace('_', ' ')}
+        </span>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (_value, activity) => (
+        <div className="text-sm text-gray-900 max-w-xs truncate">{activity.action}</div>
+      ),
+    },
+    {
+      key: 'userName',
+      header: 'User',
+      render: (_value, activity) => (
+        <>
+          <div className="text-sm text-gray-900">{activity.userName || '-'}</div>
+          <div className="text-xs text-gray-500">{activity.tenantName}</div>
+        </>
+      ),
+    },
+    {
+      key: 'ipAddress',
+      header: 'IP Address',
+      render: (_value, activity) => (
+        <span className="text-sm font-mono text-gray-600">{activity.ipAddress || '-'}</span>
+      ),
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (_value, activity) => (
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
+        >
+          {getSeverityIcon(activity.severity)}
+          {activity.severity}
+        </span>
+      ),
+    },
+    {
+      key: 'success',
+      header: 'Status',
+      render: (_value, activity) => (
+        <span
+          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+            activity.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}
+        >
+          {activity.success ? 'Success' : 'Failed'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, activity) => (
+        <button
+          type="button"
+          onClick={() => setSelectedActivity(activity)}
+          className="text-blue-600 hover:text-blue-800"
+          aria-label="View activity"
+        >
+          <Eye className="w-4 h-4" />
+        </button>
+      ),
+    },
+  ];
+
+  const renderActivityDetails = (activity: ActivityLog): React.ReactNode => (
+    <div className="grid grid-cols-4 gap-4 text-sm">
+      <div>
+        <span className="text-gray-500">Target:</span>{' '}
+        <span className="text-gray-900">
+          {activity.entityType} - {activity.entityName}
+        </span>
+      </div>
+      <div>
+        <span className="text-gray-500">Duration:</span>{' '}
+        <span className="text-gray-900">{activity.duration}ms</span>
+      </div>
+      <div>
+        <span className="text-gray-500">Location:</span>{' '}
+        <span className="text-gray-900">
+          {activity.geoLocation?.city}, {activity.geoLocation?.country}
+        </span>
+      </div>
+      <div>
+        <span className="text-gray-500">Tenant:</span>{' '}
+        <span className="text-gray-900">{activity.tenantName}</span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -725,150 +826,19 @@ export const ActivityLogPage: React.FC = () => {
 
       {/* Activity Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="w-8 px-4 py-3"></th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Timestamp
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Action
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  User
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  IP Address
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Severity
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {activities.length === 0 ? (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-gray-500">
-                    No activities found
-                  </td>
-                </tr>
-              ) : (
-                activities.map((activity) => (
-                  <React.Fragment key={activity.id}>
-                    <tr className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => toggleRowExpand(activity.id)}
-                          className="text-gray-500 hover:text-gray-600"
-                        >
-                          {expandedRows.has(activity.id) ? (
-                            <ChevronDown className="w-4 h-4" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{formatTimeAgo(activity.createdAt)}</div>
-                        <div className="text-xs text-gray-500">
-                          {formatDate(activity.createdAt)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(activity.category)}`}
-                        >
-                          {getCategoryIcon(activity.category)}
-                          {activity.category.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900 max-w-xs truncate">
-                          {activity.action}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{activity.userName || '-'}</div>
-                        <div className="text-xs text-gray-500">{activity.tenantName}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm font-mono text-gray-600">
-                          {activity.ipAddress || '-'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(activity.severity)}`}
-                        >
-                          {getSeverityIcon(activity.severity)}
-                          {activity.severity}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                            activity.success
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {activity.success ? 'Success' : 'Failed'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => setSelectedActivity(activity)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                    {expandedRows.has(activity.id) && (
-                      <tr className="bg-gray-50">
-                        <td colSpan={9} className="px-8 py-4">
-                          <div className="grid grid-cols-4 gap-4 text-sm">
-                            <div>
-                              <span className="text-gray-500">Target:</span>{' '}
-                              <span className="text-gray-900">
-                                {activity.entityType} - {activity.entityName}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Duration:</span>{' '}
-                              <span className="text-gray-900">{activity.duration}ms</span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Location:</span>{' '}
-                              <span className="text-gray-900">
-                                {activity.geoLocation?.city}, {activity.geoLocation?.country}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Tenant:</span>{' '}
-                              <span className="text-gray-900">{activity.tenantName}</span>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ActivityLog>
+          data={activities}
+          columns={activityColumns}
+          keyExtractor={(activity) => activity.id}
+          emptyMessage="No activities found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+          expandable
+          renderExpandedRow={renderActivityDetails}
+          className="rounded-none shadow-none"
+        />
 
         {/* Pagination */}
         <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">

@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Modal } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import CreateInvoiceModal, { type CreateInvoicePayload } from '../components/CreateInvoiceModal';
 import { billingApi, InvoiceOverview } from '../services/adminApi';
@@ -361,6 +361,76 @@ const InvoicesPage: React.FC = () => {
     refunded: 'Refunded',
   };
 
+  const invoiceColumns: DataTableColumn<Invoice>[] = [
+    {
+      key: 'invoiceNumber',
+      header: 'Invoice',
+      render: (_value, invoice) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900">{invoice.invoiceNumber}</div>
+          <div className="text-xs text-gray-500">{formatDate(invoice.createdAt)}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'tenantName',
+      header: 'Tenant',
+      render: (_value, invoice) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900">{invoice.tenantName || 'Unknown'}</div>
+          <div className="text-xs text-gray-500">{invoice.tenantEmail || '-'}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      render: (_value, invoice) => (
+        <>
+          <div className="text-sm font-semibold text-gray-900">{formatCurrency(invoice.amount, invoice.currency)}</div>
+          {invoice.amountDue > 0 && invoice.amountDue < invoice.amount && (
+            <div className="text-xs text-orange-600">Due: {formatCurrency(invoice.amountDue, invoice.currency)}</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, invoice) => (
+        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[invoice.status] || 'bg-gray-100 text-gray-700'}`}>
+          {statusLabels[invoice.status] || invoice.status}
+        </span>
+      ),
+    },
+    {
+      key: 'dueDate',
+      header: 'Due Date',
+      render: (_value, invoice) => (
+        <>
+          <div className="text-sm text-gray-900">{formatDate(invoice.dueDate)}</div>
+          {invoice.paidAt && (
+            <div className="text-xs text-green-600">Paid: {formatDate(invoice.paidAt)}</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, invoice) => (
+        <button
+          type="button"
+          onClick={() => setSelectedInvoice(invoice)}
+          className="text-blue-600 hover:text-blue-900"
+        >
+          View
+        </button>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Toast Notification */}
@@ -479,96 +549,17 @@ const InvoicesPage: React.FC = () => {
       </div>
 
       {/* Invoice Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        {loading ? (
-          <div className="p-8 animate-pulse">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex items-center gap-4 py-4 border-b border-gray-100">
-                <div className="h-4 bg-gray-200 rounded w-24" />
-                <div className="h-4 bg-gray-200 rounded w-40" />
-                <div className="flex-1" />
-                <div className="h-4 bg-gray-200 rounded w-20" />
-                <div className="h-4 bg-gray-200 rounded w-24" />
-              </div>
-            ))}
-          </div>
-        ) : invoices.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            <svg className="mx-auto h-12 w-12 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <p className="mt-2">No invoices found</p>
-          </div>
-        ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Invoice
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Tenant
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Amount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Due Date
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {invoices.map((invoice) => (
-                <tr key={invoice.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{invoice.invoiceNumber}</div>
-                      <div className="text-xs text-gray-500">{formatDate(invoice.createdAt)}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">{invoice.tenantName || 'Unknown'}</div>
-                      <div className="text-xs text-gray-500">{invoice.tenantEmail || '-'}</div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-semibold text-gray-900">{formatCurrency(invoice.amount, invoice.currency)}</div>
-                    {invoice.amountDue > 0 && invoice.amountDue < invoice.amount && (
-                      <div className="text-xs text-orange-600">Due: {formatCurrency(invoice.amountDue, invoice.currency)}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[invoice.status] || 'bg-gray-100 text-gray-700'}`}>
-                      {statusLabels[invoice.status] || invoice.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{formatDate(invoice.dueDate)}</div>
-                    {invoice.paidAt && (
-                      <div className="text-xs text-green-600">Paid: {formatDate(invoice.paidAt)}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => setSelectedInvoice(invoice)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <DataTable<Invoice>
+        data={invoices}
+        columns={invoiceColumns}
+        keyExtractor={(invoice) => invoice.id}
+        loading={loading}
+        loadingMessage="Loading invoices..."
+        emptyMessage="No invoices found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Invoice Detail Modal */}
       {selectedInvoice && !showMarkPaidModal && !showVoidModal && (

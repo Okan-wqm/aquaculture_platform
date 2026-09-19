@@ -6,7 +6,7 @@
  * Uses real API data from backend reports service.
  */
 
-import { Card, Button, Badge, Modal, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Modal, Input } from '@aquaculture/shared-ui';
 import React, { useCallback, useState } from 'react';
 
 import { reportsApi, type ReportExecution as ApiReportExecution } from '../services/adminApi';
@@ -728,37 +728,26 @@ const ReportsPage: React.FC = () => {
             {/* Data Table */}
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-2">Data</h4>
-              <div className="overflow-x-auto border rounded-lg">
-                {Array.isArray(selectedReport.data) && selectedReport.data.length > 0 ? (
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        {Object.keys(selectedReport.data[0] as Record<string, unknown>).map((key) => (
-                          <th
-                            key={key}
-                            className="px-4 py-3 text-left text-xs font-medium text-gray-500"
-                          >
-                            {formatColumnHeader(key)}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {(selectedReport.data as Record<string, unknown>[]).slice(0, 10).map((row, idx) => (
-                        <tr key={idx}>
-                          {Object.values(row).map((value, cellIdx) => (
-                            <td key={cellIdx} className="px-4 py-3 text-sm text-gray-900">
-                              {renderReportValue(value)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
+              {Array.isArray(selectedReport.data) && selectedReport.data.length > 0 ? (
+                <DataTable<Record<string, unknown>>
+                  data={(selectedReport.data as Record<string, unknown>[]).slice(0, 10)}
+                  columns={Object.keys(selectedReport.data[0] as Record<string, unknown>).map((key) => ({
+                    key,
+                    header: formatColumnHeader(key),
+                    render: (_value: unknown, row: Record<string, unknown>) => renderReportValue(row[key]),
+                  }))}
+                  keyExtractor={(row) => JSON.stringify(row)}
+                  searchable={false}
+                  sortable={false}
+                  stickyHeader={false}
+                  compact
+                  className="border rounded-lg shadow-none"
+                />
+              ) : (
+                <div className="border rounded-lg">
                   <p className="p-4 text-gray-500 text-center">No data available</p>
-                )}
-              </div>
+                </div>
+              )}
               {Array.isArray(selectedReport.data) && selectedReport.data.length > 10 && (
                 <p className="text-sm text-gray-500 mt-2">
                   Showing first 10 records. Download the report for all data.

@@ -54379,12 +54379,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/hr-module/src/components/common/DataTable.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/hr-module/src/components/common/DepartmentBadge.tsx",
       "prettier_managed": true
     },
@@ -60577,6 +60571,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/ConfiguredBrowserRouter.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/DataTable/__tests__/DataTable.spec.tsx",
       "prettier_managed": true
     },
     {

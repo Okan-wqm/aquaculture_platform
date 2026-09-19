@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, Input, Select, useConfirm } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Select, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -239,6 +239,170 @@ export const JobQueuePage: React.FC = () => {
     return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadDashboard} />;
   }
 
+  const scheduledJobColumns: DataTableColumn<BackgroundJob>[] = [
+    {
+      key: 'jobName',
+      header: 'Job Name',
+      render: (_value, job) => (
+        <span className="font-medium text-gray-900">{job.name}</span>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, job) => (
+        <Badge variant="info">{job.jobType}</Badge>
+      ),
+    },
+    {
+      key: 'schedule',
+      header: 'Schedule',
+      render: (_value, job) => (
+        <span className="font-mono text-sm text-gray-600">
+          {job.cronExpression || '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'nextRun',
+      header: 'Next Run',
+      render: (_value, job) => (
+        <span className="text-sm text-gray-600">
+          {formatDateTime(job.nextRunAt)}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, job) => (
+        <Badge variant={getStatusBadge(job.status)}>
+          {job.status}
+        </Badge>
+      ),
+    }
+  ];
+
+  const backgroundJobColumns: DataTableColumn<BackgroundJob>[] = [
+    {
+      key: 'job',
+      header: 'Job',
+      render: (_value, job) => (
+        <div className="flex flex-col">
+          <span className="font-medium text-gray-900">{job.name}</span>
+          <span className="text-xs font-mono text-gray-500">{job.id}</span>
+          {job.errorMessage && (
+            <span className="text-xs text-red-600 mt-1 line-clamp-1">
+              Error: {job.errorMessage}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'queue',
+      header: 'Queue',
+      render: (_value, job) => (
+        <span className="text-sm text-gray-600">{job.queueName}</span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, job) => (
+        <Badge variant={getStatusBadge(job.status)}>
+          {job.status}
+        </Badge>
+      ),
+    },
+    {
+      key: 'progress',
+      header: 'Progress',
+      render: (_value, job) => (
+        <>
+          {job.progress ? (
+            <div className="min-w-[120px]">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-20 bg-gray-200 rounded-full h-2">
+                  <div
+                    className="bg-blue-600 h-2 rounded-full transition-all"
+                    style={{ width: `${job.progress.percentage}%` }}
+                  />
+                </div>
+                <span className="text-sm text-gray-600 whitespace-nowrap">
+                  {job.progress.percentage}%
+                </span>
+              </div>
+              {job.progress.message && (
+                <div className="text-xs text-gray-500 line-clamp-1">
+                  {job.progress.message}
+                </div>
+              )}
+            </div>
+          ) : job.durationMs ? (
+            <span className="text-sm text-gray-600">{formatDuration(job.durationMs)}</span>
+          ) : (
+            <span className="text-sm text-gray-500">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'priority',
+      header: 'Priority',
+      render: (_value, job) => {
+        const priority = getPriorityLabel(job.priority);
+        return (
+          <span className={`text-sm font-medium ${priority.color}`}>
+            {priority.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'startedCompleted',
+      header: 'Started / Completed',
+      render: (_value, job) => (
+        <div className="text-sm text-gray-600">
+          {job.startedAt && (
+            <div>{formatDateTime(job.startedAt)}</div>
+          )}
+          {job.completedAt && (
+            <div className="text-gray-500">{formatDateTime(job.completedAt)}</div>
+          )}
+          {!job.startedAt && !job.completedAt && (
+            <span className="text-gray-500">-</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, job) => (
+        <div className="flex justify-end gap-2">
+          {job.status === 'failed' && (
+            <button
+              onClick={() => handleRetryJob(job)}
+              className="px-3 py-1.5 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+            >
+              Retry
+            </button>
+          )}
+          {(job.status === 'running' || job.status === 'pending') && (
+            <button
+              onClick={() => handleCancelJob(job)}
+              className="px-3 py-1.5 text-sm font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -354,137 +518,15 @@ export const JobQueuePage: React.FC = () => {
           </Card>
 
           {/* Jobs List */}
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Job
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Queue
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Progress
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Priority
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Started / Completed
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {safeJobs.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                        No jobs found
-                      </td>
-                    </tr>
-                  ) : (
-                    safeJobs.map((job) => {
-                      const priority = getPriorityLabel(job.priority);
-                      return (
-                        <tr key={job.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4">
-                            <div className="flex flex-col">
-                              <span className="font-medium text-gray-900">{job.name}</span>
-                              <span className="text-xs font-mono text-gray-500">{job.id}</span>
-                              {job.errorMessage && (
-                                <span className="text-xs text-red-600 mt-1 line-clamp-1">
-                                  Error: {job.errorMessage}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-sm text-gray-600">{job.queueName}</span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <Badge variant={getStatusBadge(job.status)}>
-                              {job.status}
-                            </Badge>
-                          </td>
-                          <td className="px-6 py-4">
-                            {job.progress ? (
-                              <div className="min-w-[120px]">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <div className="w-20 bg-gray-200 rounded-full h-2">
-                                    <div
-                                      className="bg-blue-600 h-2 rounded-full transition-all"
-                                      style={{ width: `${job.progress.percentage}%` }}
-                                    />
-                                  </div>
-                                  <span className="text-sm text-gray-600 whitespace-nowrap">
-                                    {job.progress.percentage}%
-                                  </span>
-                                </div>
-                                {job.progress.message && (
-                                  <div className="text-xs text-gray-500 line-clamp-1">
-                                    {job.progress.message}
-                                  </div>
-                                )}
-                              </div>
-                            ) : job.durationMs ? (
-                              <span className="text-sm text-gray-600">{formatDuration(job.durationMs)}</span>
-                            ) : (
-                              <span className="text-sm text-gray-500">-</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`text-sm font-medium ${priority.color}`}>
-                              {priority.label}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="text-sm text-gray-600">
-                              {job.startedAt && (
-                                <div>{formatDateTime(job.startedAt)}</div>
-                              )}
-                              {job.completedAt && (
-                                <div className="text-gray-500">{formatDateTime(job.completedAt)}</div>
-                              )}
-                              {!job.startedAt && !job.completedAt && (
-                                <span className="text-gray-500">-</span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex justify-end gap-2">
-                              {job.status === 'failed' && (
-                                <button
-                                  onClick={() => handleRetryJob(job)}
-                                  className="px-3 py-1.5 text-sm font-medium bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
-                                >
-                                  Retry
-                                </button>
-                              )}
-                              {(job.status === 'running' || job.status === 'pending') && (
-                                <button
-                                  onClick={() => handleCancelJob(job)}
-                                  className="px-3 py-1.5 text-sm font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
-                                >
-                                  Cancel
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </Card>
+          <DataTable<BackgroundJob>
+            data={safeJobs}
+            columns={backgroundJobColumns}
+            keyExtractor={(job) => job.id}
+            emptyMessage="No jobs found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
 
@@ -567,58 +609,15 @@ export const JobQueuePage: React.FC = () => {
               <h2 className="text-lg font-semibold text-gray-900">Scheduled & Recurring Jobs</h2>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Job Name
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Schedule
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Next Run
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {safeJobs
-                  .filter((j: BackgroundJob) => j.jobType === 'scheduled' || j.jobType === 'recurring')
-                  .map((job: BackgroundJob) => (
-                    <tr key={job.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <span className="font-medium text-gray-900">{job.name}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge variant="info">{job.jobType}</Badge>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="font-mono text-sm text-gray-600">
-                          {job.cronExpression || '-'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-sm text-gray-600">
-                          {formatDateTime(job.nextRunAt)}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge variant={getStatusBadge(job.status)}>
-                          {job.status}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<BackgroundJob>
+            data={safeJobs.filter((j) => j.jobType === 'scheduled' || j.jobType === 'recurring')}
+            columns={scheduledJobColumns}
+            keyExtractor={(job) => job.id}
+            emptyMessage="No scheduled jobs"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </Card>
       )}
 

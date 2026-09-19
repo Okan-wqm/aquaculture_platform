@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 import { expectedTotalPages } from '@platform/pagination-contracts';
@@ -137,6 +137,51 @@ const MessagingAuditPage: React.FC = () => {
 
   const totalPages = expectedTotalPages(total, PAGE_SIZE);
 
+  const messagingAuditEntryColumns: DataTableColumn<MessagingAuditEntry>[] = [
+    {
+      key: 'timestamp',
+      header: 'Timestamp',
+      render: (_value, entry) => new Date(entry.timestamp).toLocaleString(),
+    },
+    {
+      key: 'tenant',
+      header: 'Tenant',
+      render: (_value, entry) => (
+        <p className="text-sm font-medium text-gray-900">{entry.tenantName}</p>
+      ),
+    },
+    {
+      key: 'user',
+      header: 'User',
+      render: (_value, entry) => (
+        <>
+          <p className="text-sm text-gray-700">{entry.userName}</p>
+          <p className="text-xs text-gray-400 font-mono">{entry.userId.slice(0, 8)}...</p>
+        </>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (_value, entry) => (
+        <>
+          <span
+            className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
+              ACTION_COLORS[entry.action] ?? 'bg-gray-100 text-gray-800'
+            }`}
+          >
+            {entry.action.replace(/_/g, ' ')}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'details',
+      header: 'Details',
+      render: (_value, entry) => entry.details,
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -253,55 +298,16 @@ const MessagingAuditPage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Timestamp
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tenant
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    User
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Action
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Details
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {entries.map((entry) => (
-                  <tr key={entry.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-                      {new Date(entry.timestamp).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm font-medium text-gray-900">{entry.tenantName}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="text-sm text-gray-700">{entry.userName}</p>
-                      <p className="text-xs text-gray-400 font-mono">{entry.userId.slice(0, 8)}...</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-                          ACTION_COLORS[entry.action] ?? 'bg-gray-100 text-gray-800'
-                        }`}
-                      >
-                        {entry.action.replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">
-                      {entry.details}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<MessagingAuditEntry>
+              data={entries}
+              columns={messagingAuditEntryColumns}
+              keyExtractor={(entry) => entry.id}
+              emptyMessage="No audit entries"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              className="shadow-none rounded-none"
+            />
           )}
         </div>
 

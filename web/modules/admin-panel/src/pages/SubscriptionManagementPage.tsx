@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input, Modal } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   billingApi,
   SubscriptionOverview,
@@ -165,6 +165,93 @@ const SubscriptionManagementPage: React.FC = () => {
     );
   }
 
+  const subscriptionColumns: DataTableColumn<SubscriptionOverview>[] = [
+    {
+      key: 'tenantName',
+      header: 'Tenant',
+      render: (_value, sub) => (
+        <>
+          <div className="font-medium text-gray-900">{sub.tenantName}</div>
+          <div className="text-sm text-gray-500">{sub.tenantId.substring(0, 8)}...</div>
+        </>
+      ),
+    },
+    {
+      key: 'planName',
+      header: 'Plan',
+      render: (_value, sub) => (
+        <>
+          <div className="font-medium">{sub.planName}</div>
+          <div className="text-sm text-gray-500">{sub.planTier}</div>
+        </>
+      ),
+    },
+    { key: 'status', header: 'Status', render: (_value, sub) => getStatusBadge(sub.status) },
+    {
+      key: 'monthlyPrice',
+      header: 'Billing',
+      render: (_value, sub) => (
+        <>
+          <div>{formatCurrency(sub.monthlyPrice)}/mo</div>
+          <div className="text-sm text-gray-500">{sub.billingCycle}</div>
+        </>
+      ),
+    },
+    {
+      key: 'currentPeriodEnd',
+      header: 'Period End',
+      render: (_value, sub) => <span className="text-sm text-gray-500">{formatDate(sub.currentPeriodEnd)}</span>,
+    },
+    {
+      key: 'autoRenew',
+      header: 'Auto Renew',
+      render: (_value, sub) => (sub.autoRenew ? <Badge variant="success">Yes</Badge> : <Badge variant="default">No</Badge>),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, sub) => (
+        <div className="flex gap-2 justify-end">
+          {sub.status === SubscriptionStatus.TRIAL && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedSubscription(sub);
+                setShowExtendTrialModal(true);
+              }}
+            >
+              Extend Trial
+            </Button>
+          )}
+          {sub.status === SubscriptionStatus.CANCELLED && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleReactivate(sub.tenantId)}
+            >
+              Reactivate
+            </Button>
+          )}
+          {(sub.status === SubscriptionStatus.ACTIVE ||
+            sub.status === SubscriptionStatus.TRIAL) && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                setSelectedSubscription(sub);
+                setShowCancelModal(true);
+              }}
+            >
+              Cancel
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -289,139 +376,19 @@ const SubscriptionManagementPage: React.FC = () => {
       </Card>
 
       {/* Subscriptions Table */}
-      <Card>
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tenant
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Plan
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Billing
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Period End
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Auto Renew
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {subscriptions.map((sub) => (
-                  <tr key={sub.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-gray-900">{sub.tenantName}</div>
-                      <div className="text-sm text-gray-500">{sub.tenantId.substring(0, 8)}...</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium">{sub.planName}</div>
-                      <div className="text-sm text-gray-500">{sub.planTier}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(sub.status)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>{formatCurrency(sub.monthlyPrice)}/mo</div>
-                      <div className="text-sm text-gray-500">{sub.billingCycle}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(sub.currentPeriodEnd)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {sub.autoRenew ? (
-                        <Badge variant="success">Yes</Badge>
-                      ) : (
-                        <Badge variant="default">No</Badge>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex gap-2 justify-end">
-                        {sub.status === SubscriptionStatus.TRIAL && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedSubscription(sub);
-                              setShowExtendTrialModal(true);
-                            }}
-                          >
-                            Extend Trial
-                          </Button>
-                        )}
-                        {sub.status === SubscriptionStatus.CANCELLED && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleReactivate(sub.tenantId)}
-                          >
-                            Reactivate
-                          </Button>
-                        )}
-                        {(sub.status === SubscriptionStatus.ACTIVE ||
-                          sub.status === SubscriptionStatus.TRIAL) && (
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedSubscription(sub);
-                              setShowCancelModal(true);
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
-              Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page === 1}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page === totalPages}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        )}
-      </Card>
+      <DataTable<SubscriptionOverview>
+        data={subscriptions}
+        columns={subscriptionColumns}
+        keyExtractor={(sub) => sub.id}
+        loading={loading}
+        loadingMessage="Loading subscriptions..."
+        emptyMessage="No subscriptions found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        pagination={{ page, limit, total, totalPages }}
+        onPageChange={setPage}
+      />
 
       {/* Cancel Modal */}
       {showCancelModal && selectedSubscription && (

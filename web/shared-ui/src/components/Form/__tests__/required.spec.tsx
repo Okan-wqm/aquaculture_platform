@@ -6,7 +6,6 @@
  * on every form in the product. The native attribute (or aria-required on a
  * trigger button) is what assistive technology and the browser read.
  */
-import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 

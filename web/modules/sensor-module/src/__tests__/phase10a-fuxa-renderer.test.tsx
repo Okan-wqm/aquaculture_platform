@@ -25,6 +25,9 @@ import {
 import type { FuxaStateRule } from '../components/scada-builder/fuxa-bridge/types';
 import { FuxaMessageBridge } from '../components/scada-builder/fuxa-bridge/FuxaMessageBridge';
 import { buildFuxaSrcdoc } from '../components/scada-builder/widget-renderers/FuxaWidgetRenderer';
+import { ScadaRuntimeContext } from '../engine/ScadaRuntime';
+import { TagValueBus } from '../engine/tags/TagValueBus';
+import { WidgetEventBus } from '../engine/events/WidgetEventBus';
 
 /* ------------------------------------------------------------------ */
 /*  Mocks                                                              */
@@ -114,10 +117,7 @@ describe('FuxaMessageBridge', () => {
     bridge.dispose();
 
     // Should have removed the 'message' event listener
-    expect(removeListenerSpy).toHaveBeenCalledWith(
-      'message',
-      expect.any(Function),
-    );
+    expect(removeListenerSpy).toHaveBeenCalledWith('message', expect.any(Function));
 
     removeListenerSpy.mockRestore();
   });
@@ -267,33 +267,25 @@ describe('evaluateStateRules', () => {
   });
 
   it('returns correct state for "between" condition', () => {
-    const rules: FuxaStateRule[] = [
-      { condition: 'between', value: [20, 80], state: 2 },
-    ];
+    const rules: FuxaStateRule[] = [{ condition: 'between', value: [20, 80], state: 2 }];
     expect(evaluateStateRules(50, rules)).toBe(2);
     expect(evaluateStateRules(10, rules)).toBe(0); // No match = default 0
   });
 
   it('returns correct state for "eq" condition', () => {
-    const rules: FuxaStateRule[] = [
-      { condition: 'eq', value: 42, state: 5 },
-    ];
+    const rules: FuxaStateRule[] = [{ condition: 'eq', value: 42, state: 5 }];
     expect(evaluateStateRules(42, rules)).toBe(5);
     expect(evaluateStateRules(41, rules)).toBe(0);
   });
 
   it('returns correct state for "lte" condition', () => {
-    const rules: FuxaStateRule[] = [
-      { condition: 'lte', value: 10, state: 1 },
-    ];
+    const rules: FuxaStateRule[] = [{ condition: 'lte', value: 10, state: 1 }];
     expect(evaluateStateRules(10, rules)).toBe(1);
     expect(evaluateStateRules(11, rules)).toBe(0);
   });
 
   it('returns correct state for "gt" condition', () => {
-    const rules: FuxaStateRule[] = [
-      { condition: 'gt', value: 90, state: 4 },
-    ];
+    const rules: FuxaStateRule[] = [{ condition: 'gt', value: 90, state: 4 }];
     expect(evaluateStateRules(91, rules)).toBe(4);
     expect(evaluateStateRules(90, rules)).toBe(0);
   });
@@ -311,9 +303,7 @@ describe('evaluateStateRules', () => {
   });
 
   it('returns default state 0 when no rules match', () => {
-    const rules: FuxaStateRule[] = [
-      { condition: 'lt', value: 0, state: 1 },
-    ];
+    const rules: FuxaStateRule[] = [{ condition: 'lt', value: 0, state: 1 }];
     expect(evaluateStateRules(100, rules)).toBe(0);
   });
 
@@ -380,20 +370,13 @@ describe('FuxaWidgetRenderer', () => {
   }>;
 
   beforeEach(async () => {
-    const mod = await import(
-      '../components/scada-builder/widget-renderers/FuxaWidgetRenderer'
-    );
+    const mod = await import('../components/scada-builder/widget-renderers/FuxaWidgetRenderer');
     FuxaWidgetRenderer = mod.default;
   });
 
   it('shows empty state when no SVG content is provided', () => {
     render(
-      <FuxaWidgetRenderer
-        config={{ variables: {} }}
-        width={240}
-        height={200}
-        isEditing={false}
-      />,
+      <FuxaWidgetRenderer config={{ variables: {} }} width={240} height={200} isEditing={false} />,
     );
     expect(screen.getByTestId('fuxa-empty')).toBeDefined();
     expect(screen.getByText('FUXA Widget')).toBeDefined();
@@ -468,6 +451,65 @@ describe('FuxaWidgetRenderer', () => {
     // Restore original
     window.IntersectionObserver = OriginalObserver;
   });
+
+  it('binds each configured variable to its tag on the runtime bus: the current value at load, every publish after', () => {
+    vi.useFakeTimers();
+    /** Reports every observed element as visible at once, so the iframe mounts. */
+    class ImmediateIntersectionObserver implements IntersectionObserver {
+      readonly root: Element | Document | null = null;
+      readonly rootMargin = '0px';
+      readonly thresholds: ReadonlyArray<number> = [0];
+      constructor(private readonly callback: IntersectionObserverCallback) {}
+      observe(target: Element): void {
+        const entry: Partial<IntersectionObserverEntry> = { isIntersecting: true, target };
+        this.callback([entry as IntersectionObserverEntry], this);
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+    }
+    vi.stubGlobal('IntersectionObserver', ImmediateIntersectionObserver);
+    const tagBus = new TagValueBus();
+    tagBus.publish('plant.tank1.name', 'Tank 1');
+
+    try {
+      render(
+        <ScadaRuntimeContext.Provider value={{ tagBus, eventBus: new WidgetEventBus() }}>
+          <FuxaWidgetRenderer
+            config={{
+              svgContent: SAMPLE_FUXA_SVG,
+              variables: {},
+              variableTagBindings: { _ps_title: 'plant.tank1.name' },
+            }}
+            width={240}
+            height={200}
+            isEditing={false}
+          />
+        </ScadaRuntimeContext.Provider>,
+      );
+      const iframe = screen.getByTestId('fuxa-iframe') as HTMLIFrameElement;
+      const postMessage = vi.spyOn(iframe.contentWindow!, 'postMessage');
+
+      fireEvent.load(iframe);
+      vi.advanceTimersByTime(16);
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: 'putValue', id: '_ps_title', value: 'Tank 1' },
+        '*',
+      );
+
+      tagBus.publish('plant.tank1.name', 'Tank 2');
+      vi.advanceTimersByTime(16);
+      expect(postMessage).toHaveBeenCalledWith(
+        { type: 'putValue', id: '_ps_title', value: 'Tank 2' },
+        '*',
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -482,9 +524,7 @@ describe('FuxaWidgetConfig', () => {
   }>;
 
   beforeEach(async () => {
-    const mod = await import(
-      '../components/scada-builder/widget-configs/FuxaWidgetConfig'
-    );
+    const mod = await import('../components/scada-builder/widget-configs/FuxaWidgetConfig');
     FuxaWidgetConfig = mod.FuxaWidgetConfig;
   });
 
@@ -519,9 +559,7 @@ describe('FuxaWidgetConfig', () => {
 
   it('shows upload button when no SVG is loaded', () => {
     const onChange = vi.fn();
-    render(
-      <FuxaWidgetConfig config={{}} onChange={onChange} />,
-    );
+    render(<FuxaWidgetConfig config={{}} onChange={onChange} />);
 
     expect(screen.getByTestId('fuxa-upload-btn')).toBeDefined();
   });
@@ -545,21 +583,14 @@ describe('FuxaWidgetConfig', () => {
 
   it('renders state machine tag input', () => {
     const onChange = vi.fn();
-    render(
-      <FuxaWidgetConfig config={{}} onChange={onChange} />,
-    );
+    render(<FuxaWidgetConfig config={{}} onChange={onChange} />);
 
     expect(screen.getByTestId('fuxa-state-tag')).toBeDefined();
   });
 
   it('shows add rule button when tag is set', () => {
     const onChange = vi.fn();
-    render(
-      <FuxaWidgetConfig
-        config={{ tagName: 'sensor.temp' }}
-        onChange={onChange}
-      />,
-    );
+    render(<FuxaWidgetConfig config={{ tagName: 'sensor.temp' }} onChange={onChange} />);
 
     expect(screen.getByTestId('fuxa-add-rule')).toBeDefined();
   });
@@ -573,9 +604,7 @@ describe('Widget type registration', () => {
   // Test 8: Widget type registered in WidgetRenderer lazy map
   it('fuxaWidget is included in ScadaWidgetType union', async () => {
     // Verify the type exists by checking the lazy map in WidgetRenderer
-    const { WidgetRenderer } = await import(
-      '../components/scada-builder/WidgetRenderer'
-    );
+    const { WidgetRenderer } = await import('../components/scada-builder/WidgetRenderer');
     expect(WidgetRenderer).toBeDefined();
 
     // Render with fuxaWidget type -- should NOT show "Unknown widget"
@@ -606,9 +635,7 @@ describe('Widget type registration', () => {
   it('fuxaWidget has config panel registered', async () => {
     // Import FuxaWidgetConfig directly to avoid the heavyweight index barrel
     // which triggers dynamic imports for every widget config panel
-    const mod = await import(
-      '../components/scada-builder/widget-configs/FuxaWidgetConfig'
-    );
+    const mod = await import('../components/scada-builder/widget-configs/FuxaWidgetConfig');
     expect(mod.FuxaWidgetConfig).toBeDefined();
     expect(typeof mod.FuxaWidgetConfig).toBe('function');
   });

@@ -27,6 +27,7 @@ import {
   getLanguageCodes,
   TRANSLATION_PREFIX,
 } from '../../engine/i18n/ViewTranslations';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -180,6 +181,34 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
     [translations, onTranslationsChange],
   );
 
+  // One column per language; the rows are the translation keys.
+  const translationColumns: DataTableColumn<string>[] = [
+    { key: 'key', header: 'Key', render: (_value, key) => <span className="font-mono text-gray-800">{key}</span> },
+    ...languages.map((lang): DataTableColumn<string> => ({
+      key: lang,
+      header: lang.toUpperCase(),
+      render: (_value, key) => (
+        <input
+          type="text"
+          value={translations.languages[lang]?.[key] ?? ''}
+          onChange={(e) => handleUpdateValue(key, lang, e.target.value)}
+          className="w-full px-1.5 py-0.5 text-[11px] border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500"
+          placeholder={`${lang}...`}
+        />
+      ),
+    })),
+    {
+      key: 'remove',
+      header: '',
+      width: '2rem',
+      render: (_value, key) => (
+        <button onClick={() => handleRemoveKey(key)} className="p-1 rounded hover:bg-red-100 text-red-400" title="Remove key">
+          <Trash2 className="w-3 h-3" />
+        </button>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-3" data-testid="translations-panel">
       {/* Header */}
@@ -303,51 +332,16 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
         </div>
       ) : (
         <div className="max-h-[350px] overflow-auto border border-gray-200 rounded-lg">
-          <table className="w-full text-xs">
-            <thead className="sticky top-0 bg-gray-50 z-10">
-              <tr>
-                <th className="text-left px-3 py-2 font-medium text-gray-500 border-b border-gray-200">
-                  Key
-                </th>
-                {languages.map((lang) => (
-                  <th
-                    key={lang}
-                    className="text-left px-2 py-2 font-medium text-gray-500 border-b border-gray-200"
-                  >
-                    {lang.toUpperCase()}
-                  </th>
-                ))}
-                <th className="w-8 border-b border-gray-200" />
-              </tr>
-            </thead>
-            <tbody>
-              {filteredKeys.map((key) => (
-                <tr key={key} className="hover:bg-gray-50 border-t border-gray-50">
-                  <td className="px-3 py-1.5 font-mono text-gray-800">{key}</td>
-                  {languages.map((lang) => (
-                    <td key={lang} className="px-2 py-1">
-                      <input
-                        type="text"
-                        value={translations.languages[lang]?.[key] ?? ''}
-                        onChange={(e) => handleUpdateValue(key, lang, e.target.value)}
-                        className="w-full px-1.5 py-0.5 text-[11px] border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500"
-                        placeholder={`${lang}...`}
-                      />
-                    </td>
-                  ))}
-                  <td className="px-1 py-1">
-                    <button
-                      onClick={() => handleRemoveKey(key)}
-                      className="p-1 rounded hover:bg-red-100 text-red-400"
-                      title="Remove key"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<string>
+            data={filteredKeys}
+            columns={translationColumns}
+            keyExtractor={(key) => key}
+            emptyMessage="No keys match the search filter."
+            searchable={false}
+            sortable={false}
+            compact
+            className="border-0 rounded-none shadow-none"
+          />
         </div>
       )}
     </div>

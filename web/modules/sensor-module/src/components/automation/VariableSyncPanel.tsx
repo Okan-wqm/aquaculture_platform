@@ -26,6 +26,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { parseStVariables, type ParsedVariable } from '../../utils/st-variable-parser';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 type DetectedVariable = ParsedVariable;
 
@@ -316,6 +317,130 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
     );
   }
 
+  type ItemRow = (typeof comparison)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, item) => (
+        <StatusBadge status={item.status} />
+      ),
+    },
+    {
+      key: 'variableName',
+      header: 'Variable Name',
+      render: (_value, item) => {
+        const varName = item.detected?.varName ?? item.registered?.varName ?? '';
+        return (
+          <>
+            {varName}
+          </>
+        );
+      },
+    },
+    {
+      key: 'tip',
+      header: 'Tip',
+      render: (_value, item) => {
+        const dataType = item.detected?.dataType ?? item.registered?.dataType ?? '';
+        return (
+          <>
+            {dataType}
+          </>
+        );
+      },
+    },
+    {
+      key: 'baslangic',
+      header: 'Baslangic',
+      render: (_value, item) => {
+        const initialValue = item.detected?.initialValue ?? item.registered?.initialValue ?? '';
+        return (
+          <>
+            {initialValue || '-'}
+          </>
+        );
+      },
+    },
+    {
+      key: 'kapsam',
+      header: 'Kapsam',
+      render: (_value, item) => {
+        const scope = item.detected?.scope ?? item.registered?.scope ?? '';
+        return (
+          <>
+            {scopeLabel(scope)}
+          </>
+        );
+      },
+    },
+    {
+      key: 'notlar',
+      header: 'Notlar',
+      render: (_value, item) => (
+        <>
+          {item.status === 'missing' && (
+            <span className="text-blue-600">In code, not in DB</span>
+          )}
+          {item.status === 'orphaned' && (
+            <span className="text-amber-600">In DB, not in code</span>
+          )}
+          {item.status === 'changed' && item.changes && (
+            <span className="text-orange-600">{item.changes.join('; ')}</span>
+          )}
+          {item.status === 'synced' && (
+            <span className="text-green-600">
+              <Check className="h-3 w-3 inline mr-0.5" />
+              Synced
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'islem',
+      header: 'Islem',
+      align: 'right',
+      render: (_value, item) => {
+        const varName = item.detected?.varName ?? item.registered?.varName ?? '';
+        const isItemAdding = addingVarNames.has(varName);
+        const isItemRemoving = item.registered ? removingIds.has(item.registered.id) : false;
+        return (
+          <>
+            {item.status === 'missing' && item.detected && (
+              <button
+                onClick={() => handleAddOne(item.detected!)}
+                disabled={isItemAdding || isAdding}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {isItemAdding ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Plus className="h-3 w-3" />
+                )}
+                Ekle
+              </button>
+            )}
+            {item.status === 'orphaned' && item.registered && (
+              <button
+                onClick={() => handleRemoveOne(item.registered!.id)}
+                disabled={isItemRemoving || isRemoving}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
+              >
+                {isItemRemoving ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+                Kaldir
+              </button>
+            )}
+          </>
+        );
+      },
+    }
+  ];
+
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
       {/* ── Header ──────────────────────────────────────────────────────── */}
@@ -445,123 +570,25 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
 
       {/* ── Comparison table ────────────────────────────────────────────── */}
       {expanded && (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Durum
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Variable Name
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Tip
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Baslangic
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Kapsam
-                </th>
-                <th className="px-4 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Notlar
-                </th>
-                <th className="px-4 py-2 text-right text-[10px] font-medium text-gray-500 uppercase tracking-wider">
-                  Islem
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {comparison.map((item, idx) => {
-                const varName = item.detected?.varName ?? item.registered?.varName ?? '';
-                const dataType = item.detected?.dataType ?? item.registered?.dataType ?? '';
-                const initialValue = item.detected?.initialValue ?? item.registered?.initialValue ?? '';
-                const scope = item.detected?.scope ?? item.registered?.scope ?? '';
-                const isItemAdding = addingVarNames.has(varName);
-                const isItemRemoving = item.registered ? removingIds.has(item.registered.id) : false;
-
-                const rowBg =
-                  item.status === 'missing'
-                    ? 'bg-blue-50/50'
-                    : item.status === 'orphaned'
-                      ? 'bg-amber-50/50'
-                      : item.status === 'changed'
-                        ? 'bg-orange-50/50'
-                        : '';
-
-                return (
-                  <tr key={`${item.status}-${varName}-${idx}`} className={`${rowBg} hover:bg-gray-50`}>
-                    <td className="px-4 py-2">
-                      <StatusBadge status={item.status} />
-                    </td>
-                    <td className="px-4 py-2 text-sm font-mono text-gray-900">{varName}</td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{dataType}</td>
-                    <td className="px-4 py-2 text-sm font-mono text-gray-500">
-                      {initialValue || '-'}
-                    </td>
-                    <td className="px-4 py-2 text-sm text-gray-600">{scopeLabel(scope)}</td>
-                    <td className="px-4 py-2 text-xs text-gray-500">
-                      {item.status === 'missing' && (
-                        <span className="text-blue-600">In code, not in DB</span>
-                      )}
-                      {item.status === 'orphaned' && (
-                        <span className="text-amber-600">In DB, not in code</span>
-                      )}
-                      {item.status === 'changed' && item.changes && (
-                        <span className="text-orange-600">{item.changes.join('; ')}</span>
-                      )}
-                      {item.status === 'synced' && (
-                        <span className="text-green-600">
-                          <Check className="h-3 w-3 inline mr-0.5" />
-                          Synced
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {item.status === 'missing' && item.detected && (
-                        <button
-                          onClick={() => handleAddOne(item.detected!)}
-                          disabled={isItemAdding || isAdding}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-                        >
-                          {isItemAdding ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Plus className="h-3 w-3" />
-                          )}
-                          Ekle
-                        </button>
-                      )}
-                      {item.status === 'orphaned' && item.registered && (
-                        <button
-                          onClick={() => handleRemoveOne(item.registered!.id)}
-                          disabled={isItemRemoving || isRemoving}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
-                        >
-                          {isItemRemoving ? (
-                            <Loader2 className="h-3 w-3 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3 w-3" />
-                          )}
-                          Kaldir
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {comparison.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-gray-500">
-                    No variables to compare.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ItemRow>
+          data={comparison}
+          columns={itemRowColumns}
+          keyExtractor={(item, idx) => String(`${item.status}-${item.detected?.varName ?? item.registered?.varName ?? ''}-${idx}`)}
+          emptyMessage="No variables to compare."
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+          rowClassName={(item) =>
+            item.status === 'missing'
+              ? 'bg-blue-50/50'
+              : item.status === 'orphaned'
+                ? 'bg-amber-50/50'
+                : item.status === 'changed'
+                  ? 'bg-orange-50/50'
+                  : ''
+          }
+        />
       )}
     </div>
   );

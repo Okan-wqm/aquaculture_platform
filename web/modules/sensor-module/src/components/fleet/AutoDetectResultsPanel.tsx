@@ -45,6 +45,7 @@ import type {
   AddIoConfigInput,
 } from '../../hooks/useEdgeDevices';
 import { IoType, IoDataType } from '../../hooks/useEdgeDevices';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -248,6 +249,60 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
     }
   }, [scanResult.discoveredChannels, selectedTags, onImport]);
 
+  // Rows group by source; each group is its own DataTable under a collapsible header.
+  type DetectedChannelRow = (typeof groupedChannels)[number][1][number];
+  const moduleChannelDisplay = (ch: DetectedChannelRow): React.ReactNode => {
+    if (ch.source === 'i2c' || ch.busType === 'i2c') {
+      const addrHex = ch.i2cAddress != null ? `0x${ch.i2cAddress.toString(16).toUpperCase().padStart(2, '0')}` : '?';
+      return (
+        <>
+          Bus {ch.i2cBus ?? '?'} @ {addrHex}
+          {ch.i2cDeviceName && (
+            <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-indigo-50 text-indigo-600">{ch.i2cDeviceName}</span>
+          )}
+        </>
+      );
+    }
+    if (ch.source === 'spi' || ch.busType === 'spi') return <>Bus {ch.spiBus ?? '?'} CS{ch.spiCs ?? '?'}</>;
+    if (ch.source === 'uart' || ch.busType === 'uart') return <>{ch.uartPort ?? '?'}</>;
+    return (
+      <>
+        {ch.moduleAddress}/{ch.channel}
+        {ch.gpioPin != null && <span className="text-gray-500 ml-1">(GPIO {ch.gpioPin})</span>}
+      </>
+    );
+  };
+  const detectedChannelColumns: DataTableColumn<DetectedChannelRow>[] = [
+    {
+      key: 'selected',
+      header: '',
+      width: '2rem',
+      render: (_value, ch) =>
+        existingTagNames.has(ch.tagName) ? (
+          <span className="text-gray-500">--</span>
+        ) : selectedTags.has(ch.tagName) ? (
+          <CheckSquare className="w-4 h-4 text-cyan-600" />
+        ) : (
+          <Square className="w-4 h-4 text-gray-500" />
+        ),
+    },
+    { key: 'tagName', header: 'Tag', render: (_value, ch) => <span className="font-medium text-gray-900">{ch.tagName}</span> },
+    { key: 'ioType', header: 'Tip', render: (_value, ch) => <IoTypeBadge ioType={ch.ioType} /> },
+    { key: 'dataType', header: 'Veri Tipi', render: (_value, ch) => <span className="text-gray-600 font-mono text-xs">{ch.dataType}</span> },
+    { key: 'moduleChannel', header: 'Modul/Kanal', render: (_value, ch) => <span className="text-gray-600">{moduleChannelDisplay(ch)}</span> },
+    { key: 'source', header: 'Kaynak', render: (_value, ch) => <SourceBadge source={ch.source} /> },
+    {
+      key: 'status',
+      header: 'Durum',
+      render: (_value, ch) =>
+        existingTagNames.has(ch.tagName) ? (
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Zaten mevcut</span>
+        ) : (
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">Yeni</span>
+        ),
+    },
+  ];
+
   return (
     <div className="border border-gray-200 rounded-xl bg-white shadow-sm">
       {/* Header */}
@@ -320,124 +375,45 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
       </div>
 
       {/* Channel table */}
-      <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50 sticky top-0">
-            <tr>
-              <th className="px-3 py-2 text-left w-8"></th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tag</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tip</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Veri Tipi</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Modul/Kanal</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Kaynak</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {groupedChannels.map(([source, channels]) => {
-              const isCollapsed = collapsedGroups.has(source);
-              return (
-                <React.Fragment key={source}>
-                  <tr
-                    className="bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-                    onClick={() => toggleGroup(source)}
-                  >
-                    <td colSpan={7} className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        {isCollapsed ? (
-                          <ChevronRight className="w-4 h-4 text-gray-500" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-gray-500" />
-                        )}
-                        <SourceBadge source={source} />
-                        <span className="text-xs text-gray-500">
-                          {channels.length} kanal
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                  {!isCollapsed && channels.map((ch) => {
-                    const exists = existingTagNames.has(ch.tagName);
-                    const isSelected = selectedTags.has(ch.tagName);
-
-                    // Build module/channel display based on source/busType
-                    let moduleChannelDisplay: React.ReactNode;
-                    if (ch.source === 'i2c' || ch.busType === 'i2c') {
-                      const addrHex = ch.i2cAddress != null
-                        ? `0x${ch.i2cAddress.toString(16).toUpperCase().padStart(2, '0')}`
-                        : '?';
-                      moduleChannelDisplay = (
-                        <>
-                          Bus {ch.i2cBus ?? '?'} @ {addrHex}
-                          {ch.i2cDeviceName && (
-                            <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-indigo-50 text-indigo-600">
-                              {ch.i2cDeviceName}
-                            </span>
-                          )}
-                        </>
-                      );
-                    } else if (ch.source === 'spi' || ch.busType === 'spi') {
-                      moduleChannelDisplay = (
-                        <>Bus {ch.spiBus ?? '?'} CS{ch.spiCs ?? '?'}</>
-                      );
-                    } else if (ch.source === 'uart' || ch.busType === 'uart') {
-                      moduleChannelDisplay = (
-                        <>{ch.uartPort ?? '?'}</>
-                      );
-                    } else {
-                      moduleChannelDisplay = (
-                        <>
-                          {ch.moduleAddress}/{ch.channel}
-                          {ch.gpioPin != null && (
-                            <span className="text-gray-500 ml-1">(GPIO {ch.gpioPin})</span>
-                          )}
-                        </>
-                      );
-                    }
-
-                    return (
-                      <tr
-                        key={`${ch.tagName}-${ch.channel}`}
-                        className={`${exists ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50 cursor-pointer'}`}
-                        onClick={() => !exists && toggleChannel(ch.tagName)}
-                      >
-                        <td className="px-3 py-2">
-                          {exists ? (
-                            <span className="text-gray-500">--</span>
-                          ) : isSelected ? (
-                            <CheckSquare className="w-4 h-4 text-cyan-600" />
-                          ) : (
-                            <Square className="w-4 h-4 text-gray-500" />
-                          )}
-                        </td>
-                        <td className="px-3 py-2 font-medium text-gray-900">{ch.tagName}</td>
-                        <td className="px-3 py-2"><IoTypeBadge ioType={ch.ioType} /></td>
-                        <td className="px-3 py-2 text-gray-600 font-mono text-xs">{ch.dataType}</td>
-                        <td className="px-3 py-2 text-gray-600">
-                          {moduleChannelDisplay}
-                        </td>
-                        <td className="px-3 py-2">
-                          <SourceBadge source={ch.source} />
-                        </td>
-                        <td className="px-3 py-2">
-                          {exists ? (
-                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">
-                              Zaten mevcut
-                            </span>
-                          ) : (
-                            <span className="text-[11px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">
-                              Yeni
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </React.Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100">
+        {groupedChannels.map(([source, channels]) => {
+          const isCollapsed = collapsedGroups.has(source);
+          return (
+            <div key={source}>
+              <button
+                type="button"
+                onClick={() => toggleGroup(source)}
+                aria-expanded={!isCollapsed}
+                className="flex w-full items-center gap-2 bg-gray-50 px-3 py-2 text-left hover:bg-gray-100 transition-colors"
+              >
+                {isCollapsed ? (
+                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                )}
+                <SourceBadge source={source} />
+                <span className="text-xs text-gray-500">{channels.length} kanal</span>
+              </button>
+              {!isCollapsed && (
+                <DataTable<DetectedChannelRow>
+                  data={channels}
+                  columns={detectedChannelColumns}
+                  keyExtractor={(ch) => `${ch.tagName}-${ch.channel}`}
+                  onRowClick={(ch) => {
+                    if (!existingTagNames.has(ch.tagName)) toggleChannel(ch.tagName);
+                  }}
+                  rowClassName={(ch) => (existingTagNames.has(ch.tagName) ? 'opacity-50 bg-gray-50' : 'cursor-pointer')}
+                  emptyMessage="Kanal yok"
+                  searchable={false}
+                  sortable={false}
+                  stickyHeader={false}
+                  compact
+                  className="border-0 rounded-none shadow-none"
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Empty state */}

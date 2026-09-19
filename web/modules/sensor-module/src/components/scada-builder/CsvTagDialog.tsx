@@ -264,6 +264,15 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
     }
   ];
 
+  // The CSV's first row names the columns; the rest are string cells by position.
+  const importPreviewColumns: DataTableColumn<string[]>[] = (importPreviewRows[0] ?? []).map((col, idx) => ({
+    key: `col-${idx}`,
+    header: col,
+    render: (_value, row) => (
+      <span className="block max-w-[160px] truncate font-mono text-xs text-gray-700">{row[idx]}</span>
+    ),
+  }));
+
   return (
     <Modal
       isOpen={open}
@@ -392,33 +401,16 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
                     Preview ({importData.length - 1} data row(s)).
                     {importData.length > 11 && ' Showing first 10.'}
                   </p>
-                  <div className="border border-gray-200 rounded-lg overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50 text-left text-gray-600">
-                          {importPreviewRows[0].map((col, idx) => (
-                            <th key={idx} className="px-3 py-2 font-medium">
-                              {col}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {importPreviewRows.slice(1).map((row, rowIdx) => (
-                          <tr key={rowIdx} className="text-gray-700">
-                            {row.map((cell, cellIdx) => (
-                              <td
-                                key={cellIdx}
-                                className="px-3 py-2 truncate max-w-[160px] font-mono text-xs"
-                              >
-                                {cell}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable<string[]>
+                    data={importPreviewRows.slice(1)}
+                    columns={importPreviewColumns}
+                    keyExtractor={(_row, index) => String(index)}
+                    emptyMessage="No rows"
+                    searchable={false}
+                    sortable={false}
+                    stickyHeader={false}
+                    compact
+                  />
                 </>
               )}
             </div>

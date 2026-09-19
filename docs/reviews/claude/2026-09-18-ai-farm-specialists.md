@@ -1,9 +1,16 @@
 # AI farm specialists: persona identity, entitlement and the farm read surface
 
 **Date:** 2026-09-18 · **Agent:** claude · **Cycle:** 2026-09-18 ai-farm-specialists
-**Plan:** tier × specialty persona composition; three farm-module experts (water & fish health / production / operations); read-only tools over farm-service via NATS request-reply; user-decided actuation (`confirm_required` cap).
+**Plan:** tier × specialty persona composition; three farm-module experts (water &
+fish health / production / operations); read-only tools over farm-service via NATS
+request-reply; user-decided actuation (`confirm_required` cap).
 **Branch:** `feat/ai-farm-specialists` (from `messaging-fix-1`).
-**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025, FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its section; FE-HIGH-069 (formerly FE-HIGH-066), INFRA-HIGH-174, FE-HIGH-067 and ORPHAN-HIGH-828 (base-branch / platform defects found by this branch's gates and work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner: farm-module maintainer, deadline 2026-10-16).
+**Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025,
+FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
+section; FE-HIGH-069 (formerly FE-HIGH-066), INFRA-HIGH-174, FE-HIGH-067 and
+ORPHAN-HIGH-828 (base-branch / platform defects found by this branch's gates and
+work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner:
+farm-module maintainer, deadline 2026-10-16).
 
 The product ask was "an expert agent per topic, farm module first, agents only
 use the tools they are given and interpret, the decision stays with the user".
@@ -95,7 +102,9 @@ tools in ai-service, have the MCP package import the lib.
 
 ## FE-HIGH-069 — the aquamobil main-tree port regressed the FAZ 2.4 AI identity contract
 
-_Renumbered from FE-HIGH-066 when this branch merged onto main (main had allocated FE-HIGH-066 first); the closing commit's trailer cites the original id via `finding-id-aliases.yaml`._
+_Renumbered from FE-HIGH-066 when this branch merged onto main (main had allocated
+FE-HIGH-066 first); the closing commit's trailer cites the original id via
+`finding-id-aliases.yaml`._
 
 Found by the pre-push `type-check-changed-files` gate on this branch (the
 `messaging-fix-1` line had pushed through a dangling `node_modules` symlink, so

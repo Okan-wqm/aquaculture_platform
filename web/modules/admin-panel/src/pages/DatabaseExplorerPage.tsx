@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Badge, Alert, Modal } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Badge, Alert, Modal, DataTable, type DataTableColumn, type SortConfig } from '@aquaculture/shared-ui';
 import { databaseApi } from '../services/adminApi';
 import { saveBlob } from '../services/blob-client';
 import { useAdminQuery, useAdminMutation, adminKeys } from '../hooks';
@@ -447,13 +447,9 @@ const DatabaseExplorerPage: React.FC = () => {
     setOrderDirection('ASC');
   };
 
-  const handleSort = (column: string) => {
-    if (orderBy === column) {
-      setOrderDirection(orderDirection === 'ASC' ? 'DESC' : 'ASC');
-    } else {
-      setOrderBy(column);
-      setOrderDirection('ASC');
-    }
+  const handleSort = (sort: SortConfig | null) => {
+    setOrderBy(sort ? sort.key : undefined);
+    setOrderDirection(sort?.direction === 'desc' ? 'DESC' : 'ASC');
   };
 
   const handleCreateRow = () => {
@@ -521,6 +517,86 @@ const DatabaseExplorerPage: React.FC = () => {
 
   // Find selected table info
   const selectedTableInfo = tables.find((t) => t.tableName === selectedTable);
+
+  // Server-described columns: the header carries the key and sensitivity markers, the cells mask and format.
+  const explorerColumns: DataTableColumn<Record<string, unknown>>[] = tableData
+    ? [
+        ...tableData.columns.map((col): DataTableColumn<Record<string, unknown>> => {
+          const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
+          return {
+            key: col.columnName,
+            header: col.columnName,
+            className: isSensitive ? 'text-orange-600' : undefined,
+            headerRender: (
+              <span
+                className={`inline-flex items-center gap-1 ${isSensitive ? 'rounded bg-orange-50 px-1' : ''}`}
+                title={isSensitive ? 'This column contains sensitive data (masked)' : undefined}
+              >
+                {col.columnName}
+                {col.isPrimaryKey && (
+                  <svg className="w-3 h-3 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
+                    <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
+                  </svg>
+                )}
+                {isSensitive && (
+                  <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" aria-label="Hassas veri - Maskeli">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </span>
+            ),
+            render: (value) => {
+              const valueIsMasked = isMaskedValue(value);
+              return (
+                <span
+                  className={`block max-w-xs truncate ${valueIsMasked ? 'rounded bg-orange-50 px-1' : ''}`}
+                  title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(value)}
+                >
+                  {value === null ? (
+                    <span className="text-gray-500 italic">NULL</span>
+                  ) : valueIsMasked ? (
+                    <span className="flex items-center gap-1 text-orange-600 font-mono">
+                      <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                      </svg>
+                      {MASKED_VALUE}
+                    </span>
+                  ) : col.dataType.includes('json') ? (
+                    <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">{formatValue(value).substring(0, 50)}...</code>
+                  ) : (
+                    formatValue(value)
+                  )}
+                </span>
+              );
+            },
+          };
+        }),
+        {
+          key: '__actions',
+          header: 'Actions',
+          align: 'right',
+          sortable: false,
+          render: (_value, row) =>
+            primaryKey ? (
+              <span className="whitespace-nowrap">
+                <Button variant="ghost" size="sm" aria-label="Edit row" onClick={() => handleEditRow(row)}>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </Button>
+                <Button variant="ghost" size="sm" aria-label="Delete row" onClick={() => confirmDelete(row)}>
+                  <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </Button>
+              </span>
+            ) : (
+              <span className="text-xs italic text-gray-500">no primary key</span>
+            ),
+        },
+      ]
+    : [];
 
   return (
     <div className="space-y-6">
@@ -668,123 +744,19 @@ const DatabaseExplorerPage: React.FC = () => {
               </div>
 
               {/* Data Table */}
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      {tableData.columns.map((col) => {
-                        const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
-                        return (
-                          <th
-                            key={col.columnName}
-                            className={`px-4 py-3 text-left text-xs font-medium uppercase tracking-wider cursor-pointer hover:bg-gray-100 ${
-                              isSensitive ? 'text-orange-600 bg-orange-50' : 'text-gray-500'
-                            }`}
-                            onClick={() => handleSort(col.columnName)}
-                            title={isSensitive ? 'This column contains sensitive data (masked)' : undefined}
-                          >
-                            <div className="flex items-center gap-1">
-                              {col.columnName}
-                              {col.isPrimaryKey && (
-                                <svg className="w-3 h-3 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
-                                  <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-                                  <path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
-                                </svg>
-                              )}
-                              {isSensitive && (
-                                <svg className="w-3 h-3 text-orange-500" fill="currentColor" viewBox="0 0 20 20" aria-label="Hassas veri - Maskeli">
-                                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                </svg>
-                              )}
-                              {orderBy === col.columnName && (
-                                <svg className={`w-3 h-3 ${orderDirection === 'DESC' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-                                </svg>
-                              )}
-                            </div>
-                          </th>
-                        );
-                      })}
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {tableData.rows.map((row, idx) => {
-                      const rowKey = primaryKey
-                        ? String(row[primaryKey.columnName])
-                        : idx;
-
-                      return (
-                        <tr key={rowKey} className="hover:bg-gray-50">
-                          {tableData.columns.map((col, colIdx) => {
-                            const isSensitive = col.isSensitive || isSensitiveColumnName(col.columnName);
-                            const valueIsMasked = isMaskedValue(row[col.columnName]);
-
-                            return (
-                              <td
-                                key={`${rowKey}-${colIdx}`}
-                                className={`px-4 py-2 text-sm max-w-xs truncate ${
-                                  valueIsMasked ? 'bg-orange-50' : ''
-                                } ${isSensitive ? 'text-orange-600' : 'text-gray-900'}`}
-                                title={valueIsMasked ? 'Sensitive data (masked)' : formatValue(row[col.columnName])}
-                              >
-                                {row[col.columnName] === null ? (
-                                  <span className="text-gray-500 italic">NULL</span>
-                                ) : valueIsMasked ? (
-                                  <span className="flex items-center gap-1 text-orange-600 font-mono">
-                                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
-                                    </svg>
-                                    {MASKED_VALUE}
-                                  </span>
-                                ) : col.dataType.includes('json') ? (
-                                  <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
-                                    {formatValue(row[col.columnName]).substring(0, 50)}...
-                                  </code>
-                                ) : (
-                                  formatValue(row[col.columnName])
-                                )}
-                              </td>
-                            );
-                          })}
-                          <td className="px-4 py-2 text-right whitespace-nowrap">
-                            {primaryKey ? (
-                              <>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  aria-label="Edit row"
-                                  onClick={() => handleEditRow(row)}
-                                >
-                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                  </svg>
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  aria-label="Delete row"
-                                  onClick={() => confirmDelete(row)}
-                                >
-                                  <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </Button>
-                              </>
-                            ) : (
-                              <span className="text-xs italic text-gray-500">
-                                no primary key
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<Record<string, unknown>>
+                data={tableData.rows}
+                columns={explorerColumns}
+                keyExtractor={(row, index) => (primaryKey ? String(row[primaryKey.columnName]) : String(index))}
+                emptyMessage="No rows"
+                searchable={false}
+                serverSideSort
+                defaultSort={orderBy ? { key: orderBy, direction: orderDirection === 'ASC' ? 'asc' : 'desc' } : undefined}
+                onSort={handleSort}
+                stickyHeader={false}
+                compact
+                className="border-0 rounded-none shadow-none"
+              />
 
               {/* Pagination */}
               {tableData.totalPages > 1 && (

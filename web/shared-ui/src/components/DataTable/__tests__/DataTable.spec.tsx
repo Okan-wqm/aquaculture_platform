@@ -149,3 +149,18 @@ describe('DataTable — summary row', () => {
   });
 });
 
+describe('DataTable — header slot', () => {
+  it('shows the header node in the cell and keeps the name for the sort control', () => {
+    render(
+      <DataTable<Row>
+        data={rows}
+        columns={[{ key: 'name', header: 'Name', headerRender: <span data-testid="key-marker">Name (pk)</span> }]}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+      />,
+    );
+    expect(screen.getByTestId('key-marker')).toBeTruthy();
+    expect(screen.getByLabelText('Sort by Name')).toBeTruthy();
+  });
+});
+

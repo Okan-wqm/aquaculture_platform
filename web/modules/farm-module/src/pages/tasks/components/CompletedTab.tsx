@@ -4,6 +4,7 @@ import {
   CATEGORY_CONFIG,
 } from '../types/task.types';
 import { TaskDetailModal } from './TaskDetailModal';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 interface CompletedTabProps {
   tasks: Task[];
@@ -53,6 +54,56 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
     { label: 'Ort. Süre', value: avgMinutes, suffix: 'dk' },
   ];
 
+  type TaskRow = (typeof completedTasks)[number];
+  const taskRowColumns: DataTableColumn<TaskRow>[] = [
+    {
+      key: 'gRev',
+      header: 'Görev',
+      render: (_value, task) => (
+        <>
+          <button
+            onClick={() => setSelectedTask(task)}
+            className="text-sm font-medium text-gray-900 hover:text-blue-600 text-left"
+          >
+            {task.title}
+          </button>
+          {task.location && <p className="text-xs text-gray-500">{task.location}</p>}
+        </>
+      ),
+    },
+    {
+      key: 'kategori',
+      header: 'Kategori',
+      render: (_value, task) => {
+        const cat = CATEGORY_CONFIG[task.category];
+        return (
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}>
+            {cat.label}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'tamamlanma',
+      header: 'Tamamlanma',
+      render: (_value, task) => task.completedAt || '-',
+    },
+    {
+      key: 'tamamlayan',
+      header: 'Tamamlayan',
+      render: (_value, task) => task.completedBy || '-',
+    },
+    {
+      key: 'sRe',
+      header: 'Süre',
+      render: (_value, task) => (
+        <>
+          {task.estimatedMinutes ? `${task.estimatedMinutes} dk` : '-'}
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Stats */}
@@ -95,55 +146,15 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
 
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Görev</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Kategori</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tamamlanma</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tamamlayan</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Süre</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {completedTasks.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
-                    Tamamlanan görev bulunamadı.
-                  </td>
-                </tr>
-              ) : (
-                completedTasks.map(task => {
-                  const cat = CATEGORY_CONFIG[task.category];
-                  return (
-                    <tr key={task.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <button
-                          onClick={() => setSelectedTask(task)}
-                          className="text-sm font-medium text-gray-900 hover:text-blue-600 text-left"
-                        >
-                          {task.title}
-                        </button>
-                        {task.location && <p className="text-xs text-gray-500">{task.location}</p>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}>
-                          {cat.label}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{task.completedAt || '-'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{task.completedBy || '-'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-700">
-                        {task.estimatedMinutes ? `${task.estimatedMinutes} dk` : '-'}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<TaskRow>
+          data={completedTasks}
+          columns={taskRowColumns}
+          keyExtractor={(task) => task.id}
+          emptyMessage="Tamamlanan görev bulunamadı."
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       </div>
 
       {/* Detail Modal */}

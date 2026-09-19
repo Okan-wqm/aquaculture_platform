@@ -11,7 +11,10 @@ import React, { useState, useCallback, useMemo, useEffect } from 'react';
 
 export interface TableColumn<T> {
   key: keyof T | string;
+  /** The column's name: what the export writes, the visibility menu lists and the sort control is labelled with. */
   header: string;
+  /** What the header cell shows when the name alone is not enough (key and sensitivity markers, units); defaults to `header`. */
+  headerRender?: React.ReactNode;
   sortable?: boolean;
   filterable?: boolean;
   width?: string;
@@ -852,7 +855,7 @@ export function DataTable<T>({
                   aria-label={col.sortable !== false && sortable ? `Sort by ${col.header}` : undefined}
                 >
                   <div className={`flex items-center gap-2 ${col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : ''}`}>
-                    {col.header}
+                    {col.headerRender ?? col.header}
                     {col.sortable !== false && sortable && (
                       <SortIcon direction={sortConfig?.key === String(col.key) ? sortConfig.direction : undefined} />
                     )}

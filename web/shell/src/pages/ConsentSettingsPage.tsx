@@ -21,6 +21,7 @@ import useConsent, {
   type ConsentType,
   type UserConsentRecord,
 } from '../hooks/useConsent';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Sub-components
@@ -92,45 +93,56 @@ const ConsentCard: React.FC<{
 /**
  * Consent history table row
  */
-const HistoryRow: React.FC<{ record: UserConsentRecord }> = ({ record }) => {
-  const info = CONSENT_TYPE_LABELS[record.consentType];
-
-  return (
-    <tr className="hover:bg-gray-50">
-      <td className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
-        {info?.label ?? record.consentType}
-      </td>
-      <td className="px-4 py-3 text-sm whitespace-nowrap">
-        <span
-          className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-            record.granted
-              ? 'bg-green-100 text-green-700'
-              : 'bg-red-100 text-red-700'
-          }`}
-        >
-          {record.granted ? 'Granted' : 'Denied / Withdrawn'}
+const consentHistoryColumns: DataTableColumn<UserConsentRecord>[] = [
+  {
+    key: 'consentType',
+    header: 'Consent Type',
+    render: (_value, record) => (
+      <span className="whitespace-nowrap text-gray-900">
+        {CONSENT_TYPE_LABELS[record.consentType]?.label ?? record.consentType}
+      </span>
+    ),
+  },
+  {
+    key: 'granted',
+    header: 'Action',
+    render: (_value, record) => (
+      <span
+        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+          record.granted ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+        }`}
+      >
+        {record.granted ? 'Granted' : 'Denied / Withdrawn'}
+      </span>
+    ),
+  },
+  {
+    key: 'version',
+    header: 'Version',
+    render: (_value, record) => <span className="whitespace-nowrap text-gray-500">v{record.version}</span>,
+  },
+  {
+    key: 'createdAt',
+    header: 'Date',
+    render: (_value, record) => (
+      <span className="whitespace-nowrap text-gray-500">{new Date(record.createdAt).toLocaleString()}</span>
+    ),
+  },
+  {
+    key: 'isActive',
+    header: 'Status',
+    render: (_value, record) =>
+      record.isActive ? (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
+          Active
         </span>
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-        v{record.version}
-      </td>
-      <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
-        {new Date(record.createdAt).toLocaleString()}
-      </td>
-      <td className="px-4 py-3 text-sm whitespace-nowrap">
-        {record.isActive ? (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
-            Active
-          </span>
-        ) : (
-          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
-            Superseded
-          </span>
-        )}
-      </td>
-    </tr>
-  );
-};
+      ) : (
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
+          Superseded
+        </span>
+      ),
+  },
+];
 
 // ============================================================================
 // Main Page Component
@@ -451,34 +463,16 @@ const ConsentSettingsPage: React.FC = () => {
               </div>
             ) : (
               <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Consent Type
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Action
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Version
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Date
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {historyQuery.data.records.map((record) => (
-                        <HistoryRow key={record.id} record={record} />
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable<UserConsentRecord>
+                  data={historyQuery.data.records}
+                  columns={consentHistoryColumns}
+                  keyExtractor={(record) => record.id}
+                  emptyMessage="No consent history"
+                  searchable={false}
+                  sortable={false}
+                  stickyHeader={false}
+                  className="border-0 rounded-none shadow-none"
+                />
 
                 {/* Pagination */}
                 {historyQuery.data.totalCount > historyLimit && (

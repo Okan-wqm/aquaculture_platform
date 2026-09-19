@@ -9,7 +9,7 @@
  * replacing the previous mock data implementation.
  */
 import React, { useState } from 'react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useInventoryCounts,
   InventoryCountStatus,
@@ -96,6 +96,69 @@ export const InventoryCountTab: React.FC = () => {
     );
   };
 
+  type IcRow = (typeof counts)[number];
+  const icRowColumns: DataTableColumn<IcRow>[] = [
+    {
+      key: 'count',
+      header: 'Count #',
+      render: (_value, ic) => ic.countNumber,
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (_value, ic) => ic.locationName || '-',
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, ic) => (
+        <>
+          {ic.startedAt
+            ? new Date(ic.startedAt).toLocaleDateString('nb-NO')
+            : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'items',
+      header: 'Items',
+      render: (_value, ic) => ic.items.length,
+    },
+    {
+      key: 'totalVariance',
+      header: 'Total Variance',
+      render: (_value, ic) => (
+        <span className={ic.totalVariance !== 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
+          {ic.totalVariance > 0 ? '+' : ''}{ic.totalVariance}
+        </span>
+      ),
+    },
+    {
+      key: 'performedBy',
+      header: 'Performed By',
+      render: (_value, ic) => ic.performedByName || ic.performedBy,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, ic) => (
+        <>
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            statusColors[ic.status] || 'bg-gray-100 text-gray-800'
+          }`}>
+            {ic.status.replace('_', ' ')}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, ic) => getActionButton(ic),
+    }
+  ];
+
   return (
     <div>
       {/* Header: filter + action bar */}
@@ -141,62 +204,15 @@ export const InventoryCountTab: React.FC = () => {
       {/* Main table */}
       {!isLoading && !error && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Count #</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Variance</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Performed By</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {counts.map(ic => (
-                <tr
-                  key={ic.id}
-                  className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => setSelectedCountId(ic.id)}
-                >
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900 font-mono">
-                    {ic.countNumber}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-700">
-                    {ic.locationName || '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.startedAt
-                      ? new Date(ic.startedAt).toLocaleDateString('nb-NO')
-                      : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.items.length}
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <span className={ic.totalVariance !== 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
-                      {ic.totalVariance > 0 ? '+' : ''}{ic.totalVariance}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.performedByName || ic.performedBy}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      statusColors[ic.status] || 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {ic.status.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {getActionButton(ic)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<IcRow>
+            data={counts}
+            columns={icRowColumns}
+            keyExtractor={(ic) => ic.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {counts.length === 0 && (
             <div className="text-center py-12 text-gray-500 text-sm">
               No inventory counts found. Start a new count to reconcile your stock.

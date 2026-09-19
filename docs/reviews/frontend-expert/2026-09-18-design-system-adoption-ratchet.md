@@ -133,7 +133,16 @@ the SCADA alarm reds/greens), the rest by nearest theme token within a
 small RGB distance, all reviewed; border strings become template literals
 over the token; the SCADA engine's own light/dark `ThemeTokens` derive
 from `colors` too, so the operator console's dark mode is the brand
-palette rather than a third one. **Owner:** okan · **Expiry:** 2027-03-31.
+palette rather than a third one. Batch 23 (same cycle): the last 19 → 0.
+The pH scale reads the theme as a diverging scale (error reds for acid
+bands, warning ambers on the way to neutral, success greens at neutral,
+info and primary blues for alkaline — a step apart per band, which is all
+a labelled isoline needs). AquaMobil's browser-chrome colours are recorded
+once, on the `theme-color` meta tag in `index.html`, where both the
+pre-paint script and `useDarkMode` read them; the leave-type dot falls
+back to an ocean class through `LeaveTypeSwatch` when a type carries no
+colour; the Konsta surface note names tokens, not hex. Every package holds
+at zero. **Owner:** okan · **Expiry:** 2027-03-31.
 
 #### FE-HIGH-068 — Browser confirm()/alert()/prompt() used for product dialogs
 
@@ -332,7 +341,6 @@ counted. **Owner:** okan · **Expiry:** 2027-06-30.
 ## Out of this cycle (tracked above, not done)
 
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
-- Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
 - Raw `<table>` → `DataTable`: 15 remain after batch 21 (hr 3, sensor 7,
   farm 5): SCADA runtime grids and dark operator panels (they wait on the

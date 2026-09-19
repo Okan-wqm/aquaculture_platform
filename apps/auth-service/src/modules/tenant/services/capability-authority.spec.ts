@@ -7,7 +7,7 @@ import { DataSource, Repository } from 'typeorm';
 import { User } from '../../authentication/entities/user.entity';
 
 import { CapabilityAuthorityService } from './capability-authority';
-import { CATALOGUE_CAPABILITIES } from './permission-catalogue';
+import { CATALOGUE_CAPABILITIES, entitledCapabilities } from './permission-catalogue';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const ACTOR_ID = 'actor-uuid-001';
@@ -101,11 +101,14 @@ describe('CapabilityAuthorityService', () => {
     });
 
     it('lets an admin grant any catalogue capability', () => {
-      const result = service.assertGrantableResourcePermissions(['roles:delete', 'users:edit_permissions'], {
-        isTenantAdmin: true,
-        effective: new Set<string>(),
-        entitled: FULLY_ENTITLED,
-      });
+      const result = service.assertGrantableResourcePermissions(
+        ['roles:delete', 'users:edit_permissions'],
+        {
+          isTenantAdmin: true,
+          effective: new Set<string>(),
+          entitled: FULLY_ENTITLED,
+        },
+      );
       expect([...result].sort()).toEqual(['roles:delete', 'users:edit_permissions']);
     });
 
@@ -132,31 +135,37 @@ describe('CapabilityAuthorityService', () => {
   describe('assertGrantableOverrides', () => {
     it('RBAC-C1: a non-admin cannot GRANT a capability they do not hold', () => {
       expect(() =>
-        service.assertGrantableOverrides({ grants: ['ai_settings:manage'], revokes: [] }, {
-          isTenantAdmin: false,
-          effective: new Set(['ai_assistant:use']),
-          entitled: FULLY_ENTITLED,
-        }),
+        service.assertGrantableOverrides(
+          { grants: ['ai_settings:manage'], revokes: [] },
+          {
+            isTenantAdmin: false,
+            effective: new Set(['ai_assistant:use']),
+            entitled: FULLY_ENTITLED,
+          },
+        ),
       ).toThrow(ForbiddenException);
     });
 
     it('a non-admin MAY revoke any catalogue capability (revoke needs no authority)', () => {
-      const result = service.assertGrantableOverrides({ grants: [], revokes: ['roles:delete'] }, {
-        isTenantAdmin: false,
-        effective: new Set<string>(),
-        entitled: FULLY_ENTITLED,
-      });
+      const result = service.assertGrantableOverrides(
+        { grants: [], revokes: ['roles:delete'] },
+        {
+          isTenantAdmin: false,
+          effective: new Set<string>(),
+          entitled: FULLY_ENTITLED,
+        },
+      );
       expect(result.revokes).toEqual(['roles:delete']);
     });
 
     it('rejects an unknown capability in grants OR revokes', () => {
       const admin = { isTenantAdmin: true, effective: new Set<string>(), entitled: FULLY_ENTITLED };
-      expect(() => service.assertGrantableOverrides({ grants: ['made:up'], revokes: [] }, admin)).toThrow(
-        BadRequestException,
-      );
-      expect(() => service.assertGrantableOverrides({ grants: [], revokes: ['also:fake'] }, admin)).toThrow(
-        BadRequestException,
-      );
+      expect(() =>
+        service.assertGrantableOverrides({ grants: ['made:up'], revokes: [] }, admin),
+      ).toThrow(BadRequestException);
+      expect(() =>
+        service.assertGrantableOverrides({ grants: [], revokes: ['also:fake'] }, admin),
+      ).toThrow(BadRequestException);
     });
 
     it('deduplicates and accepts a valid admin override set', () => {
@@ -196,6 +205,26 @@ describe('CapabilityAuthorityService', () => {
       ).toThrow(/requires the ai module/);
     });
 
+    it('RBAC-MEDIUM-016 (all-of): an admin with ONLY the AI module cannot grant ai_specialties:farm; with ai + farm they can', () => {
+      // The real entitlement resolver for a tenant licensing `ai` but not `farm`.
+      const aiOnly = entitledCapabilities(new Set(['ai']));
+      expect(() =>
+        service.assertGrantableResourcePermissions(['ai_specialties:farm'], {
+          isTenantAdmin: true,
+          effective: new Set<string>(),
+          entitled: aiOnly,
+        }),
+      ).toThrow(/ai_specialties:farm \(requires the ai \+ farm modules\)/);
+
+      const aiAndFarm = entitledCapabilities(new Set(['ai', 'farm']));
+      const result = service.assertGrantableResourcePermissions(['ai_specialties:farm'], {
+        isTenantAdmin: true,
+        effective: new Set<string>(),
+        entitled: aiAndFarm,
+      });
+      expect([...result]).toEqual(['ai_specialties:farm']);
+    });
+
     it('an admin CAN grant the AI capability once the AI module is licensed', () => {
       const result = service.assertGrantableResourcePermissions(['ai_settings:manage'], {
         isTenantAdmin: true,
@@ -207,20 +236,26 @@ describe('CapabilityAuthorityService', () => {
 
     it('a delegate cannot override-grant a non-entitled capability even if they somehow hold it', () => {
       expect(() =>
-        service.assertGrantableOverrides({ grants: ['ai_settings:manage'], revokes: [] }, {
-          isTenantAdmin: false,
-          effective: new Set(['ai_settings:manage']), // holds it, but tenant lost the module
-          entitled: withoutAi,
-        }),
+        service.assertGrantableOverrides(
+          { grants: ['ai_settings:manage'], revokes: [] },
+          {
+            isTenantAdmin: false,
+            effective: new Set(['ai_settings:manage']), // holds it, but tenant lost the module
+            entitled: withoutAi,
+          },
+        ),
       ).toThrow(ForbiddenException);
     });
 
     it('REVOKING a non-entitled capability is always allowed (cleanup after downgrade)', () => {
-      const result = service.assertGrantableOverrides({ grants: [], revokes: ['ai_settings:manage'] }, {
-        isTenantAdmin: true,
-        effective: new Set<string>(),
-        entitled: withoutAi,
-      });
+      const result = service.assertGrantableOverrides(
+        { grants: [], revokes: ['ai_settings:manage'] },
+        {
+          isTenantAdmin: true,
+          effective: new Set<string>(),
+          entitled: withoutAi,
+        },
+      );
       expect(result.revokes).toEqual(['ai_settings:manage']);
     });
 

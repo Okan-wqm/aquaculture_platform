@@ -7,7 +7,7 @@ import { User } from '../../authentication/entities/user.entity';
 
 import {
   CATALOGUE_CAPABILITIES,
-  requiredModuleFor,
+  requiredModulesFor,
   resolveEntitledCapabilities,
 } from './permission-catalogue';
 import { applyPermissionOverrides, parsePermissionOverrides } from './permission-overrides.util';
@@ -228,7 +228,10 @@ export class CapabilityAuthorityService {
     const unentitled = capabilities.filter((capability) => !actor.entitled.has(capability));
     if (unentitled.length > 0) {
       const detail = unentitled
-        .map((capability) => `${capability} (requires the ${requiredModuleFor(capability) ?? '?'} module)`)
+        .map(
+          (capability) =>
+            `${capability} (requires the ${(requiredModulesFor(capability) ?? ['?']).join(' + ')} module${(requiredModulesFor(capability)?.length ?? 1) > 1 ? 's' : ''})`,
+        )
         .join(', ');
       throw new ForbiddenException(
         `Cannot grant capabilit${unentitled.length === 1 ? 'y' : 'ies'} the tenant's plan does not license: ${detail}. ` +

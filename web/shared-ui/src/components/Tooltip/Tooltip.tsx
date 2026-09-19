@@ -18,7 +18,13 @@ export interface TooltipProps {
   className?: string;
 }
 
-export const Tooltip: React.FC<TooltipProps> = ({ content, children, placement = 'top', delay = 300, className = '' }) => {
+export const Tooltip: React.FC<TooltipProps> = ({
+  content,
+  children,
+  placement = 'top',
+  delay = 300,
+  className = '',
+}) => {
   const id = useId();
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -37,7 +43,9 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children, placement =
     setOpen(false);
   }, []);
 
-  const child = isValidElement(children) ? cloneElement(children, { 'aria-describedby': open ? id : undefined }) : children;
+  const child = isValidElement(children)
+    ? cloneElement(children, { 'aria-describedby': open ? id : undefined })
+    : children;
 
   return (
     <span

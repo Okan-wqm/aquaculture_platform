@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AnthropicProvider } from './anthropic.provider';
 import { LlmProvider, LlmProviderId } from './llm-provider.interface';
 import { OpenAiProvider } from './openai.provider';
+import { ZaiProvider } from './zai.provider';
 
 /**
  * Resolves the concrete provider for a tenant's chosen provider id.
@@ -19,10 +20,12 @@ export class LlmProviderFactory {
   constructor(
     private readonly anthropic: AnthropicProvider,
     private readonly openai: OpenAiProvider,
+    private readonly zai: ZaiProvider,
   ) {
     this.registry = new Map<LlmProviderId, LlmProvider>([
       [anthropic.id, anthropic],
       [openai.id, openai],
+      [zai.id, zai],
     ]);
   }
 

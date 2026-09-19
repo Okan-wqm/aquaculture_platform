@@ -1,7 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Sparkles, Send, RefreshCw, AlertCircle } from 'lucide-react';
+import { Drawer, Select, useAuth, useI18n } from '@aquaculture/shared-ui';
+import {
+  AI_GENERAL_ASSISTANT_PICKER_ENTRY,
+  AI_PERSONA_CATALOGUE,
+  type AiPersonaCatalogueEntry,
+} from '@aquaculture/shared-contracts';
 import { useAiAssistantSocket, type AiAssistantStatus } from '../../hooks/useAiAssistantSocket';
-import { Drawer } from '@aquaculture/shared-ui';
 
 interface AiAssistantDrawerProps {
   open: boolean;
@@ -15,16 +20,35 @@ const STATUS_LABEL: Record<AiAssistantStatus, string> = {
   offline: 'Offline',
 };
 
+/** The picker value for "no persona pinned" (the tenant default). */
+const DEFAULT_PERSONA_VALUE = '';
+
 /**
  * Shell-level AI assistant drawer. Opens over any module; talks to ai-service
  * through the gateway `/ai` socket.io bridge. Only mounts a live socket while
  * open. A key_missing / FORBIDDEN error steers the user to AI settings rather
  * than showing a raw failure.
+ *
+ * The persona picker offers the tenant default plus every catalogue persona
+ * whose required capabilities the signed-in user holds — the same rule
+ * ai-service enforces per turn, so nothing offered here is later refused.
  */
 const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) => {
-  const { messages, status, sendMessage, reset } = useAiAssistantSocket(open);
+  const { hasPermission } = useAuth();
+  const { messages, status, persona, setPersona, sendMessage, reset } = useAiAssistantSocket(open);
+  const { t } = useI18n();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const permittedPersonas = useMemo<readonly AiPersonaCatalogueEntry[]>(
+    () =>
+      AI_PERSONA_CATALOGUE.filter((entry) =>
+        entry.requiredCapabilities.every((capability) => hasPermission(capability)),
+      ),
+    [hasPermission],
+  );
+  const selected =
+    permittedPersonas.find((entry) => entry.id === persona) ?? AI_GENERAL_ASSISTANT_PICKER_ENTRY;
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
@@ -90,6 +114,25 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
           <RefreshCw className="h-4 w-4" />
         </button>
       </div>
+      {/* Persona picker — switching starts a new conversation. */}
+      <div className="border-b border-gray-100 px-4 py-2">
+        <Select
+          id="ai-assistant-persona"
+          label={t('header.aiAssistantPersona')}
+          size="sm"
+          value={persona ?? DEFAULT_PERSONA_VALUE}
+          onChange={(e) =>
+            setPersona(e.target.value === DEFAULT_PERSONA_VALUE ? null : e.target.value)
+          }
+          disabled={status === 'thinking'}
+          options={[
+            { value: DEFAULT_PERSONA_VALUE, label: AI_GENERAL_ASSISTANT_PICKER_ENTRY.name },
+            ...permittedPersonas.map((entry) => ({ value: entry.id, label: entry.name })),
+          ]}
+          helperText={selected.description}
+        />
+      </div>
+
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {messages.length === 0 && (

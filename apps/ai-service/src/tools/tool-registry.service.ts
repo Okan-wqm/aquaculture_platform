@@ -88,13 +88,6 @@ export class ToolRegistryService implements OnModuleInit {
     return this.getAllMetadata().filter((m) => m.category === category);
   }
 
-  /** Get tool names filtered by allowed permissions */
-  getToolNamesForRoles(roles: string[]): string[] {
-    return this.getAllMetadata()
-      .filter((m) => m.requiredPermissions.some((p) => roles.includes(p)))
-      .map((m) => m.name);
-  }
-
   /** Get tool metadata as Claude tool definitions (for API call) */
   getClaudeToolDefinitions(toolNames: string[]): Array<{
     name: string;

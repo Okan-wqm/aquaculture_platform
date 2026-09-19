@@ -2,11 +2,15 @@ import {
   createTenantQueryKey,
   getSessionSnapshot,
   hasSameTenantSessionBoundary,
-  useAuth, useFeedbackMutation } from '@aquaculture/shared-ui';
-import { useQuery,
+  useAuth,
+  useFeedbackMutation,
+} from '@aquaculture/shared-ui';
+import {
+  useQuery,
   useQueryClient,
   type UseMutationResult,
-  type UseQueryResult, } from '@tanstack/react-query';
+  type UseQueryResult,
+} from '@tanstack/react-query';
 
 import {
   assignUserToSite,

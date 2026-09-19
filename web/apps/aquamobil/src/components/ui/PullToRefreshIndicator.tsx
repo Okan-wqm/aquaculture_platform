@@ -15,7 +15,11 @@ export interface PullToRefreshIndicatorProps {
 
 const REFRESHING_HEIGHT_PX = 40;
 
-export function PullToRefreshIndicator({ pullDistance, armed, isRefreshing }: PullToRefreshIndicatorProps): ReactNode {
+export function PullToRefreshIndicator({
+  pullDistance,
+  armed,
+  isRefreshing,
+}: PullToRefreshIndicatorProps): ReactNode {
   const height = isRefreshing ? REFRESHING_HEIGHT_PX : pullDistance;
   return (
     <div
@@ -28,7 +32,11 @@ export function PullToRefreshIndicator({ pullDistance, armed, isRefreshing }: Pu
         <Spinner size="sm" text="Refreshing…" className="pb-2" />
       ) : pullDistance > 0 ? (
         <span className="flex items-center gap-1.5 pb-2">
-          <ArrowDown size={14} className={armed ? 'rotate-180 transition-transform' : 'transition-transform'} aria-hidden />
+          <ArrowDown
+            size={14}
+            className={armed ? 'rotate-180 transition-transform' : 'transition-transform'}
+            aria-hidden
+          />
           {armed ? 'Release to refresh' : 'Pull to refresh'}
         </span>
       ) : null}

@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
-import { SeverityBadge, normalizeSeverity, severityClasses, severityColor, SEVERITIES } from '../Severity';
+import {
+  SeverityBadge,
+  normalizeSeverity,
+  severityClasses,
+  severityColor,
+  SEVERITIES,
+} from '../Severity';
 import { colors } from '../../../styles/theme';
 
 describe('Severity', () => {

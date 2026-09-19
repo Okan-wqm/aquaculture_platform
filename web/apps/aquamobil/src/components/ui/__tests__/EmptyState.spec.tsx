@@ -13,7 +13,14 @@ afterEach(cleanup);
 
 describe('EmptyState', () => {
   it('renders the title, description and action', () => {
-    render(<EmptyState icon={Fish} title="No tanks found" description="Offline" action={<button type="button">Add</button>} />);
+    render(
+      <EmptyState
+        icon={Fish}
+        title="No tanks found"
+        description="Offline"
+        action={<button type="button">Add</button>}
+      />,
+    );
     expect(screen.getByText('No tanks found')).toBeInTheDocument();
     expect(screen.getByText('Offline')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
@@ -24,7 +31,9 @@ describe('EmptyState', () => {
 describe('ErrorState', () => {
   it('is an alert with a Retry button that calls back', () => {
     const onRetry = vi.fn();
-    render(<ErrorState title="Tanks could not be loaded" description="Try again" onRetry={onRetry} />);
+    render(
+      <ErrorState title="Tanks could not be loaded" description="Try again" onRetry={onRetry} />,
+    );
     expect(screen.getByRole('alert')).toHaveTextContent('Tanks could not be loaded');
     screen.getByRole('button', { name: 'Retry' }).click();
     expect(onRetry).toHaveBeenCalledOnce();

@@ -17,7 +17,11 @@ import {
   TriggerExportDto,
   UpdateRetentionPolicyDto,
 } from './dto/messaging-admin.dto';
-import { Destructive, RequiresCapability, TenantParam } from '@aquaculture/backend-common/decorators';
+import {
+  Destructive,
+  RequiresCapability,
+  TenantParam,
+} from '@aquaculture/backend-common/decorators';
 import { AuditedOperation } from '@aquaculture/backend-common/audit';
 import {
   Controller,
@@ -117,11 +121,18 @@ interface TenantsOverviewResponse {
   generatedAt: string;
 }
 
+/**
+ * Mirrors messaging-service's `AiPersonaDefinition` (a shared-catalogue
+ * persona as the admin inventory serves it). Personas are platform-managed
+ * and read-only here — there is no enabled flag on the wire.
+ */
 interface PersonaResponse {
-  id: string;
+  id: string | null;
   name: string;
   description: string;
-  isActive: boolean;
+  icon: string;
+  color: string;
+  capabilities: string[];
 }
 
 // ── Controller ──────────────────────────────────────────────────────────
@@ -169,13 +180,10 @@ export class MessagingAdminController {
    */
   @Get('compliance/legal-holds')
   @ApiOperation({ summary: 'List legal holds for a tenant' })
-  async getLegalHolds(
-    @TenantParam('query') tenantId: string,
-  ): Promise<LegalHoldResponse[]> {
-    return this.sendNatsRequest<LegalHoldResponse[]>(
-      'request.messaging.admin.getLegalHolds',
-      { tenantId },
-    );
+  async getLegalHolds(@TenantParam('query') tenantId: string): Promise<LegalHoldResponse[]> {
+    return this.sendNatsRequest<LegalHoldResponse[]>('request.messaging.admin.getLegalHolds', {
+      tenantId,
+    });
   }
 
   /**
@@ -191,20 +199,17 @@ export class MessagingAdminController {
     @Body() dto: CreateLegalHoldDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
-    return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.createLegalHold',
-      {
-        tenantId,
-        userId: user.id,
-        channelId: dto.channelId ?? null,
-        reason: dto.reason,
-        legalMatterId: dto.legalMatterId,
-        legalMatterDescription: dto.legalMatterDescription,
-        // ADMIN-CRITICAL-102: the requesting actor is the verified principal.
-        requestedBy: user.id,
-        expiresAt: dto.expiresAt,
-      },
-    );
+    return this.sendNatsRequest<LegalHoldResponse>('request.messaging.admin.createLegalHold', {
+      tenantId,
+      userId: user.id,
+      channelId: dto.channelId ?? null,
+      reason: dto.reason,
+      legalMatterId: dto.legalMatterId,
+      legalMatterDescription: dto.legalMatterDescription,
+      // ADMIN-CRITICAL-102: the requesting actor is the verified principal.
+      requestedBy: user.id,
+      expiresAt: dto.expiresAt,
+    });
   }
 
   /**
@@ -221,14 +226,11 @@ export class MessagingAdminController {
     @TenantParam('query') tenantId: string,
     @CurrentUser() user: CurrentUserData,
   ): Promise<LegalHoldResponse> {
-    return this.sendNatsRequest<LegalHoldResponse>(
-      'request.messaging.admin.releaseLegalHold',
-      {
-        holdId: id,
-        tenantId,
-        userId: user.id,
-      },
-    );
+    return this.sendNatsRequest<LegalHoldResponse>('request.messaging.admin.releaseLegalHold', {
+      holdId: id,
+      tenantId,
+      userId: user.id,
+    });
   }
 
   // ── Retention Policies ──────────────────────────────────────────────
@@ -309,19 +311,16 @@ export class MessagingAdminController {
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
   ): Promise<AuditLogResponse> {
-    return this.sendNatsRequest<AuditLogResponse>(
-      'request.messaging.admin.getAuditLog',
-      {
-        tenantId,
-        limit: limit ? parseInt(limit, 10) : 25,
-        cursor: cursor ?? null,
-        userId,
-        action,
-        resourceType,
-        startDate,
-        endDate,
-      },
-    );
+    return this.sendNatsRequest<AuditLogResponse>('request.messaging.admin.getAuditLog', {
+      tenantId,
+      limit: limit ? parseInt(limit, 10) : 25,
+      cursor: cursor ?? null,
+      userId,
+      action,
+      resourceType,
+      startDate,
+      endDate,
+    });
   }
 
   // ── Tenant Messaging Overview ───────────────────────────────────────
@@ -358,14 +357,11 @@ export class MessagingAdminController {
     @Body() dto: TriggerExportDto,
     @CurrentUser() user: CurrentUserData,
   ): Promise<ExportResponse> {
-    return this.sendNatsRequest<ExportResponse>(
-      'request.messaging.admin.triggerExport',
-      {
-        tenantId,
-        userId: user.id,
-        format: dto.format ?? 'json',
-      },
-    );
+    return this.sendNatsRequest<ExportResponse>('request.messaging.admin.triggerExport', {
+      tenantId,
+      userId: user.id,
+      format: dto.format ?? 'json',
+    });
   }
 
   // ── AI Personas ─────────────────────────────────────────────────────
@@ -376,13 +372,10 @@ export class MessagingAdminController {
    */
   @Get('personas')
   @ApiOperation({ summary: 'Get AI personas configuration' })
-  async getPersonas(
-    @TenantParam('query') tenantId: string,
-  ): Promise<PersonaResponse[]> {
-    return this.sendNatsRequest<PersonaResponse[]>(
-      'request.messaging.admin.getPersonas',
-      { tenantId },
-    );
+  async getPersonas(@TenantParam('query') tenantId: string): Promise<PersonaResponse[]> {
+    return this.sendNatsRequest<PersonaResponse[]>('request.messaging.admin.getPersonas', {
+      tenantId,
+    });
   }
 
   // ── NATS Helper ─────────────────────────────────────────────────────
@@ -395,18 +388,13 @@ export class MessagingAdminController {
    * @returns Response from messaging-service
    * @throws HttpException on timeout or NATS errors
    */
-  private async sendNatsRequest<T>(
-    pattern: string,
-    payload: Record<string, unknown>,
-  ): Promise<T> {
+  private async sendNatsRequest<T>(pattern: string, payload: Record<string, unknown>): Promise<T> {
     try {
       const result = await firstValueFrom(
         this.natsClient.send<T>(pattern, payload).pipe(
           timeout(this.natsTimeoutMs),
           catchError((err: Error) => {
-            this.logger.error(
-              `NATS request failed: pattern=${pattern}, error=${err.message}`,
-            );
+            this.logger.error(`NATS request failed: pattern=${pattern}, error=${err.message}`);
             return throwError(() => err);
           }),
         ),
@@ -436,10 +424,7 @@ export class MessagingAdminController {
         throw err;
       }
 
-      throw new HttpException(
-        `Messaging service error: ${message}`,
-        HttpStatus.BAD_GATEWAY,
-      );
+      throw new HttpException(`Messaging service error: ${message}`, HttpStatus.BAD_GATEWAY);
     }
   }
 }

@@ -11,14 +11,24 @@ import { Switch } from '../Switch';
 
 describe('Field primitives', () => {
   it('Input binds its label, forwards required, and wires the error to the control', () => {
-    const { rerender } = render(<Input label="Lot / Batch Number" required value="" onChange={vi.fn()} />);
+    const { rerender } = render(
+      <Input label="Lot / Batch Number" required value="" onChange={vi.fn()} />,
+    );
     const control = screen.getByLabelText(/Lot \/ Batch Number/);
     expect(control.tagName).toBe('INPUT');
     expect(control.hasAttribute('required')).toBe(true);
     expect(control.getAttribute('aria-invalid')).toBeNull();
     expect(control.className).toContain('min-h-touch');
 
-    rerender(<Input label="Lot / Batch Number" required value="" onChange={vi.fn()} error="Lot number is required" />);
+    rerender(
+      <Input
+        label="Lot / Batch Number"
+        required
+        value=""
+        onChange={vi.fn()}
+        error="Lot number is required"
+      />,
+    );
     const invalid = screen.getByLabelText(/Lot \/ Batch Number/);
     expect(invalid.getAttribute('aria-invalid')).toBe('true');
     expect(screen.getByRole('alert').id).toBe(invalid.getAttribute('aria-describedby'));

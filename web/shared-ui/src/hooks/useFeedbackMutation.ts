@@ -14,7 +14,11 @@
  * Caller callbacks still run after the toast, so invalidation, cache writes
  * and rollbacks stay where they were.
  */
-import { useMutation, type UseMutationOptions, type UseMutationResult } from '@tanstack/react-query';
+import {
+  useMutation,
+  type UseMutationOptions,
+  type UseMutationResult,
+} from '@tanstack/react-query';
 
 import { formatErrorForToast } from './useErrorMessage';
 import { useToast } from './useToast';
@@ -52,7 +56,12 @@ function resolve<TArgs extends unknown[]>(
   return typeof message === 'function' ? message(...args) : message;
 }
 
-export function useFeedbackMutation<TData = unknown, TError = Error, TVariables = void, TContext = unknown>(
+export function useFeedbackMutation<
+  TData = unknown,
+  TError = Error,
+  TVariables = void,
+  TContext = unknown,
+>(
   options: FeedbackMutationOptions<TData, TError, TVariables, TContext>,
 ): UseMutationResult<TData, TError, TVariables, TContext> {
   const { toast } = useToast();

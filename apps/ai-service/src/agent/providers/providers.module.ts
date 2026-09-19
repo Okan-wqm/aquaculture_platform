@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AnthropicProvider } from './anthropic.provider';
 import { LlmProviderFactory } from './llm-provider.factory';
 import { OpenAiProvider } from './openai.provider';
+import { ZaiProvider } from './zai.provider';
 
 /**
  * SSoT for LLM provider wiring. Both the agent runner (chat) and the
@@ -9,7 +10,7 @@ import { OpenAiProvider } from './openai.provider';
  * in its own module to avoid an AgentModule ↔ AgentConfigModule import cycle.
  */
 @Module({
-  providers: [AnthropicProvider, OpenAiProvider, LlmProviderFactory],
+  providers: [AnthropicProvider, OpenAiProvider, ZaiProvider, LlmProviderFactory],
   exports: [LlmProviderFactory],
 })
 export class LlmProvidersModule {}

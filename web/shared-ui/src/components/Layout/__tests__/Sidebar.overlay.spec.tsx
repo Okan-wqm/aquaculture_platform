@@ -143,7 +143,9 @@ describe('Sidebar overlay below md', () => {
     const aside = screen.getByRole('complementary', { name: 'Main navigation' });
     expect(aside.className).toContain('md:w-16');
     // The collapse toggle is the column's control and stays off the phone overlay.
-    expect(screen.getByRole('button', { name: 'Expand sidebar' }).className).toContain('hidden md:inline-flex');
+    expect(screen.getByRole('button', { name: 'Expand sidebar' }).className).toContain(
+      'hidden md:inline-flex',
+    );
   });
 
   it('hides labels in the rail when the overlay is closed', () => {

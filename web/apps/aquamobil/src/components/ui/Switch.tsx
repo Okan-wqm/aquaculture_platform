@@ -23,9 +23,22 @@ export interface SwitchProps {
   className?: string;
 }
 
-const ON: Record<SwitchTone, string> = { ocean: 'bg-ocean-500', sea: 'bg-sea-600', violet: 'bg-violet-500' };
+const ON: Record<SwitchTone, string> = {
+  ocean: 'bg-ocean-500',
+  sea: 'bg-sea-600',
+  violet: 'bg-violet-500',
+};
 
-export function Switch({ checked, onChange, label, hideLabel = false, description, disabled = false, tone = 'ocean', className }: SwitchProps): ReactNode {
+export function Switch({
+  checked,
+  onChange,
+  label,
+  hideLabel = false,
+  description,
+  disabled = false,
+  tone = 'ocean',
+  className,
+}: SwitchProps): ReactNode {
   const id = useId();
   const labelId = `${id}-label`;
   const descriptionId = `${id}-description`;
@@ -44,7 +57,12 @@ export function Switch({ checked, onChange, label, hideLabel = false, descriptio
         disabled && 'opacity-50 cursor-not-allowed',
       )}
     >
-      <span className={clsx('relative block h-7 w-12 rounded-full transition-colors duration-200', checked ? ON[tone] : 'bg-gray-200 dark:bg-gray-700')}>
+      <span
+        className={clsx(
+          'relative block h-7 w-12 rounded-full transition-colors duration-200',
+          checked ? ON[tone] : 'bg-gray-200 dark:bg-gray-700',
+        )}
+      >
         <span
           className={clsx(
             'absolute left-0.5 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform duration-200 dark:bg-gray-900',
@@ -61,12 +79,19 @@ export function Switch({ checked, onChange, label, hideLabel = false, descriptio
           {label}
         </span>
         {description && (
-          <span id={descriptionId} className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+          <span
+            id={descriptionId}
+            className="mt-0.5 block text-xs text-gray-500 dark:text-gray-400"
+          >
             {description}
           </span>
         )}
       </span>
-      {hideLabel && <span id={labelId} className="sr-only">{label}</span>}
+      {hideLabel && (
+        <span id={labelId} className="sr-only">
+          {label}
+        </span>
+      )}
       {control}
     </div>
   );

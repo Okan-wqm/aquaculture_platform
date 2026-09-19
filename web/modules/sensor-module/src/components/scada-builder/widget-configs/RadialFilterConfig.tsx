@@ -22,11 +22,26 @@ export const RadialFilterConfig: React.FC<WidgetConfigProps> = ({ config, onChan
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <Input fullWidth type="text" value={config.label || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Radial Filter" />
+        <Input
+          fullWidth
+          type="text"
+          value={config.label || ''}
+          onChange={(e) => onChange({ label: e.target.value })}
+          placeholder="Radial Filter"
+        />
       </div>
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Demo Status</label>
-        <Select fullWidth options={[{ value: 'running', label: 'Running' }, { value: 'stopped', label: 'Stopped' }, { value: 'error', label: 'Error' }]} value={config.demoStatus || 'running'} onChange={(e) => onChange({ demoStatus: e.target.value })} />
+        <Select
+          fullWidth
+          options={[
+            { value: 'running', label: 'Running' },
+            { value: 'stopped', label: 'Stopped' },
+            { value: 'error', label: 'Error' },
+          ]}
+          value={config.demoStatus || 'running'}
+          onChange={(e) => onChange({ demoStatus: e.target.value })}
+        />
       </div>
     </div>
   );

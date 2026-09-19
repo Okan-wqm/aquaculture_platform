@@ -1,7 +1,4 @@
-import {
-  MESSAGING_EVENT_REGISTRY,
-  type MessagingEventType,
-} from '../messaging-event-registry';
+import { MESSAGING_EVENT_REGISTRY, type MessagingEventType } from '../messaging-event-registry';
 
 import {
   BASE_EVENT_PROPERTIES,
@@ -42,9 +39,7 @@ function eventSchema(
   opts?: { allowAdditionalProperties?: boolean },
 ): Record<string, unknown> {
   const contract = MESSAGING_EVENT_REGISTRY[eventType];
-  const required = Array.from(
-    new Set([...BASE_EVENT_REQUIRED, ...contract.requiredPayloadFields]),
-  );
+  const required = Array.from(new Set([...BASE_EVENT_REQUIRED, ...contract.requiredPayloadFields]));
   return {
     type: 'object',
     additionalProperties: opts?.allowAdditionalProperties ?? false,
@@ -78,6 +73,15 @@ export const MESSAGING_EVENT_SCHEMAS = {
     hasAttachments: { type: 'boolean' },
     mentionedUserIds: { ...UUID_ARRAY, nullable: true },
     createdAt: ISO_DATE_TIME,
+    // MSGFIX-FAZ2: optional additive marker for the persisted AI assistant
+    // reply. NOT in the required set — pre-Faz2 publishers (and every other
+    // human message) legitimately omit it; the additionalProperties:false
+    // guard previously DROPPED the bridge's own AI MessageSent events at the
+    // gateway validator because the field was undeclared.
+    isAiResponse: { type: 'boolean', nullable: true },
+    // MSGFIX-FAZ2 (V1 MAJOR-2): optional additive flag for AI error/status
+    // notices — exempt from the AI push filter (see messaging-events.ts).
+    isAiErrorNotice: { type: 'boolean', nullable: true },
   }),
   MessageRead: eventSchema('MessageRead', {
     channelId: UUID_SCHEMA,

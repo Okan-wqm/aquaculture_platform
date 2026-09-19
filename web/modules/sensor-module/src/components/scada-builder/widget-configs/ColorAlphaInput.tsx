@@ -90,7 +90,16 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
         />
 
         {/* Hex text input */}
-        <Input className="font-mono" type="text" value={color} onChange={(e) => handleHexInput(e.target.value)} maxLength={7} placeholder={colors.black} aria-label={label ? `${label} hex value` : 'Hex color value'} data-testid="color-hex-input" />
+        <Input
+          className="font-mono"
+          type="text"
+          value={color}
+          onChange={(e) => handleHexInput(e.target.value)}
+          maxLength={7}
+          placeholder={colors.black}
+          aria-label={label ? `${label} hex value` : 'Hex color value'}
+          data-testid="color-hex-input"
+        />
 
         {/* Alpha slider */}
         <input
@@ -106,7 +115,17 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
         />
 
         {/* Alpha percentage text input */}
-        <Input className="text-center" type="number" min={0} max={100} step={1} value={alphaPercent} onChange={(e) => handleAlphaText(e.target.value)} aria-label={label ? `${label} opacity percent` : 'Opacity percent'} data-testid="alpha-percent" />
+        <Input
+          className="text-center"
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          value={alphaPercent}
+          onChange={(e) => handleAlphaText(e.target.value)}
+          aria-label={label ? `${label} opacity percent` : 'Opacity percent'}
+          data-testid="alpha-percent"
+        />
         <span className="text-[10px] text-gray-400 dark:text-gray-500">%</span>
       </div>
     </div>

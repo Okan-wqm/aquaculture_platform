@@ -3,7 +3,7 @@ import { Logger, BadRequestException } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 import { InjectDataSource } from '@nestjs/typeorm';
 
-import { runInTenantTransaction } from '@aquaculture/backend-common/database';
+import { runInTenantRead } from '@aquaculture/backend-common/database';
 import { SearchMessagesQuery } from './search-messages.query';
 import { Message } from '../entities/message.entity';
 import { ChannelMember } from '../../channel/entities/channel-member.entity';
@@ -23,9 +23,7 @@ import { ChannelMember } from '../../channel/entities/channel-member.entity';
  *      it from the verified JWT, not from any user-controlled input.
  */
 @QueryHandler(SearchMessagesQuery)
-export class SearchMessagesHandler
-  implements IQueryHandler<SearchMessagesQuery, Message[]>
-{
+export class SearchMessagesHandler implements IQueryHandler<SearchMessagesQuery, Message[]> {
   private readonly logger = new Logger(SearchMessagesHandler.name);
 
   constructor(
@@ -44,12 +42,13 @@ export class SearchMessagesHandler
     // but we assert tenantId presence to catch programming errors where a query
     // is dispatched without proper tenant context.
     if (!tenantId) {
-      throw new BadRequestException(
-        'Tenant context is required for message search.',
-      );
+      throw new BadRequestException('Tenant context is required for message search.');
     }
 
-    return runInTenantTransaction(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
+    // MSGFIX-FAZ3 3.5: search is a pure read — READ-ONLY tenant boundary
+    // (same fail-closed pin; the GIN index added by 1802300000000 serves the
+    // to_tsvector expression below when present).
+    return runInTenantRead(this.dataSource, 'messaging', tenantId, async (queryRunner) => {
       // 1. Get channels the user is a member of inside the tenant schema.
       const memberChannelIds = await this.getUserChannelIds(
         queryRunner.manager,
@@ -79,12 +78,19 @@ export class SearchMessagesHandler
           `to_tsvector('english', m."content") @@ plainto_tsquery('english', :searchQuery)`,
           { searchQuery },
         )
-        .orderBy(
+        .addSelect(
           `ts_rank(to_tsvector('english', m."content"), plainto_tsquery('english', :searchQuery))`,
-          'DESC',
+          'search_rank',
         )
+        .orderBy('"search_rank"', 'DESC')
         .addOrderBy('m.createdAt', 'DESC')
-        .take(limit)
+        // LIMIT, not take(): the attachments join makes TypeORM's take() emit
+        // SELECT DISTINCT id, which Postgres rejects because the ts_rank ORDER
+        // BY expression is not in the select list (live-discovered — the search
+        // path had never been exercised). limit() paginates without DISTINCT;
+        // the rank ordering already bounds the candidate set before the join
+        // fans out attachments.
+        .limit(limit)
         .getMany();
 
       this.logger.debug(

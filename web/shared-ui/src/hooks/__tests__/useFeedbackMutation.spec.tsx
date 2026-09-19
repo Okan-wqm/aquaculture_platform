@@ -8,13 +8,23 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { ReactElement } from 'react';
 
-import { DEFAULT_MUTATION_ERROR_TITLE, useFeedbackMutation, type FeedbackMutationOptions } from '../useFeedbackMutation';
+import {
+  DEFAULT_MUTATION_ERROR_TITLE,
+  useFeedbackMutation,
+  type FeedbackMutationOptions,
+} from '../useFeedbackMutation';
 import { ToastProvider } from '../useToast';
 
 type Options = FeedbackMutationOptions<{ id: string }, Error, { name: string }, unknown>;
 type Mutate = (variables: { name: string }) => void;
 
-function Harness({ options, onReady }: { options: Options; onReady: (mutate: Mutate) => void }): ReactElement {
+function Harness({
+  options,
+  onReady,
+}: {
+  options: Options;
+  onReady: (mutate: Mutate) => void;
+}): ReactElement {
   const mutation = useFeedbackMutation(options);
   onReady(mutation.mutate);
   return <span data-testid="state">{mutation.status}</span>;
@@ -26,7 +36,12 @@ function mount(options: Options): Mutate {
   render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <Harness options={options} onReady={(m) => { mutate = m; }} />
+        <Harness
+          options={options}
+          onReady={(m) => {
+            mutate = m;
+          }}
+        />
       </ToastProvider>
     </QueryClientProvider>,
   );
@@ -49,7 +64,9 @@ describe('useFeedbackMutation', () => {
   it('toasts an error with the default title and the parsed message, and still runs the caller onError', async () => {
     const onError = vi.fn();
     const mutate = mount({
-      mutationFn: async () => { throw new Error('Payroll period is locked'); },
+      mutationFn: async () => {
+        throw new Error('Payroll period is locked');
+      },
       feedback: { success: 'Payroll approved' },
       onError,
     });
@@ -62,7 +79,9 @@ describe('useFeedbackMutation', () => {
 
   it('uses a custom error title and says nothing when quiet', async () => {
     const mutate = mount({
-      mutationFn: async () => { throw new Error('boom'); },
+      mutationFn: async () => {
+        throw new Error('boom');
+      },
       feedback: { success: 'Done', error: 'Could not approve' },
     });
     act(() => mutate({ name: 'x' }));
@@ -84,7 +103,12 @@ describe('useFeedbackMutation', () => {
     // Every toast card carries a dismiss control; none rendered means no toast.
     expect(screen.queryByLabelText('Dismiss notification')).toBeNull();
 
-    const failed = mount({ mutationFn: async () => { throw new Error('offline'); }, feedback: { success: null } });
+    const failed = mount({
+      mutationFn: async () => {
+        throw new Error('offline');
+      },
+      feedback: { success: null },
+    });
     act(() => failed({ name: 'hello' }));
     await waitFor(() => expect(screen.getByText(DEFAULT_MUTATION_ERROR_TITLE)).toBeTruthy());
   });

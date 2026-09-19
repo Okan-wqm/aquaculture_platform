@@ -79,6 +79,7 @@ export default async function globalSetup(): Promise<void> {
           "mfaEnabled" BOOLEAN NOT NULL DEFAULT false,
           "failedLoginAttempts" INT NOT NULL DEFAULT 0,
           "mfaFailedAttempts" INT NOT NULL DEFAULT 0,
+          "credentialVersion" INT NOT NULL DEFAULT 1,
           "createdAt" TIMESTAMP DEFAULT NOW(),
           "updatedAt" TIMESTAMP DEFAULT NOW()
         )

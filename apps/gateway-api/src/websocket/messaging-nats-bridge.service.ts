@@ -8,14 +8,8 @@ import type { ConnectionOptions, NatsConnection, Subscription } from '@nats-io/n
 import { connect } from '@nats-io/transport-node';
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  assertSubjectMatchesEvent,
-  buildWildcardEventSubject,
-} from '@platform/event-bus';
-import {
-  isMessagingEventType,
-  validateMessagingEvent,
-} from '@platform/event-contracts';
+import { assertSubjectMatchesEvent, buildWildcardEventSubject } from '@platform/event-bus';
+import { isMessagingEventType, validateMessagingEvent } from '@platform/event-contracts';
 
 import { MessagingGateway } from './messaging.gateway';
 
@@ -55,6 +49,17 @@ const MESSAGING_SUBJECTS = MESSAGING_GATEWAY_EVENT_TYPES.map((eventType) =>
   buildWildcardEventSubject(eventType),
 );
 
+/**
+ * MSGFIX-FAZ3 3.4 (B-3 head-of-line blocking): maximum events processed
+ * concurrently per subscription loop. The loop previously `await`ed
+ * `handleEvent` inline, so ONE slow `broadcastHydratedMessage` (NATS
+ * hydration request, 5s timeout) blocked EVERY subsequent event on that
+ * subject — a burst of new messages on a NATS hiccup backed up the whole
+ * bridge. Bounded at 20: `void`-dispatch with a slot semaphore keeps the
+ * loop free-running without unbounded promise growth under a backlog.
+ */
+const MAX_EVENT_CONCURRENCY = 20;
+
 // ============================================================================
 // MessagingNatsBridgeService
 // ============================================================================
@@ -68,6 +73,10 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
   private readonly logger = new Logger(MessagingNatsBridgeService.name);
   private connection: NatsConnection | null = null;
   private subscriptions: Subscription[] = [];
+
+  // ── Bounded-concurrency dispatch state (MSGFIX-FAZ3 3.4 / B-3) ──
+  private inflightEvents = 0;
+  private readonly eventSlotWaiters: Array<() => void> = [];
 
   constructor(
     @Inject(ConfigService) private readonly configService: ConfigService,
@@ -130,7 +139,14 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
               continue;
             }
 
-            await this.handleEvent(event);
+            // MSGFIX-FAZ3 3.4 (B-3): bounded-concurrency dispatch. Awaiting
+            // handleEvent inline let ONE slow hydration block the whole
+            // subject loop (head-of-line blocking). The dispatch is void-fired
+            // through a slot semaphore (MAX_EVENT_CONCURRENCY) so the loop
+            // keeps draining while up to 20 events process concurrently.
+            // handleEvent is already per-event try/caught below.
+            await this.acquireEventSlot();
+            void this.processEventBounded(event, msg.subject);
           } catch (error) {
             this.logger.warn(`Failed to process ${subject}: ${(error as Error).message}`);
           }
@@ -138,6 +154,38 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
       })().catch((error) => {
         this.logger.error(`NATS ${subject} subscription loop error: ${(error as Error).message}`);
       });
+    }
+  }
+
+  /** Acquire one concurrency slot; resolves immediately while inflight < cap. */
+  private async acquireEventSlot(): Promise<void> {
+    if (this.inflightEvents < MAX_EVENT_CONCURRENCY) {
+      this.inflightEvents += 1;
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      this.eventSlotWaiters.push(resolve);
+    });
+    this.inflightEvents += 1;
+  }
+
+  /** Release a slot and wake the oldest waiter (FIFO — no starvation). */
+  private releaseEventSlot(): void {
+    this.inflightEvents -= 1;
+    const next = this.eventSlotWaiters.shift();
+    if (next) {
+      next();
+    }
+  }
+
+  /** Run handleEvent under the semaphore; the slot is always released. */
+  private async processEventBounded(event: MessagingNatsEvent, subject: string): Promise<void> {
+    try {
+      await this.handleEvent(event);
+    } catch (error) {
+      this.logger.warn(`Failed to process ${subject}: ${(error as Error).message}`);
+    } finally {
+      this.releaseEventSlot();
     }
   }
 
@@ -160,8 +208,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
           this.logger.warn(`${event.eventType} missing messageId, dropping`);
           return;
         }
-        const eventName =
-          event.eventType === 'MessageUpdated' ? 'messageUpdated' : 'newMessage';
+        const eventName = event.eventType === 'MessageUpdated' ? 'messageUpdated' : 'newMessage';
         await this.messagingGateway.broadcastHydratedMessage(
           event.tenantId,
           channelId,
@@ -198,11 +245,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
         const removedUserId =
           this.stringField(event, 'userId') ?? this.stringField(event.data, 'userId');
         if (removedUserId) {
-          this.messagingGateway.evictUserFromChannel(
-            event.tenantId,
-            channelId,
-            removedUserId,
-          );
+          this.messagingGateway.evictUserFromChannel(event.tenantId, channelId, removedUserId);
         }
         // Channel lifecycle events ride a DISTINCT `channelEvent` name — never
         // `messageUpdated` (which now carries a MessageEnvelope and would corrupt
@@ -252,18 +295,14 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
               try {
                 sub.unsubscribe();
               } catch (error) {
-                this.logger.debug(
-                  `Stale subscription cleanup error: ${(error as Error).message}`,
-                );
+                this.logger.debug(`Stale subscription cleanup error: ${(error as Error).message}`);
               }
             }
             this.subscriptions = [];
             this.subscribeToMessagingEvents();
             break;
           case 'error':
-            this.logger.error(
-              `Messaging NATS error: ${this.formatStatusData(status.error)}`,
-            );
+            this.logger.error(`Messaging NATS error: ${this.formatStatusData(status.error)}`);
             break;
         }
       }
@@ -302,9 +341,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     try {
       assertSubjectMatchesEvent(subject, event);
     } catch (error) {
-      this.logger.warn(
-        `Messaging event subject mismatch: ${(error as Error).message}`,
-      );
+      this.logger.warn(`Messaging event subject mismatch: ${(error as Error).message}`);
       return false;
     }
 
@@ -319,10 +356,7 @@ export class MessagingNatsBridgeService implements OnModuleInit, OnModuleDestroy
     return true;
   }
 
-  private stringField(
-    value: Record<string, unknown> | undefined,
-    key: string,
-  ): string | undefined {
+  private stringField(value: Record<string, unknown> | undefined, key: string): string | undefined {
     const field = value?.[key];
     return typeof field === 'string' ? field : undefined;
   }

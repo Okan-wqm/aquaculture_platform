@@ -9589,7 +9589,7 @@ input CreateWaterQualityInput {
   """Ölçüm tarihi"""
   measuredAt: DateTime!
 
-  """Ölçüm kaynağı"""
+  """Ölçüm kaynağı (makine kaynakları reddedilir)"""
   source: WaterQualityMeasurementSource!
 
   """Ölçümü yapan kullanıcı"""

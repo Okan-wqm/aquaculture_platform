@@ -138,8 +138,16 @@ const PaymentsPage: React.FC = () => {
         limit: 50,
       });
 
-      setPayments(data.payments);
-      setTotalPayments(data.total);
+      // The API serialises decimals as strings; Number() takes either shape
+      // without a cast through the declared numeric type.
+      const mapped = (data.payments || []).map((p: PaymentOverview) => ({
+        ...p,
+        amount: Number(p.amount),
+        refundedAmount: Number(p.refundedAmount ?? 0),
+      }));
+
+      setPayments(mapped);
+      setTotalPayments(data.total || 0);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load payments');
       setPayments([]);

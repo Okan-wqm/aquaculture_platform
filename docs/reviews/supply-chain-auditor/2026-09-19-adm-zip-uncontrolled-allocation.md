@@ -12,11 +12,11 @@
 The root-full leg (`--audit-level=high`, dev dependencies included) reported
 three entries with no reviewed exception:
 
-| package                 | advisory                                   | npm's remedy                            |
-| ----------------------- | ------------------------------------------ | --------------------------------------- |
-| adm-zip                 | GHSA-7q85-xj36-vmfc, GHSA-vwc7-r8mq-g2x9   | `@module-federation/vite@1.9.4` (major) |
-| @nx/react               | GHSA-7q85-xj36-vmfc                        | `@nx/react@20.1.4` (major)              |
-| @nx/module-federation   | GHSA-7q85-xj36-vmfc                        | `@nx/react@20.1.4` (major)              |
+| package               | advisory                                 | npm's remedy                            |
+| --------------------- | ---------------------------------------- | --------------------------------------- |
+| adm-zip               | GHSA-7q85-xj36-vmfc, GHSA-vwc7-r8mq-g2x9 | `@module-federation/vite@1.9.4` (major) |
+| @nx/react             | GHSA-7q85-xj36-vmfc                      | `@nx/react@20.1.4` (major)              |
+| @nx/module-federation | GHSA-7q85-xj36-vmfc                      | `@nx/react@20.1.4` (major)              |
 
 Only the first is a root advisory. GHSA-7q85-xj36-vmfc is adm-zip's
 uncontrolled memory allocation from the declared uncompressed size (a DoS on

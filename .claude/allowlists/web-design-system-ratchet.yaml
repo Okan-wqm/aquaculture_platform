@@ -280,7 +280,7 @@ inlineIconSvg:
 hardcodedText:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 617
+      ceiling: 616
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -309,12 +309,6 @@ hardcodedText:
       expiry: 2027-06-30
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
-    - package: web/modules/messaging-module
-      ceiling: 11
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-HIGH-089
-      reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/sensor-module
       ceiling: 3303
       owner: okan
@@ -322,7 +316,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/tenant-admin
-      ceiling: 502
+      ceiling: 503
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089

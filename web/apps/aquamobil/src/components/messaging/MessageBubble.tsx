@@ -15,7 +15,15 @@
  */
 
 import { clsx } from 'clsx';
-import { File as FileIcon, Reply, Copy, Forward, Trash2, CornerUpRight, Pencil } from 'lucide-react';
+import {
+  File as FileIcon,
+  Reply,
+  Copy,
+  Forward,
+  Trash2,
+  CornerUpRight,
+  Pencil,
+} from 'lucide-react';
 import { useState, useCallback, useRef, useEffect, type ReactElement } from 'react';
 
 import { ReadReceipt } from './ReadReceipt';
@@ -154,10 +162,7 @@ function renderRichText(
   let lastIndex = 0;
 
   // Combined regex for URLs and mentions
-  const combinedRegex = new RegExp(
-    `${MENTION_REGEX.source}|${URL_REGEX.source}`,
-    'g',
-  );
+  const combinedRegex = new RegExp(`${MENTION_REGEX.source}|${URL_REGEX.source}`, 'g');
 
   let match: RegExpExecArray | null;
   combinedRegex.lastIndex = 0;
@@ -288,9 +293,8 @@ export function MessageBubble({
     contentType === 'VOICE' && metadata
       ? (metadata['voiceDurationSeconds'] as number | undefined)
       : undefined;
-  const voiceAttachment = contentType === 'VOICE' && attachments?.length
-    ? attachments[0]
-    : undefined;
+  const voiceAttachment =
+    contentType === 'VOICE' && attachments?.length ? attachments[0] : undefined;
 
   const isForwarded = !!forwardedFrom;
 
@@ -301,9 +305,7 @@ export function MessageBubble({
     return (
       <div className={clsx('flex px-4 py-0.5', isOwn ? 'justify-end' : 'justify-start')}>
         <div className="bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2 max-w-[80%]">
-          <span className="text-xs text-gray-400 dark:text-gray-500 italic">
-            [message deleted]
-          </span>
+          <span className="text-xs text-gray-400 dark:text-gray-500 italic">[message deleted]</span>
         </div>
       </div>
     );
@@ -359,23 +361,35 @@ export function MessageBubble({
                 : 'bg-gray-50 dark:bg-gray-700/60 border-ocean-400',
             )}
           >
-            <p className={clsx('font-bold truncate', isOwn ? 'text-white/90' : 'text-ocean-600 dark:text-ocean-400')}>
+            <p
+              className={clsx(
+                'font-bold truncate',
+                isOwn ? 'text-white/90' : 'text-ocean-600 dark:text-ocean-400',
+              )}
+            >
               {replyTo.senderName}
             </p>
-            <p className={clsx('truncate', isOwn ? 'text-white/85' : 'text-gray-500 dark:text-gray-400')}>
+            <p
+              className={clsx(
+                'truncate',
+                isOwn ? 'text-white/85' : 'text-gray-500 dark:text-gray-400',
+              )}
+            >
               {replyTo.text}
             </p>
           </div>
         )}
 
         {/* Voice note — render VoicePlayer instead of text */}
-        {contentType === 'VOICE' && voiceAttachment?.downloadUrl && isSafeUrl(voiceAttachment.downloadUrl) && (
-          <VoicePlayer
-            src={voiceAttachment.downloadUrl}
-            durationSeconds={voiceDuration ?? voiceAttachment.durationSeconds ?? undefined}
-            isOwn={isOwn}
-          />
-        )}
+        {contentType === 'VOICE' &&
+          voiceAttachment?.downloadUrl &&
+          isSafeUrl(voiceAttachment.downloadUrl) && (
+            <VoicePlayer
+              src={voiceAttachment.downloadUrl}
+              durationSeconds={voiceDuration ?? voiceAttachment.durationSeconds ?? undefined}
+              isOwn={isOwn}
+            />
+          )}
 
         {/* Image attachment -- URL protocol validated to prevent XSS */}
         {image && isSafeUrl(image.thumbnailUrl ?? image.url) && (
@@ -424,10 +438,18 @@ export function MessageBubble({
                 isOwn ? 'bg-white/20 dark:bg-gray-900/20' : 'bg-ocean-50 dark:bg-ocean-900/30',
               )}
             >
-              <FileIcon size={18} className={isOwn ? 'text-white' : 'text-ocean-600 dark:text-ocean-400'} />
+              <FileIcon
+                size={18}
+                className={isOwn ? 'text-white' : 'text-ocean-600 dark:text-ocean-400'}
+              />
             </div>
             <div className="min-w-0 flex-1">
-              <p className={clsx('text-xs font-semibold truncate', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
+              <p
+                className={clsx(
+                  'text-xs font-semibold truncate',
+                  isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100',
+                )}
+              >
                 {file.name}
               </p>
               <p className={clsx('text-[10px]', isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500')}>
@@ -439,13 +461,23 @@ export function MessageBubble({
 
         {/* Text content with @mention and URL rendering */}
         {text && contentType !== 'VOICE' && (
-          <p className={clsx('text-sm leading-relaxed break-words whitespace-pre-wrap', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
+          <p
+            className={clsx(
+              'text-sm leading-relaxed break-words whitespace-pre-wrap',
+              isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100',
+            )}
+          >
             {renderRichText(text, isOwn, onMentionTap)}
           </p>
         )}
 
         {/* Timestamp + edited + read receipt */}
-        <div className={clsx('flex items-center justify-end gap-1 mt-1', isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500')}>
+        <div
+          className={clsx(
+            'flex items-center justify-end gap-1 mt-1',
+            isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500',
+          )}
+        >
           {isEdited && <span className="text-[10px] italic">(edited)</span>}
           <span className="text-[10px] tabular-nums">{timeStr}</span>
           {isOwn && status && <ReadReceipt status={status} />}

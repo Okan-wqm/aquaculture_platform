@@ -1,8 +1,45 @@
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { DataSource, EntityManager } from 'typeorm';
+import type { QueryRunner } from 'typeorm';
 import { AgentConfigService } from '../agent-config.service';
 import { TenantAgentConfig } from '../agent-config.entity';
+
+/**
+ * The service now tenant-pins its reads/writes via runInTenantRead/Transaction
+ * (NATS responders have no request middleware — MSGFIX). The harness routes the
+ * pinned QueryRunner's manager to the SAME mocked repository functions, so the
+ * London-school contract assertions stay unchanged.
+ */
+import { stub, stubMember } from '@aquaculture/testing';
+
+jest.mock('@aquaculture/backend-common/database', () => ({
+  runInTenantRead: (
+    _ds: DataSource,
+    _schema: string,
+    _tenantId: string,
+    work: (qr: QueryRunner) => Promise<unknown>,
+  ) => work(stub<QueryRunner>({ manager: managerProxy })),
+  runInTenantTransaction: (
+    _ds: DataSource,
+    _schema: string,
+    _tenantId: string,
+    work: (qr: QueryRunner) => Promise<unknown>,
+  ) => work(stub<QueryRunner>({ manager: managerProxy })),
+}));
+
+const findOne = jest.fn();
+const saveMock = jest.fn();
+const createMock = jest.fn();
+
+// The pinned QueryRunner's manager: only the three members the service calls,
+// each an overloaded EntityManager signature → stubMember (typed at the member).
+const managerProxy = stub<EntityManager>({
+  findOne: stubMember<EntityManager['findOne']>((...args: never[]) => findOne(...args)),
+  save: stubMember<EntityManager['save']>((...args: never[]) => saveMock(...args)),
+  create: stubMember<EntityManager['create']>((...args: never[]) => createMock(...args)),
+});
 
 /**
  * FAZ1-BYOK fail-closed enablement + cross-tenant isolation + credential resolution.
@@ -12,18 +49,20 @@ import { TenantAgentConfig } from '../agent-config.entity';
  * SELECTED provider's key, and one tenant's read is scoped to its own row.
  */
 describe('AgentConfigService (BYOK)', () => {
-  const findOne = jest.fn();
   let service: AgentConfigService;
 
   const build = async (): Promise<void> => {
     findOne.mockReset();
+    saveMock.mockReset();
+    createMock.mockReset();
     const moduleRef = await Test.createTestingModule({
       providers: [
         AgentConfigService,
         {
           provide: getRepositoryToken(TenantAgentConfig),
-          useValue: { findOne, save: jest.fn(), create: jest.fn() },
+          useValue: { findOne, save: saveMock, create: createMock },
         },
+        { provide: DataSource, useValue: {} as DataSource },
       ],
     }).compile();
     service = moduleRef.get(AgentConfigService);
@@ -114,9 +153,7 @@ describe('AgentConfigService (BYOK)', () => {
     });
 
     it('returns null when the selected provider has no key', async () => {
-      findOne.mockResolvedValue(
-        configRow({ provider: 'openai', openaiApiKey: null }),
-      );
+      findOne.mockResolvedValue(configRow({ provider: 'openai', openaiApiKey: null }));
       await expect(service.resolveCredential('t1')).resolves.toBeNull();
     });
   });
@@ -125,7 +162,11 @@ describe('AgentConfigService (BYOK)', () => {
     it('scopes the read to the requested tenant id (where clause)', async () => {
       findOne.mockResolvedValue(configRow({ tenantId: 'tenant-A', anthropicApiKey: 'sk-A' }));
       await service.resolveCredential('tenant-A');
-      expect(findOne).toHaveBeenCalledWith({ where: { tenantId: 'tenant-A' } });
+      // MSGFIX: the read is now tenant-pinned via queryRunner.manager.findOne
+      // (EntityClass, options) — the where clause stays the tenant-scoped SSoT.
+      expect(findOne).toHaveBeenCalledWith(expect.any(Function), {
+        where: { tenantId: 'tenant-A' },
+      });
     });
 
     it('a tenant with no row gets defaults (no key), never another tenant’s data', async () => {

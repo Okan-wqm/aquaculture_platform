@@ -35,6 +35,10 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   private outboxOldestPendingAge!: client.Gauge;
   private storageUsedBytes!: client.Gauge;
 
+  // NATS transport health (MSGFIX-FAZ0 — 16h NATS outage went unnoticed)
+  private natsReconnectsTotal!: client.Counter;
+  private natsConnectionStatus!: client.Gauge;
+
   // Dead-letter and GDPR metrics
   // @see MSG-HIGH-006 (dead-letter metric counter)
   // @see MSG-HIGH-027 (GDPR erasure metric counter)
@@ -115,6 +119,23 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
       name: 'messaging_storage_used_bytes',
       help: 'Storage used by tenant in bytes',
       labelNames: ['tenant'],
+      registers: [this.registry],
+    });
+
+    // MSGFIX-FAZ0 (2026-09-16): the messaging NATS transport was unobservable —
+    // a 16h broker outage surfaced nowhere. Reconnects counted here are
+    // RECOVERIES observed after the first successful connection (the initial
+    // connect is not a reconnect). Status is an enum gauge: 2=connected,
+    // 1=reconnecting, 0=disconnected — alert on `< 2`.
+    this.natsReconnectsTotal = new client.Counter({
+      name: 'messaging_nats_reconnects_total',
+      help: 'NATS connection recoveries (a connected state reached after a previous drop; initial connect excluded)',
+      registers: [this.registry],
+    });
+
+    this.natsConnectionStatus = new client.Gauge({
+      name: 'messaging_nats_connection_status',
+      help: 'NATS connection state: 2=connected, 1=reconnecting, 0=disconnected',
       registers: [this.registry],
     });
 
@@ -210,6 +231,16 @@ export class MessagingMetricsService implements OnModuleInit, OnModuleDestroy {
   /** Set age of the oldest pending outbox event in seconds. */
   setOutboxOldestPendingAge(ageSeconds: number): void {
     this.outboxOldestPendingAge.set(ageSeconds);
+  }
+
+  /** Increment the NATS reconnect counter (recovery after a drop, MSGFIX-FAZ0). */
+  incrementNatsReconnect(): void {
+    this.natsReconnectsTotal.inc();
+  }
+
+  /** Set the NATS connection status enum gauge (2=connected, 1=reconnecting, 0=disconnected). */
+  setNatsConnectionStatus(status: number): void {
+    this.natsConnectionStatus.set(status);
   }
 
   /** Increment media_uploads_total counter. */

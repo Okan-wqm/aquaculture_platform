@@ -122,6 +122,9 @@ export class Message {
    * the live WS envelope already carries it (messaging-nats.handler WsMessage)
    * and the mobile client renders from it — a message loaded through GraphQL
    * must not lose what the same message carried over the socket (MSG-HIGH).
+   * MSGFIX-FAZ2 2.4: the panel also renders AI error notices from it
+   * (metadata.error/errorCode) and keeps forwarding context; server-reserved
+   * keys (isAi/status/actionId) are stripped at the write side.
    */
   @Field(() => GraphQLJSON, { nullable: true })
   @Column({ type: 'jsonb', nullable: true })

@@ -5,7 +5,10 @@ import {
   AgentRunnerService,
   AiKeyMissingError,
   ChatRequest,
+  PersonaConversationMismatchError,
 } from '../agent/agent-runner.service';
+import { PersonaNotPermittedError } from '../agent/agent-profile.service';
+import { UnknownPersonaError } from '../agent/agent-persona-catalogue.service';
 
 /**
  * Unified `request.ai.chat` NATS request-reply contract — the SINGLE AI chat
@@ -35,9 +38,30 @@ export interface AiChatNatsRequest {
   /** Faz 7c: the caller's tenant-RBAC grants — authorizes the persona tier. */
   resourcePermissions?: string[];
   correlationId?: string;
+  /**
+   * FARM-AI Sprint 1.2: ephemeral run — no conversation is created or read;
+   * the response carries conversationId=null. Service paths (narratives,
+   * routines) use this.
+   */
+  ephemeral?: boolean;
+  /**
+   * FARM-AI Sprint 1.2: identity of the calling service, checked against the
+   * server-side SERVICE_PERSONA_GRANTS map in AgentProfileService. Authority
+   * is never taken from the payload.
+   */
+  serviceId?: string;
+  /** FARM-AI Sprint 1.2: allowlisted rate-limit namespace ('routine'). */
+  rateNamespace?: string;
   // ── messaging-bridge-only context (ignored by the assistant path) ──
   channelId?: string;
   messageId?: string;
+  /**
+   * MSGFIX-FAZ2 2.3: consent-filtered channel history (the bridge already
+   * dropped non-consenting senders' messages and applied a character
+   * budget). Mapped to LlmMessage history below — the responder previously
+   * received this field and silently DISCARDED it, so the assistant had no
+   * channel memory at all.
+   */
   contextMessages?: Array<{
     senderId: string;
     content: string;
@@ -46,13 +70,46 @@ export interface AiChatNatsRequest {
   }>;
 }
 
+/** Defensive caps on caller-supplied history (NATS is a trust boundary). */
+const MAX_CONTEXT_MESSAGES = 30;
+const MAX_CONTEXT_MESSAGE_CHARS = 8_000;
+
+/**
+ * Map the bridge's channel context onto provider-neutral chat history.
+ *
+ * Role mapping: the AI's own prior replies (`isAi`) become 'assistant';
+ * every other consented author becomes 'user' (their identity is NOT
+ * forwarded — content only). Alternation is enforced downstream
+ * (agent-runner's pushAlternating folds consecutive same-role turns), so
+ * this stays a pure 1:1 projection.
+ */
+function mapContextToPriorMessages(
+  payload: AiChatNatsRequest,
+): Array<{ role: 'user' | 'assistant'; content: string }> | undefined {
+  if (!Array.isArray(payload.contextMessages) || payload.contextMessages.length === 0) {
+    return undefined;
+  }
+  const prior: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  for (const ctx of payload.contextMessages.slice(0, MAX_CONTEXT_MESSAGES)) {
+    if (typeof ctx?.content !== 'string') continue;
+    const text = ctx.content.slice(0, MAX_CONTEXT_MESSAGE_CHARS).trim();
+    if (!text) continue;
+    prior.push({ role: ctx.isAi === true ? 'assistant' : 'user', content: text });
+  }
+  return prior.length > 0 ? prior : undefined;
+}
+
 export interface AiChatNatsResponse {
   content: string;
   conversationId: string | null;
   metadata: Record<string, unknown> | null;
   toolCalls?: Array<{ name: string; input: Record<string, unknown>; result: unknown }>;
-  /** Present only on failure — callers surface AI_KEY_MISSING distinctly. */
-  error?: { code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'INTERNAL'; message: string };
+  /**
+   * Present only on failure — callers surface AI_KEY_MISSING distinctly;
+   * BAD_REQUEST = unknown persona / persona-conversation mismatch / missing
+   * fields; FORBIDDEN = the caller may not drive the persona.
+   */
+  error?: { code: 'AI_KEY_MISSING' | 'BAD_REQUEST' | 'FORBIDDEN' | 'INTERNAL'; message: string };
 }
 
 @Controller()
@@ -76,8 +133,7 @@ export class AiChatResponder {
       !UUID_RE.test(payload.tenantId ?? '') ||
       !UUID_RE.test(payload.userId ?? '') ||
       (payload.userRoles !== undefined &&
-        (!Array.isArray(payload.userRoles) ||
-          payload.userRoles.some((r) => typeof r !== 'string')))
+        (!Array.isArray(payload.userRoles) || payload.userRoles.some((r) => typeof r !== 'string')))
     ) {
       return {
         content: 'The AI request was missing required information.',
@@ -107,13 +163,24 @@ export class AiChatResponder {
     const chatRequest: ChatRequest = {
       message,
       conversationId: payload.conversationId,
-      persona: payload.persona ?? 'operator-v1',
+      // null → the tenant default persona (resolved by the runner, never here).
+      persona: payload.persona ?? null,
       tenantId: payload.tenantId,
       userId: payload.userId,
       userRoles: payload.userRoles ?? [],
       resourcePermissions: payload.resourcePermissions ?? [],
       schemaName: `tenant_${cleanId}`,
       correlationId: payload.correlationId ?? randomUUID(),
+      // FARM-AI Sprint 1.2: service-path fields — identity for the grant map,
+      // conversation-less runs, and the namespaced rate counter. All three
+      // are ignored (undefined) by the user-chat surfaces.
+      ephemeral: payload.ephemeral === true,
+      serviceId: payload.serviceId,
+      rateNamespace: payload.rateNamespace,
+      // MSGFIX-FAZ2 2.3: the bridge's consent-filtered channel context —
+      // becomes the model's prior turns (previously ignored, so AI channels
+      // had zero memory). Only used when no conversationId rides the request.
+      priorMessages: payload.conversationId ? undefined : mapContextToPriorMessages(payload),
     };
 
     try {
@@ -126,7 +193,8 @@ export class AiChatResponder {
         // (status:'proposed' + actionType/params) plus the actionId that keys
         // the persisted proposal — the executable SSoT on confirm.
         metadata: {
-          persona: chatRequest.persona,
+          // The RESOLVED catalogue id (the request may have named none).
+          persona: result.personaId,
           tokenUsage: result.tokenUsage,
           ...(result.proposedAction
             ? {
@@ -147,8 +215,19 @@ export class AiChatResponder {
       const isKeyMissing =
         error instanceof AiKeyMissingError ||
         (error as { code?: string })?.code === 'AI_KEY_MISSING';
+      // Persona resolution outcomes are caller errors, not server faults:
+      // an unknown id / a conversation continued under another persona is a
+      // BAD_REQUEST; a persona the caller may not drive is FORBIDDEN. Both
+      // carry the exception's own message (no tenant data in it).
+      const isBadRequest =
+        error instanceof UnknownPersonaError || error instanceof PersonaConversationMismatchError;
+      const isForbidden = error instanceof PersonaNotPermittedError;
       if (isKeyMissing) {
         this.logger.warn(`request.ai.chat blocked: tenant ${payload.tenantId} has no valid AI key`);
+      } else if (isBadRequest || isForbidden) {
+        this.logger.warn(
+          `request.ai.chat rejected for ${payload.tenantId}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       } else {
         this.logger.error(
           `request.ai.chat failed for ${payload.tenantId}: ${
@@ -156,19 +235,25 @@ export class AiChatResponder {
           }`,
         );
       }
+      const code: NonNullable<AiChatNatsResponse['error']>['code'] = isKeyMissing
+        ? 'AI_KEY_MISSING'
+        : isBadRequest
+          ? 'BAD_REQUEST'
+          : isForbidden
+            ? 'FORBIDDEN'
+            : 'INTERNAL';
       const userFacing = isKeyMissing
         ? 'No AI API key is configured. Ask a tenant admin to add one in AI settings.'
-        : 'The AI is temporarily unavailable. Please try again later.';
+        : isBadRequest || isForbidden
+          ? (error as Error).message
+          : 'The AI is temporarily unavailable. Please try again later.';
       return {
         // Non-empty so the messaging bridge posts a meaningful AI reply; `error`
         // lets the socket.io assistant route the user to AI settings.
         content: userFacing,
         conversationId: null,
-        metadata: { errorCode: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL' },
-        error: {
-          code: isKeyMissing ? 'AI_KEY_MISSING' : 'INTERNAL',
-          message: userFacing,
-        },
+        metadata: { errorCode: code },
+        error: { code, message: userFacing },
       };
     }
   }

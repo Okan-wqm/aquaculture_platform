@@ -16,7 +16,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { ClientsModule } from '@nestjs/microservices';
 import { EventBusModule, buildEventBusConfig } from '@platform/event-bus';
 import { NatsV3Client } from '@aquaculture/backend-common/nats';
-import { APP_GUARD, Reflector } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, Reflector } from '@nestjs/core';
 import { ApolloFederationDriver, ApolloFederationDriverConfig } from '@nestjs/apollo';
 import { DocumentNode, GraphQLError, GraphQLSchema } from 'graphql';
 import depthLimit from 'graphql-depth-limit';
@@ -88,10 +88,12 @@ import { LegalHold } from './compliance/entities/legal-hold.entity';
 import { ComplianceAuditLog } from './compliance/entities/compliance-audit-log.entity';
 
 // AI entities (ADR-012 section 12)
+// MSGFIX-FAZ2: EmbeddingsMetadata removed — it was the registration for a
+// platform-wide model registry nothing ever wrote to (the embedding cron is
+// deleted in Faz 2.1; the dormant table stays, owned by db-migrate DDL).
 import { MessageAnalysis } from './ai/entities/message-analysis.entity';
 import { MessageEntityReference } from './ai/entities/message-entity-reference.entity';
 import { KnowledgeEntry } from './ai/entities/knowledge-entry.entity';
-import { EmbeddingsMetadata } from './ai/entities/embeddings-metadata.entity';
 import { UserAiConsent } from './ai/entities/user-ai-consent.entity';
 
 // Migrations — imported as class references so webpack bundles them into main.js.
@@ -110,6 +112,10 @@ import { EnsureMessagingTenantErasureProofLedger1801000000000 } from './migratio
 import { DropChannelAiServiceUrl1802000000000 } from './migrations/1802000000000-DropChannelAiServiceUrl';
 import { DropTenantAiSettings1802100000000 } from './migrations/1802100000000-DropTenantAiSettings';
 import { EnsureTenantMessagesEmbeddingColumn1802200000000 } from './migrations/1802200000000-EnsureTenantMessagesEmbeddingColumn';
+// MSGFIX-FAZ3 3.4: GIN expression index for to_tsvector('english', content) —
+// partition-aware (per-partition CONCURRENTLY + ON ONLY parent + ATTACH),
+// transaction=false (CONCURRENTLY cannot run inside a tx; db-migrate honors it).
+import { AddMessagesContentSearchGinIndex1802300000000 } from './migrations/1802300000000-AddMessagesContentSearchGinIndex';
 // Feature modules
 import { HealthModule } from './health/health.module';
 import { ChannelModule } from './channel/channel.module';
@@ -123,6 +129,8 @@ import { EventHandlersModule } from './event-handlers/event-handlers.module';
 import { AiModule } from './ai/ai.module';
 import { MessagingNotificationModule } from './notification/notification.module';
 import { MetricsModule } from './metrics/metrics.module';
+// MSGFIX-FAZ0: GraphQL error-code contract — see filters/global-exception.filter.ts
+import { GlobalExceptionFilter } from './filters/global-exception.filter';
 import { ScheduledJobModule } from '@aquaculture/backend-common/scheduling';
 
 // Per-process complexity cache keyed by document hash
@@ -185,7 +193,6 @@ type QueryComplexityOperationContext = {
             MessageAnalysis,
             MessageEntityReference,
             KnowledgeEntry,
-            EmbeddingsMetadata,
             UserAiConsent,
           ],
           // Class references (NOT glob paths) — webpack bundles all into main.js,
@@ -203,6 +210,7 @@ type QueryComplexityOperationContext = {
             DropChannelAiServiceUrl1802000000000,
             DropTenantAiSettings1802100000000,
             EnsureTenantMessagesEmbeddingColumn1802200000000,
+            AddMessagesContentSearchGinIndex1802300000000,
           ],
         }),
     }),
@@ -368,6 +376,12 @@ type QueryComplexityOperationContext = {
     SchemaDriftModule.forRoot({ serviceName: 'messaging' }),
   ],
   providers: [
+    // MSGFIX-FAZ0 (2026-09-16): register the GraphQL error-code contract
+    // filter (NotFoundException → NOT_FOUND, 401 → UNAUTHENTICATED, ...).
+    // Only APP_FILTER in this module; if others are ever appended, note Nest
+    // invokes APP_FILTERs in REVERSE registration order (see farm-service
+    // app.module.ts for the same caveat).
+    { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     // WHY: useFactory bypasses reflect-metadata resolution which fails in Docker Alpine.
     {
       provide: APP_GUARD,

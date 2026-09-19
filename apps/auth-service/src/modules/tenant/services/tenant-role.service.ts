@@ -83,7 +83,7 @@ const DEFAULT_TENANT_ROLES = [
 /**
  * Default role permissions
  */
-const DEFAULT_ROLE_PERMISSIONS: Record<
+export const DEFAULT_ROLE_PERMISSIONS: Record<
   string,
   Record<string, Record<string, Record<string, boolean>>>
 > = {
@@ -141,6 +141,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
       ai_settings: { view: true, manage: true },
       ai_personas: { operator: true, manager: true, expert: true, supervisor: false },
     },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
+    },
   },
   Technician: {
     farm: {
@@ -163,6 +168,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: true, expert: false, supervisor: false },
+    },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   'Feed Manager': {
@@ -188,6 +198,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: true, expert: false, supervisor: false },
+    },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   Operator: {
@@ -227,6 +242,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: false, expert: false, supervisor: false },
+    },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
   Viewer: {
@@ -269,6 +289,11 @@ const DEFAULT_ROLE_PERMISSIONS: Record<
     ai: {
       ai_assistant: { use: true },
       ai_personas: { operator: true, manager: false, expert: false, supervisor: false },
+    },
+    // Farm specialists (RBAC-MEDIUM-016): every seeded role may drive them at the
+    // tier its ai_personas grants allow; the tenant admin can revoke per role.
+    ai_specialists: {
+      ai_specialties: { farm: true },
     },
   },
 };

@@ -48501,6 +48501,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/nats-jetstream-store-budget.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/nested-steering-parity.spec.ts",
       "prettier_managed": true
     },

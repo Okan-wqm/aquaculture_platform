@@ -8,8 +8,8 @@ request-reply; user-decided actuation (`confirm_required` cap).
 **Findings:** AISAFETY-MEDIUM-024, RBAC-MEDIUM-016, AISAFETY-MEDIUM-025,
 FARM-MEDIUM-328, FE-MEDIUM-065, FARM-LOW-329 — each closed by the PR named in its
 section; FE-HIGH-150 (formerly FE-HIGH-066, 069, 080), INFRA-HIGH-174, FE-HIGH-067 and
-ORPHAN-HIGH-828 (base-branch / platform defects found by this branch's gates and
-work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner:
+ORPHAN-HIGH-828 and INFRA-HIGH-176 (base-branch / platform defects found by this
+branch's gates and work, fixed here); FARM-LOW-330 (tracked, open — MCP analytics test debt, owner:
 farm-module maintainer, deadline 2026-10-16).
 
 The product ask was "an expert agent per topic, farm module first, agents only
@@ -181,6 +181,23 @@ caller that ignores the contract, and its message now names both runners.
 Verified against a throwaway Postgres with the platform image: all twelve
 messaging E2E suites boot, the parent index and three partition indexes land
 `indisvalid = true`.
+
+## INFRA-HIGH-176 — the production NATS could not recover its telemetry stream
+
+Found while taking PR #1586 live: the droplet's auto-deploy (17:35 UTC,
+release `ba4366830…`) applied its migration and then stopped at "Reloading
+NATS certificate identities and ACL" with "NATS did not become healthy after
+ACL reload". nats-server logged `Error recreating stream
+"AQUACULTURE_TELEMETRY": insufficient storage resources available (10047)`
+on start and failed its healthcheck every ten seconds after. `/jsz` explained
+it: `max_file_store` 2 GiB, EVENTS 1.5 GiB + DLQ 256 MiB already reserved,
+and the telemetry stream (SENSOR-HIGH-092, 2026-08-25) asks for 6 GiB — the
+conf was never raised with the reservation, so any NATS restart leaves the
+server unhealthy and every deploy dead at the same step. Fix:
+`max_file_store: 10GB` (the disk has 47 GB free) and
+`tests/invariants/nats-jetstream-store-budget.spec.ts`, which reads the three
+`max_bytes` defaults out of `nats-event-bus.ts` and fails the build when
+their sum no longer fits under the conf value.
 
 ## Post-plan review round (six independent reviewers) — what changed
 

@@ -269,6 +269,13 @@ class ClaudeRunResult:
     failure_class: str | None = None
     retryable: bool | None = None
     failure_detail_code: str | None = None
+    # ARIA-MEDIUM-171 — the model that ANSWERED, stamped by the runtime that
+    # ran the attempt (``run_with_model_fallback`` after the primary or the
+    # cross-vendor rung; the Z.ai adapter from its own call). The executor's
+    # ``agent_dispatch_model`` stamp reads this, never the profile's
+    # frontmatter: under an auth failover the two differ, and the anchor
+    # grade's distinct-model count must name the rung that ran.
+    model: str | None = None
 
 
 def is_mock_mode() -> bool:
@@ -1773,14 +1780,26 @@ def run_with_model_fallback(
                     f"too ({retried.auth_failure.get('marker')}) — both providers "
                     f"are unavailable; remedy: {completed.auth_failure.get('remedy')}"
                 )
-            return _raise_if_exhausted(retried, model=cross, on_credit=on_credit)
+            return _stamp_model(_raise_if_exhausted(retried, model=cross, on_credit=on_credit), cross)
         raise ClaudeAuthFailure(
             f"claude_auth_failure: {completed.auth_failure.get('marker')} on {model!r}"
             + (" — a write-scope profile has no cross-vendor rung (the other "
                "runtimes are read-only)" if write_capable else " — no cross-vendor rung")
             + f"; {completed.auth_failure.get('remedy')}"
         )
-    return _raise_if_exhausted(completed, model=model, on_credit=on_credit)
+    return _stamp_model(_raise_if_exhausted(completed, model=model, on_credit=on_credit), model)
+
+
+def _stamp_model(result: ClaudeRunResult, model: str) -> ClaudeRunResult:
+    """The result carries the model that answered (ARIA-MEDIUM-171).
+
+    A runtime that already named its model (the Z.ai adapter names the tier
+    it dispatched) keeps its own word; a CLI result is stamped with the tier
+    this rung dispatched.
+    """
+    if result.model:
+        return result
+    return replace(result, model=model)
 
 
 def _raise_if_exhausted(

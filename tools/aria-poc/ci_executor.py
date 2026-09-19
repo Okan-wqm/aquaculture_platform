@@ -1047,7 +1047,11 @@ def _pre_submit_validate_envelope(
     than a generic "plan content must be a JSON object" warning.
     """
     errors: list[str] = []
-    if role in ("evidence_judgment", "adversarial_judgment"):
+    from aria_kernel.agent_surface import JUDGE_ROLES as _judge_roles
+    if role in _judge_roles:
+        # ARIA-MEDIUM-166 — the arbiter is gated with the two judges: an
+        # arbitration envelope the bridge cannot fold was sealed, accepted
+        # and retried in the bridge until permanent_fail.
         # Y5 (ORPHAN-706) — the judge output contract, enforced BEFORE the
         # result is sealed. The second sealed night accepted 12 judge
         # results with no readable verdict block; each became an accepted
@@ -2257,7 +2261,8 @@ def invoke_claude_cli(
             role=role,
             subagent_type=subagent_type,
             must_satisfy=must_satisfy or [],
-            dispatch_model=agent_profile.model,
+            # ARIA-MEDIUM-171 — the rung that answered, not the frontmatter.
+            dispatch_model=completed.model or agent_profile.model,
             usage=completed.usage,
         )
         envelope["details"]["agent_contract_hash"] = agent_contract.contract_hash
@@ -2512,8 +2517,17 @@ def _build_envelope_from_claude_output(
     must_satisfy: list[dict[str, Any]],
     dispatch_model: str | None = None,
     usage: dict[str, Any] | None = None,
+    confidence_source: str = "self_reported",
 ) -> dict[str, Any]:
     """Convert ``claude -p stream-json`` JSONL into a kernel-valid envelope.
+
+    ``confidence_source`` is the ROUTE's word on where a judge's confidence
+    came from (typed-judgment plan, ARIA-HIGH-167): every CLI and chat
+    completion in the fleet reports the model's own number
+    (``self_reported``); a typed decision transport that returns
+    probabilities natively stamps ``provider_reported``. Stamped
+    unconditionally, like the dispatch model: the bridge reads the stamp and
+    ignores any spelling the model wrote inside its payload.
 
     ``usage`` is the run result's own usage block when the caller holds one
     (ARIA-HIGH-161): the Z.ai transport reports usage on the result, not as
@@ -2604,8 +2618,15 @@ def _build_envelope_from_claude_output(
     # judged agent wrote about itself — a misreported model silently
     # satisfies or violates ANCHOR_MIN_DISTINCT_MODELS, which is exactly
     # the guarantee that field exists to provide.
+    # ARIA-MEDIUM-171 — the route's word, never the agent's: a named model
+    # overwrites whatever the agent wrote under the key, and a route that
+    # named nothing REMOVES the key rather than leaving the agent's spelling
+    # in place (ORPHAN-HIGH-781 pinned "no stale stamp" for the absent case).
     if dispatch_model:
         details["agent_dispatch_model"] = dispatch_model
+    else:
+        details.pop("agent_dispatch_model", None)
+    details["agent_confidence_source"] = confidence_source
     details.setdefault("agent_text", _safe_agent_text_excerpt(agent_text))
     if usage is None:
         usage = extract_usage(parse_claude_jsonl(raw_stdout))
@@ -2995,6 +3016,7 @@ def _run_zai_as_claude_result(
         failure_class=failure_class, retryable=False if failure_class else None,
         failure_detail_code=(completed.auth_failure or completed.credit_exhaustion
                              or (None if completed.returncode == 0 else f"http_{completed.http_status}")),
+        model=model,
     )
 
 
@@ -5099,7 +5121,10 @@ def _main(argv: list[str] | None, *, _runtime_stack: _ExitStack) -> int:
                 is_self_change_request as _is_self_change_request,
             )
 
-            if _role_for_validation in ("evidence_judgment", "adversarial_judgment"):
+            from aria_kernel.agent_surface import JUDGE_ROLES as _gated_judge_roles
+            if _role_for_validation in _gated_judge_roles:
+                # ARIA-MEDIUM-166 — the arbiter is gated with the judges and
+                # released under the same harness-class reason.
                 _release_reason = "judge_verdict_contract_violation"
             elif _is_self_change_request(request_envelope):
                 # B6 — same harness-class pricing as the judge contract: a

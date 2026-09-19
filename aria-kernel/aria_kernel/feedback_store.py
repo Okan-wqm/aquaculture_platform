@@ -45,6 +45,18 @@ CONSENSUS_UNCERTAINTY_REASONS = (
 )
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
+# Typed-judgment plan (ARIA-HIGH-167) — where a judge's confidence came
+# from. The ROUTE stamps it on the envelope (``self_reported``: the model's
+# own number, every CLI and chat completion in the fleet;
+# ``provider_reported``: a typed decision transport returned the probability
+# natively). A human label carries None. Calibration is scored per source.
+CONFIDENCE_SOURCES = ("self_reported", "provider_reported")
+# ARIA-MEDIUM-170 — how the row's evidence refs were chosen. ``ref``: the
+# judge wrote the path itself (the legacy envelope); ``index``: the judge
+# cited by index into the request's refs and quoted the pinned excerpt.
+# Consensus never treats two identical index sets as independent
+# corroboration.
+EVIDENCE_SELECTIONS = ("ref", "index")
 JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "random")
 DEFAULT_MIN_JUDGED_SAMPLES = 10
 CONSENSUS_MIN_CONFIDENCE = 0.80
@@ -503,10 +515,18 @@ def record_operator_feedback(
     judges_voted: int | None = None,
     judgment_subject: str = JUDGMENT_SUBJECT_FINDING,
     observers: list[dict[str, str]] | None = None,
+    confidence_source: str | None = None,
+    evidence_selection: str | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
         raise GovernanceError(f"unknown judgment subject: {judgment_subject}")
+    if confidence_source is not None and confidence_source not in CONFIDENCE_SOURCES:
+        raise GovernanceError(f"unknown confidence_source: {confidence_source}")
+    if evidence_selection is not None and evidence_selection not in EVIDENCE_SELECTIONS:
+        raise GovernanceError(f"unknown evidence_selection: {evidence_selection}")
+    if confidence_source is not None and confidence is None:
+        raise GovernanceError("confidence_source names a confidence the row does not carry")
     if verdict not in FEEDBACK_VERDICTS:
         raise GovernanceError(f"unknown feedback verdict: {verdict}")
     if severity not in FEEDBACK_SEVERITIES:
@@ -606,6 +626,11 @@ def record_operator_feedback(
             {"judge_id": str(o["judge_id"]).strip(), "model": str(o["model"]).strip()}
             for o in (observers or [])
         ] or None,
+        # Additive (typed-judgment plan): absent on rows written before it,
+        # which verify unchanged — the signature covers the bytes each row
+        # actually carries.
+        "confidence_source": confidence_source,
+        "evidence_selection": evidence_selection,
     }
     # The stored row carries the signature the signer added; return that
     # so callers (judge lanes, the CLI) see the row exactly as recorded.
@@ -716,6 +741,7 @@ def record_ai_feedback_file(
                 evidence_refs=_optional_string_list(verdict.get("evidence_refs")),
                 judgment_group_id=str(verdict.get("judgment_group_id") or ""),
                 finding_fingerprint=str(verdict.get("finding_fingerprint") or ""),
+                confidence_source=str(verdict.get("confidence_source") or "self_reported"),
                 base_dir=base_dir,
             ),
         )

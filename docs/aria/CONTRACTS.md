@@ -1254,6 +1254,16 @@ N questions travel in one `JudgmentBatch` to ONE model call; the reply is one JS
 }
 ```
 
+<!-- judge-digest:begin -->
+
+**Judge confidence law.** `confidence` is the probability that the emitted verdict is correct
+(0.5–1.0 for a binary verdict; with `probabilities` present it equals the largest one and the
+verdict is that option). The route stamps `agent_confidence_source` (`self_reported` |
+`provider_reported`); a `confidence_source` written by the judge is ignored. Typed citations are
+`{index, quote}` into the request's numbered refs; a quote outside the pinned excerpt is refused.
+
+<!-- judge-digest:end -->
+
 Laws:
 
 - **Confidence is `P(value is correct)`** — the top-label probability. With `probabilities`

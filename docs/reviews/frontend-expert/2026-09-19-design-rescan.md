@@ -44,18 +44,18 @@ layout. Internationalisation reaches 13 files. And a set of design surfaces was
 never on the map at all: transactional emails, the printed roster, the edge
 gateway's page, the blank first paint.
 
-| Census (main @ e9b9d773) | Count |
-|---|---|
-| raw `<button>` / `<Button>` | 2 090 / 287 |
-| raw `input`/`select`/`textarea` / Form primitives | 1 946 / 318 |
-| hand-built cards / `<Card>` | 355 / 211 |
-| hand-rolled status pills / `<Badge>` | 141 / 102 |
-| raw Tailwind palette / theme scales | 7 324 / 25 |
-| inline icon-shaped `<svg>` / files importing lucide-react | 569 / 308 |
-| pages with no responsive class (sensor, farm, hydroponics, hr) | 101 / 234 |
-| files calling `t()` / i18n providers | 13 / 4 |
-| `dark:text-gray-400` pairs that resolved to the light value | 4 538 |
-| colour utilities compiling to nothing | 22 |
+| Census (main @ e9b9d773)                                       | Count       |
+| -------------------------------------------------------------- | ----------- |
+| raw `<button>` / `<Button>`                                    | 2 090 / 287 |
+| raw `input`/`select`/`textarea` / Form primitives              | 1 946 / 318 |
+| hand-built cards / `<Card>`                                    | 355 / 211   |
+| hand-rolled status pills / `<Badge>`                           | 141 / 102   |
+| raw Tailwind palette / theme scales                            | 7 324 / 25  |
+| inline icon-shaped `<svg>` / files importing lucide-react      | 569 / 308   |
+| pages with no responsive class (sensor, farm, hydroponics, hr) | 101 / 234   |
+| files calling `t()` / i18n providers                           | 13 / 4      |
+| `dark:text-gray-400` pairs that resolved to the light value    | 4 538       |
+| colour utilities compiling to nothing                          | 22          |
 
 ## Closed in this change
 
@@ -256,6 +256,17 @@ None share tokens; these are the surfaces a customer sees first and signs.
 `WeeklySchedulePage`'s "Kaydet" writes the roster to localStorage and clears the
 unsaved flag; nothing reaches the scheduling API. Product-truth defect, outside
 the design lane.
+
+### FE-HIGH-094 — FUXA widget variable bindings never reached the runtime tag bus
+
+`FuxaWidgetConfig.variableTagBindings` (variable id → tag) is configured in the
+builder and read by `FuxaWidgetRenderer`, and `FuxaMessageBridge.bindTag` can
+forward a bus tag into the iframe — but the renderer constructed the bridge
+with a `null` bus behind a "for now" comment and never called `bindTag`, so a
+bound variable kept its configured value in the runtime and the operator saw a
+static figure where a live one was promised. `ScadaRuntimeContext` already
+carries the `TagValueBus` the other widgets read. Product-truth defect on a
+SCADA surface; found while the design ratchets reformatted the file.
 
 ## Order of work
 

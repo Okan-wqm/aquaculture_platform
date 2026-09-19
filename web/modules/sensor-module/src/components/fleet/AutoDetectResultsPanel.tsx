@@ -68,16 +68,30 @@ interface AutoDetectResultsPanelProps {
 // ============================================================================
 
 const platformConfig: Record<string, { label: string; color: string }> = {
-  RevolutionPi: { label: 'Revolution Pi', color: 'bg-purple-100 text-purple-800' },
-  RaspberryPi: { label: 'Raspberry Pi', color: 'bg-green-100 text-green-800' },
-  GenericLinux: { label: 'Generic Linux', color: 'bg-blue-100 text-blue-800' },
-  Unknown: { label: 'Unknown', color: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200' },
+  RevolutionPi: {
+    label: 'Revolution Pi',
+    color: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  },
+  RaspberryPi: {
+    label: 'Raspberry Pi',
+    color: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  },
+  GenericLinux: {
+    label: 'Generic Linux',
+    color: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  },
+  Unknown: {
+    label: 'Unknown',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  },
 };
 
 const PlatformBadge: React.FC<{ platform: string }> = ({ platform }) => {
   const config = platformConfig[platform] ?? platformConfig.Unknown;
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.color}`}>
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${config.color}`}
+    >
       <Cpu className="w-3 h-3" />
       {config.label}
     </span>
@@ -89,14 +103,16 @@ const PlatformBadge: React.FC<{ platform: string }> = ({ platform }) => {
 // ============================================================================
 
 const ioTypeBadgeColors: Record<string, string> = {
-  DI: 'bg-emerald-100 text-emerald-800',
-  DO: 'bg-orange-100 text-orange-800',
-  AI: 'bg-sky-100 text-sky-800',
-  AO: 'bg-amber-100 text-amber-800',
+  DI: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  DO: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  AI: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  AO: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
 };
 
 const IoTypeBadge: React.FC<{ ioType: string }> = ({ ioType }) => (
-  <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${ioTypeBadgeColors[ioType] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
+  <span
+    className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${ioTypeBadgeColors[ioType] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+  >
     {ioType}
   </span>
 );
@@ -106,16 +122,37 @@ const IoTypeBadge: React.FC<{ ioType: string }> = ({ ioType }) => (
 // ============================================================================
 
 const sourceBadgeConfig: Record<string, { label: string; color: string }> = {
-  picontrol: { label: 'piControl', color: 'bg-purple-100 text-purple-800' },
-  gpiochip: { label: 'GPIO', color: 'bg-green-100 text-green-800' },
-  sysfs: { label: 'sysfs', color: 'bg-blue-100 text-blue-800' },
-  i2c: { label: 'I2C', color: 'bg-indigo-100 text-indigo-800' },
-  spi: { label: 'SPI', color: 'bg-violet-100 text-violet-800' },
-  uart: { label: 'UART', color: 'bg-rose-100 text-rose-800' },
+  picontrol: {
+    label: 'piControl',
+    color: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  },
+  gpiochip: {
+    label: 'GPIO',
+    color: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  },
+  sysfs: {
+    label: 'sysfs',
+    color: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  },
+  i2c: {
+    label: 'I2C',
+    color: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  },
+  spi: {
+    label: 'SPI',
+    color: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  },
+  uart: {
+    label: 'UART',
+    color: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  },
 };
 
 const SourceBadge: React.FC<{ source: string }> = ({ source }) => {
-  const config = sourceBadgeConfig[source] ?? { label: source, color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+  const config = sourceBadgeConfig[source] ?? {
+    label: source,
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+  };
   return (
     <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${config.color}`}>
       {config.label}
@@ -156,7 +193,8 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
     [scanResult.discoveredChannels, existingTagNames],
   );
 
-  const allSelected = selectedTags.size === selectableChannels.length && selectableChannels.length > 0;
+  const allSelected =
+    selectedTags.size === selectableChannels.length && selectableChannels.length > 0;
 
   // Group channels by source for collapsible sections
   const sourceOrder = ['picontrol', 'gpiochip', 'sysfs', 'i2c', 'spi', 'uart'];
@@ -212,8 +250,9 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
   }, [allSelected, selectableChannels]);
 
   // Map ioType/dataType strings to enum values for AddIoConfigInput
-  const mapIoType = (s: string): IoType => (IoType[s as keyof typeof IoType] ?? IoType.DI);
-  const mapDataType = (s: string): IoDataType => (IoDataType[s as keyof typeof IoDataType] ?? IoDataType.BOOL);
+  const mapIoType = (s: string): IoType => IoType[s as keyof typeof IoType] ?? IoType.DI;
+  const mapDataType = (s: string): IoDataType =>
+    IoDataType[s as keyof typeof IoDataType] ?? IoDataType.BOOL;
 
   // Handle import
   const handleImport = useCallback(async () => {
@@ -252,22 +291,34 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
   type DetectedChannelRow = (typeof groupedChannels)[number][1][number];
   const moduleChannelDisplay = (ch: DetectedChannelRow): React.ReactNode => {
     if (ch.source === 'i2c' || ch.busType === 'i2c') {
-      const addrHex = ch.i2cAddress != null ? `0x${ch.i2cAddress.toString(16).toUpperCase().padStart(2, '0')}` : '?';
+      const addrHex =
+        ch.i2cAddress != null
+          ? `0x${ch.i2cAddress.toString(16).toUpperCase().padStart(2, '0')}`
+          : '?';
       return (
         <>
           Bus {ch.i2cBus ?? '?'} @ {addrHex}
           {ch.i2cDeviceName && (
-            <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-indigo-50 text-indigo-600">{ch.i2cDeviceName}</span>
+            <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400">
+              {ch.i2cDeviceName}
+            </span>
           )}
         </>
       );
     }
-    if (ch.source === 'spi' || ch.busType === 'spi') return <>Bus {ch.spiBus ?? '?'} CS{ch.spiCs ?? '?'}</>;
+    if (ch.source === 'spi' || ch.busType === 'spi')
+      return (
+        <>
+          Bus {ch.spiBus ?? '?'} CS{ch.spiCs ?? '?'}
+        </>
+      );
     if (ch.source === 'uart' || ch.busType === 'uart') return <>{ch.uartPort ?? '?'}</>;
     return (
       <>
         {ch.moduleAddress}/{ch.channel}
-        {ch.gpioPin != null && <span className="text-gray-500 dark:text-gray-400 ml-1">(GPIO {ch.gpioPin})</span>}
+        {ch.gpioPin != null && (
+          <span className="text-gray-500 dark:text-gray-400 ml-1">(GPIO {ch.gpioPin})</span>
+        )}
       </>
     );
   };
@@ -280,24 +331,46 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
         existingTagNames.has(ch.tagName) ? (
           <span className="text-gray-500 dark:text-gray-400">--</span>
         ) : selectedTags.has(ch.tagName) ? (
-          <CheckSquare className="w-4 h-4 text-cyan-600" />
+          <CheckSquare className="w-4 h-4 text-info-600 dark:text-info-400" />
         ) : (
           <Square className="w-4 h-4 text-gray-500 dark:text-gray-400" />
         ),
     },
-    { key: 'tagName', header: 'Tag', render: (_value, ch) => <span className="font-medium text-gray-900 dark:text-gray-100">{ch.tagName}</span> },
+    {
+      key: 'tagName',
+      header: 'Tag',
+      render: (_value, ch) => (
+        <span className="font-medium text-gray-900 dark:text-gray-100">{ch.tagName}</span>
+      ),
+    },
     { key: 'ioType', header: 'Tip', render: (_value, ch) => <IoTypeBadge ioType={ch.ioType} /> },
-    { key: 'dataType', header: 'Veri Tipi', render: (_value, ch) => <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">{ch.dataType}</span> },
-    { key: 'moduleChannel', header: 'Modul/Kanal', render: (_value, ch) => <span className="text-gray-600 dark:text-gray-400">{moduleChannelDisplay(ch)}</span> },
+    {
+      key: 'dataType',
+      header: 'Veri Tipi',
+      render: (_value, ch) => (
+        <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">{ch.dataType}</span>
+      ),
+    },
+    {
+      key: 'moduleChannel',
+      header: 'Modul/Kanal',
+      render: (_value, ch) => (
+        <span className="text-gray-600 dark:text-gray-400">{moduleChannelDisplay(ch)}</span>
+      ),
+    },
     { key: 'source', header: 'Kaynak', render: (_value, ch) => <SourceBadge source={ch.source} /> },
     {
       key: 'status',
       header: 'Durum',
       render: (_value, ch) =>
         existingTagNames.has(ch.tagName) ? (
-          <span className="text-[11px] px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700">Zaten mevcut</span>
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300">
+            Zaten mevcut
+          </span>
         ) : (
-          <span className="text-[11px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">Yeni</span>
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300">
+            Yeni
+          </span>
         ),
     },
   ];
@@ -307,7 +380,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-3">
-          <Search className="w-5 h-5 text-cyan-600" />
+          <Search className="w-5 h-5 text-info-600 dark:text-info-400" />
           <div>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               I/O Auto-Detection Sonuçları
@@ -318,41 +391,58 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
           </div>
           <PlatformBadge platform={scanResult.platform} />
         </div>
-        <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Kapat"><X className="w-4 h-4 text-gray-500 dark:text-gray-400" /></Button>
+        <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Kapat">
+          <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+        </Button>
       </div>
 
       {/* Import result feedback */}
       {importResult && (
-        <div className="mx-4 mt-3 p-3 rounded-lg bg-green-50 border border-green-200 flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
-          <span className="text-sm text-green-800">
+        <div className="mx-4 mt-3 p-3 rounded-lg bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-success-600 dark:text-success-400 shrink-0" />
+          <span className="text-sm text-success-800 dark:text-success-200">
             {importResult.createdCount} kanal eklendi
-            {importResult.skippedCount > 0 && `, ${importResult.skippedCount} atlanıldı (duplicate)`}
+            {importResult.skippedCount > 0 &&
+              `, ${importResult.skippedCount} atlanıldı (duplicate)`}
           </span>
         </div>
       )}
 
       {importError && (
-        <div className="mx-4 mt-3 p-3 rounded-lg bg-red-50 border border-red-200 flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-          <span className="text-sm text-red-800">{importError}</span>
+        <div className="mx-4 mt-3 p-3 rounded-lg bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-error-600 dark:text-error-400 shrink-0" />
+          <span className="text-sm text-error-800 dark:text-error-200">{importError}</span>
         </div>
       )}
 
       {/* Action bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-        <Button variant="ghost" size="xs" onClick={toggleAll} disabled={selectableChannels.length === 0}>{allSelected ? (
-            <CheckSquare className="w-3.5 h-3.5 text-cyan-600" />
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={toggleAll}
+          disabled={selectableChannels.length === 0}
+        >
+          {allSelected ? (
+            <CheckSquare className="w-3.5 h-3.5 text-info-600 dark:text-info-400" />
           ) : (
             <Square className="w-3.5 h-3.5" />
           )}
-          {allSelected ? 'Hepsini Kaldır' : 'Hepsini Seç'}</Button>
-        <Button variant="primary" size="xs" onClick={handleImport} disabled={selectedTags.size === 0 || isImporting || !!importResult}>{isImporting ? (
+          {allSelected ? 'Hepsini Kaldır' : 'Hepsini Seç'}
+        </Button>
+        <Button
+          variant="primary"
+          size="xs"
+          onClick={handleImport}
+          disabled={selectedTags.size === 0 || isImporting || !!importResult}
+        >
+          {isImporting ? (
             <Spinner size="sm" color="inherit" />
           ) : (
             <Download className="w-3.5 h-3.5" />
           )}
-          Import ({selectedTags.size})</Button>
+          Import ({selectedTags.size})
+        </Button>
       </div>
 
       {/* Channel table */}
@@ -373,7 +463,9 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
                   <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 )}
                 <SourceBadge source={source} />
-                <span className="text-xs text-gray-500 dark:text-gray-400">{channels.length} kanal</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  {channels.length} kanal
+                </span>
               </button>
               {!isCollapsed && (
                 <DataTable<DetectedChannelRow>
@@ -383,7 +475,11 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
                   onRowClick={(ch) => {
                     if (!existingTagNames.has(ch.tagName)) toggleChannel(ch.tagName);
                   }}
-                  rowClassName={(ch) => (existingTagNames.has(ch.tagName) ? 'opacity-50 bg-gray-50 dark:bg-gray-800' : 'cursor-pointer')}
+                  rowClassName={(ch) =>
+                    existingTagNames.has(ch.tagName)
+                      ? 'opacity-50 bg-gray-50 dark:bg-gray-800'
+                      : 'cursor-pointer'
+                  }
                   emptyMessage="Kanal yok"
                   searchable={false}
                   sortable={false}

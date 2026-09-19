@@ -45429,7 +45429,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "e7a9cbeb1036dc45782cd8fbd9d2476f7ba419d597f0cf82e3edd1b0ecb265f0",
+      "content_sha256": "dd772a5619bb10a6b6f01b1432ed1e9cc279d1c80fc9c118938bbc38877632a9",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -49150,6 +49150,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/web-no-createtenantquerykey-in-invalidate.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/web-no-hand-rolled-icon-mock.spec.ts",
       "prettier_managed": true
     },
     {
@@ -62166,6 +62172,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/__tests__/Charts.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/__tests__/ChartTooltipContent.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Charts/AreaChart.tsx",
       "prettier_managed": true
     },
@@ -62185,6 +62203,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Charts/ChartLegend.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Charts/chartSupport.tsx",
       "prettier_managed": true
     },
     {

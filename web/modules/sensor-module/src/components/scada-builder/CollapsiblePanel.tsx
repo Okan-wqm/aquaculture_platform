@@ -47,8 +47,7 @@ interface TooltipWrapperProps {
 const TooltipWrapper: React.FC<TooltipWrapperProps> = ({ label, side, children }) => {
   const [show, setShow] = useState(false);
 
-  const tooltipPosition =
-    side === 'left' ? 'left-full ml-2' : 'right-full mr-2';
+  const tooltipPosition = side === 'left' ? 'left-full ml-2' : 'right-full mr-2';
 
   return (
     <div
@@ -80,13 +79,7 @@ interface IconRailProps {
   visible: boolean;
 }
 
-const IconRail: React.FC<IconRailProps> = ({
-  icons,
-  side,
-  activeIconId,
-  onIconClick,
-  visible,
-}) => (
+const IconRail: React.FC<IconRailProps> = ({ icons, side, activeIconId, onIconClick, visible }) => (
   <div
     className="flex flex-col items-center gap-1 pt-3"
     style={{
@@ -105,16 +98,17 @@ const IconRail: React.FC<IconRailProps> = ({
             className={`
               relative flex items-center justify-center w-8 h-8 rounded-md
               transition-colors duration-150
-              ${isActive
-                ? 'bg-cyan-100 text-cyan-700'
-                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100'
+              ${
+                isActive
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100'
               }
             `}
             aria-label={item.label}
           >
             {item.icon}
             {item.badge !== undefined && item.badge !== '' && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center text-[9px] font-medium leading-none text-white bg-cyan-600 rounded-full">
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center text-[9px] font-medium leading-none text-white bg-info-600 rounded-full">
                 {item.badge}
               </span>
             )}
@@ -139,9 +133,7 @@ const ToggleButton: React.FC<ToggleButtonProps> = ({ side, collapsed, onToggle }
   // When expanded, the toggle sits on the panel's inner edge.
   // Left panel: toggle on right edge. Right panel: toggle on left edge.
   const positionClasses =
-    side === 'left'
-      ? '-right-3 top-1/2 -translate-y-1/2'
-      : '-left-3 top-1/2 -translate-y-1/2';
+    side === 'left' ? '-right-3 top-1/2 -translate-y-1/2' : '-left-3 top-1/2 -translate-y-1/2';
 
   const Icon = getToggleIcon(side, collapsed);
 

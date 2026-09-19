@@ -21,13 +21,7 @@
  * simply skipped.
  */
 
-import React, {
-  useEffect,
-  useRef,
-  useCallback,
-  useState,
-  type ReactNode,
-} from 'react';
+import React, { useEffect, useRef, useCallback, useState, type ReactNode } from 'react';
 import { Minimize2 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
@@ -69,9 +63,8 @@ function enterFullscreen(el: HTMLElement): Promise<void> {
 
 function exitFullscreen(): Promise<void> {
   if (document.exitFullscreen) return document.exitFullscreen();
-  const safariExit = (
-    document as Document & { webkitExitFullscreen?: () => Promise<void> }
-  ).webkitExitFullscreen;
+  const safariExit = (document as Document & { webkitExitFullscreen?: () => Promise<void> })
+    .webkitExitFullscreen;
   if (safariExit) return safariExit.call(document);
   return Promise.resolve();
 }
@@ -79,8 +72,7 @@ function exitFullscreen(): Promise<void> {
 function isInFullscreen(): boolean {
   return !!(
     document.fullscreenElement ||
-    (document as Document & { webkitFullscreenElement?: Element })
-      .webkitFullscreenElement
+    (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement
   );
 }
 
@@ -126,12 +118,14 @@ export const KioskMode = React.memo<KioskModeProps>(
     useEffect(() => {
       if (!shouldRequestFullscreen || !containerRef.current) return;
 
-      enterFullscreen(containerRef.current).then(() => {
-        setIsFullscreen(true);
-      }).catch(() => {
-        // Gesture requirement not met — continue without fullscreen.
-        setIsFullscreen(false);
-      });
+      enterFullscreen(containerRef.current)
+        .then(() => {
+          setIsFullscreen(true);
+        })
+        .catch(() => {
+          // Gesture requirement not met — continue without fullscreen.
+          setIsFullscreen(false);
+        });
 
       return () => {
         // Exit fullscreen when kiosk mode is unmounted
@@ -139,7 +133,6 @@ export const KioskMode = React.memo<KioskModeProps>(
           void exitFullscreen();
         }
       };
-     
     }, [shouldRequestFullscreen]);
 
     // Listen for external fullscreen exit (ESC key, browser UI, etc.)
@@ -232,7 +225,7 @@ export const KioskMode = React.memo<KioskModeProps>(
               bg-black/70 text-gray-300 text-xs
               hover:bg-gray-800 hover:text-gray-100
               transition-colors border border-gray-700
-              focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400
+              focus:outline-hidden focus-visible:ring-2 focus-visible:ring-info-400
             "
             aria-label="Exit kiosk mode"
           >

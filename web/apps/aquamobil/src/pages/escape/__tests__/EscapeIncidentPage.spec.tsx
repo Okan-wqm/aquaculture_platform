@@ -9,7 +9,6 @@
  */
 
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { EscapeIncidentPage } from '../EscapeIncidentPage';
@@ -94,23 +93,6 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
     <div data-testid="queued-badge">queued:{operationId}</div>
   ),
 }));
-
-vi.mock('lucide-react', () => {
-  const Stub = (): ReactNode => <svg data-testid="icon" />;
-  return {
-    ArrowLeft: Stub,
-    AlertCircle: Stub,
-    Camera: Stub,
-    ImageOff: Stub,
-    Loader2: Stub,
-    Minus: Stub,
-    PhoneCall: Stub,
-    Plus: Stub,
-    ShieldAlert: Stub,
-    TriangleAlert: Stub,
-    X: Stub,
-  };
-});
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),

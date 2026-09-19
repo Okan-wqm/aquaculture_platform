@@ -9,6 +9,7 @@ import { Card, Badge, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { usersApi, Permission, RoleHierarchyItem } from '../services/adminApi';
 import { adminKeys, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
+import { Check } from 'lucide-react';
 
 // ============================================================================
 // Role Management Page
@@ -65,17 +66,15 @@ const RoleManagementPage: React.FC = () => {
     }
   };
 
-  const queryErrors = [
-    rolesQuery.error,
-    permissionsQuery.error,
-    rolePermissionsQuery.error,
-  ];
+  const queryErrors = [rolesQuery.error, permissionsQuery.error, rolePermissionsQuery.error];
 
   const getRoleLevelColor = (level: number): string => {
-    if (level >= 90) return 'bg-red-100 text-red-800';
-    if (level >= 70) return 'bg-purple-100 text-purple-800';
-    if (level >= 50) return 'bg-yellow-100 text-yellow-800';
-    if (level >= 30) return 'bg-blue-100 text-blue-800';
+    if (level >= 90) return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200';
+    if (level >= 70)
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200';
+    if (level >= 50)
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
+    if (level >= 30) return 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200';
     return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   };
 
@@ -98,10 +97,7 @@ const RoleManagementPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent onRetry={reload} />
 
       {/* Page Header */}
-      <PageHeader
-        title="Role Management"
-        description="System roles and permissions hierarchy"
-      />
+      <PageHeader title="Role Management" description="System roles and permissions hierarchy" />
 
       {/* Role Hierarchy Visualization */}
       <Card className="p-6">
@@ -116,7 +112,7 @@ const RoleManagementPage: React.FC = () => {
                 key={role.code}
                 className={`flex items-center p-3 rounded-lg cursor-pointer transition-all ${
                   selectedRole === role.code
-                    ? 'bg-blue-50 border-2 border-blue-500'
+                    ? 'bg-info-50 dark:bg-info-900/20 border-2 border-info-500'
                     : 'bg-gray-50 dark:bg-gray-800 border-2 border-transparent hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
                 style={{ marginLeft: `${(100 - role.level) * 0.3}rem` }}
@@ -182,13 +178,11 @@ const RoleManagementPage: React.FC = () => {
                 <div className="flex items-center mt-1">
                   <div className="flex-grow bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                     <div
-                      className="bg-blue-600 h-2 rounded-full"
+                      className="bg-info-600 h-2 rounded-full"
                       style={{ width: `${selectedRoleData.level}%` }}
                     ></div>
                   </div>
-                  <span className="ml-2 text-sm font-medium">
-                    {selectedRoleData.level}
-                  </span>
+                  <span className="ml-2 text-sm font-medium">{selectedRoleData.level}</span>
                 </div>
               </div>
               <div>
@@ -228,65 +222,47 @@ const RoleManagementPage: React.FC = () => {
                 : 'Permissions for this role could not be loaded.'}
             </p>
           ) : (
-          <div className="space-y-6 max-h-[500px] overflow-y-auto">
-            {Object.entries(permissions).map(([category, perms]) => (
-              <div key={category}>
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
-                  <span className="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>
-                  {category}
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {perms.map((permission) => {
-                    const hasPermission = selectedRolePermissions.includes(
-                      permission.code,
-                    );
-                    return (
-                      <div
-                        key={permission.code}
-                        className={`p-2 rounded border ${
-                          hasPermission
-                            ? 'bg-green-50 border-green-200'
-                            : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
-                        }`}
-                        title={permission.description}
-                      >
-                        <div className="flex items-center">
-                          <div
-                            className={`w-4 h-4 rounded flex items-center justify-center mr-2 ${
-                              hasPermission
-                                ? 'bg-green-500 text-white'
-                                : 'bg-gray-300'
-                            }`}
-                          >
-                            {hasPermission && (
-                              <svg
-                                className="w-3 h-3"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={3}
-                                  d="M5 13l4 4L19 7"
-                                />
-                              </svg>
-                            )}
+            <div className="space-y-6 max-h-[500px] overflow-y-auto">
+              {Object.entries(permissions).map(([category, perms]) => (
+                <div key={category}>
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
+                    <span className="w-3 h-3 bg-info-500 rounded-full mr-2"></span>
+                    {category}
+                  </h4>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {perms.map((permission) => {
+                      const hasPermission = selectedRolePermissions.includes(permission.code);
+                      return (
+                        <div
+                          key={permission.code}
+                          className={`p-2 rounded border ${
+                            hasPermission
+                              ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800'
+                              : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                          }`}
+                          title={permission.description}
+                        >
+                          <div className="flex items-center">
+                            <div
+                              className={`w-4 h-4 rounded flex items-center justify-center mr-2 ${
+                                hasPermission ? 'bg-success-500 text-white' : 'bg-gray-300'
+                              }`}
+                            >
+                              {hasPermission && <Check className="w-3 h-3" aria-hidden="true" />}
+                            </div>
+                            <span
+                              className={`text-sm ${hasPermission ? 'text-success-800 dark:text-success-200 font-medium' : 'text-gray-500 dark:text-gray-400'}`}
+                            >
+                              {permission.name}
+                            </span>
                           </div>
-                          <span
-                            className={`text-sm ${hasPermission ? 'text-green-800 font-medium' : 'text-gray-500 dark:text-gray-400'}`}
-                          >
-                            {permission.name}
-                          </span>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
           )}
         </Card>
       </div>
@@ -308,11 +284,13 @@ const RoleManagementPage: React.FC = () => {
           below their own rank. So the rule is stated once, and the roles it
           ranks come from the hierarchy this page already fetched. */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Role Assignment Rules</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+          Role Assignment Rules
+        </h3>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-          A platform administrator may assign any role. Every other role may assign only within
-          its own tenant, and only at or below its own level. The server enforces this; the
-          levels below are the catalogue it enforces against.
+          A platform administrator may assign any role. Every other role may assign only within its
+          own tenant, and only at or below its own level. The server enforces this; the levels below
+          are the catalogue it enforces against.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {roles.map((role) => (

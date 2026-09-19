@@ -13,13 +13,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import {
-  Plus,
-  Trash2,
-  Languages,
-  Search,
-  Globe,
-} from 'lucide-react';
+import { Plus, Trash2, Languages, Search, Globe } from 'lucide-react';
 import {
   type ViewTranslations,
   createEmptyTranslations,
@@ -183,20 +177,43 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
 
   // One column per language; the rows are the translation keys.
   const translationColumns: DataTableColumn<string>[] = [
-    { key: 'key', header: 'Key', render: (_value, key) => <span className="font-mono text-gray-800 dark:text-gray-200">{key}</span> },
-    ...languages.map((lang): DataTableColumn<string> => ({
-      key: lang,
-      header: lang.toUpperCase(),
+    {
+      key: 'key',
+      header: 'Key',
       render: (_value, key) => (
-        <Input fullWidth type="text" value={translations.languages[lang]?.[key] ?? ''} onChange={(e) => handleUpdateValue(key, lang, e.target.value)} placeholder={`${lang}...`} />
+        <span className="font-mono text-gray-800 dark:text-gray-200">{key}</span>
       ),
-    })),
+    },
+    ...languages.map(
+      (lang): DataTableColumn<string> => ({
+        key: lang,
+        header: lang.toUpperCase(),
+        render: (_value, key) => (
+          <Input
+            fullWidth
+            type="text"
+            value={translations.languages[lang]?.[key] ?? ''}
+            onChange={(e) => handleUpdateValue(key, lang, e.target.value)}
+            placeholder={`${lang}...`}
+          />
+        ),
+      }),
+    ),
     {
       key: 'remove',
       header: '',
       width: '2rem',
       render: (_value, key) => (
-        <Button variant="ghost" size="sm" iconOnly aria-label="Remove key" onClick={() => handleRemoveKey(key)} title="Remove key"><Trash2 className="w-3 h-3" /></Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label="Remove key"
+          onClick={() => handleRemoveKey(key)}
+          title="Remove key"
+        >
+          <Trash2 className="w-3 h-3" />
+        </Button>
       ),
     },
   ];
@@ -206,7 +223,7 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Languages className="w-4 h-4 text-cyan-600" />
+          <Languages className="w-4 h-4 text-info-600 dark:text-info-400" />
           <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Translations</h4>
           <span className="text-[11px] text-gray-400 dark:text-gray-500">
             ({allKeys.length} keys, {languages.length} languages)
@@ -216,20 +233,25 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
 
       {/* Hint */}
       <div className="text-[11px] text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-lg">
-        Use <code className="text-cyan-700 bg-cyan-50 px-1 rounded">{TRANSLATION_PREFIX}key</code>{' '}
+        Use{' '}
+        <code className="text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 px-1 rounded">
+          {TRANSLATION_PREFIX}key
+        </code>{' '}
         in widget labels to enable runtime translation.
       </div>
 
       {/* Languages */}
       <div>
-        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Languages</label>
+        <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+          Languages
+        </label>
         <div className="flex flex-wrap gap-1.5">
           {languages.map((lang) => (
             <div
               key={lang}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs border ${
                 lang === translations.defaultLanguage
-                  ? 'border-cyan-300 bg-cyan-50 text-cyan-700'
+                  ? 'border-info-300 dark:border-info-700 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
                   : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'
               }`}
             >
@@ -239,17 +261,40 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
                 {LANGUAGE_LABELS[lang] || ''}
               </span>
               {lang === translations.defaultLanguage ? (
-                <span className="text-[9px] font-semibold text-cyan-600">DEFAULT</span>
+                <span className="text-[9px] font-semibold text-info-600 dark:text-info-400">
+                  DEFAULT
+                </span>
               ) : (
                 <>
-                  <Button variant="ghost" onClick={() => handleSetDefaultLanguage(lang)} title="Set as default">set default</Button>
-                  <Button variant="ghost" iconOnly aria-label="Remove language" className="ml-0.5" onClick={() => handleRemoveLanguage(lang)} title="Remove language"><Trash2 className="w-2.5 h-2.5" /></Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => handleSetDefaultLanguage(lang)}
+                    title="Set as default"
+                  >
+                    set default
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    iconOnly
+                    aria-label="Remove language"
+                    className="ml-0.5"
+                    onClick={() => handleRemoveLanguage(lang)}
+                    title="Remove language"
+                  >
+                    <Trash2 className="w-2.5 h-2.5" />
+                  </Button>
                 </>
               )}
             </div>
           ))}
           <div className="flex items-center gap-1">
-            <Input type="text" value={newLangCode} onChange={(e) => setNewLangCode(e.target.value)} placeholder="lang code" maxLength={5} />
+            <Input
+              type="text"
+              value={newLangCode}
+              onChange={(e) => setNewLangCode(e.target.value)}
+              placeholder="lang code"
+              maxLength={5}
+            />
             <button
               onClick={handleAddLanguage}
               disabled={!newLangCode.trim()}
@@ -265,15 +310,37 @@ export const TranslationsPanel: React.FC<TranslationsPanelProps> = ({
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-        <Input fullWidth type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search keys..." />
+        <Input
+          fullWidth
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search keys..."
+        />
       </div>
 
       {/* Add key */}
       <div className="flex items-center gap-2">
-        <Input type="text" value={newKey} onChange={(e) => setNewKey(e.target.value)} onKeyDown={(e) => {
-      if (e.key === 'Enter') handleAddKey();
-     }} placeholder="New translation key" data-testid="translation-new-key" />
-        <Button variant="primary" size="sm" iconOnly aria-label="Add" onClick={handleAddKey} disabled={!newKey.trim()}><Plus className="w-3.5 h-3.5" /></Button>
+        <Input
+          type="text"
+          value={newKey}
+          onChange={(e) => setNewKey(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleAddKey();
+          }}
+          placeholder="New translation key"
+          data-testid="translation-new-key"
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          iconOnly
+          aria-label="Add"
+          onClick={handleAddKey}
+          disabled={!newKey.trim()}
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </Button>
       </div>
 
       {/* Translation table */}

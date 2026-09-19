@@ -15,12 +15,10 @@ import { TanksAnalyticsTab } from './tabs';
 // ============================================================================
 
 const VALID_DATE_RANGES = ['7days', '30days', '90days', 'year'] as const;
-type DateRange = typeof VALID_DATE_RANGES[number];
+type DateRange = (typeof VALID_DATE_RANGES)[number];
 
 function safeValidateDateRange(value: string): DateRange {
-  return (VALID_DATE_RANGES as readonly string[]).includes(value)
-    ? (value as DateRange)
-    : '30days';
+  return (VALID_DATE_RANGES as readonly string[]).includes(value) ? (value as DateRange) : '30days';
 }
 
 interface AnalyticsTab {
@@ -29,9 +27,7 @@ interface AnalyticsTab {
   path: string;
 }
 
-const analyticsTabs: AnalyticsTab[] = [
-  { id: 'tanks', label: 'Tanks & Ponds', path: 'tanks' },
-];
+const analyticsTabs: AnalyticsTab[] = [{ id: 'tanks', label: 'Tanks & Ponds', path: 'tanks' }];
 
 // ============================================================================
 // Component
@@ -43,7 +39,7 @@ const AnalyticsPage: React.FC = () => {
   const [dateRange, setDateRange] = useState<DateRange>('30days');
 
   const currentPath = location.pathname.split('/').pop() || 'tanks';
-  const activeTab = analyticsTabs.find(tab => tab.path === currentPath)?.id || 'tanks';
+  const activeTab = analyticsTabs.find((tab) => tab.path === currentPath)?.id || 'tanks';
 
   const handleTabChange = (tabPath: string) => {
     navigate(`/sites/analytics/${tabPath}`);
@@ -85,9 +81,10 @@ const AnalyticsPage: React.FC = () => {
                 onClick={() => handleTabChange(tab.path)}
                 className={`
                   group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
-                  ${activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
+                  ${
+                    activeTab === tab.id
+                      ? 'border-info-500 text-info-600 dark:text-info-400'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >

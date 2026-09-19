@@ -28,7 +28,14 @@ import {
   Calendar,
   ArrowUpCircle,
 } from 'lucide-react';
-import { parseMoney, DataTable, type DataTableColumn, PageHeader, Button, Badge } from '@aquaculture/shared-ui';
+import {
+  parseMoney,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+  Button,
+  Badge,
+} from '@aquaculture/shared-ui';
 
 import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling';
 
@@ -41,12 +48,31 @@ import { useTenantBilling, type TenantInvoice } from '../hooks/useTenantBilling'
  */
 const SubscriptionStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   // FE-HIGH-079: subscription state on the shared-ui Badge scale.
-  const config: Record<string, { variant: 'success' | 'info' | 'warning' | 'default' | 'error'; icon: React.ReactNode; label: string }> = {
+  const config: Record<
+    string,
+    {
+      variant: 'success' | 'info' | 'warning' | 'default' | 'error';
+      icon: React.ReactNode;
+      label: string;
+    }
+  > = {
     ACTIVE: { variant: 'success', icon: <CheckCircle className="w-3.5 h-3.5" />, label: 'Active' },
     TRIAL: { variant: 'info', icon: <Clock className="w-3.5 h-3.5" />, label: 'Trial' },
-    PAST_DUE: { variant: 'warning', icon: <AlertTriangle className="w-3.5 h-3.5" />, label: 'Past Due' },
-    CANCELLED: { variant: 'default', icon: <XCircle className="w-3.5 h-3.5" />, label: 'Cancelled' },
-    SUSPENDED: { variant: 'error', icon: <AlertCircle className="w-3.5 h-3.5" />, label: 'Suspended' },
+    PAST_DUE: {
+      variant: 'warning',
+      icon: <AlertTriangle className="w-3.5 h-3.5" />,
+      label: 'Past Due',
+    },
+    CANCELLED: {
+      variant: 'default',
+      icon: <XCircle className="w-3.5 h-3.5" />,
+      label: 'Cancelled',
+    },
+    SUSPENDED: {
+      variant: 'error',
+      icon: <AlertCircle className="w-3.5 h-3.5" />,
+      label: 'Suspended',
+    },
   };
   const c = config[status] || config.ACTIVE;
   return (
@@ -62,9 +88,18 @@ const SubscriptionStatusBadge: React.FC<{ status: string }> = ({ status }) => {
  */
 const InvoiceStatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const config: Record<string, { bg: string; text: string }> = {
-    PAID: { bg: 'bg-green-100', text: 'text-green-700' },
-    PENDING: { bg: 'bg-yellow-100', text: 'text-yellow-700' },
-    OVERDUE: { bg: 'bg-red-100', text: 'text-red-700' },
+    PAID: {
+      bg: 'bg-success-100 dark:bg-success-900/40',
+      text: 'text-success-700 dark:text-success-300',
+    },
+    PENDING: {
+      bg: 'bg-warning-100 dark:bg-warning-900/40',
+      text: 'text-warning-700 dark:text-warning-300',
+    },
+    OVERDUE: {
+      bg: 'bg-error-100 dark:bg-error-900/40',
+      text: 'text-error-700 dark:text-error-300',
+    },
     DRAFT: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400' },
     VOID: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-500 dark:text-gray-400' },
   };
@@ -91,9 +126,9 @@ const UsageBar: React.FC<{
   icon: React.ReactNode;
 }> = ({ label, current, limit, unit = '', icon }) => {
   const percentage = limit > 0 ? Math.min((current / limit) * 100, 100) : 0;
-  let barColor = 'bg-green-500';
-  if (percentage >= 90) barColor = 'bg-red-500';
-  else if (percentage >= 70) barColor = 'bg-yellow-500';
+  let barColor = 'bg-success-500';
+  if (percentage >= 90) barColor = 'bg-error-500';
+  else if (percentage >= 70) barColor = 'bg-warning-500';
 
   return (
     <div className="p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
@@ -114,7 +149,9 @@ const UsageBar: React.FC<{
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-right">{percentage.toFixed(1)}% used</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-right">
+        {percentage.toFixed(1)}% used
+      </p>
     </div>
   );
 };
@@ -157,7 +194,10 @@ const BillingSkeleton: React.FC = () => (
     {/* Cards skeleton */}
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5">
+        <div
+          key={i}
+          className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5"
+        >
           <div className="w-32 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
           <div className="w-24 h-6 bg-gray-200 dark:bg-gray-700 rounded mt-2" />
         </div>
@@ -208,7 +248,7 @@ const TenantBillingPage: React.FC = () => {
       header: 'Invoice',
       render: (_value, invoice) => (
         <div className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-green-500" />
+          <CheckCircle className="w-4 h-4 text-success-500" />
           <span className="text-sm text-gray-900 dark:text-gray-100">{invoice.invoiceNumber}</span>
         </div>
       ),
@@ -220,9 +260,7 @@ const TenantBillingPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <Calendar className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           <span className="text-sm text-gray-600 dark:text-gray-400">
-            {invoice.paidAt
-              ? new Date(invoice.paidAt).toLocaleDateString()
-              : '--'}
+            {invoice.paidAt ? new Date(invoice.paidAt).toLocaleDateString() : '--'}
           </span>
         </div>
       ),
@@ -232,12 +270,12 @@ const TenantBillingPage: React.FC = () => {
       header: 'Amount',
       align: 'right',
       render: (_value, invoice) => (
-        <span className="text-sm font-medium text-green-600">
+        <span className="text-sm font-medium text-success-600 dark:text-success-400">
           {invoice.currency === 'USD' ? '$' : invoice.currency}
           {parseMoney(invoice.amountDecimal).toFixed(2)}
         </span>
       ),
-    }
+    },
   ];
 
   const tenantInvoiceColumns: DataTableColumn<TenantInvoice>[] = [
@@ -289,10 +327,8 @@ const TenantBillingPage: React.FC = () => {
       key: 'status',
       header: 'Status',
       align: 'right',
-      render: (_value, invoice) => (
-        <InvoiceStatusBadge status={invoice.status} />
-      ),
-    }
+      render: (_value, invoice) => <InvoiceStatusBadge status={invoice.status} />,
+    },
   ];
 
   return (
@@ -303,8 +339,16 @@ const TenantBillingPage: React.FC = () => {
         description="View your subscription details, invoices, and usage metrics"
         actions={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={() => refetch()} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
-            <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-medium">
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Refresh"
+              onClick={() => refetch()}
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </Button>
+            <span className="px-3 py-1.5 rounded-lg bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300 text-xs font-medium">
               Read-Only
             </span>
           </div>
@@ -313,27 +357,33 @@ const TenantBillingPage: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-red-800">Failed to load billing data</p>
-            <p className="text-sm text-red-600">{(error as Error).message}</p>
+            <p className="text-sm font-medium text-error-800 dark:text-error-200">
+              Failed to load billing data
+            </p>
+            <p className="text-sm text-error-600 dark:text-error-400">{(error as Error).message}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
       {/* Subscription Card */}
       {subscription ? (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-green-50 to-white">
+          <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-success-50 to-white">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-green-100">
-                  <CreditCard className="w-6 h-6 text-green-600" />
+                <div className="p-3 rounded-xl bg-success-100 dark:bg-success-900/40">
+                  <CreditCard className="w-6 h-6 text-success-600 dark:text-success-400" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{subscription.plan} Plan</h2>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                    {subscription.plan} Plan
+                  </h2>
                   <SubscriptionStatusBadge status={subscription.status} />
                 </div>
               </div>
@@ -350,13 +400,17 @@ const TenantBillingPage: React.FC = () => {
           </div>
           <div className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Billing Period</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                Billing Period
+              </p>
               <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
                 {subscription.billingPeriod === 'MONTHLY' ? 'Monthly' : 'Yearly'}
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Current Period</p>
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                Current Period
+              </p>
               <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
                 {new Date(subscription.currentPeriodStart).toLocaleDateString()} -{' '}
                 {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
@@ -364,7 +418,9 @@ const TenantBillingPage: React.FC = () => {
             </div>
             {subscription.trialEndDate && (
               <div>
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Trial Ends</p>
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                  Trial Ends
+                </p>
                 <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
                   {new Date(subscription.trialEndDate).toLocaleDateString()}
                 </p>
@@ -372,27 +428,38 @@ const TenantBillingPage: React.FC = () => {
             )}
           </div>
           {isUpgradeable && (
-            <div className="p-6 border-t border-gray-100 dark:border-gray-700 bg-gradient-to-r from-green-50/50 to-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="p-6 border-t border-gray-100 dark:border-gray-700 bg-gradient-to-r from-success-50/50 to-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-green-100">
-                  <ArrowUpCircle className="w-5 h-5 text-green-600" />
+                <div className="p-2 rounded-lg bg-success-100 dark:bg-success-900/40">
+                  <ArrowUpCircle className="w-5 h-5 text-success-600 dark:text-success-400" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Ready for more?</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    Ready for more?
+                  </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                     You&apos;re on the {subscription.status === 'TRIAL' ? 'trial' : 'Free'} plan.
                     Upgrade to unlock higher limits, reports, and API access.
                   </p>
                 </div>
               </div>
-              <Button variant="primary" leftIcon={<ArrowUpCircle className="w-4 h-4" />} type="button" onClick={() => navigate('/tenant/support')}>Upgrade plan</Button>
+              <Button
+                variant="primary"
+                leftIcon={<ArrowUpCircle className="w-4 h-4" />}
+                type="button"
+                onClick={() => navigate('/tenant/support')}
+              >
+                Upgrade plan
+              </Button>
             </div>
           )}
         </div>
       ) : (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-8 text-center">
           <CreditCard className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
-          <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No subscription data</h3>
+          <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+            No subscription data
+          </h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Subscription information will appear here once billing is configured.
           </p>
@@ -402,32 +469,34 @@ const TenantBillingPage: React.FC = () => {
       {/* Plan Limits */}
       {planLimits && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Plan Limits</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+            Plan Limits
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <UsageBar
               label="Farms"
               current={planLimits.currentFarms}
               limit={planLimits.maxFarms}
-              icon={<Waves className="w-4 h-4 text-green-500" />}
+              icon={<Waves className="w-4 h-4 text-success-500" />}
             />
             <UsageBar
               label="Sensors"
               current={planLimits.currentSensors}
               limit={planLimits.maxSensors}
-              icon={<Cpu className="w-4 h-4 text-blue-500" />}
+              icon={<Cpu className="w-4 h-4 text-info-500" />}
             />
             <UsageBar
               label="Users"
               current={planLimits.currentUsers}
               limit={planLimits.maxUsers}
-              icon={<Users className="w-4 h-4 text-purple-500" />}
+              icon={<Users className="w-4 h-4 text-accent-500" />}
             />
             <UsageBar
               label="Storage"
               current={planLimits.currentStorage}
               limit={planLimits.maxStorage}
               unit=" GB"
-              icon={<HardDrive className="w-4 h-4 text-yellow-500" />}
+              icon={<HardDrive className="w-4 h-4 text-warning-500" />}
             />
           </div>
         </div>
@@ -436,28 +505,30 @@ const TenantBillingPage: React.FC = () => {
       {/* Usage Metrics */}
       {usageMetrics && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Usage Metrics</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+            Usage Metrics
+          </h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <StatCard
               label="API Calls"
               value={usageMetrics.apiCallsThisMonth.toLocaleString()}
               subtext={`of ${usageMetrics.apiCallsLimit.toLocaleString()} limit`}
-              icon={<TrendingUp className="w-5 h-5 text-green-600" />}
-              color="bg-green-50"
+              icon={<TrendingUp className="w-5 h-5 text-success-600 dark:text-success-400" />}
+              color="bg-success-50 dark:bg-success-900/20"
             />
             <StatCard
               label="Storage Used"
               value={`${usageMetrics.storageUsedGb.toFixed(1)} GB`}
               subtext={`of ${usageMetrics.storageLimit} GB limit`}
-              icon={<HardDrive className="w-5 h-5 text-blue-600" />}
-              color="bg-blue-50"
+              icon={<HardDrive className="w-5 h-5 text-info-600 dark:text-info-400" />}
+              color="bg-info-50 dark:bg-info-900/20"
             />
             <StatCard
               label="Sensor Readings"
               value={usageMetrics.sensorReadingsThisMonth.toLocaleString()}
               subtext={`of ${usageMetrics.sensorReadingsLimit.toLocaleString()} limit`}
-              icon={<BarChart3 className="w-5 h-5 text-purple-600" />}
-              color="bg-purple-50"
+              icon={<BarChart3 className="w-5 h-5 text-accent-600 dark:text-accent-400" />}
+              color="bg-accent-50 dark:bg-accent-900/20"
             />
           </div>
         </div>
@@ -481,7 +552,9 @@ const TenantBillingPage: React.FC = () => {
           ) : (
             <div className="py-12 text-center">
               <FileText className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
-              <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No invoices</h3>
+              <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No invoices
+              </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Invoices will appear here once billing is active.
               </p>
@@ -493,7 +566,9 @@ const TenantBillingPage: React.FC = () => {
       {/* Payment History Note */}
       {invoices.filter((inv) => inv.paidAt).length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Payment History</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+            Payment History
+          </h2>
           <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
             <DataTable<TenantInvoice>
               data={invoices.filter((inv) => inv.paidAt)}
@@ -510,11 +585,11 @@ const TenantBillingPage: React.FC = () => {
       )}
 
       {/* Info Banner */}
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-blue-500 flex-shrink-0 mt-0.5" />
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-100 dark:border-info-800 rounded-xl p-4 flex items-start gap-3">
+        <AlertCircle className="w-5 h-5 text-info-500 flex-shrink-0 mt-0.5" />
         <div>
-          <p className="text-sm font-medium text-blue-800">Read-Only View</p>
-          <p className="text-sm text-blue-600 mt-0.5">
+          <p className="text-sm font-medium text-info-800 dark:text-info-200">Read-Only View</p>
+          <p className="text-sm text-info-600 dark:text-info-400 mt-0.5">
             To change your subscription plan or update payment details, please contact your account
             manager or reach out through Support.
           </p>

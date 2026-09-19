@@ -5,7 +5,16 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, DataTable, Input, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Input,
+  Modal,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   billingApi,
   SubscriptionOverview,
@@ -35,7 +44,9 @@ const SubscriptionManagementPage: React.FC = () => {
   const limit = 20;
 
   // Modals
-  const [selectedSubscription, setSelectedSubscription] = useState<SubscriptionOverview | null>(null);
+  const [selectedSubscription, setSelectedSubscription] = useState<SubscriptionOverview | null>(
+    null,
+  );
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showExtendTrialModal, setShowExtendTrialModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -126,7 +137,10 @@ const SubscriptionManagementPage: React.FC = () => {
   };
 
   const getStatusBadge = (status: SubscriptionStatus) => {
-    const variants: Record<SubscriptionStatus, 'success' | 'warning' | 'error' | 'info' | 'default'> = {
+    const variants: Record<
+      SubscriptionStatus,
+      'success' | 'warning' | 'error' | 'info' | 'default'
+    > = {
       [SubscriptionStatus.ACTIVE]: 'success',
       [SubscriptionStatus.TRIAL]: 'info',
       [SubscriptionStatus.PAST_DUE]: 'warning',
@@ -156,7 +170,7 @@ const SubscriptionManagementPage: React.FC = () => {
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700">
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 text-error-700 dark:text-error-300">
         {error}
         <Button onClick={loadData} className="ml-4">
           Retry
@@ -172,7 +186,9 @@ const SubscriptionManagementPage: React.FC = () => {
       render: (_value, sub) => (
         <>
           <div className="font-medium text-gray-900 dark:text-gray-100">{sub.tenantName}</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">{sub.tenantId.substring(0, 8)}...</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            {sub.tenantId.substring(0, 8)}...
+          </div>
         </>
       ),
     },
@@ -200,12 +216,17 @@ const SubscriptionManagementPage: React.FC = () => {
     {
       key: 'currentPeriodEnd',
       header: 'Period End',
-      render: (_value, sub) => <span className="text-sm text-gray-500 dark:text-gray-400">{formatDate(sub.currentPeriodEnd)}</span>,
+      render: (_value, sub) => (
+        <span className="text-sm text-gray-500 dark:text-gray-400">
+          {formatDate(sub.currentPeriodEnd)}
+        </span>
+      ),
     },
     {
       key: 'autoRenew',
       header: 'Auto Renew',
-      render: (_value, sub) => (sub.autoRenew ? <Badge variant="success">Yes</Badge> : <Badge variant="default">No</Badge>),
+      render: (_value, sub) =>
+        sub.autoRenew ? <Badge variant="success">Yes</Badge> : <Badge variant="default">No</Badge>,
     },
     {
       key: 'actions',
@@ -226,11 +247,7 @@ const SubscriptionManagementPage: React.FC = () => {
             </Button>
           )}
           {sub.status === SubscriptionStatus.CANCELLED && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => handleReactivate(sub.tenantId)}
-            >
+            <Button variant="outline" size="sm" onClick={() => handleReactivate(sub.tenantId)}>
               Reactivate
             </Button>
           )}
@@ -265,7 +282,7 @@ const SubscriptionManagementPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">MRR</div>
-            <div className="mt-1 text-2xl font-bold text-green-600">
+            <div className="mt-1 text-2xl font-bold text-success-600 dark:text-success-400">
               {formatCurrency(stats.mrr)}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -274,7 +291,9 @@ const SubscriptionManagementPage: React.FC = () => {
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Subscriptions</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Total Subscriptions
+            </div>
             <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {stats.totalSubscriptions}
             </div>
@@ -285,7 +304,7 @@ const SubscriptionManagementPage: React.FC = () => {
 
           <Card className="p-4">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Churn Rate</div>
-            <div className="mt-1 text-2xl font-bold text-orange-600">
+            <div className="mt-1 text-2xl font-bold text-accent-600 dark:text-accent-400">
               {stats.churnRate.toFixed(1)}%
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -294,8 +313,10 @@ const SubscriptionManagementPage: React.FC = () => {
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Attention Needed</div>
-            <div className="mt-1 text-2xl font-bold text-red-600">
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Attention Needed
+            </div>
+            <div className="mt-1 text-2xl font-bold text-error-600 dark:text-error-400">
               {stats.pastDueCount}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -444,8 +465,7 @@ const SubscriptionManagementPage: React.FC = () => {
           }
         >
           <p className="text-gray-600 dark:text-gray-400 mb-4">
-            Extend the trial period for{' '}
-            <strong>{selectedSubscription.tenantName}</strong>
+            Extend the trial period for <strong>{selectedSubscription.tenantName}</strong>
           </p>
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

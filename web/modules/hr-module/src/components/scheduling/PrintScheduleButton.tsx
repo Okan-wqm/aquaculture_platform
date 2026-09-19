@@ -69,7 +69,7 @@ export function PrintScheduleButton({
         'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium',
         'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg',
         'hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
-        className
+        className,
       )}
     >
       <Printer className="h-4 w-4" />
@@ -81,7 +81,7 @@ export function PrintScheduleButton({
 function generatePrintableHTML(
   overview: TeamWeeklyOverview,
   siteName?: string,
-  departmentName?: string
+  departmentName?: string,
 ): string {
   const weekStart = new Date(overview.weekStartDate);
   const weekEnd = new Date(overview.weekEndDate);
@@ -106,16 +106,16 @@ function generatePrintableHTML(
           return '<td class="cell holiday">RESMI</td>';
         }
 
-        const timeRange = dayEntry.startTime && dayEntry.endTime
-          ? `${escapeHtml(dayEntry.startTime.slice(0, 5))}-${escapeHtml(dayEntry.endTime.slice(0, 5))}`
-          : escapeHtml(dayEntry.shiftCode || '-');
+        const timeRange =
+          dayEntry.startTime && dayEntry.endTime
+            ? `${escapeHtml(dayEntry.startTime.slice(0, 5))}-${escapeHtml(dayEntry.endTime.slice(0, 5))}`
+            : escapeHtml(dayEntry.shiftCode || '-');
 
         return `<td class="cell work">${timeRange}</td>`;
       }).join('');
 
-      const overtime = emp.overtimeMinutes > 0
-        ? `+${formatMinutesAsHours(emp.overtimeMinutes)}`
-        : '-';
+      const overtime =
+        emp.overtimeMinutes > 0 ? `+${formatMinutesAsHours(emp.overtimeMinutes)}` : '-';
 
       return `
         <tr>
@@ -154,7 +154,7 @@ function generatePrintableHTML(
         .header {
           text-align: center;
           margin-bottom: 20px;
-          border-bottom: 2px solid #333;
+          border-bottom: 2px solid ${colors.neutral[700]};
           padding-bottom: 15px;
         }
         .header h1 {
@@ -164,12 +164,12 @@ function generatePrintableHTML(
         }
         .header .subtitle {
           font-size: 14px;
-          color: #666;
+          color: ${colors.neutral[500]};
           margin: 5px 0;
         }
         .header .meta {
           font-size: 11px;
-          color: #888;
+          color: ${colors.neutral[400]};
         }
         table {
           width: 100%;
@@ -177,7 +177,7 @@ function generatePrintableHTML(
           margin-top: 10px;
         }
         th, td {
-          border: 1px solid #333;
+          border: 1px solid ${colors.neutral[700]};
           padding: 6px 4px;
           text-align: center;
         }
@@ -203,7 +203,7 @@ function generatePrintableHTML(
         }
         .cell.off {
           background: ${colors.neutral[100]};
-          color: #666;
+          color: ${colors.neutral[500]};
         }
         .cell.leave {
           background: ${colors.success[50]};
@@ -230,8 +230,8 @@ function generatePrintableHTML(
         .footer {
           margin-top: 20px;
           font-size: 10px;
-          color: #666;
-          border-top: 1px solid #ccc;
+          color: ${colors.neutral[500]};
+          border-top: 1px solid ${colors.neutral[300]};
           padding-top: 10px;
         }
         .legend {
@@ -248,7 +248,7 @@ function generatePrintableHTML(
         .legend-box {
           width: 16px;
           height: 12px;
-          border: 1px solid #ccc;
+          border: 1px solid ${colors.neutral[300]};
         }
         @media print {
           body { padding: 10px; }
@@ -262,7 +262,14 @@ function generatePrintableHTML(
       <div class="header">
         <h1>Haftalik Calisma Cizelgesi</h1>
         <div class="subtitle">${formatDate(weekStart)} - ${formatDate(weekEnd)}</div>
-        ${siteName || departmentName ? `<div class="meta">${[siteName, departmentName].filter((s): s is string => Boolean(s)).map(s => escapeHtml(s)).join(' - ')}</div>` : ''}
+        ${
+          siteName || departmentName
+            ? `<div class="meta">${[siteName, departmentName]
+                .filter((s): s is string => Boolean(s))
+                .map((s) => escapeHtml(s))
+                .join(' - ')}</div>`
+            : ''
+        }
       </div>
 
       <table>

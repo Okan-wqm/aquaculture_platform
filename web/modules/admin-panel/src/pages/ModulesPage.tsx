@@ -12,6 +12,7 @@ import { modulesApi } from '../services/adminApi';
 // stops matching the endpoint it describes without anything saying so.
 import type { ModuleStats, PaginatedResult, SystemModule } from '../services/types';
 import { PageHeader } from '@aquaculture/shared-ui';
+import { Box, CircleX, Plus, Search as SearchIcon, X } from 'lucide-react';
 
 /**
  * What a stat card shows when `/modules/stats` did not answer.
@@ -68,11 +69,14 @@ const ModulesPage: React.FC = () => {
   }, []);
 
   // Trigger search on Enter or after typing
-  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      refresh();
-    }
-  }, [refresh]);
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        refresh();
+      }
+    },
+    [refresh],
+  );
 
   /**
    * Activate / deactivate, through the write primitive (ADMIN-HIGH-121).
@@ -85,11 +89,12 @@ const ModulesPage: React.FC = () => {
    * is the whole reason a write declares what it affected.
    */
   const toggleModule = useAdminMutation<SystemModule, SystemModule>(
-    (module) => (module.isActive ? modulesApi.deactivate(module.id) : modulesApi.activate(module.id)),
+    (module) =>
+      module.isActive ? modulesApi.deactivate(module.id) : modulesApi.activate(module.id),
     { invalidateKeys: [adminKeys.modules.all()] },
   );
 
-  const togglingModuleId = toggleModule.isPending ? toggleModule.variables?.id ?? null : null;
+  const togglingModuleId = toggleModule.isPending ? (toggleModule.variables?.id ?? null) : null;
   const toggleError = toggleModule.error
     ? `Failed to change module status: ${toggleModule.error.message}`
     : null;
@@ -110,11 +115,16 @@ const ModulesPage: React.FC = () => {
 
   // Get category badge color based on module code
   const getCategoryColor = (code: string) => {
-    if (code.includes('FARM') || code.includes('CORE')) return 'bg-blue-100 text-blue-700';
-    if (code.includes('SENSOR') || code.includes('IOT')) return 'bg-green-100 text-green-700';
-    if (code.includes('ALERT') || code.includes('AUTO')) return 'bg-purple-100 text-purple-700';
-    if (code.includes('ANALYTICS') || code.includes('REPORT')) return 'bg-orange-100 text-orange-700';
-    if (code.includes('HR') || code.includes('EMPLOYEE')) return 'bg-pink-100 text-pink-700';
+    if (code.includes('FARM') || code.includes('CORE'))
+      return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
+    if (code.includes('SENSOR') || code.includes('IOT'))
+      return 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300';
+    if (code.includes('ALERT') || code.includes('AUTO'))
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
+    if (code.includes('ANALYTICS') || code.includes('REPORT'))
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
+    if (code.includes('HR') || code.includes('EMPLOYEE'))
+      return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
     return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
   };
 
@@ -135,10 +145,8 @@ const ModulesPage: React.FC = () => {
         title="System Modules"
         description="Manage platform modules and their availability to tenants"
         actions={
-          <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
+          <button className="inline-flex items-center px-4 py-2 bg-info-600 text-white text-sm font-medium rounded-lg hover:bg-info-700 transition-colors">
+            <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
             Add Module
           </button>
         }
@@ -155,16 +163,12 @@ const ModulesPage: React.FC = () => {
                 value={searchTerm}
                 onChange={handleSearchChange}
                 onKeyDown={handleSearchKeyDown}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
               />
-              <svg
+              <SearchIcon
                 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+                aria-hidden="true"
+              />
             </div>
           </div>
           <div className="flex gap-2">
@@ -176,7 +180,7 @@ const ModulesPage: React.FC = () => {
               }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === undefined && isCoreFilter === undefined
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -190,7 +194,7 @@ const ModulesPage: React.FC = () => {
               }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === true
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -204,7 +208,7 @@ const ModulesPage: React.FC = () => {
               }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isCoreFilter === true
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -218,7 +222,7 @@ const ModulesPage: React.FC = () => {
               }}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 isActiveFilter === false
-                  ? 'bg-blue-100 text-blue-700'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -230,18 +234,14 @@ const ModulesPage: React.FC = () => {
 
       {/* Toggle error */}
       {toggleError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start gap-3">
-          <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-          <p className="text-sm text-red-700 flex-1">{toggleError}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 flex items-start gap-3">
+          <CircleX className="w-5 h-5 text-error-500 mt-0.5 flex-shrink-0" aria-hidden="true" />
+          <p className="text-sm text-error-700 dark:text-error-300 flex-1">{toggleError}</p>
           <button
             onClick={() => toggleModule.reset()}
-            className="text-red-400 hover:text-red-600"
+            className="text-error-400 hover:text-error-600 dark:hover:text-error-300"
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-            </svg>
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       )}
@@ -249,23 +249,25 @@ const ModulesPage: React.FC = () => {
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.totalModules ?? UNAVAILABLE}</div>
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {stats?.totalModules ?? UNAVAILABLE}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Modules</div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {stats?.activeModules ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Active Modules</div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="text-2xl font-bold text-purple-600">
+          <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
             {stats?.coreModules ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Core Modules</div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {stats?.totalAssignments ?? UNAVAILABLE}
           </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Assignments</div>
@@ -275,17 +277,16 @@ const ModulesPage: React.FC = () => {
       {/* One component owns banner-vs-full-page for every admin page
           (ADMIN-HIGH-121). The stats query failing no longer silently turns
           the four cards into page-scoped computations. */}
-      <QueryFailureNotice
-        errors={queryErrors}
-        hasContent={modules.length > 0}
-        onRetry={refresh}
-      />
+      <QueryFailureNotice errors={queryErrors} hasContent={modules.length > 0} onRetry={refresh} />
 
       {/* Modules Grid */}
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 animate-pulse">
+            <div
+              key={i}
+              className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 animate-pulse"
+            >
               <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-4" />
               <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-2/3 mb-2" />
               <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-full mb-4" />
@@ -295,12 +296,17 @@ const ModulesPage: React.FC = () => {
         </div>
       ) : modules.length === 0 ? (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 text-center">
-          <svg className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-          </svg>
-          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">No modules found</h3>
+          <Box
+            className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4"
+            aria-hidden="true"
+          />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
+            No modules found
+          </h3>
           <p className="text-gray-500 dark:text-gray-400">
-            {searchTerm ? 'Try adjusting your search criteria.' : 'No modules have been created yet.'}
+            {searchTerm
+              ? 'Try adjusting your search criteria.'
+              : 'No modules have been created yet.'}
           </p>
         </div>
       ) : (
@@ -312,16 +318,18 @@ const ModulesPage: React.FC = () => {
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <span className={`px-2 py-1 text-xs font-medium rounded ${getCategoryColor(module.code)}`}>
+                  <span
+                    className={`px-2 py-1 text-xs font-medium rounded ${getCategoryColor(module.code)}`}
+                  >
                     {getCategoryName(module.code)}
                   </span>
                   {module.price > 0 && (
-                    <span className="px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-700 rounded">
+                    <span className="px-2 py-1 text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 rounded">
                       Premium
                     </span>
                   )}
                   {module.isCore && (
-                    <span className="px-2 py-1 text-xs font-medium bg-indigo-100 text-indigo-700 rounded">
+                    <span className="px-2 py-1 text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 rounded">
                       Core
                     </span>
                   )}
@@ -330,7 +338,7 @@ const ModulesPage: React.FC = () => {
                   onClick={() => handleToggleModule(module)}
                   disabled={togglingModuleId === module.id}
                   className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    module.isActive ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
+                    module.isActive ? 'bg-info-600' : 'bg-gray-200 dark:bg-gray-700'
                   } ${togglingModuleId === module.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   <span
@@ -341,21 +349,30 @@ const ModulesPage: React.FC = () => {
                 </button>
               </div>
 
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">{module.name}</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                {module.name}
+              </h3>
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{module.code}</p>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{module.description || 'No description available'}</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                {module.description || 'No description available'}
+              </p>
 
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-500 dark:text-gray-400">
                   {module.price > 0 ? `$${module.price}/mo` : 'Free'}
                 </span>
-                <span className="text-blue-600 font-medium">{module.tenantsCount} tenants</span>
+                <span className="text-info-600 dark:text-info-400 font-medium">
+                  {module.tenantsCount} tenants
+                </span>
               </div>
 
               {module.defaultRoute && (
                 <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Route: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{module.defaultRoute}</code>
+                    Route:{' '}
+                    <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">
+                      {module.defaultRoute}
+                    </code>
                   </p>
                 </div>
               )}

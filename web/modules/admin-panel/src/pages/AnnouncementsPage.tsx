@@ -98,9 +98,12 @@ export const AnnouncementsPage: React.FC = () => {
     fetchStats();
   }, [fetchAnnouncements, fetchStats]);
 
-  const filteredAnnouncements = announcements.filter(ann => {
-    if (searchQuery && !ann.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !ann.content.toLowerCase().includes(searchQuery.toLowerCase())) {
+  const filteredAnnouncements = announcements.filter((ann) => {
+    if (
+      searchQuery &&
+      !ann.title.toLowerCase().includes(searchQuery.toLowerCase()) &&
+      !ann.content.toLowerCase().includes(searchQuery.toLowerCase())
+    ) {
       return false;
     }
     return true;
@@ -108,29 +111,42 @@ export const AnnouncementsPage: React.FC = () => {
 
   const getTypeIcon = (type: AnnouncementType) => {
     switch (type) {
-      case 'info': return <Info size={16} className="text-blue-500" />;
-      case 'warning': return <AlertTriangle size={16} className="text-yellow-500" />;
-      case 'critical': return <AlertCircle size={16} className="text-red-500" />;
-      case 'maintenance': return <Wrench size={16} className="text-purple-500" />;
+      case 'info':
+        return <Info size={16} className="text-info-500" />;
+      case 'warning':
+        return <AlertTriangle size={16} className="text-warning-500" />;
+      case 'critical':
+        return <AlertCircle size={16} className="text-error-500" />;
+      case 'maintenance':
+        return <Wrench size={16} className="text-accent-500" />;
     }
   };
 
   const getTypeColor = (type: AnnouncementType) => {
     switch (type) {
-      case 'info': return 'bg-blue-100 text-blue-700';
-      case 'warning': return 'bg-yellow-100 text-yellow-700';
-      case 'critical': return 'bg-red-100 text-red-700';
-      case 'maintenance': return 'bg-purple-100 text-purple-700';
+      case 'info':
+        return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
+      case 'warning':
+        return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300';
+      case 'critical':
+        return 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300';
+      case 'maintenance':
+        return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300';
     }
   };
 
   const getStatusColor = (status: AnnouncementStatus) => {
     switch (status) {
-      case 'draft': return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
-      case 'scheduled': return 'bg-blue-100 text-blue-700';
-      case 'published': return 'bg-green-100 text-green-700';
-      case 'expired': return 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400';
-      case 'cancelled': return 'bg-red-100 text-red-700';
+      case 'draft':
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+      case 'scheduled':
+        return 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300';
+      case 'published':
+        return 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300';
+      case 'expired':
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400';
+      case 'cancelled':
+        return 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300';
     }
   };
 
@@ -176,7 +192,9 @@ export const AnnouncementsPage: React.FC = () => {
 
   const handleCreateAnnouncement = async (data: Partial<Announcement>) => {
     try {
-      await supportApi.createAnnouncement(data as Parameters<typeof supportApi.createAnnouncement>[0]);
+      await supportApi.createAnnouncement(
+        data as Parameters<typeof supportApi.createAnnouncement>[0],
+      );
       setShowCreateModal(false);
       fetchAnnouncements();
       fetchStats();
@@ -195,14 +213,17 @@ export const AnnouncementsPage: React.FC = () => {
           actions={
             <div className="flex items-center gap-2">
               <button
-                onClick={() => { fetchAnnouncements(); fetchStats(); }}
+                onClick={() => {
+                  fetchAnnouncements();
+                  fetchStats();
+                }}
                 className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
               >
                 <RefreshCw size={18} />
               </button>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="flex items-center gap-2 px-4 py-2 bg-info-600 text-white rounded-lg hover:bg-info-700"
               >
                 <Plus size={18} />
                 Create Announcement
@@ -216,31 +237,45 @@ export const AnnouncementsPage: React.FC = () => {
           <div className="grid grid-cols-7 gap-4 mt-4">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="text-sm text-gray-500 dark:text-gray-400">Total</div>
-              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.total}</div>
+              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                {stats.total}
+              </div>
             </div>
-            <div className="bg-green-50 rounded-lg p-3">
-              <div className="text-sm text-green-600">Published</div>
-              <div className="text-xl font-semibold text-green-700">{stats.published}</div>
+            <div className="bg-success-50 dark:bg-success-900/20 rounded-lg p-3">
+              <div className="text-sm text-success-600 dark:text-success-400">Published</div>
+              <div className="text-xl font-semibold text-success-700 dark:text-success-300">
+                {stats.published}
+              </div>
             </div>
-            <div className="bg-blue-50 rounded-lg p-3">
-              <div className="text-sm text-blue-600">Scheduled</div>
-              <div className="text-xl font-semibold text-blue-700">{stats.scheduled}</div>
+            <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-3">
+              <div className="text-sm text-info-600 dark:text-info-400">Scheduled</div>
+              <div className="text-xl font-semibold text-info-700 dark:text-info-300">
+                {stats.scheduled}
+              </div>
             </div>
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="text-sm text-gray-500 dark:text-gray-400">Draft</div>
-              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.draft}</div>
+              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                {stats.draft}
+              </div>
             </div>
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="text-sm text-gray-500 dark:text-gray-400">Expired</div>
-              <div className="text-xl font-semibold text-gray-600 dark:text-gray-400">{stats.expired}</div>
+              <div className="text-xl font-semibold text-gray-600 dark:text-gray-400">
+                {stats.expired}
+              </div>
             </div>
-            <div className="bg-purple-50 rounded-lg p-3">
-              <div className="text-sm text-purple-600">Total Views</div>
-              <div className="text-xl font-semibold text-purple-700">{(stats.totalViews ?? 0).toLocaleString()}</div>
+            <div className="bg-accent-50 dark:bg-accent-900/20 rounded-lg p-3">
+              <div className="text-sm text-accent-600 dark:text-accent-400">Total Views</div>
+              <div className="text-xl font-semibold text-accent-700 dark:text-accent-300">
+                {(stats.totalViews ?? 0).toLocaleString()}
+              </div>
             </div>
-            <div className="bg-indigo-50 rounded-lg p-3">
-              <div className="text-sm text-indigo-600">Acknowledged</div>
-              <div className="text-xl font-semibold text-indigo-700">{(stats.totalAcknowledgments ?? 0).toLocaleString()}</div>
+            <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg p-3">
+              <div className="text-sm text-primary-600 dark:text-primary-400">Acknowledged</div>
+              <div className="text-xl font-semibold text-primary-700 dark:text-primary-300">
+                {(stats.totalAcknowledgments ?? 0).toLocaleString()}
+              </div>
             </div>
           </div>
         )}
@@ -250,19 +285,22 @@ export const AnnouncementsPage: React.FC = () => {
       <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" size={18} />
+            <Search
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
+              size={18}
+            />
             <input
               type="text"
               placeholder="Search announcements..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500"
             />
           </div>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as AnnouncementStatus | 'all')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
           >
             <option value="all">All Status</option>
             <option value="draft">Draft</option>
@@ -274,7 +312,7 @@ export const AnnouncementsPage: React.FC = () => {
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as AnnouncementType | 'all')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
           >
             <option value="all">All Types</option>
             <option value="info">Info</option>
@@ -295,11 +333,11 @@ export const AnnouncementsPage: React.FC = () => {
       {error && (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <AlertCircle className="mx-auto text-red-500 mb-2" size={32} />
-            <p className="text-red-600">{error}</p>
+            <AlertCircle className="mx-auto text-error-500 mb-2" size={32} />
+            <p className="text-error-600 dark:text-error-400">{error}</p>
             <button
               onClick={fetchAnnouncements}
-              className="mt-2 px-4 py-2 text-sm text-blue-600 hover:text-blue-700"
+              className="mt-2 px-4 py-2 text-sm text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200"
             >
               Retry
             </button>
@@ -325,14 +363,20 @@ export const AnnouncementsPage: React.FC = () => {
                           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                             {announcement.title}
                           </h3>
-                          <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(announcement.status)}`}>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded-full ${getStatusColor(announcement.status)}`}
+                          >
                             {announcement.status}
                           </span>
-                          <span className={`px-2 py-0.5 text-xs rounded-full ${getTypeColor(announcement.type)}`}>
+                          <span
+                            className={`px-2 py-0.5 text-xs rounded-full ${getTypeColor(announcement.type)}`}
+                          >
                             {announcement.type}
                           </span>
                         </div>
-                        <p className="text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">{announcement.content}</p>
+                        <p className="text-gray-600 dark:text-gray-400 mt-1 line-clamp-2">
+                          {announcement.content}
+                        </p>
 
                         {/* Meta Info */}
                         <div className="flex items-center gap-4 mt-3 text-sm text-gray-500 dark:text-gray-400">
@@ -354,7 +398,7 @@ export const AnnouncementsPage: React.FC = () => {
                             </span>
                           )}
                           {announcement.requiresAcknowledgment && (
-                            <span className="flex items-center gap-1 text-purple-600">
+                            <span className="flex items-center gap-1 text-accent-600 dark:text-accent-400">
                               <CheckCircle size={14} />
                               Requires Ack
                             </span>
@@ -379,7 +423,7 @@ export const AnnouncementsPage: React.FC = () => {
                         <>
                           <button
                             onClick={() => handlePublish(announcement.id)}
-                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700"
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-success-600 rounded-lg hover:bg-success-700"
                           >
                             <Send size={14} />
                             Publish
@@ -392,7 +436,7 @@ export const AnnouncementsPage: React.FC = () => {
                           </button>
                           <button
                             onClick={() => handleDelete(announcement.id)}
-                            className="p-2 text-gray-500 dark:text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                            className="p-2 text-gray-500 dark:text-gray-400 hover:text-error-600 rounded-lg hover:bg-error-50"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -402,14 +446,14 @@ export const AnnouncementsPage: React.FC = () => {
                         <>
                           <button
                             onClick={() => handlePublish(announcement.id)}
-                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-green-600 rounded-lg hover:bg-green-700"
+                            className="flex items-center gap-1 px-3 py-1.5 text-sm text-white bg-success-600 rounded-lg hover:bg-success-700"
                           >
                             <Send size={14} />
                             Publish Now
                           </button>
                           <button
                             onClick={() => handleCancel(announcement.id)}
-                            className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg"
+                            className="px-3 py-1.5 text-sm text-error-600 dark:text-error-400 hover:bg-error-50 dark:hover:bg-error-900/30 rounded-lg"
                           >
                             Cancel
                           </button>
@@ -481,7 +525,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
   const [scheduleType, setScheduleType] = useState<'now' | 'scheduled'>('now');
   const [publishAt, setPublishAt] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
-  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(announcement?.requiresAcknowledgment ?? false);
+  const [requiresAcknowledgment, setRequiresAcknowledgment] = useState(
+    announcement?.requiresAcknowledgment ?? false,
+  );
 
   const handleSubmit = () => {
     onSave({
@@ -515,7 +561,7 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
             type="button"
             onClick={handleSubmit}
             disabled={!title || !content}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 bg-info-600 text-white rounded-lg hover:bg-info-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {scheduleType === 'scheduled' ? 'Schedule' : 'Save Draft'}
           </button>
@@ -524,31 +570,37 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
     >
       {/* Title */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Title</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Title
+        </label>
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
           placeholder="Enter announcement title..."
         />
       </div>
 
       {/* Content */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Content</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Content
+        </label>
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={5}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 resize-none"
           placeholder="Enter announcement content..."
         />
       </div>
 
       {/* Type */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Type</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Type
+        </label>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           {(['info', 'warning', 'critical', 'maintenance'] as AnnouncementType[]).map((t) => (
             <button
@@ -557,10 +609,13 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
               onClick={() => setType(t)}
               className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg border transition-colors ${
                 type === t
-                  ? t === 'info' ? 'bg-blue-100 border-blue-300 text-blue-700'
-                  : t === 'warning' ? 'bg-yellow-100 border-yellow-300 text-yellow-700'
-                  : t === 'critical' ? 'bg-red-100 border-red-300 text-red-700'
-                  : 'bg-purple-100 border-purple-300 text-purple-700'
+                  ? t === 'info'
+                    ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
+                    : t === 'warning'
+                      ? 'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-700 dark:text-warning-300'
+                      : t === 'critical'
+                        ? 'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-700 dark:text-error-300'
+                        : 'bg-accent-100 dark:bg-accent-900/40 border-accent-300 dark:border-accent-700 text-accent-700 dark:text-accent-300'
                   : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
@@ -576,13 +631,17 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
 
       {/* Target */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Target Audience</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Target Audience
+        </label>
         <div className="flex gap-3">
           <button
             type="button"
             onClick={() => setIsGlobal(true)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-              isGlobal ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+              isGlobal
+                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
             <Globe size={18} />
@@ -592,7 +651,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
             type="button"
             onClick={() => setIsGlobal(false)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg border ${
-              !isGlobal ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+              !isGlobal
+                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
             <Target size={18} />
@@ -603,13 +664,17 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
 
       {/* Scheduling */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Publishing</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Publishing
+        </label>
         <div className="flex gap-3">
           <button
             type="button"
             onClick={() => setScheduleType('now')}
             className={`flex-1 px-4 py-2 rounded-lg border ${
-              scheduleType === 'now' ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+              scheduleType === 'now'
+                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
             Save as Draft
@@ -618,7 +683,9 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
             type="button"
             onClick={() => setScheduleType('scheduled')}
             className={`flex-1 px-4 py-2 rounded-lg border ${
-              scheduleType === 'scheduled' ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+              scheduleType === 'scheduled'
+                ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
+                : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
             }`}
           >
             Schedule
@@ -629,7 +696,7 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
             type="datetime-local"
             value={publishAt}
             onChange={(e) => setPublishAt(e.target.value)}
-            className="w-full mt-3 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="w-full mt-3 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
           />
         )}
       </div>
@@ -643,7 +710,7 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           type="datetime-local"
           value={expiresAt}
           onChange={(e) => setExpiresAt(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
         />
       </div>
 
@@ -654,7 +721,7 @@ const AnnouncementFormModal: React.FC<AnnouncementFormModalProps> = ({
           id="requiresAck"
           checked={requiresAcknowledgment}
           onChange={(e) => setRequiresAcknowledgment(e.target.checked)}
-          className="w-4 h-4 text-blue-600 rounded border-gray-300 dark:border-gray-600 focus:ring-blue-500"
+          className="w-4 h-4 text-info-600 rounded border-gray-300 dark:border-gray-600 focus:ring-info-500"
         />
         <label htmlFor="requiresAck" className="text-sm text-gray-700 dark:text-gray-300">
           Require acknowledgment from users
@@ -673,13 +740,15 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
   announcement,
   onClose,
 }) => {
-  const [acknowledgments, setAcknowledgments] = useState<Array<{
-    userId: string;
-    userName: string;
-    tenantId: string;
-    viewedAt: string;
-    acknowledgedAt: string | null;
-  }>>([]);
+  const [acknowledgments, setAcknowledgments] = useState<
+    Array<{
+      userId: string;
+      userName: string;
+      tenantId: string;
+      viewedAt: string;
+      acknowledgedAt: string | null;
+    }>
+  >([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -721,16 +790,23 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-blue-50 rounded-lg p-4 text-center">
-          <Eye size={24} className="mx-auto text-blue-600 mb-2" />
-          <div className="text-2xl font-bold text-blue-700">{announcement.viewCount}</div>
-          <div className="text-sm text-blue-600">Total Views</div>
+        <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-4 text-center">
+          <Eye size={24} className="mx-auto text-info-600 dark:text-info-400 mb-2" />
+          <div className="text-2xl font-bold text-info-700 dark:text-info-300">
+            {announcement.viewCount}
+          </div>
+          <div className="text-sm text-info-600 dark:text-info-400">Total Views</div>
         </div>
         {announcement.requiresAcknowledgment && (
-          <div className="bg-green-50 rounded-lg p-4 text-center">
-            <CheckCircle size={24} className="mx-auto text-green-600 mb-2" />
-            <div className="text-2xl font-bold text-green-700">{announcement.acknowledgmentCount}</div>
-            <div className="text-sm text-green-600">Acknowledged</div>
+          <div className="bg-success-50 dark:bg-success-900/20 rounded-lg p-4 text-center">
+            <CheckCircle
+              size={24}
+              className="mx-auto text-success-600 dark:text-success-400 mb-2"
+            />
+            <div className="text-2xl font-bold text-success-700 dark:text-success-300">
+              {announcement.acknowledgmentCount}
+            </div>
+            <div className="text-sm text-success-600 dark:text-success-400">Acknowledged</div>
           </div>
         )}
       </div>
@@ -746,14 +822,21 @@ const AnnouncementStatsModal: React.FC<AnnouncementStatsModalProps> = ({
           ) : acknowledgments.length > 0 ? (
             <div className="space-y-2">
               {acknowledgments.map((ack) => (
-                <div key={ack.userId} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div
+                  key={ack.userId}
+                  className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                >
                   <div>
-                    <div className="font-medium text-gray-900 dark:text-gray-100">{ack.userName}</div>
-                    <div className="text-sm text-gray-500 dark:text-gray-400">Tenant: {ack.tenantId}</div>
+                    <div className="font-medium text-gray-900 dark:text-gray-100">
+                      {ack.userName}
+                    </div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
+                      Tenant: {ack.tenantId}
+                    </div>
                   </div>
                   <div className="text-right">
                     {ack.acknowledgedAt ? (
-                      <span className="flex items-center gap-1 text-green-600 text-sm">
+                      <span className="flex items-center gap-1 text-success-600 dark:text-success-400 text-sm">
                         <CheckCircle size={14} />
                         Acknowledged
                       </span>

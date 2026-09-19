@@ -71,10 +71,28 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
           </div>
           <div className="flex items-center gap-1">
             {onExpand && (
-              <Button variant="ghost" size="sm" iconOnly aria-label="Expand" onClick={onExpand} title="Expand"><Maximize2 size={14} className="text-gray-500 dark:text-gray-400" /></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                aria-label="Expand"
+                onClick={onExpand}
+                title="Expand"
+              >
+                <Maximize2 size={14} className="text-gray-500 dark:text-gray-400" />
+              </Button>
             )}
             {onRemove && (
-              <Button variant="ghost" size="sm" iconOnly aria-label="Remove" onClick={onRemove} title="Remove"><X size={14} className="text-gray-500 dark:text-gray-400 hover:text-red-500" /></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                aria-label="Remove"
+                onClick={onRemove}
+                title="Remove"
+              >
+                <X size={14} className="text-gray-500 dark:text-gray-400 hover:text-error-500" />
+              </Button>
             )}
           </div>
         </div>
@@ -146,15 +164,16 @@ interface CompactWidgetProps {
   className?: string;
 }
 
-export const CompactWidget: React.FC<CompactWidgetProps> = ({
-  reading,
-  className = '',
-}) => {
+export const CompactWidget: React.FC<CompactWidgetProps> = ({ reading, className = '' }) => {
   const statusColors = {
-    normal: 'bg-green-100 text-green-700 border-green-200',
-    warning: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-    critical: 'bg-red-100 text-red-700 border-red-200',
-    offline: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700',
+    normal:
+      'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 border-success-200 dark:border-success-800',
+    warning:
+      'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800',
+    critical:
+      'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 border-error-200 dark:border-error-800',
+    offline:
+      'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700',
   };
 
   return (

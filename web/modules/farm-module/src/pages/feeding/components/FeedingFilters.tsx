@@ -53,7 +53,7 @@ export const FeedingFilters: React.FC<FeedingFiltersProps> = ({
               onSiteChange(e.target.value);
               onBatchChange('');
             }}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             disabled={sitesLoading}
           >
             <option value="">All Sites</option>
@@ -73,7 +73,7 @@ export const FeedingFilters: React.FC<FeedingFiltersProps> = ({
           <select
             value={selectedBatchId}
             onChange={(e) => onBatchChange(e.target.value)}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             disabled={batchesLoading}
           >
             <option value="">All Batches</option>

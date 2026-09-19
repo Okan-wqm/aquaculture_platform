@@ -5,7 +5,14 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { ConfirmModal, Modal, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  Modal,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+} from '@aquaculture/shared-ui';
 import {
   Plus,
   Trash2,
@@ -54,13 +61,13 @@ function RssiIndicator({ rssi }: { rssi?: number }) {
   let color: string;
   let Icon: typeof Signal;
   if (rssi > -90) {
-    color = 'text-green-600';
+    color = 'text-success-600 dark:text-success-400';
     Icon = SignalHigh;
   } else if (rssi > -110) {
-    color = 'text-yellow-600';
+    color = 'text-warning-600 dark:text-warning-400';
     Icon = SignalMedium;
   } else {
-    color = 'text-red-600';
+    color = 'text-error-600 dark:text-error-400';
     Icon = SignalLow;
   }
 
@@ -145,14 +152,17 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
       devEui: devEui.toUpperCase(),
       appKey: appKey.toUpperCase(),
       name: name.trim(),
-      tagPrefix: tagPrefix.trim().toUpperCase() || name.trim().toUpperCase().replace(/\s+/g, '_').slice(0, 30),
+      tagPrefix:
+        tagPrefix.trim().toUpperCase() ||
+        name.trim().toUpperCase().replace(/\s+/g, '_').slice(0, 30),
       activationMode,
       deviceClass,
       codec,
     });
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden';
+  const inputCls =
+    'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden';
   const labelCls = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1';
 
   return (
@@ -169,9 +179,11 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
     >
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
         {(validationError || submitError) && (
-          <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-            <span className="text-sm text-red-800">{validationError || submitError}</span>
+          <div className="p-3 rounded-lg bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-error-600 dark:text-error-400 mt-0.5 shrink-0" />
+            <span className="text-sm text-error-800 dark:text-error-200">
+              {validationError || submitError}
+            </span>
           </div>
         )}
 
@@ -186,7 +198,9 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
             maxLength={16}
             required
           />
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{devEui.length}/16 hex karakter</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {devEui.length}/16 hex karakter
+          </p>
         </div>
 
         {/* AppKey */}
@@ -202,9 +216,20 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
               maxLength={32}
               required
             />
-            <Button variant="ghost" size="sm" className="absolute right-2 top-1/2" type="button" onClick={() => setShowAppKey(!showAppKey)} aria-label={showAppKey ? 'Gizle' : 'Goster'}>{showAppKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute right-2 top-1/2"
+              type="button"
+              onClick={() => setShowAppKey(!showAppKey)}
+              aria-label={showAppKey ? 'Gizle' : 'Goster'}
+            >
+              {showAppKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </Button>
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{appKey.length}/32 hex karakter</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {appKey.length}/32 hex karakter
+          </p>
         </div>
 
         {/* Cihaz Adi + Tag Prefix */}
@@ -229,7 +254,9 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
               placeholder="LORA_WQ_01"
               maxLength={30}
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Bos birakilirsa isimden uretilir</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              Bos birakilirsa isimden uretilir
+            </p>
           </div>
         </div>
 
@@ -244,7 +271,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                 onClick={() => setActivationMode(mode)}
                 className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   activationMode === mode
-                    ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
+                    ? 'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
                     : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
@@ -265,7 +292,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                 onClick={() => setDeviceClass(cls)}
                 className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   deviceClass === cls
-                    ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
+                    ? 'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300'
                     : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
@@ -278,11 +305,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
         {/* Codec */}
         <div>
           <label className={labelCls}>Codec</label>
-          <select
-            className={inputCls}
-            value={codec}
-            onChange={(e) => setCodec(e.target.value)}
-          >
+          <select className={inputCls} value={codec} onChange={(e) => setCodec(e.target.value)}>
             <option value="CayenneLPP">CayenneLPP</option>
             <option value="RawBinary">Raw Binary</option>
             <option value="Custom">Custom</option>
@@ -291,9 +314,13 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-2">
-          <Button variant="secondary" type="button" onClick={onClose}>Iptal</Button>
-          <Button variant="primary" type="submit" disabled={isSubmitting}>{isSubmitting && <Spinner size="sm" color="inherit" />}
-            Ekle</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Iptal
+          </Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting}>
+            {isSubmitting && <Spinner size="sm" color="inherit" />}
+            Ekle
+          </Button>
         </div>
       </form>
     </Modal>
@@ -330,9 +357,11 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
       message={
         <>
           <strong>{deviceName}</strong> (
-          <code className="text-xs font-mono bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">{devEui}</code>) cihazini
-          silmek istediginizden emin misiniz? Cihaz ile iliskili tum tag verileri kaybolacaktir. Bu
-          islem geri alinamaz.
+          <code className="text-xs font-mono bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+            {devEui}
+          </code>
+          ) cihazini silmek istediginizden emin misiniz? Cihaz ile iliskili tum tag verileri
+          kaybolacaktir. Bu islem geri alinamaz.
         </>
       }
       confirmText="Sil"
@@ -397,7 +426,8 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
     onSend(payload.toUpperCase(), port);
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden';
+  const inputCls =
+    'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden';
 
   return (
     <Modal
@@ -417,14 +447,18 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {(validationError || sendError) && (
-          <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-            <span className="text-sm text-red-800">{validationError || sendError}</span>
+          <div className="p-3 rounded-lg bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-error-600 dark:text-error-400 mt-0.5 shrink-0" />
+            <span className="text-sm text-error-800 dark:text-error-200">
+              {validationError || sendError}
+            </span>
           </div>
         )}
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Hex Payload *</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+            Hex Payload *
+          </label>
           <input
             className={`${inputCls} font-mono uppercase`}
             value={payload}
@@ -435,7 +469,9 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">fPort *</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+            fPort *
+          </label>
           <input
             type="number"
             className={inputCls}
@@ -448,10 +484,14 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
-          <Button variant="secondary" type="button" onClick={onClose}>Iptal</Button>
-          <Button variant="primary" type="submit" disabled={isSending}>{isSending && <Spinner size="sm" color="inherit" />}
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Iptal
+          </Button>
+          <Button variant="primary" type="submit" disabled={isSending}>
+            {isSending && <Spinner size="sm" color="inherit" />}
             <Send className="w-4 h-4" />
-            Gonder</Button>
+            Gonder
+          </Button>
         </div>
       </form>
     </Modal>
@@ -497,10 +537,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
 
   const handleAdd = useCallback(
     (input: AddLoRaDeviceInput) => {
-      addMutation.mutate(
-        { edgeDeviceId, input },
-        { onSuccess: () => setAddDialogOpen(false) },
-      );
+      addMutation.mutate({ edgeDeviceId, input }, { onSuccess: () => setAddDialogOpen(false) });
     },
     [addMutation, edgeDeviceId],
   );
@@ -539,14 +576,23 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
     return (
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <div className="text-center py-12">
-          <div className="w-16 h-16 rounded-full bg-cyan-50 flex items-center justify-center mx-auto mb-4">
-            <Radio className="w-8 h-8 text-cyan-400" />
+          <div className="w-16 h-16 rounded-full bg-info-50 dark:bg-info-900/20 flex items-center justify-center mx-auto mb-4">
+            <Radio className="w-8 h-8 text-info-400" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Henuz LoRa cihaz eklenmemis</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">
+            Henuz LoRa cihaz eklenmemis
+          </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-sm mx-auto">
             LoRaWAN end-device ekleyerek kablosuz sensor verilerini toplamaya baslayabilirsiniz.
           </p>
-          <Button variant="primary" size="lg" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setAddDialogOpen(true)}>Cihaz Ekle</Button>
+          <Button
+            variant="primary"
+            size="lg"
+            leftIcon={<Plus className="w-4 h-4" />}
+            onClick={() => setAddDialogOpen(true)}
+          >
+            Cihaz Ekle
+          </Button>
         </div>
 
         <AddDeviceDialog
@@ -574,7 +620,9 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
       render: (_value, dev) => (
         <div>
           <span className="font-medium text-gray-900 dark:text-gray-100">{dev.name}</span>
-          <span className="block text-xs text-gray-500 dark:text-gray-400">{dev.tagPrefix} | Class {dev.deviceClass} | {dev.codec}</span>
+          <span className="block text-xs text-gray-500 dark:text-gray-400">
+            {dev.tagPrefix} | Class {dev.deviceClass} | {dev.codec}
+          </span>
         </div>
       ),
     },
@@ -584,11 +632,11 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
       render: (_value, dev) => (
         <>
           {dev.isJoined ? (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
               Joined
             </span>
           ) : (
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
               Bekliyor
             </span>
           )}
@@ -598,18 +646,12 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
     {
       key: 'rssi',
       header: 'RSSI',
-      render: (_value, dev) => (
-        <RssiIndicator rssi={dev.lastRssi} />
-      ),
+      render: (_value, dev) => <RssiIndicator rssi={dev.lastRssi} />,
     },
     {
       key: 'snr',
       header: 'SNR',
-      render: (_value, dev) => (
-        <>
-          {dev.lastSnr != null ? `${dev.lastSnr.toFixed(1)} dB` : '--'}
-        </>
-      ),
+      render: (_value, dev) => <>{dev.lastSnr != null ? `${dev.lastSnr.toFixed(1)} dB` : '--'}</>,
     },
     {
       key: 'sonGorulme',
@@ -624,13 +666,31 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
         <div className="flex items-center justify-end gap-1">
           {/* Downlink gonder */}
           {dev.isJoined && (
-            <Button variant="ghost" size="sm" iconOnly onClick={() => setDownlinkTarget(dev)} title="Downlink gonder" aria-label={`${dev.name} cihazina downlink gonder`}><Send className="w-3.5 h-3.5" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              onClick={() => setDownlinkTarget(dev)}
+              title="Downlink gonder"
+              aria-label={`${dev.name} cihazina downlink gonder`}
+            >
+              <Send className="w-3.5 h-3.5" />
+            </Button>
           )}
           {/* Sil */}
-          <Button variant="ghost" size="sm" iconOnly onClick={() => setDeleteTarget(dev)} title="Sil" aria-label={`${dev.name} cihazini sil`}><Trash2 className="w-3.5 h-3.5" /></Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            onClick={() => setDeleteTarget(dev)}
+            title="Sil"
+            aria-label={`${dev.name} cihazini sil`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
         </div>
       ),
-    }
+    },
   ];
 
   return (
@@ -641,7 +701,14 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">LoRa Cihazlar</h3>
           <span className="text-sm text-gray-500 dark:text-gray-400">{devices.length} cihaz</span>
         </div>
-        <Button variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setAddDialogOpen(true)}>Cihaz Ekle</Button>
+        <Button
+          variant="primary"
+          size="sm"
+          leftIcon={<Plus className="w-4 h-4" />}
+          onClick={() => setAddDialogOpen(true)}
+        >
+          Cihaz Ekle
+        </Button>
       </div>
 
       {/* Cihaz tablosu */}

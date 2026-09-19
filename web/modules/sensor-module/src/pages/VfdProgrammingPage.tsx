@@ -10,15 +10,7 @@
 import React, { useEffect, useCallback, useMemo, useState } from 'react';
 import { Button } from '@aquaculture/shared-ui';
 import { useParams } from 'react-router-dom';
-import {
-  Settings,
-  HelpCircle,
-  Cpu,
-  FileText,
-  Zap,
-  History,
-  ChevronDown,
-} from 'lucide-react';
+import { Settings, HelpCircle, Cpu, FileText, Zap, History, ChevronDown } from 'lucide-react';
 import { useVfdProgrammingStore } from '../store/vfdProgrammingStore';
 import { useVfdDevices } from '../hooks/useVfdRegistration';
 import { useVfdParameterDefinitions } from '../hooks/useVfdParameterDefinitions';
@@ -51,12 +43,8 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
 
 export function VfdProgrammingPage() {
   const { deviceId: routeDeviceId } = useParams<{ deviceId?: string }>();
-  const {
-    selectedVfdDeviceId,
-    setSelectedDevice,
-    activeTab,
-    setActiveTab,
-  } = useVfdProgrammingStore();
+  const { selectedVfdDeviceId, setSelectedDevice, activeTab, setActiveTab } =
+    useVfdProgrammingStore();
 
   // SENSOR-HIGH-062: the selector used to list three hardcoded devices and select
   // `vfd-1` on mount. That id is not a UUID, so every tab below resolved against a
@@ -86,7 +74,6 @@ export function VfdProgrammingPage() {
     if (selectedVfdDeviceId) {
       changeSetHook.fetchChangeSets(selectedVfdDeviceId);
     }
-     
   }, [selectedVfdDeviceId]);
 
   // Hooks — audit log
@@ -96,7 +83,6 @@ export function VfdProgrammingPage() {
     if (selectedVfdDeviceId) {
       auditHook.fetchLogs(selectedVfdDeviceId, auditParamFilter);
     }
-     
   }, [selectedVfdDeviceId, auditParamFilter]);
 
   // Hooks — automation rules
@@ -105,7 +91,6 @@ export function VfdProgrammingPage() {
     if (selectedVfdDeviceId) {
       automationHook.fetchRules(selectedVfdDeviceId);
     }
-     
   }, [selectedVfdDeviceId]);
 
   // Available parameter names for audit filter
@@ -141,15 +126,17 @@ export function VfdProgrammingPage() {
       <header className="border-b bg-white dark:bg-gray-900 px-4 py-3 sm:px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Settings className="h-5 w-5 text-indigo-600" />
-            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">VFD Programming</h1>
+            <Settings className="h-5 w-5 text-primary-600 dark:text-primary-400" />
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              VFD Programming
+            </h1>
             <span className="text-gray-300">|</span>
             {/* Device Selector */}
             <div className="relative">
               <select
                 value={selectedVfdDeviceId ?? ''}
                 onChange={(e) => setSelectedDevice(e.target.value)}
-                className="appearance-none rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 py-1.5 pl-3 pr-8 text-sm font-medium text-gray-700 dark:text-gray-300 focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
+                className="appearance-none rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 py-1.5 pl-3 pr-8 text-sm font-medium text-gray-700 dark:text-gray-300 focus:border-primary-500 focus:ring-primary-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
                 aria-label="Select VFD device"
                 data-testid="device-selector"
                 disabled={devices.length === 0}
@@ -169,7 +156,9 @@ export function VfdProgrammingPage() {
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
             </div>
           </div>
-          <Button variant="ghost" size="sm" iconOnly type="button" aria-label="Help"><HelpCircle className="h-5 w-5" /></Button>
+          <Button variant="ghost" size="sm" iconOnly type="button" aria-label="Help">
+            <HelpCircle className="h-5 w-5" />
+          </Button>
         </div>
 
         {/* Tabs */}
@@ -184,7 +173,7 @@ export function VfdProgrammingPage() {
               onClick={() => setActiveTab(tab.id)}
               className={`inline-flex items-center gap-1.5 rounded-t-md px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'border-b-2 border-indigo-600 text-indigo-600'
+                  ? 'border-b-2 border-primary-600 text-primary-600 dark:text-primary-400'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
               data-testid={`tab-${tab.id}`}
@@ -233,8 +222,8 @@ export function VfdProgrammingPage() {
               error={automationHook.error}
               onToggle={automationHook.toggleRule}
               onDelete={automationHook.deleteRule}
-              onCreate={automationHook.createRule as unknown as (input: Record<string, unknown>) => Promise<unknown>}
-              onUpdate={automationHook.updateRule as (id: string, input: Record<string, unknown>) => Promise<unknown>}
+              onCreate={automationHook.createRule}
+              onUpdate={automationHook.updateRule}
             />
           </div>
         )}

@@ -47,7 +47,12 @@ export interface FinancePeriod {
   granularity: FinanceGranularity;
 }
 
-const PERIOD_PRESETS: Array<{ id: string; label: string; days: number; granularity: FinanceGranularity }> = [
+const PERIOD_PRESETS: Array<{
+  id: string;
+  label: string;
+  days: number;
+  granularity: FinanceGranularity;
+}> = [
   { id: '30d', label: 'Last 30 days', days: 30, granularity: 'DAY' },
   { id: '90d', label: 'Last 90 days', days: 90, granularity: 'WEEK' },
   { id: '12m', label: 'Last 12 months', days: 365, granularity: 'MONTH' },
@@ -86,8 +91,13 @@ const FinancePage: React.FC = () => {
   if (!canView) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-800">
-        <div role="alert" className="max-w-md rounded-md bg-white dark:bg-gray-900 p-8 text-center shadow">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Finance is restricted</h2>
+        <div
+          role="alert"
+          className="max-w-md rounded-md bg-white dark:bg-gray-900 p-8 text-center shadow"
+        >
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Finance is restricted
+          </h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
             You need a manager or admin role to view the finance tab.
           </p>
@@ -111,14 +121,17 @@ const FinancePage: React.FC = () => {
             }
             actions={
               <div className="mt-4 flex md:mt-0 md:ml-4 items-center space-x-3">
-                <label htmlFor="finance-period" className="text-sm text-gray-600 dark:text-gray-400">
+                <label
+                  htmlFor="finance-period"
+                  className="text-sm text-gray-600 dark:text-gray-400"
+                >
                   Period:
                 </label>
                 <select
                   id="finance-period"
                   value={presetId}
                   onChange={(e) => setPresetId(e.target.value)}
-                  className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
                 >
                   {PERIOD_PRESETS.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -140,7 +153,7 @@ const FinancePage: React.FC = () => {
                 onClick={() => setTab(tab.id)}
                 className={`whitespace-nowrap border-b-2 py-3 px-1 text-sm font-medium ${
                   activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
+                    ? 'border-info-500 text-info-600 dark:text-info-400'
                     : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
                 }`}
                 aria-current={activeTab === tab.id ? 'page' : undefined}

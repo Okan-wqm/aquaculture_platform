@@ -42,7 +42,9 @@ import {
   ConfirmModal,
   formatErrorForToast,
   useCanMutate,
-  useToast, Button } from '@aquaculture/shared-ui';
+  useToast,
+  Button,
+} from '@aquaculture/shared-ui';
 
 import {
   type SubEquipment,
@@ -58,10 +60,10 @@ interface SubEquipmentSectionProps {
 }
 
 const STATUS_BADGES: Record<string, string> = {
-  ACTIVE: 'bg-green-100 text-green-800',
-  MAINTENANCE: 'bg-yellow-100 text-yellow-800',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  MAINTENANCE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
   INACTIVE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  RETIRED: 'bg-red-100 text-red-800',
+  RETIRED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
@@ -108,9 +110,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
       header: 'Ad',
       render: (_value, item) => (
         <>
-          <div className="font-medium text-gray-900 dark:text-gray-100">
-            {item.name}
-          </div>
+          <div className="font-medium text-gray-900 dark:text-gray-100">{item.name}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">{item.code}</div>
         </>
       ),
@@ -127,7 +127,8 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
         <>
           <span
             className={`px-2 py-0.5 text-xs rounded-full ${
-              STATUS_BADGES[item.status ?? 'ACTIVE'] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+              STATUS_BADGES[item.status ?? 'ACTIVE'] ??
+              'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
             {item.status ?? 'ACTIVE'}
@@ -142,14 +143,23 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
       render: (_value, item) => (
         <div className="flex items-center justify-end gap-3">
           {canUpdate && (
-            <Button variant="ghost" type="button" onClick={() => setEditing(item)}>Düzenle</Button>
+            <Button variant="ghost" type="button" onClick={() => setEditing(item)}>
+              Düzenle
+            </Button>
           )}
           {canDelete && (
-            <Button variant="ghost" type="button" onClick={() => setDeleting(item)} disabled={deleteMutation.isPending}>Sil</Button>
+            <Button
+              variant="ghost"
+              type="button"
+              onClick={() => setDeleting(item)}
+              disabled={deleteMutation.isPending}
+            >
+              Sil
+            </Button>
           )}
         </div>
       ),
-    }
+    },
   ];
 
   return (
@@ -159,7 +169,9 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
           Alt Ekipmanlar
         </label>
         {canCreate && (
-          <Button variant="ghost" type="button" onClick={() => setCreateOpen(true)}>+ Yeni Alt Ekipman</Button>
+          <Button variant="ghost" type="button" onClick={() => setCreateOpen(true)}>
+            + Yeni Alt Ekipman
+          </Button>
         )}
       </div>
 
@@ -167,7 +179,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
         {subEquipmentQuery.isLoading ? (
           <div className="p-3 text-sm text-gray-500 dark:text-gray-400">Yükleniyor…</div>
         ) : subEquipmentQuery.isError ? (
-          <div className="p-3 text-sm text-red-700">
+          <div className="p-3 text-sm text-error-700 dark:text-error-300">
             Alt ekipmanlar yüklenemedi.
           </div>
         ) : items.length === 0 ? (
@@ -218,10 +230,9 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
         message={
           deleting ? (
             <span>
-              <strong className="font-semibold">{deleting.name}</strong>{' '}
-              ({deleting.code}) kaydı arşivlenir. Bu işlem soft-delete
-              uygular — gerekirse veri tabanından geri yüklenebilir,
-              ancak UI üzerinden listede görünmez.
+              <strong className="font-semibold">{deleting.name}</strong> ({deleting.code}) kaydı
+              arşivlenir. Bu işlem soft-delete uygular — gerekirse veri tabanından geri
+              yüklenebilir, ancak UI üzerinden listede görünmez.
             </span>
           ) : (
             ''

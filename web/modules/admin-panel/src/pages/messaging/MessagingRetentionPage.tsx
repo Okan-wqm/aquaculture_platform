@@ -9,9 +9,18 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Modal,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { messagingApi, type RetentionPolicy } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
+import { Clock } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -78,48 +87,48 @@ const EditRetentionModal: React.FC<{
           <button
             type="button"
             onClick={() => onSave(tenant.policyId, selectedRetention, applyToAll)}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors"
+            className="flex-1 px-4 py-2 bg-info-600 text-white text-sm font-semibold rounded-lg hover:bg-info-700 transition-colors"
           >
             Save
           </button>
         </>
       }
     >
-    <div className="space-y-4">
-      <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-          Retention Period
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Retention Period
+          </label>
+          <select
+            value={selectedRetention}
+            onChange={(e) => setSelectedRetention(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
+          >
+            {RETENTION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={applyToAll}
+            onChange={(e) => setApplyToAll(e.target.checked)}
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
+          />
+          Apply to all channels (override existing channel-level settings)
         </label>
-        <select
-          value={selectedRetention}
-          onChange={(e) => setSelectedRetention(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-        >
-          {RETENTION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
 
-      <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={applyToAll}
-          onChange={(e) => setApplyToAll(e.target.checked)}
-          className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-        />
-        Apply to all channels (override existing channel-level settings)
-      </label>
-
-      <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-        <p className="text-xs text-yellow-700">
-          Warning: Reducing the retention period will cause older messages to be deleted
-          during the next nightly cleanup (02:00 UTC). Messages under legal hold will be preserved.
-        </p>
+        <div className="p-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg">
+          <p className="text-xs text-warning-700 dark:text-warning-300">
+            Warning: Reducing the retention period will cause older messages to be deleted during
+            the next nightly cleanup (02:00 UTC). Messages under legal hold will be preserved.
+          </p>
+        </div>
       </div>
-    </div>
     </Modal>
   );
 };
@@ -161,39 +170,43 @@ const AddChannelOverrideModal: React.FC<{
               }
             }}
             disabled={!channelId.trim()}
-            className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 px-4 py-2 bg-info-600 text-white text-sm font-semibold rounded-lg hover:bg-info-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Add Override
           </button>
         </>
       }
     >
-    <div className="space-y-4">
-      <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Channel ID</label>
-        <input
-          type="text"
-          value={channelId}
-          onChange={(e) => setChannelId(e.target.value)}
-          placeholder="Enter channel UUID..."
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-        />
+      <div className="space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Channel ID
+          </label>
+          <input
+            type="text"
+            value={channelId}
+            onChange={(e) => setChannelId(e.target.value)}
+            placeholder="Enter channel UUID..."
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+            Retention Period
+          </label>
+          <select
+            value={retentionDays}
+            onChange={(e) => setRetentionDays(Number(e.target.value))}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden"
+          >
+            {RETENTION_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.days}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
-      <div>
-        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Retention Period</label>
-        <select
-          value={retentionDays}
-          onChange={(e) => setRetentionDays(Number(e.target.value))}
-          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
-        >
-          {RETENTION_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.days}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
     </Modal>
   );
 };
@@ -234,9 +247,7 @@ const MessagingRetentionPage: React.FC = () => {
           defaultRetention: retention,
           applyToAll,
         });
-        setPolicies((prev) =>
-          prev.map((p) => (p.id === policyId ? updated : p)),
-        );
+        setPolicies((prev) => prev.map((p) => (p.id === policyId ? updated : p)));
         setEditModal(null);
       } catch (err) {
         const apiErr = err as ApiError;
@@ -263,7 +274,9 @@ const MessagingRetentionPage: React.FC = () => {
       render: (_value, p) => (
         <>
           <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.tenantName}</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">{p.tenantId.slice(0, 8)}...</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">
+            {p.tenantId.slice(0, 8)}...
+          </p>
         </>
       ),
     },
@@ -272,9 +285,7 @@ const MessagingRetentionPage: React.FC = () => {
       header: 'Default Policy',
       align: 'center',
       render: (_value, p) => (
-        <Badge variant="info">
-          {RETENTION_LABELS[p.defaultRetention] ?? p.defaultRetention}
-        </Badge>
+        <Badge variant="info">{RETENTION_LABELS[p.defaultRetention] ?? p.defaultRetention}</Badge>
       ),
     },
     {
@@ -294,7 +305,13 @@ const MessagingRetentionPage: React.FC = () => {
       header: 'Expired',
       align: 'right',
       render: (_value, p) => (
-        <span className={p.expiredCount > 0 ? 'text-orange-600 font-medium' : 'text-gray-400 dark:text-gray-500'}>
+        <span
+          className={
+            p.expiredCount > 0
+              ? 'text-accent-600 dark:text-accent-400 font-medium'
+              : 'text-gray-400 dark:text-gray-500'
+          }
+        >
           {p.expiredCount.toLocaleString()}
         </span>
       ),
@@ -303,7 +320,8 @@ const MessagingRetentionPage: React.FC = () => {
       key: 'lastCleanup',
       header: 'Last Cleanup',
       align: 'right',
-      render: (_value, p) => p.lastCleanup ? new Date(p.lastCleanup).toLocaleDateString() : 'Never',
+      render: (_value, p) =>
+        p.lastCleanup ? new Date(p.lastCleanup).toLocaleDateString() : 'Never',
     },
     {
       key: 'nextCleanup',
@@ -325,7 +343,7 @@ const MessagingRetentionPage: React.FC = () => {
                 currentRetention: p.defaultRetention,
               })
             }
-            className="text-xs px-2 py-1 rounded font-medium text-blue-600 hover:bg-blue-50"
+            className="text-xs px-2 py-1 rounded font-medium text-info-600 dark:text-info-400 hover:bg-info-50 dark:hover:bg-info-900/30"
           >
             Edit
           </button>
@@ -336,13 +354,13 @@ const MessagingRetentionPage: React.FC = () => {
                 tenantName: p.tenantName,
               })
             }
-            className="text-xs px-2 py-1 rounded font-medium text-purple-600 hover:bg-purple-50"
+            className="text-xs px-2 py-1 rounded font-medium text-accent-600 dark:text-accent-400 hover:bg-accent-50 dark:hover:bg-accent-900/30"
           >
             + Override
           </button>
         </div>
       ),
-    }
+    },
   ];
 
   return (
@@ -370,22 +388,24 @@ const MessagingRetentionPage: React.FC = () => {
 
       {/* Error Banner */}
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg">
+          <p className="text-sm text-error-700 dark:text-error-300">{error}</p>
         </div>
       )}
 
       {/* Retention Table */}
       <Card>
         <div className="p-5">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Per-Tenant Retention</h3>
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+            Per-Tenant Retention
+          </h3>
           {policies.length === 0 && !loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
-                <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-sm text-gray-500 dark:text-gray-400">No tenant retention policies configured.</p>
+                <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" aria-hidden="true" />
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  No tenant retention policies configured.
+                </p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                   Retention policies will appear once tenants enable messaging.
                 </p>

@@ -170,7 +170,13 @@ export function buildBatchTraceabilityReportHtml(
     ['Current avg weight (g)', formatDecimal(summary.currentAvgWeightG)],
     ['Survival rate (%)', formatDecimal(summary.survivalRatePercent)],
     ['Total feed (kg)', formatDecimal(summary.totalFeedKg)],
-    ['Total feed cost', formatDecimal(summary.totalFeedCostDecimal != null ? parseMoney(summary.totalFeedCostDecimal) : null, 2)],
+    [
+      'Total feed cost',
+      formatDecimal(
+        summary.totalFeedCostDecimal != null ? parseMoney(summary.totalFeedCostDecimal) : null,
+        2,
+      ),
+    ],
     ['FCR (actual)', formatDecimal(summary.fcrActual, 2)],
   ];
 
@@ -179,19 +185,19 @@ export function buildBatchTraceabilityReportHtml(
     <style>
       @page { size: A4; margin: 10mm; }
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10px; color: #111; }
-      .header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #111; padding-bottom: 4px; margin-bottom: 8px; }
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 10px; color: ${colors.neutral[900]}; }
+      .header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid ${colors.neutral[900]}; padding-bottom: 4px; margin-bottom: 8px; }
       .header h1 { font-size: 16px; }
-      .header .date { font-size: 10px; color: #666; }
+      .header .date { font-size: 10px; color: ${colors.neutral[500]}; }
       .section { margin-bottom: 10px; }
-      .section-title { font-size: 11px; font-weight: bold; margin-bottom: 3px; border-bottom: 1px solid #333; padding-bottom: 2px; }
+      .section-title { font-size: 11px; font-weight: bold; margin-bottom: 3px; border-bottom: 1px solid ${colors.neutral[700]}; padding-bottom: 2px; }
       table.pairs { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 10px; }
-      table.pairs td { padding: 2px 6px; border: 1px solid #ddd; }
+      table.pairs td { padding: 2px 6px; border: 1px solid ${colors.neutral[200]}; }
       table.pairs td.label { background: ${colors.neutral[50]}; font-weight: 500; width: 28%; }
       table.data { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-      table.data th { padding: 2px 6px; border: 1px solid #ddd; background: ${colors.neutral[100]}; text-align: left; font-weight: 600; }
-      table.data td { padding: 2px 6px; border: 1px solid #ddd; }
-      table.data td.empty { text-align: center; color: #666; }
+      table.data th { padding: 2px 6px; border: 1px solid ${colors.neutral[200]}; background: ${colors.neutral[100]}; text-align: left; font-weight: 600; }
+      table.data td { padding: 2px 6px; border: 1px solid ${colors.neutral[200]}; }
+      table.data td.empty { text-align: center; color: ${colors.neutral[500]}; }
       @media print {
         body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
       }
@@ -225,7 +231,15 @@ export function buildBatchTraceabilityReportHtml(
       )}
       ${headedTableHtml(
         'Events timeline',
-        ['Timestamp', 'Event', 'Description', 'Tank', 'Qty change', 'Biomass change (kg)', 'Performed by'],
+        [
+          'Timestamp',
+          'Event',
+          'Description',
+          'Tank',
+          'Qty change',
+          'Biomass change (kg)',
+          'Performed by',
+        ],
         eventRows(data.events),
       )}
     </body></html>`;

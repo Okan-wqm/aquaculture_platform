@@ -94,7 +94,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
 
   const saving = updateMutation.isPending;
   const inputClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   if (isLoading) {
     return (
@@ -107,7 +107,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
 
   if (isError) {
     return (
-      <p className="text-sm text-red-600 flex items-center gap-1">
+      <p className="text-sm text-error-600 dark:text-error-400 flex items-center gap-1">
         <AlertCircle className="w-4 h-4" />
         Could not load security settings.
       </p>
@@ -117,7 +117,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 mb-1 text-green-700">
+        <div className="flex items-center gap-2 mb-1 text-success-700 dark:text-success-300">
           <ShieldCheck className="w-4 h-4" />
           <h3 className="text-sm font-semibold uppercase tracking-wider">Authentication</h3>
         </div>
@@ -130,7 +130,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
           />
         </div>
         {mfaBeingEnabled && (
-          <div className="mt-2 flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+          <div className="mt-2 flex items-start gap-2 rounded-lg bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 px-4 py-3 text-sm text-warning-800 dark:text-warning-200">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
             <span>
               Turning this on signs out every tenant user who does not yet have a second factor.
@@ -141,7 +141,10 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="sessionTimeout">
+        <label
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          htmlFor="sessionTimeout"
+        >
           Session timeout (minutes)
           <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
             {MIN_SESSION_TIMEOUT}-{MAX_SESSION_TIMEOUT}; leave blank to use the platform default
@@ -161,7 +164,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
           className={inputClass}
         />
         {timeoutError && (
-          <p className="mt-1 text-sm text-red-600 flex items-center gap-1">
+          <p className="mt-1 text-sm text-error-600 dark:text-error-400 flex items-center gap-1">
             <AlertCircle className="w-4 h-4" />
             {timeoutError}
           </p>
@@ -186,12 +189,16 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
             // A save failure must be ANNOUNCED, not just coloured red — this is
             // a policy write, and silently failing it is the defect class this
             // whole screen exists to remove.
-            <p role="alert" className="text-xs text-red-600 flex items-center gap-1">
+            <p
+              role="alert"
+              className="text-xs text-error-600 dark:text-error-400 flex items-center gap-1"
+            >
               <AlertCircle className="w-3 h-3" />
               {saveError}
             </p>
           )}
-          <Button variant="primary" onClick={handleSave} disabled={saving || timeoutError !== null}>{saved ? (
+          <Button variant="primary" onClick={handleSave} disabled={saving || timeoutError !== null}>
+            {saved ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved!
@@ -206,7 +213,8 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
                 <Save className="w-4 h-4" />
                 Save Changes
               </>
-            )}</Button>
+            )}
+          </Button>
         </div>
       )}
     </div>

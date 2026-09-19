@@ -31,6 +31,21 @@ import { AssignmentsTab } from './components/AssignmentsTab';
 import { MealBoardTab } from './components/MealBoardTab';
 import { ForecastTab } from './components/ForecastTab';
 import { useProtocolFeedForecast } from '../../hooks/useProtocolFeeding';
+import {
+  AlignLeft,
+  Box,
+  Calculator,
+  ChartColumn,
+  ClipboardList,
+  FileChartColumn,
+  FileText,
+  FlaskConical,
+  Presentation,
+  Scale,
+  TrendingUp,
+  TriangleAlert,
+  Users,
+} from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -88,131 +103,50 @@ const tabs: Tab[] = [
     id: 'meal-board',
     name: 'Meal Board',
     i18nKey: 'feedingV2.tab.mealBoard',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M4 6h16M4 10h16M4 14h10M4 18h6"
-        />
-      </svg>
-    ),
+    icon: <AlignLeft className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'forecast',
     name: 'Forecast',
     i18nKey: 'feedingV2.tab.forecast',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M3 17l6-6 4 4 8-8M21 7v6h-6"
-        />
-      </svg>
-    ),
+    icon: <TrendingUp className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'records',
     name: 'Records',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
-        />
-      </svg>
-    ),
+    icon: <ClipboardList className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'summary',
     name: 'Summary',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-        />
-      </svg>
-    ),
+    icon: <FileChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'growth',
     name: 'Growth',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z"
-        />
-      </svg>
-    ),
+    icon: <Presentation className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'fcr',
     name: 'FCR',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-        />
-      </svg>
-    ),
+    icon: <ChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'protocols-v2',
     name: 'Protocols v2',
     i18nKey: 'feedingV2.tab.builder',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-        />
-      </svg>
-    ),
+    icon: <FileText className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'assignments',
     name: 'Assignments',
     i18nKey: 'feedingV2.tab.assignments',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
-        />
-      </svg>
-    ),
+    icon: <Users className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'sampling',
     name: 'Sampling',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
-        />
-      </svg>
-    ),
+    icon: <FlaskConical className="w-5 h-5" aria-hidden="true" />,
   },
 ];
 
@@ -271,11 +205,9 @@ const FeedingPage: React.FC = () => {
   // bazlıdır; site seçilmediyse ilk site okunur (ForecastTab ile aynı kural).
   // Siteler yüklenmeden sorgu ATILMAZ (enabled — FARM-MEDIUM-232).
   const kpiSiteId = selectedSiteId || sitesData?.items?.[0]?.id;
-  const { data: kpiForecast, isError: kpiForecastFailed } = useProtocolFeedForecast(
-    kpiSiteId,
-    30,
-    { enabled: !!kpiSiteId },
-  );
+  const { data: kpiForecast, isError: kpiForecastFailed } = useProtocolFeedForecast(kpiSiteId, 30, {
+    enabled: !!kpiSiteId,
+  });
 
   // Calculate summary stats
   const totalBiomass =
@@ -331,27 +263,19 @@ const FeedingPage: React.FC = () => {
           {/* Total Biomass */}
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
             <div className="flex items-center">
-              <div className="flex-shrink-0 bg-blue-100 rounded-lg p-3">
-                <svg
-                  className="w-6 h-6 text-blue-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"
-                  />
-                </svg>
+              <div className="flex-shrink-0 bg-info-100 dark:bg-info-900/40 rounded-lg p-3">
+                <Scale className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Biomass</p>
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                  Total Biomass
+                </p>
                 <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                   {(totalBiomass / 1000).toFixed(1)} t
                 </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{totalFishCount.toLocaleString()} fish</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {totalFishCount.toLocaleString()} fish
+                </p>
               </div>
             </div>
           </div>
@@ -359,20 +283,11 @@ const FeedingPage: React.FC = () => {
           {/* Today's Feed */}
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
             <div className="flex items-center">
-              <div className="flex-shrink-0 bg-green-100 rounded-lg p-3">
-                <svg
-                  className="w-6 h-6 text-green-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                  />
-                </svg>
+              <div className="flex-shrink-0 bg-success-100 dark:bg-success-900/40 rounded-lg p-3">
+                <Calculator
+                  className="w-6 h-6 text-success-600 dark:text-success-400"
+                  aria-hidden="true"
+                />
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Today's Feed</p>
@@ -392,20 +307,8 @@ const FeedingPage: React.FC = () => {
           {/* Total Stock */}
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
             <div className="flex items-center">
-              <div className="flex-shrink-0 bg-purple-100 rounded-lg p-3">
-                <svg
-                  className="w-6 h-6 text-purple-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                  />
-                </svg>
+              <div className="flex-shrink-0 bg-accent-100 dark:bg-accent-900/40 rounded-lg p-3">
+                <Box className="w-6 h-6 text-accent-600 dark:text-accent-400" aria-hidden="true" />
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Feed Stock</p>
@@ -424,29 +327,22 @@ const FeedingPage: React.FC = () => {
           </div>
 
           {/* Alerts */}
-          <div className={`rounded-lg shadow p-4 ${alertCount > 0 ? 'bg-red-50' : 'bg-white dark:bg-gray-900'}`}>
+          <div
+            className={`rounded-lg shadow p-4 ${alertCount > 0 ? 'bg-error-50 dark:bg-error-900/20' : 'bg-white dark:bg-gray-900'}`}
+          >
             <div className="flex items-center">
               <div
-                className={`flex-shrink-0 rounded-lg p-3 ${alertCount > 0 ? 'bg-red-100' : 'bg-gray-100 dark:bg-gray-800'}`}
+                className={`flex-shrink-0 rounded-lg p-3 ${alertCount > 0 ? 'bg-error-100 dark:bg-error-900/40' : 'bg-gray-100 dark:bg-gray-800'}`}
               >
-                <svg
-                  className={`w-6 h-6 ${alertCount > 0 ? 'text-red-600' : 'text-gray-600 dark:text-gray-400'}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg>
+                <TriangleAlert
+                  className={`w-6 h-6 ${alertCount > 0 ? 'text-error-600 dark:text-error-400' : 'text-gray-600 dark:text-gray-400'}`}
+                  aria-hidden="true"
+                />
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Alerts</p>
                 <p
-                  className={`text-2xl font-semibold ${alertCount > 0 ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}
+                  className={`text-2xl font-semibold ${alertCount > 0 ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
                 >
                   {kpiForecastFailed ? '—' : alertCount}
                 </p>
@@ -475,13 +371,13 @@ const FeedingPage: React.FC = () => {
                   group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
                   ${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
+                      ? 'border-info-500 text-info-600 dark:text-info-400'
                       : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >
                 <span
-                  className={`mr-2 ${activeTab === tab.id ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-300'}`}
+                  className={`mr-2 ${activeTab === tab.id ? 'text-info-500' : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-300'}`}
                 >
                   {tab.icon}
                 </span>
@@ -524,26 +420,15 @@ const FeedingPage: React.FC = () => {
         {activeTab === 'meal-board' && <MealBoardTab />}
         {activeTab === 'forecast' && <ForecastTab />}
         {activeTab === 'protocols-v2' && <ProtocolBuilderTab />}
-        {activeTab === 'assignments' && (
-          <AssignmentsTab siteId={selectedSiteId || undefined} />
-        )}
+        {activeTab === 'assignments' && <AssignmentsTab siteId={selectedSiteId || undefined} />}
         {/* BUG-023: Sampling tab had no dedicated component — was incorrectly rendering GrowthTab.
             Replaced with a placeholder until a SamplingTab component is implemented. */}
         {activeTab === 'sampling' && (
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
-            <svg
+            <FlaskConical
               className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500 mb-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Sampling</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               Sampling data entry will be available in a future update.

@@ -26,8 +26,8 @@ interface ScadaTemplate {
   nodeType?: string;
   description: string;
   color?: string;
-  badge: string;       // 2-letter abbreviation for the icon badge
-  badgeColor: string;  // tailwind color key (e.g. 'blue', 'amber')
+  badge: string; // 2-letter abbreviation for the icon badge
+  badgeColor: string; // tailwind color key (e.g. 'blue', 'amber')
 }
 
 // Generic Sensor node template
@@ -51,9 +51,33 @@ const CONNECTION_POINT_TEMPLATE = {
 
 // Algae Bag node templates
 const ALGAE_BAG_TEMPLATES = [
-  { id: 'algae-bag-red', name: 'Rhodomonas Bag', code: 'ALGAE_BAG_RED', category: 'algae', nodeType: 'algaeBagRed', color: themeColors.accent[200], description: 'Pink algae cultivation bag (Rhodomonas)' },
-  { id: 'algae-bag-green', name: 'Chlorella Bag', code: 'ALGAE_BAG_GREEN', category: 'algae', nodeType: 'algaeBagGreen', color: themeColors.secondary[200], description: 'Green algae cultivation bag (Chlorella)' },
-  { id: 'algae-bag-yellow', name: 'Dunaliella Bag', code: 'ALGAE_BAG_YELLOW', category: 'algae', nodeType: 'algaeBagYellow', color: themeColors.warning[500], description: 'Yellow algae cultivation bag (Dunaliella)' },
+  {
+    id: 'algae-bag-red',
+    name: 'Rhodomonas Bag',
+    code: 'ALGAE_BAG_RED',
+    category: 'algae',
+    nodeType: 'algaeBagRed',
+    color: themeColors.accent[200],
+    description: 'Pink algae cultivation bag (Rhodomonas)',
+  },
+  {
+    id: 'algae-bag-green',
+    name: 'Chlorella Bag',
+    code: 'ALGAE_BAG_GREEN',
+    category: 'algae',
+    nodeType: 'algaeBagGreen',
+    color: themeColors.secondary[200],
+    description: 'Green algae cultivation bag (Chlorella)',
+  },
+  {
+    id: 'algae-bag-yellow',
+    name: 'Dunaliella Bag',
+    code: 'ALGAE_BAG_YELLOW',
+    category: 'algae',
+    nodeType: 'algaeBagYellow',
+    color: themeColors.warning[500],
+    description: 'Yellow algae cultivation bag (Dunaliella)',
+  },
 ];
 
 // Chart Widget template
@@ -74,79 +98,307 @@ const CHART_WIDGET_TEMPLATE = {
 
 const SCADA_TEMPLATES: ScadaTemplate[] = [
   // Tanks → category "tank"
-  { id: 'dual-drain-tank-template', name: 'Dual Drain Tank', code: 'DUAL_DRAIN_TANK', category: 'tank', nodeType: 'dualDrainTank', description: 'Polypropylene tank with dual bottom drains', badge: 'DD', badgeColor: 'amber' },
-  { id: 'clean-water-tank-template', name: 'Clean Water Tank', code: 'CLEAN_WATER_TANK', category: 'tank', nodeType: 'cleanWaterTank', description: 'Storage tank for clean/treated water', badge: 'CW', badgeColor: 'cyan' },
-  { id: 'dirty-water-tank-template', name: 'Dirty Water Tank', code: 'DIRTY_WATER_TANK', category: 'tank', nodeType: 'dirtyWaterTank', description: 'Storage tank for dirty/waste water', badge: 'DW', badgeColor: 'stone' },
+  {
+    id: 'dual-drain-tank-template',
+    name: 'Dual Drain Tank',
+    code: 'DUAL_DRAIN_TANK',
+    category: 'tank',
+    nodeType: 'dualDrainTank',
+    description: 'Polypropylene tank with dual bottom drains',
+    badge: 'DD',
+    badgeColor: 'amber',
+  },
+  {
+    id: 'clean-water-tank-template',
+    name: 'Clean Water Tank',
+    code: 'CLEAN_WATER_TANK',
+    category: 'tank',
+    nodeType: 'cleanWaterTank',
+    description: 'Storage tank for clean/treated water',
+    badge: 'CW',
+    badgeColor: 'cyan',
+  },
+  {
+    id: 'dirty-water-tank-template',
+    name: 'Dirty Water Tank',
+    code: 'DIRTY_WATER_TANK',
+    category: 'tank',
+    nodeType: 'dirtyWaterTank',
+    description: 'Storage tank for dirty/waste water',
+    badge: 'DW',
+    badgeColor: 'stone',
+  },
 
   // Filtration → category "filtration"
-  { id: 'ultrafiltration-template', name: 'Ultrafiltration', code: 'ULTRAFILTRATION', category: 'filtration', nodeType: 'ultrafiltration', description: 'Membrane filtration unit with 9 connections', badge: 'UF', badgeColor: 'blue' },
-  { id: 'radial-filter-template', name: 'Radial Filter', code: 'RADIAL_FILTER', category: 'filtration', nodeType: 'radialSettler', description: 'Conical settling tank with sludge drain', badge: 'RF', badgeColor: 'teal' },
-  { id: 'mbbr-template', name: 'MBBR', code: 'MBBR', category: 'filtration', nodeType: 'mbbr', description: 'Moving Bed Biofilm Reactor', badge: 'MB', badgeColor: 'emerald' },
-  { id: 'hepa-filter-template', name: 'HEPA Filter', code: 'HEPA_FILTER', category: 'filtration', nodeType: 'hepaFilter', description: 'High Efficiency Particulate Air filter', badge: 'HF', badgeColor: 'indigo' },
+  {
+    id: 'ultrafiltration-template',
+    name: 'Ultrafiltration',
+    code: 'ULTRAFILTRATION',
+    category: 'filtration',
+    nodeType: 'ultrafiltration',
+    description: 'Membrane filtration unit with 9 connections',
+    badge: 'UF',
+    badgeColor: 'blue',
+  },
+  {
+    id: 'radial-filter-template',
+    name: 'Radial Filter',
+    code: 'RADIAL_FILTER',
+    category: 'filtration',
+    nodeType: 'radialSettler',
+    description: 'Conical settling tank with sludge drain',
+    badge: 'RF',
+    badgeColor: 'teal',
+  },
+  {
+    id: 'mbbr-template',
+    name: 'MBBR',
+    code: 'MBBR',
+    category: 'filtration',
+    nodeType: 'mbbr',
+    description: 'Moving Bed Biofilm Reactor',
+    badge: 'MB',
+    badgeColor: 'emerald',
+  },
+  {
+    id: 'hepa-filter-template',
+    name: 'HEPA Filter',
+    code: 'HEPA_FILTER',
+    category: 'filtration',
+    nodeType: 'hepaFilter',
+    description: 'High Efficiency Particulate Air filter',
+    badge: 'HF',
+    badgeColor: 'indigo',
+  },
 
   // Pumps → category "pump"
-  { id: 'dosing-pump-template', name: 'Dosing Pump', code: 'DOSING_PUMP', category: 'pump', nodeType: 'dosingPump', description: 'Peristaltic pump for chemical dosing', badge: 'DP', badgeColor: 'purple' },
+  {
+    id: 'dosing-pump-template',
+    name: 'Dosing Pump',
+    code: 'DOSING_PUMP',
+    category: 'pump',
+    nodeType: 'dosingPump',
+    description: 'Peristaltic pump for chemical dosing',
+    badge: 'DP',
+    badgeColor: 'purple',
+  },
 
   // Heating / Cooling → category "heating_cooling"
-  { id: 'heater-template', name: 'Heater', code: 'HEATER', category: 'heating_cooling', nodeType: 'heater', description: 'Water heater with heating elements', badge: 'HT', badgeColor: 'red' },
-  { id: 'shell-and-tube-hx-template', name: 'Shell & Tube HX', code: 'SHELL_TUBE_HX', category: 'heating_cooling', nodeType: 'shellAndTubeHeatExchanger', description: 'Industrial shell and tube heat exchanger', badge: 'ST', badgeColor: 'orange' },
-  { id: 'plate-hx-template', name: 'Plate Heat Exchanger', code: 'PLATE_HX', category: 'heating_cooling', nodeType: 'plateHeatExchanger', description: 'Compact plate heat exchanger', badge: 'PH', badgeColor: 'amber' },
-  { id: 'chiller-template', name: 'Chiller', code: 'CHILLER', category: 'heating_cooling', nodeType: 'chiller', description: 'Water chiller with cooling fan', badge: 'CH', badgeColor: 'sky' },
+  {
+    id: 'heater-template',
+    name: 'Heater',
+    code: 'HEATER',
+    category: 'heating_cooling',
+    nodeType: 'heater',
+    description: 'Water heater with heating elements',
+    badge: 'HT',
+    badgeColor: 'red',
+  },
+  {
+    id: 'shell-and-tube-hx-template',
+    name: 'Shell & Tube HX',
+    code: 'SHELL_TUBE_HX',
+    category: 'heating_cooling',
+    nodeType: 'shellAndTubeHeatExchanger',
+    description: 'Industrial shell and tube heat exchanger',
+    badge: 'ST',
+    badgeColor: 'orange',
+  },
+  {
+    id: 'plate-hx-template',
+    name: 'Plate Heat Exchanger',
+    code: 'PLATE_HX',
+    category: 'heating_cooling',
+    nodeType: 'plateHeatExchanger',
+    description: 'Compact plate heat exchanger',
+    badge: 'PH',
+    badgeColor: 'amber',
+  },
+  {
+    id: 'chiller-template',
+    name: 'Chiller',
+    code: 'CHILLER',
+    category: 'heating_cooling',
+    nodeType: 'chiller',
+    description: 'Water chiller with cooling fan',
+    badge: 'CH',
+    badgeColor: 'sky',
+  },
 
   // Electrical / Power → category "electrical"
-  { id: 'gas-generator-template', name: 'Gas Generator', code: 'GAS_GENERATOR', category: 'electrical', nodeType: 'gasGenerator', description: 'Gas-powered generator with ATS panel', badge: 'GG', badgeColor: 'yellow' },
-  { id: 'diesel-generator-template', name: 'Diesel Generator', code: 'DIESEL_GENERATOR', category: 'electrical', nodeType: 'dieselGenerator', description: 'Diesel-powered generator with ATS panel', badge: 'DG', badgeColor: 'gray' },
+  {
+    id: 'gas-generator-template',
+    name: 'Gas Generator',
+    code: 'GAS_GENERATOR',
+    category: 'electrical',
+    nodeType: 'gasGenerator',
+    description: 'Gas-powered generator with ATS panel',
+    badge: 'GG',
+    badgeColor: 'yellow',
+  },
+  {
+    id: 'diesel-generator-template',
+    name: 'Diesel Generator',
+    code: 'DIESEL_GENERATOR',
+    category: 'electrical',
+    nodeType: 'dieselGenerator',
+    description: 'Diesel-powered generator with ATS panel',
+    badge: 'DG',
+    badgeColor: 'gray',
+  },
 
   // Plumbing / Water I/O → category "plumbing"
-  { id: 'water-supply-template', name: 'Water Supply', code: 'WATER_SUPPLY', category: 'plumbing', nodeType: 'waterSupply', description: 'Water source inlet connection', badge: 'WS', badgeColor: 'sky' },
-  { id: 'water-discharge-template', name: 'Water Discharge', code: 'WATER_DISCHARGE', category: 'plumbing', nodeType: 'waterDischarge', description: 'Water discharge outlet connection', badge: 'WD', badgeColor: 'slate' },
+  {
+    id: 'water-supply-template',
+    name: 'Water Supply',
+    code: 'WATER_SUPPLY',
+    category: 'plumbing',
+    nodeType: 'waterSupply',
+    description: 'Water source inlet connection',
+    badge: 'WS',
+    badgeColor: 'sky',
+  },
+  {
+    id: 'water-discharge-template',
+    name: 'Water Discharge',
+    code: 'WATER_DISCHARGE',
+    category: 'plumbing',
+    nodeType: 'waterDischarge',
+    description: 'Water discharge outlet connection',
+    badge: 'WD',
+    badgeColor: 'slate',
+  },
 ];
 
 // Group SCADA templates by category for quick lookup
 function groupScadaByCategory(): Record<string, ScadaTemplate[]> {
-  return SCADA_TEMPLATES.reduce((acc, tpl) => {
-    if (!acc[tpl.category]) acc[tpl.category] = [];
-    acc[tpl.category].push(tpl);
-    return acc;
-  }, {} as Record<string, ScadaTemplate[]>);
+  return SCADA_TEMPLATES.reduce(
+    (acc, tpl) => {
+      if (!acc[tpl.category]) acc[tpl.category] = [];
+      acc[tpl.category].push(tpl);
+      return acc;
+    },
+    {} as Record<string, ScadaTemplate[]>,
+  );
 }
 
 const SCADA_BY_CATEGORY = groupScadaByCategory();
 
 // Badge color mapping
-const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; badgeBg: string }> = {
-  blue:    { bg: 'bg-blue-50',    hover: 'hover:bg-blue-100',    border: 'hover:border-blue-200',    badgeBg: 'bg-blue-500' },
-  amber:   { bg: 'bg-amber-50',   hover: 'hover:bg-amber-100',   border: 'hover:border-amber-200',   badgeBg: 'bg-amber-500' },
-  teal:    { bg: 'bg-teal-50',    hover: 'hover:bg-teal-100',    border: 'hover:border-teal-200',    badgeBg: 'bg-teal-500' },
-  cyan:    { bg: 'bg-cyan-50',    hover: 'hover:bg-cyan-100',    border: 'hover:border-cyan-200',    badgeBg: 'bg-cyan-500' },
-  stone:   { bg: 'bg-stone-50',   hover: 'hover:bg-stone-100',   border: 'hover:border-stone-300',   badgeBg: 'bg-stone-500' },
-  sky:     { bg: 'bg-sky-50',     hover: 'hover:bg-sky-100',     border: 'hover:border-sky-200',     badgeBg: 'bg-sky-500' },
-  slate:   { bg: 'bg-slate-50',   hover: 'hover:bg-slate-100',   border: 'hover:border-slate-300',   badgeBg: 'bg-slate-500' },
-  emerald: { bg: 'bg-emerald-50', hover: 'hover:bg-emerald-100', border: 'hover:border-emerald-200', badgeBg: 'bg-emerald-500' },
-  indigo:  { bg: 'bg-indigo-50',  hover: 'hover:bg-indigo-100',  border: 'hover:border-indigo-200',  badgeBg: 'bg-indigo-500' },
-  purple:  { bg: 'bg-purple-50',  hover: 'hover:bg-purple-100',  border: 'hover:border-purple-200',  badgeBg: 'bg-purple-500' },
-  red:     { bg: 'bg-red-50',     hover: 'hover:bg-red-100',     border: 'hover:border-red-200',     badgeBg: 'bg-red-500' },
-  orange:  { bg: 'bg-orange-50',  hover: 'hover:bg-orange-100',  border: 'hover:border-orange-200',  badgeBg: 'bg-orange-500' },
-  yellow:  { bg: 'bg-yellow-50',  hover: 'hover:bg-yellow-100',  border: 'hover:border-yellow-200',  badgeBg: 'bg-yellow-500' },
-  gray:    { bg: 'bg-gray-100 dark:bg-gray-800',   hover: 'hover:bg-gray-200 dark:hover:bg-gray-600',    border: 'hover:border-gray-300 dark:hover:border-gray-500',    badgeBg: 'bg-gray-600' },
-};
+const BADGE_COLORS: Record<string, { bg: string; hover: string; border: string; badgeBg: string }> =
+  {
+    blue: {
+      bg: 'bg-info-50 dark:bg-info-900/20',
+      hover: 'hover:bg-info-100 dark:hover:bg-info-900/50',
+      border: 'hover:border-info-200 dark:hover:border-info-700',
+      badgeBg: 'bg-info-500',
+    },
+    amber: {
+      bg: 'bg-warning-50 dark:bg-warning-900/20',
+      hover: 'hover:bg-warning-100 dark:hover:bg-warning-900/50',
+      border: 'hover:border-warning-200 dark:hover:border-warning-700',
+      badgeBg: 'bg-warning-500',
+    },
+    teal: {
+      bg: 'bg-info-50 dark:bg-info-900/20',
+      hover: 'hover:bg-info-100 dark:hover:bg-info-900/50',
+      border: 'hover:border-info-200 dark:hover:border-info-700',
+      badgeBg: 'bg-info-500',
+    },
+    cyan: {
+      bg: 'bg-info-50 dark:bg-info-900/20',
+      hover: 'hover:bg-info-100 dark:hover:bg-info-900/50',
+      border: 'hover:border-info-200 dark:hover:border-info-700',
+      badgeBg: 'bg-info-500',
+    },
+    stone: {
+      bg: 'bg-stone-50',
+      hover: 'hover:bg-stone-100',
+      border: 'hover:border-stone-300',
+      badgeBg: 'bg-stone-500',
+    },
+    sky: {
+      bg: 'bg-info-50 dark:bg-info-900/20',
+      hover: 'hover:bg-info-100 dark:hover:bg-info-900/50',
+      border: 'hover:border-info-200 dark:hover:border-info-700',
+      badgeBg: 'bg-info-500',
+    },
+    slate: {
+      bg: 'bg-slate-50',
+      hover: 'hover:bg-slate-100',
+      border: 'hover:border-slate-300',
+      badgeBg: 'bg-slate-500',
+    },
+    emerald: {
+      bg: 'bg-success-50 dark:bg-success-900/20',
+      hover: 'hover:bg-success-100 dark:hover:bg-success-900/50',
+      border: 'hover:border-success-200 dark:hover:border-success-700',
+      badgeBg: 'bg-success-500',
+    },
+    indigo: {
+      bg: 'bg-primary-50 dark:bg-primary-900/20',
+      hover: 'hover:bg-primary-100 dark:hover:bg-primary-900/50',
+      border: 'hover:border-primary-200 dark:hover:border-primary-700',
+      badgeBg: 'bg-primary-500',
+    },
+    purple: {
+      bg: 'bg-accent-50 dark:bg-accent-900/20',
+      hover: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
+      border: 'hover:border-accent-200 dark:hover:border-accent-700',
+      badgeBg: 'bg-accent-500',
+    },
+    red: {
+      bg: 'bg-error-50 dark:bg-error-900/20',
+      hover: 'hover:bg-error-100 dark:hover:bg-error-900/50',
+      border: 'hover:border-error-200 dark:hover:border-error-700',
+      badgeBg: 'bg-error-500',
+    },
+    orange: {
+      bg: 'bg-accent-50 dark:bg-accent-900/20',
+      hover: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
+      border: 'hover:border-accent-200 dark:hover:border-accent-700',
+      badgeBg: 'bg-accent-500',
+    },
+    yellow: {
+      bg: 'bg-warning-50 dark:bg-warning-900/20',
+      hover: 'hover:bg-warning-100 dark:hover:bg-warning-900/50',
+      border: 'hover:border-warning-200 dark:hover:border-warning-700',
+      badgeBg: 'bg-warning-500',
+    },
+    gray: {
+      bg: 'bg-gray-100 dark:bg-gray-800',
+      hover: 'hover:bg-gray-200 dark:hover:bg-gray-600',
+      border: 'hover:border-gray-300 dark:hover:border-gray-500',
+      badgeBg: 'bg-gray-600',
+    },
+  };
 
 // Farm-service codes to hide (covered by SCADA templates or duplicates of other entries)
 const HIDDEN_FARM_CODES = new Set([
-  'heater',             // SCADA Heater template covers this
-  'chiller',            // SCADA Chiller template covers this
-  'heat-exchanger',     // Shell & Tube HX + Plate HX SCADA templates cover this
-  'aerator',            // same canvas node as Blower
-  'filter-uv',          // same as UV Sterilizer (in water_treatment)
-  'filter-mechanical',  // same as Drum Filter
-  'filter-biological',  // same as MBBR
+  'heater', // SCADA Heater template covers this
+  'chiller', // SCADA Chiller template covers this
+  'heat-exchanger', // Shell & Tube HX + Plate HX SCADA templates cover this
+  'aerator', // same canvas node as Blower
+  'filter-uv', // same as UV Sterilizer (in water_treatment)
+  'filter-mechanical', // same as Drum Filter
+  'filter-biological', // same as MBBR
 ]);
 
 // Preferred display order for categories
 const CATEGORY_ORDER = [
-  'tank', 'pump', 'filtration', 'aeration', 'heating_cooling',
-  'feeding', 'water_treatment', 'plumbing', 'electrical',
-  'harvesting', 'transport', 'safety', 'other',
+  'tank',
+  'pump',
+  'filtration',
+  'aeration',
+  'heating_cooling',
+  'feeding',
+  'water_treatment',
+  'plumbing',
+  'electrical',
+  'harvesting',
+  'transport',
+  'safety',
+  'other',
 ];
 
 // ---------------------------------------------------------------------------
@@ -195,7 +447,13 @@ function startScadaDrag(
   onDragStart(e, template);
 }
 
-function ScadaNodeItem({ tpl, onDragStart }: { tpl: ScadaTemplate; onDragStart: EquipmentPanelProps['onDragStart'] }) {
+function ScadaNodeItem({
+  tpl,
+  onDragStart,
+}: {
+  tpl: ScadaTemplate;
+  onDragStart: EquipmentPanelProps['onDragStart'];
+}) {
   const c = BADGE_COLORS[tpl.badgeColor] || BADGE_COLORS.gray;
   return (
     <div
@@ -204,31 +462,43 @@ function ScadaNodeItem({ tpl, onDragStart }: { tpl: ScadaTemplate; onDragStart: 
       className={`flex items-center gap-2 px-3 py-2 ${c.bg} ${c.hover} rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent ${c.border}`}
     >
       <GripVertical className="w-4 h-4 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
-      <div className={`w-5 h-5 ${c.badgeBg} rounded text-white text-xs flex items-center justify-center font-bold`}>
+      <div
+        className={`w-5 h-5 ${c.badgeBg} rounded text-white text-xs flex items-center justify-center font-bold`}
+      >
         {tpl.badge}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{tpl.name}</div>
+        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+          {tpl.name}
+        </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{tpl.description}</div>
       </div>
     </div>
   );
 }
 
-function FarmEquipmentItem({ type, onDragStart }: { type: EquipmentType; onDragStart: (e: React.DragEvent, t: EquipmentType) => void }) {
+function FarmEquipmentItem({
+  type,
+  onDragStart,
+}: {
+  type: EquipmentType;
+  onDragStart: (e: React.DragEvent, t: EquipmentType) => void;
+}) {
   const Icon = getEquipmentIcon(type.code);
   return (
     <div
       draggable
       onDragStart={(e) => onDragStart(e, type)}
-      className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 hover:bg-blue-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-blue-200"
+      className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 hover:bg-info-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-info-200"
     >
       <GripVertical className="w-4 h-4 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
-      <div className="text-gray-600 dark:text-gray-400 group-hover:text-blue-600">
+      <div className="text-gray-600 dark:text-gray-400 group-hover:text-info-600">
         <Icon size={20} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{type.name}</div>
+        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+          {type.name}
+        </div>
         <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{type.code}</div>
       </div>
     </div>
@@ -242,10 +512,7 @@ function FarmEquipmentItem({ type, onDragStart }: { type: EquipmentType; onDragS
 export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(
-    new Set([
-      'monitoring', 'utility', 'algae', 'widgets',
-      ...CATEGORY_ORDER,
-    ])
+    new Set(['monitoring', 'utility', 'algae', 'widgets', ...CATEGORY_ORDER]),
   );
 
   const { data: equipmentTypes, isLoading, error } = useEquipmentTypes({ isActive: true });
@@ -259,7 +526,8 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
     const farmTypes = (equipmentTypes || []).filter((type) => {
       const cat = type.category?.toLowerCase() || '';
       const code = type.code?.toLowerCase() || '';
-      if (excludedCategories.includes(cat) || cat.includes('monitor') || cat.includes('sensor')) return false;
+      if (excludedCategories.includes(cat) || cat.includes('monitor') || cat.includes('sensor'))
+        return false;
       if (code.startsWith('sensor-') || code.startsWith('sensor_')) return false;
       if (HIDDEN_FARM_CODES.has(code)) return false;
       if (term) {
@@ -280,24 +548,36 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
     const filteredScada: Record<string, ScadaTemplate[]> = {};
     for (const [cat, templates] of Object.entries(SCADA_BY_CATEGORY)) {
       const matched = term
-        ? templates.filter((t) => t.name.toLowerCase().includes(term) || t.code.toLowerCase().includes(term) || t.description.toLowerCase().includes(term))
+        ? templates.filter(
+            (t) =>
+              t.name.toLowerCase().includes(term) ||
+              t.code.toLowerCase().includes(term) ||
+              t.description.toLowerCase().includes(term),
+          )
         : templates;
       if (matched.length > 0) filteredScada[cat] = matched;
     }
 
     // Merge all category keys
-    const allCategoryKeys = new Set([...Object.keys(farmByCategory), ...Object.keys(filteredScada)]);
+    const allCategoryKeys = new Set([
+      ...Object.keys(farmByCategory),
+      ...Object.keys(filteredScada),
+    ]);
 
     // Build sorted result
-    const result: { key: string; label: string; scada: ScadaTemplate[]; farm: EquipmentType[] }[] = [];
+    const result: { key: string; label: string; scada: ScadaTemplate[]; farm: EquipmentType[] }[] =
+      [];
     const orderedKeys = CATEGORY_ORDER.filter((k) => allCategoryKeys.has(k));
     // Add any remaining keys not in CATEGORY_ORDER
-    allCategoryKeys.forEach((k) => { if (!orderedKeys.includes(k)) orderedKeys.push(k); });
+    allCategoryKeys.forEach((k) => {
+      if (!orderedKeys.includes(k)) orderedKeys.push(k);
+    });
 
     for (const key of orderedKeys) {
       result.push({
         key,
-        label: CATEGORY_LABELS[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
+        label:
+          CATEGORY_LABELS[key] || key.charAt(0).toUpperCase() + key.slice(1).replace(/_/g, ' '),
         scada: filteredScada[key] || [],
         farm: farmByCategory[key] || [],
       });
@@ -329,10 +609,26 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
     onDragStart(event, template);
   };
 
-  const CategoryHeader = ({ categoryKey, label, count }: { categoryKey: string; label: string; count: number }) => (
-    <Button variant="ghost" size="sm" onClick={() => toggleCategory(categoryKey)}>{expandedCategories.has(categoryKey) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+  const CategoryHeader = ({
+    categoryKey,
+    label,
+    count,
+  }: {
+    categoryKey: string;
+    label: string;
+    count: number;
+  }) => (
+    <Button variant="ghost" size="sm" onClick={() => toggleCategory(categoryKey)}>
+      {expandedCategories.has(categoryKey) ? (
+        <ChevronDown className="w-4 h-4" />
+      ) : (
+        <ChevronRight className="w-4 h-4" />
+      )}
       <span>{label}</span>
-      <span className="ml-auto text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">{count}</span></Button>
+      <span className="ml-auto text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">
+        {count}
+      </span>
+    </Button>
   );
 
   return (
@@ -347,7 +643,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
             placeholder="Search node types..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
           />
         </div>
       </div>
@@ -361,7 +657,9 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
         )}
 
         {error && (
-          <div className="p-4 text-center text-red-600 text-sm">Failed to load node types.</div>
+          <div className="p-4 text-center text-error-600 dark:text-error-400 text-sm">
+            Failed to load node types.
+          </div>
         )}
 
         {/* Monitoring - Sensor */}
@@ -378,19 +676,30 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                       name: SENSOR_NODE_TEMPLATE.name,
                       code: SENSOR_NODE_TEMPLATE.code,
                       category: SENSOR_NODE_TEMPLATE.category,
-                      equipmentType: { id: SENSOR_NODE_TEMPLATE.id, name: SENSOR_NODE_TEMPLATE.name, code: SENSOR_NODE_TEMPLATE.code, category: SENSOR_NODE_TEMPLATE.category } as EquipmentType,
+                      equipmentType: {
+                        id: SENSOR_NODE_TEMPLATE.id,
+                        name: SENSOR_NODE_TEMPLATE.name,
+                        code: SENSOR_NODE_TEMPLATE.code,
+                        category: SENSOR_NODE_TEMPLATE.category,
+                      } as EquipmentType,
                     };
                     e.dataTransfer.setData('application/equipment', JSON.stringify(template));
                     e.dataTransfer.effectAllowed = 'move';
                     onDragStart(e, template);
                   }}
-                  className="flex items-center gap-2 px-3 py-2 bg-green-50 hover:bg-green-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-green-200"
+                  className="flex items-center gap-2 px-3 py-2 bg-success-50 dark:bg-success-900/20 hover:bg-success-100 dark:hover:bg-success-900/50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-success-200 dark:hover:border-success-700"
                 >
                   <GripVertical className="w-4 h-4 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
-                  <div className="text-green-600 group-hover:text-green-700"><Activity size={20} /></div>
+                  <div className="text-success-600 dark:text-success-400 group-hover:text-success-700 dark:group-hover:text-success-200">
+                    <Activity size={20} />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{SENSOR_NODE_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">Link real sensors via Properties</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                      {SENSOR_NODE_TEMPLATE.name}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      Link real sensors via Properties
+                    </div>
                   </div>
                 </div>
               </div>
@@ -412,19 +721,31 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                       name: CONNECTION_POINT_TEMPLATE.name,
                       code: CONNECTION_POINT_TEMPLATE.code,
                       category: CONNECTION_POINT_TEMPLATE.category,
-                      equipmentType: { id: CONNECTION_POINT_TEMPLATE.id, name: CONNECTION_POINT_TEMPLATE.name, code: CONNECTION_POINT_TEMPLATE.code, category: CONNECTION_POINT_TEMPLATE.category, nodeType: CONNECTION_POINT_TEMPLATE.nodeType, isActive: true, sortOrder: 0 } as EquipmentType,
+                      equipmentType: {
+                        id: CONNECTION_POINT_TEMPLATE.id,
+                        name: CONNECTION_POINT_TEMPLATE.name,
+                        code: CONNECTION_POINT_TEMPLATE.code,
+                        category: CONNECTION_POINT_TEMPLATE.category,
+                        nodeType: CONNECTION_POINT_TEMPLATE.nodeType,
+                        isActive: true,
+                        sortOrder: 0,
+                      } as EquipmentType,
                     };
                     e.dataTransfer.setData('application/equipment', JSON.stringify(template));
                     e.dataTransfer.effectAllowed = 'move';
                     onDragStart(e, template);
                   }}
-                  className="flex items-center gap-2 px-3 py-2 bg-yellow-50 hover:bg-yellow-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-yellow-200"
+                  className="flex items-center gap-2 px-3 py-2 bg-warning-50 dark:bg-warning-900/20 hover:bg-warning-100 dark:hover:bg-warning-900/50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-warning-200 dark:hover:border-warning-700"
                 >
                   <GripVertical className="w-4 h-4 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
-                  <div className="w-5 h-5 rounded-full bg-yellow-400 border-2 border-yellow-600" />
+                  <div className="w-5 h-5 rounded-full bg-warning-400 border-2 border-warning-600" />
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{CONNECTION_POINT_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{CONNECTION_POINT_TEMPLATE.description}</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                      {CONNECTION_POINT_TEMPLATE.name}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {CONNECTION_POINT_TEMPLATE.description}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -433,10 +754,17 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
         )}
 
         {/* Algae Cultivation */}
-        {(!searchTerm || 'algae'.includes(searchTerm.toLowerCase()) ||
-          ALGAE_BAG_TEMPLATES.some(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()))) && (
+        {(!searchTerm ||
+          'algae'.includes(searchTerm.toLowerCase()) ||
+          ALGAE_BAG_TEMPLATES.some((t) =>
+            t.name.toLowerCase().includes(searchTerm.toLowerCase()),
+          )) && (
           <div className="mb-2">
-            <CategoryHeader categoryKey="algae" label="Algae Cultivation" count={ALGAE_BAG_TEMPLATES.length} />
+            <CategoryHeader
+              categoryKey="algae"
+              label="Algae Cultivation"
+              count={ALGAE_BAG_TEMPLATES.length}
+            />
             {expandedCategories.has('algae') && (
               <div className="ml-2 space-y-1">
                 {ALGAE_BAG_TEMPLATES.map((bag) => (
@@ -445,20 +773,38 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                     draggable
                     onDragStart={(e) => {
                       const template: NodeTemplate = {
-                        id: bag.id, name: bag.name, code: bag.code, category: bag.category,
-                        equipmentType: { id: bag.id, name: bag.name, code: bag.code, category: bag.category, nodeType: bag.nodeType, isActive: true, sortOrder: 0 } as EquipmentType,
+                        id: bag.id,
+                        name: bag.name,
+                        code: bag.code,
+                        category: bag.category,
+                        equipmentType: {
+                          id: bag.id,
+                          name: bag.name,
+                          code: bag.code,
+                          category: bag.category,
+                          nodeType: bag.nodeType,
+                          isActive: true,
+                          sortOrder: 0,
+                        } as EquipmentType,
                       };
                       e.dataTransfer.setData('application/equipment', JSON.stringify(template));
                       e.dataTransfer.effectAllowed = 'move';
                       onDragStart(e, template);
                     }}
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 hover:bg-emerald-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-emerald-200"
+                    className="flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 hover:bg-success-50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-success-200"
                   >
                     <GripVertical className="w-4 h-4 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
-                    <div className="w-5 h-5 rounded-full border-2 border-white shadow-sm" style={{ backgroundColor: bag.color }} />
+                    <div
+                      className="w-5 h-5 rounded-full border-2 border-white shadow-sm"
+                      style={{ backgroundColor: bag.color }}
+                    />
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{bag.name}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{bag.description}</div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                        {bag.name}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                        {bag.description}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -468,7 +814,8 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
         )}
 
         {/* Widgets */}
-        {(!searchTerm || 'widget chart graph gauge'.includes(searchTerm.toLowerCase()) ||
+        {(!searchTerm ||
+          'widget chart graph gauge'.includes(searchTerm.toLowerCase()) ||
           CHART_WIDGET_TEMPLATE.name.toLowerCase().includes(searchTerm.toLowerCase())) && (
           <div className="mb-2">
             <CategoryHeader categoryKey="widgets" label="Widgets" count={1} />
@@ -478,20 +825,39 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
                   draggable
                   onDragStart={(e) => {
                     const template: NodeTemplate = {
-                      id: CHART_WIDGET_TEMPLATE.id, name: CHART_WIDGET_TEMPLATE.name, code: CHART_WIDGET_TEMPLATE.code, category: CHART_WIDGET_TEMPLATE.category,
-                      equipmentType: { id: CHART_WIDGET_TEMPLATE.id, name: CHART_WIDGET_TEMPLATE.name, code: CHART_WIDGET_TEMPLATE.code, category: CHART_WIDGET_TEMPLATE.category, nodeType: CHART_WIDGET_TEMPLATE.nodeType, isActive: true, sortOrder: 0, defaultWidth: CHART_WIDGET_TEMPLATE.defaultWidth, defaultHeight: CHART_WIDGET_TEMPLATE.defaultHeight } as EquipmentType & { defaultWidth: number; defaultHeight: number },
+                      id: CHART_WIDGET_TEMPLATE.id,
+                      name: CHART_WIDGET_TEMPLATE.name,
+                      code: CHART_WIDGET_TEMPLATE.code,
+                      category: CHART_WIDGET_TEMPLATE.category,
+                      equipmentType: {
+                        id: CHART_WIDGET_TEMPLATE.id,
+                        name: CHART_WIDGET_TEMPLATE.name,
+                        code: CHART_WIDGET_TEMPLATE.code,
+                        category: CHART_WIDGET_TEMPLATE.category,
+                        nodeType: CHART_WIDGET_TEMPLATE.nodeType,
+                        isActive: true,
+                        sortOrder: 0,
+                        defaultWidth: CHART_WIDGET_TEMPLATE.defaultWidth,
+                        defaultHeight: CHART_WIDGET_TEMPLATE.defaultHeight,
+                      } as EquipmentType & { defaultWidth: number; defaultHeight: number },
                     };
                     e.dataTransfer.setData('application/equipment', JSON.stringify(template));
                     e.dataTransfer.effectAllowed = 'move';
                     onDragStart(e, template);
                   }}
-                  className="flex items-center gap-2 px-3 py-2 bg-cyan-50 hover:bg-cyan-100 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-cyan-200"
+                  className="flex items-center gap-2 px-3 py-2 bg-info-50 dark:bg-info-900/20 hover:bg-info-100 dark:hover:bg-info-900/50 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent hover:border-info-200 dark:hover:border-info-700"
                 >
                   <GripVertical className="w-4 h-4 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
-                  <div className="text-cyan-600 group-hover:text-cyan-700"><BarChart2 size={20} /></div>
+                  <div className="text-info-600 dark:text-info-400 group-hover:text-info-700 dark:group-hover:text-info-200">
+                    <BarChart2 size={20} />
+                  </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{CHART_WIDGET_TEMPLATE.name}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{CHART_WIDGET_TEMPLATE.description}</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                      {CHART_WIDGET_TEMPLATE.name}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {CHART_WIDGET_TEMPLATE.description}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -523,7 +889,9 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
 
       {/* Footer */}
       <div className="p-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-        <p className="text-xs text-gray-500 dark:text-gray-400 text-center">Drag nodes to canvas, then link real equipment</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+          Drag nodes to canvas, then link real equipment
+        </p>
       </div>
     </div>
   );

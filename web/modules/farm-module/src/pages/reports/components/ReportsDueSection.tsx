@@ -96,15 +96,23 @@ export const ReportsDueSection: React.FC = () => {
       aria-label="Reports due"
     >
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Scheduled reports due</h2>
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          Scheduled reports due
+        </h2>
         {deadlines && deadlines.length > 0 && (
-          <span className="text-xs text-gray-500 dark:text-gray-400">{deadlines.length} draft(s)</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {deadlines.length} draft(s)
+          </span>
         )}
       </div>
 
-      {isLoading && <p className="text-sm text-gray-500 dark:text-gray-400">Loading scheduled reports…</p>}
+      {isLoading && (
+        <p className="text-sm text-gray-500 dark:text-gray-400">Loading scheduled reports…</p>
+      )}
       {isError && (
-        <p className="text-sm text-red-600">Could not load scheduled reports. Try again.</p>
+        <p className="text-sm text-error-600 dark:text-error-400">
+          Could not load scheduled reports. Try again.
+        </p>
       )}
       {!isLoading && !isError && (!deadlines || deadlines.length === 0) && (
         <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -128,7 +136,7 @@ export const ReportsDueSection: React.FC = () => {
                     <p className="text-xs text-gray-500 dark:text-gray-400">{periodLabel(d)}</p>
                     {rowResult && (
                       <p
-                        className={`text-xs mt-1 ${rowResult.ok ? 'text-green-700' : 'text-red-600'}`}
+                        className={`text-xs mt-1 ${rowResult.ok ? 'text-success-700 dark:text-success-300' : 'text-error-600 dark:text-error-400'}`}
                       >
                         {rowResult.text}
                       </p>
@@ -146,12 +154,44 @@ export const ReportsDueSection: React.FC = () => {
                   )}
 
                   <div className="flex items-center gap-2">
-                    <Button variant="secondary" size="xs" type="button" onClick={() => setReviewingId(isReviewing ? null : d.id)} aria-expanded={isReviewing}>{isReviewing ? 'Hide' : 'Review'}</Button>
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      type="button"
+                      onClick={() => setReviewingId(isReviewing ? null : d.id)}
+                      aria-expanded={isReviewing}
+                    >
+                      {isReviewing ? 'Hide' : 'Review'}
+                    </Button>
                     {d.status === 'READY' && (
-                      <Button variant="primary" size="xs" type="button" onClick={() => handleApprove(d.id)} disabled={isBusy}>Approve &amp; Submit</Button>
+                      <Button
+                        variant="primary"
+                        size="xs"
+                        type="button"
+                        onClick={() => handleApprove(d.id)}
+                        disabled={isBusy}
+                      >
+                        Approve &amp; Submit
+                      </Button>
                     )}
-                    <Button variant="secondary" size="xs" type="button" onClick={() => refresh.mutate(d.id)} disabled={isBusy}>Refresh</Button>
-                    <Button variant="ghost" size="xs" type="button" onClick={() => dismiss.mutate(d.id)} disabled={isBusy}>Dismiss</Button>
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      type="button"
+                      onClick={() => refresh.mutate(d.id)}
+                      disabled={isBusy}
+                    >
+                      Refresh
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      type="button"
+                      onClick={() => dismiss.mutate(d.id)}
+                      disabled={isBusy}
+                    >
+                      Dismiss
+                    </Button>
                   </div>
                 </div>
                 {isReviewing && <DraftReviewPanel draftId={d.id} />}

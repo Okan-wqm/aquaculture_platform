@@ -50,7 +50,9 @@ const IoBadge: React.FC<{
     return (
       <div
         className={`flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
-          isOn ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          isOn
+            ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+            : 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200'
         }`}
         title={`${binding.tagName} (${binding.ioType}): ${isOn ? 'ON' : 'OFF'}`}
       >
@@ -58,7 +60,7 @@ const IoBadge: React.FC<{
             Aktif output'larda Tailwind animate-pulse kullanılır */}
         <span
           className={`inline-block w-2 h-2 rounded-full ${
-            isOn ? 'bg-green-500' : 'bg-red-500'
+            isOn ? 'bg-success-500' : 'bg-error-500'
           } ${isOn && isOutput ? 'animate-pulse' : ''}`}
         />
         <span className="truncate max-w-[50px]">{binding.tagName}</span>
@@ -76,7 +78,7 @@ const IoBadge: React.FC<{
 
   return (
     <div
-      className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-800"
+      className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200"
       title={`${binding.tagName} (${binding.ioType}): ${displayValue}`}
     >
       <span className="truncate max-w-[40px]">{binding.tagName}</span>
@@ -98,9 +100,8 @@ export const EquipmentNodeOverlay: React.FC<EquipmentNodeOverlayProps> = ({
   const liveValues: Record<string, number | boolean | null> = {};
   if (tags) {
     for (const [key, tagValue] of Object.entries(tags)) {
-      liveValues[key] = typeof tagValue.value === 'boolean'
-        ? tagValue.value
-        : Number(tagValue.value);
+      liveValues[key] =
+        typeof tagValue.value === 'boolean' ? tagValue.value : Number(tagValue.value);
     }
   }
 

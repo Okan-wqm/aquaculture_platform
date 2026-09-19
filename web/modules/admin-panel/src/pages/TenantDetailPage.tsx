@@ -5,7 +5,20 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Select, Modal, Alert, formatDate, formatNumber, Spinner, PageHeader, useConfirm } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Input,
+  Select,
+  Modal,
+  Alert,
+  formatDate,
+  formatNumber,
+  Spinner,
+  PageHeader,
+  useConfirm,
+} from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -19,6 +32,7 @@ import {
 import { formatBillingAmount } from '../utils/money';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
+import { ChevronLeft } from 'lucide-react';
 
 // ============================================================================
 // Simple Tab Component
@@ -44,7 +58,7 @@ const SimpleTabs: React.FC<{
           onClick={() => onChange(tab.value)}
           className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
             activeTab === tab.value
-              ? 'border-blue-500 text-blue-600'
+              ? 'border-info-500 text-info-600 dark:text-info-400'
               : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
@@ -123,7 +137,7 @@ const ProgressBar: React.FC<{ value: number; max: number; label?: string }> = ({
 }) => {
   const percentage = max === -1 ? 0 : max === 0 ? 100 : Math.min((value / max) * 100, 100);
   const colorClass =
-    percentage > 90 ? 'bg-red-500' : percentage > 70 ? 'bg-yellow-500' : 'bg-green-500';
+    percentage > 90 ? 'bg-error-500' : percentage > 70 ? 'bg-warning-500' : 'bg-success-500';
 
   return (
     <div className="space-y-1">
@@ -341,7 +355,7 @@ const TenantDetailPage: React.FC = () => {
       <Card className="p-6 text-center">
         <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={reload} />
         {queryErrors.every((queryError) => !queryError) && (
-          <p className="text-red-600">Tenant not found</p>
+          <p className="text-error-600 dark:text-error-400">Tenant not found</p>
         )}
         <Button variant="outline" onClick={() => navigate('/admin/tenants')} className="mt-4">
           Go Back
@@ -362,18 +376,18 @@ const TenantDetailPage: React.FC = () => {
               {tenant.name}
               <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>
               <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>
-              {tenant.isTrialActive && (
-                <Badge variant="warning">Trial Active</Badge>
-              )}
+              {tenant.isTrialActive && <Badge variant="warning">Trial Active</Badge>}
             </span>
           </>
         }
-        description={<>{tenant.slug} {tenant.domain && `• ${tenant.domain}`}</>}
+        description={
+          <>
+            {tenant.slug} {tenant.domain && `• ${tenant.domain}`}
+          </>
+        }
         leading={
           <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft className="w-5 h-5" aria-hidden="true" />
           </Button>
         }
         actions={
@@ -469,8 +483,12 @@ const TenantDetailPage: React.FC = () => {
                 {tenant.primaryContact ? (
                   <>
                     <p className="font-medium">{tenant.primaryContact.name}</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{tenant.primaryContact.email}</p>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">{tenant.primaryContact.role}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {tenant.primaryContact.email}
+                    </p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {tenant.primaryContact.role}
+                    </p>
                   </>
                 ) : (
                   <p className="text-gray-500 dark:text-gray-400">Not specified</p>
@@ -481,7 +499,9 @@ const TenantDetailPage: React.FC = () => {
                 {tenant.billingContact ? (
                   <>
                     <p className="font-medium">{tenant.billingContact.name}</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{tenant.billingContact.email}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      {tenant.billingContact.email}
+                    </p>
                   </>
                 ) : (
                   <p className="text-gray-500 dark:text-gray-400">Not specified</p>
@@ -503,7 +523,7 @@ const TenantDetailPage: React.FC = () => {
               <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.userStats ? tenant.userStats.total.toLocaleString() : '—'}
               </p>
-              <p className="text-sm text-green-600">
+              <p className="text-sm text-success-600 dark:text-success-400">
                 {tenant.userStats ? `${tenant.userStats.active.toLocaleString()} active` : ' '}
               </p>
             </Card>
@@ -520,7 +540,9 @@ const TenantDetailPage: React.FC = () => {
               </p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Active Modules</h4>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+                Active Modules
+              </h4>
               <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.modules
                   ? tenant.modules.filter((m) => m.isActive).length.toLocaleString()
@@ -528,7 +550,9 @@ const TenantDetailPage: React.FC = () => {
               </p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Storage Limit</h4>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+                Storage Limit
+              </h4>
               <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.maxStorage === undefined || tenant.maxStorage === -1
                   ? 'Unlimited'
@@ -537,7 +561,9 @@ const TenantDetailPage: React.FC = () => {
             </Card>
             {tenant.isTrialActive && (
               <Card className="p-4 border-l-4 border-l-yellow-400">
-                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Trial Status</h4>
+                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
+                  Trial Status
+                </h4>
                 <Badge variant="warning">Trial Active</Badge>
                 {tenant.trialEndsAt && (
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -562,11 +588,15 @@ const TenantDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Active</span>
-                <span className="font-bold text-green-600">{tenant.userStats.active}</span>
+                <span className="font-bold text-success-600 dark:text-success-400">
+                  {tenant.userStats.active}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>Inactive</span>
-                <span className="font-bold text-gray-500 dark:text-gray-400">{tenant.userStats.inactive}</span>
+                <span className="font-bold text-gray-500 dark:text-gray-400">
+                  {tenant.userStats.inactive}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span>Active in Last 7 Days</span>
@@ -574,7 +604,7 @@ const TenantDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>New in Last 30 Days</span>
-                <span className="font-bold text-blue-600">
+                <span className="font-bold text-info-600 dark:text-info-400">
                   {tenant.userStats.newUsersLast30Days}
                 </span>
               </div>
@@ -698,9 +728,7 @@ const TenantDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Rate Limit</span>
-                <span className="font-bold">
-                  {tenant.resourceUsage.apiCalls.limit}/min
-                </span>
+                <span className="font-bold">{tenant.resourceUsage.apiCalls.limit}/min</span>
               </div>
             </div>
           </Card>
@@ -714,11 +742,13 @@ const TenantDetailPage: React.FC = () => {
           {tenant.recentActivities && tenant.recentActivities.length > 0 ? (
             <div className="space-y-4">
               {tenant.recentActivities.map((activity) => (
-                <div key={activity.id} className="flex space-x-4 p-3 border-l-4 border-blue-500">
+                <div key={activity.id} className="flex space-x-4 p-3 border-l-4 border-info-500">
                   <div className="flex-1">
                     <p className="font-medium">{activity.title}</p>
                     {activity.description && (
-                      <p className="text-sm text-gray-600 dark:text-gray-400">{activity.description}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">
+                        {activity.description}
+                      </p>
                     )}
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       {activity.performedByEmail || 'System'} •{' '}
@@ -751,10 +781,7 @@ const TenantDetailPage: React.FC = () => {
                 <div className="flex justify-between">
                   <span>Last Invoice</span>
                   <span className="font-bold">
-                    {formatBillingAmount(
-                      tenant.billing.lastInvoiceAmount,
-                      tenant.billing.currency,
-                    )}
+                    {formatBillingAmount(tenant.billing.lastInvoiceAmount, tenant.billing.currency)}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -764,9 +791,7 @@ const TenantDetailPage: React.FC = () => {
                 <div className="flex justify-between">
                   <span>Subscription Status</span>
                   <Badge
-                    variant={
-                      tenant.billing.subscriptionStatus === 'active' ? 'success' : 'warning'
-                    }
+                    variant={tenant.billing.subscriptionStatus === 'active' ? 'success' : 'warning'}
                   >
                     {tenant.billing.subscriptionStatus}
                   </Badge>
@@ -794,11 +819,8 @@ const TenantDetailPage: React.FC = () => {
                 </div>
                 <div className="flex justify-between">
                   <span>Amount</span>
-                  <span className="font-bold text-green-600">
-                    {formatBillingAmount(
-                      tenant.billing.lastPaymentAmount,
-                      tenant.billing.currency,
-                    )}
+                  <span className="font-bold text-success-600 dark:text-success-400">
+                    {formatBillingAmount(tenant.billing.lastPaymentAmount, tenant.billing.currency)}
                   </span>
                 </div>
               </div>
@@ -822,12 +844,16 @@ const TenantDetailPage: React.FC = () => {
                 <div
                   key={note.id}
                   className={`p-4 rounded-lg border ${
-                    note.isPinned ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200 dark:border-gray-700'
+                    note.isPinned
+                      ? 'border-warning-400 bg-warning-50 dark:bg-warning-900/20'
+                      : 'border-gray-200 dark:border-gray-700'
                   }`}
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{note.content}</p>
+                      <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
+                        {note.content}
+                      </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                         {note.createdByEmail || note.createdBy} •{' '}
                         {formatRelativeTime(note.createdAt)} •{' '}
@@ -837,7 +863,9 @@ const TenantDetailPage: React.FC = () => {
                     <Button
                       size="sm"
                       variant="ghost"
-                      onClick={() => { void handleDeleteNote(note.id); }}
+                      onClick={() => {
+                        void handleDeleteNote(note.id);
+                      }}
                     >
                       Delete
                     </Button>
@@ -918,11 +946,7 @@ const TenantDetailPage: React.FC = () => {
       </Modal>
 
       {/* Note Modal */}
-      <Modal
-        isOpen={isNoteModalOpen}
-        onClose={() => setIsNoteModalOpen(false)}
-        title="Add Note"
-      >
+      <Modal isOpen={isNoteModalOpen} onClose={() => setIsNoteModalOpen(false)} title="Add Note">
         <div className="space-y-4">
           <Select
             label="Category"
@@ -936,7 +960,9 @@ const TenantDetailPage: React.FC = () => {
             ]}
           />
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Note</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Note
+            </label>
             <textarea
               className="w-full border rounded-lg p-3 min-h-[120px]"
               value={newNote.content}
@@ -965,7 +991,9 @@ const TenantDetailPage: React.FC = () => {
           This action will block access for all users of this tenant.
         </Alert>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reason</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Reason
+          </label>
           <textarea
             className="w-full border rounded-lg p-3 min-h-[100px]"
             value={suspendReason}

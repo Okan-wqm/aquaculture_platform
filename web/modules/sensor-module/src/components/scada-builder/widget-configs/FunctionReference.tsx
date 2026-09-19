@@ -43,14 +43,22 @@ const FUNCTION_GROUPS: FunctionGroup[] = [
     functions: [
       { name: 'min', signature: 'min(a, b)', description: 'Smaller of two values' },
       { name: 'max', signature: 'max(a, b)', description: 'Larger of two values' },
-      { name: 'clamp', signature: 'clamp(val, min, max)', description: 'Constrain value within bounds' },
+      {
+        name: 'clamp',
+        signature: 'clamp(val, min, max)',
+        description: 'Constrain value within bounds',
+      },
     ],
   },
   {
     label: 'Interpolation',
     functions: [
       { name: 'lerp', signature: 'lerp(a, b, t)', description: 'Linear interpolation (t: 0..1)' },
-      { name: 'map', signature: 'map(val, inMin, inMax, outMin, outMax)', description: 'Rescale from one range to another' },
+      {
+        name: 'map',
+        signature: 'map(val, inMin, inMax, outMin, outMax)',
+        description: 'Rescale from one range to another',
+      },
     ],
   },
   {
@@ -115,7 +123,18 @@ export const FunctionReference: React.FC = () => {
 
   return (
     <div className="relative inline-block">
-      <Button variant="ghost" iconOnly ref={buttonRef} type="button" onClick={() => setOpen((prev) => !prev)} title="Function reference" aria-label="Function reference" data-testid="function-reference-trigger"><HelpCircle className="w-4 h-4" /></Button>
+      <Button
+        variant="ghost"
+        iconOnly
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        title="Function reference"
+        aria-label="Function reference"
+        data-testid="function-reference-trigger"
+      >
+        <HelpCircle className="w-4 h-4" />
+      </Button>
 
       {open && (
         <div
@@ -129,21 +148,38 @@ export const FunctionReference: React.FC = () => {
             <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
               Available Functions
             </span>
-            <Button variant="ghost" iconOnly type="button" onClick={() => setOpen(false)} aria-label="Close reference"><X className="w-3.5 h-3.5" /></Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              type="button"
+              onClick={() => setOpen(false)}
+              aria-label="Close reference"
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
           </div>
 
           {FUNCTION_GROUPS.map((group) => (
-            <div key={group.label} className="mb-2 last:mb-0" data-testid={`fn-group-${group.label.toLowerCase()}`}>
+            <div
+              key={group.label}
+              className="mb-2 last:mb-0"
+              data-testid={`fn-group-${group.label.toLowerCase()}`}
+            >
               <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-1">
                 {group.label}
               </div>
               <div className="space-y-0.5">
                 {group.functions.map((fn) => (
                   <div key={fn.name} className="flex items-baseline gap-2 text-xs">
-                    <code className="font-mono text-cyan-700 whitespace-nowrap" data-testid={`fn-sig-${fn.name}`}>
+                    <code
+                      className="font-mono text-info-700 dark:text-info-300 whitespace-nowrap"
+                      data-testid={`fn-sig-${fn.name}`}
+                    >
                       {fn.signature}
                     </code>
-                    <span className="text-gray-500 dark:text-gray-400 truncate">{fn.description}</span>
+                    <span className="text-gray-500 dark:text-gray-400 truncate">
+                      {fn.description}
+                    </span>
                   </div>
                 ))}
               </div>

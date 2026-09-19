@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 
 import { useI18n } from '../i18n';
+import { X } from 'lucide-react';
 
 export interface ToastAction {
   label: string;
@@ -116,7 +117,10 @@ function useToastState(): UseToastReturn {
     for (const t of toastsRef.current) schedule(t);
   }, [schedule]);
 
-  return useMemo(() => ({ toast, toasts, dismiss, pause, resume }), [toast, toasts, dismiss, pause, resume]);
+  return useMemo(
+    () => ({ toast, toasts, dismiss, pause, resume }),
+    [toast, toasts, dismiss, pause, resume],
+  );
 }
 
 /**
@@ -133,7 +137,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <ToastContext.Provider value={state}>
       {children}
-      <ToastContainer toasts={state.toasts} onDismiss={state.dismiss} onPause={state.pause} onResume={state.resume} />
+      <ToastContainer
+        toasts={state.toasts}
+        onDismiss={state.dismiss}
+        onPause={state.pause}
+        onResume={state.resume}
+      />
     </ToastContext.Provider>
   );
 };
@@ -159,10 +168,12 @@ export function useToast(): UseToastReturn {
 // ============================================================================
 
 const variantStyles: Record<string, string> = {
-  success: 'bg-success-50 border-success-400 text-success-800',
-  error: 'bg-error-50 border-error-400 text-error-800',
-  warning: 'bg-warning-50 border-warning-400 text-warning-800',
-  info: 'bg-info-50 border-info-400 text-info-800',
+  success:
+    'bg-success-50 dark:bg-success-900/20 border-success-400 text-success-800 dark:text-success-200',
+  error: 'bg-error-50 dark:bg-error-900/20 border-error-400 text-error-800 dark:text-error-200',
+  warning:
+    'bg-warning-50 dark:bg-warning-900/20 border-warning-400 text-warning-800 dark:text-warning-200',
+  info: 'bg-info-50 dark:bg-info-900/20 border-info-400 text-info-800 dark:text-info-200',
 };
 
 const ToastCard: React.FC<{
@@ -204,13 +215,7 @@ const ToastCard: React.FC<{
           className="ml-3 inline-flex rounded-md p-1 hover:opacity-80 focus:outline-hidden focus:ring-2 focus:ring-offset-2"
           aria-label={translate('common.dismissNotification')}
         >
-          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-            <path
-              fillRule="evenodd"
-              d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -239,12 +244,24 @@ export const ToastContainer: React.FC<{
     <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
       <div aria-live="polite" aria-atomic="true" role="status" className="flex flex-col gap-2">
         {polite.map((t) => (
-          <ToastCard key={t.id} toast={t} onDismiss={onDismiss} onPause={onPause} onResume={onResume} />
+          <ToastCard
+            key={t.id}
+            toast={t}
+            onDismiss={onDismiss}
+            onPause={onPause}
+            onResume={onResume}
+          />
         ))}
       </div>
       <div aria-live="assertive" aria-atomic="true" role="alert" className="flex flex-col gap-2">
         {assertive.map((t) => (
-          <ToastCard key={t.id} toast={t} onDismiss={onDismiss} onPause={onPause} onResume={onResume} />
+          <ToastCard
+            key={t.id}
+            toast={t}
+            onDismiss={onDismiss}
+            onPause={onPause}
+            onResume={onResume}
+          />
         ))}
       </div>
     </div>

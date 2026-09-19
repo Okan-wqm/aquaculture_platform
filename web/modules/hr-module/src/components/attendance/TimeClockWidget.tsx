@@ -84,7 +84,7 @@ export function TimeClockWidget({
           setIsGettingLocation(false);
           resolve(null);
         },
-        { enableHighAccuracy: true, timeout: 10000 }
+        { enableHighAccuracy: true, timeout: 10000 },
       );
     });
   };
@@ -131,13 +131,13 @@ export function TimeClockWidget({
     <div
       className={cn(
         'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800',
-        className
+        className,
       )}
     >
       {/* Header */}
       <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="flex items-center gap-2">
-          <Clock className="h-5 w-5 text-indigo-600" />
+          <Clock className="h-5 w-5 text-primary-600 dark:text-primary-400" />
           <h3 className="font-semibold text-gray-900 dark:text-white">Time Clock</h3>
         </div>
       </div>
@@ -147,7 +147,9 @@ export function TimeClockWidget({
         <div className="text-4xl font-bold text-gray-900 dark:text-white">
           {formatTime(currentTime)}
         </div>
-        <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">{formatDate(currentTime)}</div>
+        <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+          {formatDate(currentTime)}
+        </div>
       </div>
 
       {/* Today's Status */}
@@ -166,17 +168,13 @@ export function TimeClockWidget({
             <div>
               <span className="text-gray-500 dark:text-gray-400">Clock In</span>
               <p className="font-medium text-gray-900 dark:text-white">
-                {todayRecord.clockIn
-                  ? new Date(todayRecord.clockIn).toLocaleTimeString()
-                  : '-'}
+                {todayRecord.clockIn ? new Date(todayRecord.clockIn).toLocaleTimeString() : '-'}
               </p>
             </div>
             <div>
               <span className="text-gray-500 dark:text-gray-400">Clock Out</span>
               <p className="font-medium text-gray-900 dark:text-white">
-                {todayRecord.clockOut
-                  ? new Date(todayRecord.clockOut).toLocaleTimeString()
-                  : '-'}
+                {todayRecord.clockOut ? new Date(todayRecord.clockOut).toLocaleTimeString() : '-'}
               </p>
             </div>
           </div>
@@ -195,24 +193,25 @@ export function TimeClockWidget({
       {/* SEC-004: GPS consent banner — shown only when the feature is enabled
            and the employee has not yet made a decision for this session. */}
       {enableGps && gpsConsented === null && (
-        <div className="border-t border-blue-100 bg-blue-50 px-4 py-3 dark:border-blue-900/40 dark:bg-blue-900/20">
+        <div className="border-t border-info-100 bg-info-50 px-4 py-3 dark:border-info-900/40 dark:bg-info-900/20">
           <div className="flex items-start gap-3">
-            <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+            <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-info-600 dark:text-info-400" />
             <div className="flex-1 text-sm">
-              <p className="font-medium text-blue-800 dark:text-blue-200">
+              <p className="font-medium text-info-800 dark:text-info-200">
                 Location permission request
               </p>
-              <p className="mt-0.5 text-blue-700 dark:text-blue-300">
-                This site would like to record your GPS coordinates when you clock
-                in or out. Location data is stored securely and used only for
-                attendance verification. You can decline and still clock in/out
-                without sharing your location.
+              <p className="mt-0.5 text-info-700 dark:text-info-300">
+                This site would like to record your GPS coordinates when you clock in or out.
+                Location data is stored securely and used only for attendance verification. You can
+                decline and still clock in/out without sharing your location.
               </p>
               <div className="mt-2 flex gap-2">
-                <Button variant="primary" size="xs" onClick={() => setGpsConsented(true)}>Allow location</Button>
+                <Button variant="primary" size="xs" onClick={() => setGpsConsented(true)}>
+                  Allow location
+                </Button>
                 <button
                   onClick={() => setGpsConsented(false)}
-                  className="rounded-md bg-white px-3 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-300 hover:bg-blue-50 dark:bg-transparent dark:text-blue-300 dark:ring-blue-700"
+                  className="rounded-md bg-white px-3 py-1 text-xs font-medium text-info-700 ring-1 ring-info-300 hover:bg-info-50 dark:bg-transparent dark:text-info-300 dark:ring-info-700"
                 >
                   Decline
                 </button>
@@ -232,11 +231,13 @@ export function TimeClockWidget({
             ) : isGettingLocation ? (
               <span className="text-gray-500 dark:text-gray-400">Getting location...</span>
             ) : gpsError ? (
-              <span className="text-red-500">{gpsError}</span>
+              <span className="text-error-500">{gpsError}</span>
             ) : location ? (
-              <span className="text-green-600">Location captured</span>
+              <span className="text-success-600 dark:text-success-400">Location captured</span>
             ) : (
-              <span className="text-gray-500 dark:text-gray-400">Location will be captured on clock action</span>
+              <span className="text-gray-500 dark:text-gray-400">
+                Location will be captured on clock action
+              </span>
             )}
           </div>
         </div>
@@ -250,15 +251,11 @@ export function TimeClockWidget({
             disabled={isProcessing}
             className={cn(
               'flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-medium transition-colors',
-              'bg-red-600 text-white hover:bg-red-700',
-              'disabled:cursor-not-allowed disabled:opacity-50'
+              'bg-error-600 text-white hover:bg-error-700',
+              'disabled:cursor-not-allowed disabled:opacity-50',
             )}
           >
-            {isProcessing ? (
-              <Spinner size="md" color="white" />
-            ) : (
-              <LogOut className="h-5 w-5" />
-            )}
+            {isProcessing ? <Spinner size="md" color="white" /> : <LogOut className="h-5 w-5" />}
             Clock Out
           </button>
         ) : (
@@ -267,15 +264,11 @@ export function TimeClockWidget({
             disabled={isProcessing}
             className={cn(
               'flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 font-medium transition-colors',
-              'bg-green-600 text-white hover:bg-green-700',
-              'disabled:cursor-not-allowed disabled:opacity-50'
+              'bg-success-600 text-white hover:bg-success-700',
+              'disabled:cursor-not-allowed disabled:opacity-50',
             )}
           >
-            {isProcessing ? (
-              <Spinner size="md" color="white" />
-            ) : (
-              <LogIn className="h-5 w-5" />
-            )}
+            {isProcessing ? <Spinner size="md" color="white" /> : <LogIn className="h-5 w-5" />}
             Clock In
           </button>
         )}
@@ -283,8 +276,8 @@ export function TimeClockWidget({
 
       {/* Error Display */}
       {(clockInMutation.error || clockOutMutation.error) && (
-        <div className="border-t border-red-200 bg-red-50 px-4 py-3 dark:border-red-900 dark:bg-red-900/20">
-          <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+        <div className="border-t border-error-200 bg-error-50 px-4 py-3 dark:border-error-900 dark:bg-error-900/20">
+          <div className="flex items-center gap-2 text-sm text-error-600 dark:text-error-400">
             <AlertCircle className="h-4 w-4" />
             {clockInMutation.error?.message || clockOutMutation.error?.message}
           </div>

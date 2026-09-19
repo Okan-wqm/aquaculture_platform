@@ -7,6 +7,15 @@ import { useToast, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { validateDocumentFile, formatFileSize } from '../../../hooks/useFileUpload';
 import type { BatchDocumentInput, BatchDocumentType } from '../../../hooks/useBatches';
 import type { UploadedDocument } from '../../../hooks/useFileUpload';
+import {
+  CircleCheck,
+  CloudUpload,
+  File as FileIcon,
+  FileChartColumn,
+  Image,
+  Plus,
+  X,
+} from 'lucide-react';
 
 interface LocalDocument {
   id: string; // client-side key for the row until the upload returns the stored document id
@@ -34,7 +43,11 @@ interface DocumentUploadSectionProps {
   documentType: BatchDocumentType;
   documents: LocalDocument[];
   onDocumentsChange: (docs: LocalDocument[]) => void;
-  onUpload: (file: File, documentName: string, documentNumber?: string) => Promise<UploadedDocument>;
+  onUpload: (
+    file: File,
+    documentName: string,
+    documentNumber?: string,
+  ) => Promise<UploadedDocument>;
   required?: boolean;
   maxDocuments?: number;
 }
@@ -55,89 +68,103 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const { toast } = useToast();
 
-  const handleFileSelect = useCallback(async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+  const handleFileSelect = useCallback(
+    async (files: FileList | null) => {
+      if (!files || files.length === 0) return;
 
-    const file = files[0];
-    const validation = validateDocumentFile(file);
+      const file = files[0];
+      const validation = validateDocumentFile(file);
 
-    if (!validation.valid) {
-      toast({ title: 'Invalid File', description: validation.error || 'Invalid file type or size.', variant: 'error' });
-      return;
-    }
+      if (!validation.valid) {
+        toast({
+          title: 'Invalid File',
+          description: validation.error || 'Invalid file type or size.',
+          variant: 'error',
+        });
+        return;
+      }
 
-    if (documents.length >= maxDocuments) {
-      toast({ title: 'Limit Reached', description: `Maximum ${maxDocuments} documents allowed.`, variant: 'error' });
-      return;
-    }
+      if (documents.length >= maxDocuments) {
+        toast({
+          title: 'Limit Reached',
+          description: `Maximum ${maxDocuments} documents allowed.`,
+          variant: 'error',
+        });
+        return;
+      }
 
-    // Create local document entry
-    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-    const newDoc: LocalDocument = {
-      id: tempId,
-      file,
-      documentName: newDocName || file.name.replace(/\.[^/.]+$/, ''),
-      documentNumber: newDocNumber || undefined,
-      documentType,
-      originalFilename: file.name,
-      mimeType: file.type,
-      fileSize: file.size,
-      isUploaded: false,
-      isUploading: true,
-    };
+      // Create local document entry
+      const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const newDoc: LocalDocument = {
+        id: tempId,
+        file,
+        documentName: newDocName || file.name.replace(/\.[^/.]+$/, ''),
+        documentNumber: newDocNumber || undefined,
+        documentType,
+        originalFilename: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+        isUploaded: false,
+        isUploading: true,
+      };
 
-    // Add to list with uploading status
-    onDocumentsChange([...documents, newDoc]);
+      // Add to list with uploading status
+      onDocumentsChange([...documents, newDoc]);
 
-    // Reset form
-    setNewDocName('');
-    setNewDocNumber('');
-    setShowAddForm(false);
+      // Reset form
+      setNewDocName('');
+      setNewDocNumber('');
+      setShowAddForm(false);
 
-    try {
-      // Upload the file
-      const result = await onUpload(file, newDoc.documentName, newDoc.documentNumber);
+      try {
+        // Upload the file
+        const result = await onUpload(file, newDoc.documentName, newDoc.documentNumber);
 
-      // Update the document with upload result
-      onDocumentsChange(
-        documents.map(d =>
-          d.id === tempId
-            ? {
-                ...d,
-                storagePath: result.storagePath,
-                storageUrl: result.storageUrl,
-                isUploaded: true,
-                isUploading: false,
-              }
-            : d
-        )
-      );
-    } catch (error) {
-      // Update with error status
-      onDocumentsChange(
-        documents.map(d =>
-          d.id === tempId
-            ? {
-                ...d,
-                isUploading: false,
-                uploadError: error instanceof Error ? error.message : 'Upload failed',
-              }
-            : d
-        )
-      );
-    }
+        // Update the document with upload result
+        onDocumentsChange(
+          documents.map((d) =>
+            d.id === tempId
+              ? {
+                  ...d,
+                  storagePath: result.storagePath,
+                  storageUrl: result.storageUrl,
+                  isUploaded: true,
+                  isUploading: false,
+                }
+              : d,
+          ),
+        );
+      } catch (error) {
+        // Update with error status
+        onDocumentsChange(
+          documents.map((d) =>
+            d.id === tempId
+              ? {
+                  ...d,
+                  isUploading: false,
+                  uploadError: error instanceof Error ? error.message : 'Upload failed',
+                }
+              : d,
+          ),
+        );
+      }
 
-    // Reset file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  }, [documents, documentType, maxDocuments, newDocName, newDocNumber, onDocumentsChange, onUpload]);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    },
+    [documents, documentType, maxDocuments, newDocName, newDocNumber, onDocumentsChange, onUpload],
+  );
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    handleFileSelect(e.dataTransfer.files);
-  }, [handleFileSelect]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      handleFileSelect(e.dataTransfer.files);
+    },
+    [handleFileSelect],
+  );
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -150,7 +177,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
   }, []);
 
   const handleRemoveDocument = (docId: string) => {
-    onDocumentsChange(documents.filter(d => d.id !== docId));
+    onDocumentsChange(documents.filter((d) => d.id !== docId));
   };
 
   const handleRetryUpload = async (doc: LocalDocument) => {
@@ -158,18 +185,16 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
 
     // Mark as uploading
     onDocumentsChange(
-      documents.map(d =>
-        d.id === doc.id
-          ? { ...d, isUploading: true, uploadError: undefined }
-          : d
-      )
+      documents.map((d) =>
+        d.id === doc.id ? { ...d, isUploading: true, uploadError: undefined } : d,
+      ),
     );
 
     try {
       const result = await onUpload(doc.file, doc.documentName, doc.documentNumber);
 
       onDocumentsChange(
-        documents.map(d =>
+        documents.map((d) =>
           d.id === doc.id
             ? {
                 ...d,
@@ -178,52 +203,39 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
                 isUploaded: true,
                 isUploading: false,
               }
-            : d
-        )
+            : d,
+        ),
       );
     } catch (error) {
       onDocumentsChange(
-        documents.map(d =>
+        documents.map((d) =>
           d.id === doc.id
             ? {
                 ...d,
                 isUploading: false,
                 uploadError: error instanceof Error ? error.message : 'Upload failed',
               }
-            : d
-        )
+            : d,
+        ),
       );
     }
   };
 
   const getFileIcon = (mimeType: string) => {
     if (mimeType.includes('pdf')) {
-      return (
-        <svg className="w-8 h-8 text-red-500" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/>
-          <path d="M8 12h2v5H8v-5zm3 0h2v5h-2v-5zm3 0h2v5h-2v-5z"/>
-        </svg>
-      );
+      return <FileChartColumn className="w-8 h-8 text-error-500" aria-hidden="true" />;
     }
     if (mimeType.includes('image')) {
-      return (
-        <svg className="w-8 h-8 text-green-500" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM5 19V5h14v14H5zm4-4h6l-2-2.5-1.5 2L10 13l-1 2z"/>
-        </svg>
-      );
+      return <Image className="w-8 h-8 text-success-500" aria-hidden="true" />;
     }
-    return (
-      <svg className="w-8 h-8 text-blue-500" fill="currentColor" viewBox="0 0 24 24">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zM6 20V4h7v5h5v11H6z"/>
-      </svg>
-    );
+    return <FileIcon className="w-8 h-8 text-info-500" aria-hidden="true" />;
   };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {title} {required && <span className="text-red-500">*</span>}
+          {title} {required && <span className="text-error-500">*</span>}
         </h4>
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {documents.length}/{maxDocuments} documents
@@ -238,16 +250,18 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               key={doc.id}
               className={`flex items-center justify-between p-3 rounded-lg border ${
                 doc.uploadError
-                  ? 'border-red-300 bg-red-50'
+                  ? 'border-error-300 dark:border-error-700 bg-error-50 dark:bg-error-900/20'
                   : doc.isUploading
-                  ? 'border-yellow-300 bg-yellow-50'
-                  : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
+                    ? 'border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20'
+                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
               }`}
             >
               <div className="flex items-center space-x-3">
                 {getFileIcon(doc.mimeType)}
                 <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{doc.documentName}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {doc.documentName}
+                  </p>
                   <div className="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
                     <span>{doc.originalFilename}</span>
                     <span>-</span>
@@ -260,26 +274,40 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
                     )}
                   </div>
                   {doc.uploadError && (
-                    <p className="text-xs text-red-600 mt-1">{doc.uploadError}</p>
+                    <p className="text-xs text-error-600 dark:text-error-400 mt-1">
+                      {doc.uploadError}
+                    </p>
                   )}
                 </div>
               </div>
 
               <div className="flex items-center space-x-2">
-                {doc.isUploading && (
-                  <Spinner size="md" />
-                )}
+                {doc.isUploading && <Spinner size="md" />}
                 {doc.isUploaded && (
-                  <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd"/>
-                  </svg>
+                  <CircleCheck
+                    className="h-5 w-5 text-success-600 dark:text-success-400"
+                    aria-hidden="true"
+                  />
                 )}
                 {doc.uploadError && (
-                  <Button variant="ghost" size="xs" type="button" onClick={() => handleRetryUpload(doc)}>Retry</Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    type="button"
+                    onClick={() => handleRetryUpload(doc)}
+                  >
+                    Retry
+                  </Button>
                 )}
-                <Button variant="ghost" size="sm" type="button" onClick={() => handleRemoveDocument(doc.id)} title="Remove document"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
-                  </svg></Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  onClick={() => handleRemoveDocument(doc.id)}
+                  title="Remove document"
+                >
+                  <X className="w-5 h-5" aria-hidden="true" />
+                </Button>
               </div>
             </div>
           ))}
@@ -292,15 +320,27 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Document Name <span className="text-red-500">*</span>
+                Document Name <span className="text-error-500">*</span>
               </label>
-              <Input fullWidth type="text" value={newDocName} onChange={(e) => setNewDocName(e.target.value)} placeholder="e.g., Health Certificate 2024" />
+              <Input
+                fullWidth
+                type="text"
+                value={newDocName}
+                onChange={(e) => setNewDocName(e.target.value)}
+                placeholder="e.g., Health Certificate 2024"
+              />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Document Number
               </label>
-              <Input fullWidth type="text" value={newDocNumber} onChange={(e) => setNewDocNumber(e.target.value)} placeholder="e.g., HC-2024-001" />
+              <Input
+                fullWidth
+                type="text"
+                value={newDocNumber}
+                onChange={(e) => setNewDocNumber(e.target.value)}
+                placeholder="e.g., HC-2024-001"
+              />
             </div>
           </div>
 
@@ -311,7 +351,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
             onDragLeave={handleDragLeave}
             className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
               dragOver
-                ? 'border-blue-400 bg-blue-50'
+                ? 'border-info-400 bg-info-50 dark:bg-info-900/20'
                 : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
             }`}
           >
@@ -322,32 +362,44 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               onChange={(e) => handleFileSelect(e.target.files)}
               className="hidden"
             />
-            <svg className="mx-auto h-10 w-10 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-            </svg>
+            <CloudUpload
+              className="mx-auto h-10 w-10 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
             <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-              <Button variant="ghost" type="button" onClick={() => fileInputRef.current?.click()}>Choose file</Button>
-              {' '}or drag and drop
+              <Button variant="ghost" type="button" onClick={() => fileInputRef.current?.click()}>
+                Choose file
+              </Button>{' '}
+              or drag and drop
             </p>
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">PDF, DOC, PNG, JPG up to 15MB</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              PDF, DOC, PNG, JPG up to 15MB
+            </p>
           </div>
 
           <div className="flex justify-end space-x-2">
-            <Button variant="ghost" size="sm" type="button" onClick={() => {
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => {
                 setShowAddForm(false);
                 setNewDocName('');
                 setNewDocNumber('');
-              }}>Cancel</Button>
+              }}
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       ) : (
         documents.length < maxDocuments && (
-          <Button variant="secondary" type="button" onClick={() => setShowAddForm(true)}><span className="flex items-center justify-center">
-              <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4"/>
-              </svg>
+          <Button variant="secondary" type="button" onClick={() => setShowAddForm(true)}>
+            <span className="flex items-center justify-center">
+              <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
               Add Document
-            </span></Button>
+            </span>
+          </Button>
         )
       )}
     </div>

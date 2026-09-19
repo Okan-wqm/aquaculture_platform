@@ -13,19 +13,20 @@
 
 import { clsx } from 'clsx';
 import {
-  UserPlus,
+  AlertCircle,
   Bell,
   BellOff,
   BellRing,
+  Brain,
+  Check,
+  ChevronRight,
+  Edit3,
   Image,
   Link,
   LogOut,
-  Trash2,
-  Edit3,
-  ChevronRight,
-  AlertCircle,
-  Brain,
   Sparkles,
+  Trash2,
+  UserPlus,
 } from 'lucide-react';
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -87,8 +88,7 @@ export function ChannelSettingsPage(): JSX.Element {
   const { channelId } = useParams<{ channelId: string }>();
   const { user } = useAuth();
 
-  const { channel, isLoading: loading, error: queryError, refetch } =
-    useChannelDetail(channelId);
+  const { channel, isLoading: loading, error: queryError, refetch } = useChannelDetail(channelId);
   const {
     updateNotificationPref,
     leaveChannel,
@@ -110,12 +110,7 @@ export function ChannelSettingsPage(): JSX.Element {
   }, []);
 
   // AI consent hook
-  const {
-    isAiEnabled,
-    hasConsented,
-    toggleConsent,
-    isLoading: aiConsentLoading,
-  } = useAiConsent();
+  const { isAiEnabled, hasConsented, toggleConsent, isLoading: aiConsentLoading } = useAiConsent();
 
   // Determine current user's role in this channel
   const myMembership = useMemo(() => {
@@ -162,7 +157,9 @@ export function ChannelSettingsPage(): JSX.Element {
   }, [archiveChannel, navigate]);
 
   const error = queryError
-    ? (queryError instanceof Error ? queryError.message : 'Failed to load channel')
+    ? queryError instanceof Error
+      ? queryError.message
+      : 'Failed to load channel'
     : null;
 
   /** Add a user to the channel and close the add-member sheet. */
@@ -188,9 +185,7 @@ export function ChannelSettingsPage(): JSX.Element {
     if (!addMemberSearch.trim()) return filtered;
     const query = addMemberSearch.toLowerCase();
     return filtered.filter(
-      (u) =>
-        u.name.toLowerCase().includes(query) ||
-        u.email.toLowerCase().includes(query),
+      (u) => u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query),
     );
   }, [tenantUsers, activeMembers, addMemberSearch]);
 
@@ -198,10 +193,7 @@ export function ChannelSettingsPage(): JSX.Element {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <PageHeader
-          tone="plain"
-          title="Channel Info"
-        />
+        <PageHeader tone="plain" title="Channel Info" />
         <div className="flex items-center justify-center min-h-[50vh]">
           <Spinner size="lg" />
         </div>
@@ -213,10 +205,7 @@ export function ChannelSettingsPage(): JSX.Element {
   if (error || !channel) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <PageHeader
-          tone="plain"
-          title="Channel Info"
-        />
+        <PageHeader tone="plain" title="Channel Info" />
         <div className="px-4 mt-4">
           <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-center gap-3 border border-red-200 dark:border-red-800">
             <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
@@ -236,10 +225,7 @@ export function ChannelSettingsPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <PageHeader
-        tone="plain"
-        title="Channel Info"
-      />
+      <PageHeader tone="plain" title="Channel Info" />
 
       {/* Channel avatar + name */}
       <div className="flex flex-col items-center pt-6 pb-4 px-4">
@@ -252,11 +238,12 @@ export function ChannelSettingsPage(): JSX.Element {
 
         <div className="mt-3 text-center">
           <div className="flex items-center justify-center gap-2">
-            <h2 className="text-lg font-bold text-gray-900 dark:text-white">
-              {displayName}
-            </h2>
+            <h2 className="text-lg font-bold text-gray-900 dark:text-white">{displayName}</h2>
             {canEdit && channel.type === 'group' && (
-              <IconButton aria-label="Rename group" className="rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+              <IconButton
+                aria-label="Rename group"
+                className="rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
                 <Edit3 size={14} className="text-gray-400 dark:text-gray-500" />
               </IconButton>
             )}
@@ -316,16 +303,14 @@ export function ChannelSettingsPage(): JSX.Element {
                 return (
                   <button
                     key={option.value}
-                    onClick={() => { void handleNotifChange(option.value); }}
+                    onClick={() => {
+                      void handleNotifChange(option.value);
+                    }}
                     className="w-full flex items-center gap-3 px-4 py-3.5 touch-feedback transition-all border-b border-gray-50 dark:border-gray-800 last:border-0"
                   >
                     <OptIcon
                       size={18}
-                      className={
-                        isSelected
-                          ? 'text-ocean-500'
-                          : 'text-gray-400 dark:text-gray-500'
-                      }
+                      className={isSelected ? 'text-ocean-500' : 'text-gray-400 dark:text-gray-500'}
                     />
                     <div className="flex-1 text-left">
                       <span
@@ -341,18 +326,7 @@ export function ChannelSettingsPage(): JSX.Element {
                     </div>
                     {isSelected && (
                       <div className="w-5 h-5 bg-ocean-500 rounded-full flex items-center justify-center">
-                        <svg
-                          width="12"
-                          height="12"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="white"
-                          strokeWidth="3"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M20 6 9 17l-5-5" />
-                        </svg>
+                        <Check strokeWidth="3" size={12} aria-hidden="true" />
                       </div>
                     )}
                   </button>
@@ -402,9 +376,7 @@ export function ChannelSettingsPage(): JSX.Element {
                   <Brain size={20} className="text-purple-600" />
                 </div>
                 <div>
-                  <span className="font-medium text-gray-900 dark:text-white">
-                    AI Analysis
-                  </span>
+                  <span className="font-medium text-gray-900 dark:text-white">AI Analysis</span>
                   <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                     {isAiEnabled ? 'Enabled for this tenant' : 'Not enabled for tenant'}
                   </p>
@@ -435,9 +407,7 @@ export function ChannelSettingsPage(): JSX.Element {
                 never a fabricated verdict (MOB-MEDIUM-003). */}
             {latestSentiment !== null && (
               <div className="px-4 py-3 flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-300">
-                  Weekly Sentiment
-                </span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">Weekly Sentiment</span>
                 <SentimentBadge trend={latestSentiment.badge} />
               </div>
             )}
@@ -486,9 +456,7 @@ export function ChannelSettingsPage(): JSX.Element {
             <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 flex items-center justify-center">
               <LogOut size={20} className="text-red-600" />
             </div>
-            <span className="font-medium text-red-600 dark:text-red-400">
-              Leave Channel
-            </span>
+            <span className="font-medium text-red-600 dark:text-red-400">Leave Channel</span>
           </button>
 
           {isOwner && (
@@ -500,14 +468,11 @@ export function ChannelSettingsPage(): JSX.Element {
               <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-900/30 flex items-center justify-center">
                 <Trash2 size={20} className="text-red-600" />
               </div>
-              <span className="font-medium text-red-600 dark:text-red-400">
-                Delete Channel
-              </span>
+              <span className="font-medium text-red-600 dark:text-red-400">Delete Channel</span>
             </button>
           )}
         </div>
       </div>
-
 
       {/* Confirmation sheets */}
       <ConfirmSheet
@@ -558,7 +523,9 @@ export function ChannelSettingsPage(): JSX.Element {
               {availableUsers.map((u) => (
                 <button
                   key={u.id}
-                  onClick={() => { void handleAddMember(u.id); }}
+                  onClick={() => {
+                    void handleAddMember(u.id);
+                  }}
                   disabled={actionLoading}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 touch-feedback transition-colors"
                 >
@@ -571,9 +538,7 @@ export function ChannelSettingsPage(): JSX.Element {
                     <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
                       {u.name}
                     </p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">
-                      {u.email}
-                    </p>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{u.email}</p>
                   </div>
                   {u.isOnline && (
                     <div className="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0" />

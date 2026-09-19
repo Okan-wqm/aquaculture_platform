@@ -28,7 +28,9 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
   const updateEntry = useUpdateFinanceEntry();
 
   const [categoryId, setCategoryId] = useState(entry?.categoryId ?? '');
-  const [entryDate, setEntryDate] = useState(entry?.entryDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10));
+  const [entryDate, setEntryDate] = useState(
+    entry?.entryDate?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+  );
   const [amount, setAmount] = useState<string>(entry ? entry.amountDecimal : '');
   const [description, setDescription] = useState(entry?.description ?? '');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -51,7 +53,12 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
       if (entry) {
         await updateEntry.mutateAsync({
           id: entry.id,
-          input: { categoryId, entryDate, amount: parsedAmount, description: description || undefined },
+          input: {
+            categoryId,
+            entryDate,
+            amount: parsedAmount,
+            description: description || undefined,
+          },
         });
       } else {
         await createEntry.mutateAsync({
@@ -77,21 +84,28 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
       size="md"
       footer={
         <div className="flex justify-end space-x-3">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" form={formId} disabled={isSaving}>{isSaving ? 'Saving…' : entry ? 'Save changes' : 'Add entry'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" form={formId} disabled={isSaving}>
+            {isSaving ? 'Saving…' : entry ? 'Save changes' : 'Add entry'}
+          </Button>
         </div>
       }
     >
       <form id={formId} onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="entry-category" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="entry-category"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Category
           </label>
           <select
             id="entry-category"
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             required
           >
             <option value="">Select a category…</option>
@@ -105,29 +119,68 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label htmlFor="entry-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="entry-date"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Date
             </label>
-            <Input fullWidth id="entry-date" type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} required />
+            <Input
+              fullWidth
+              id="entry-date"
+              type="date"
+              value={entryDate}
+              onChange={(e) => setEntryDate(e.target.value)}
+              required
+            />
           </div>
           <div>
-            <label htmlFor="entry-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="entry-amount"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Amount
             </label>
-            <Input fullWidth id="entry-amount" type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" required />
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Booked in the tenant default currency</p>
+            <Input
+              fullWidth
+              id="entry-amount"
+              type="number"
+              min="0"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              required
+            />
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              Booked in the tenant default currency
+            </p>
           </div>
         </div>
 
         <div>
-          <label htmlFor="entry-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="entry-description"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Description
           </label>
-          <Textarea fullWidth id="entry-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} placeholder="Optional note (e.g. January electricity invoice)" />
+          <Textarea
+            fullWidth
+            id="entry-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+            placeholder="Optional note (e.g. January electricity invoice)"
+          />
         </div>
 
         {errorMessage && (
-          <div role="alert" aria-live="assertive" className="rounded-md bg-red-50 p-3 text-sm text-red-700">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="rounded-md bg-error-50 dark:bg-error-900/20 p-3 text-sm text-error-700 dark:text-error-300"
+          >
             {errorMessage}
           </div>
         )}

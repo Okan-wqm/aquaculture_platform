@@ -31,20 +31,17 @@ import {
   Modal,
   formatErrorForToast,
   useCanMutate,
-  useToast, Input } from '@aquaculture/shared-ui';
+  useToast,
+  Input,
+} from '@aquaculture/shared-ui';
 
-import {
-  type MaintenanceSchedule,
-  useUpdateMeterReading,
-} from '../../../hooks/useMaintenance';
+import { type MaintenanceSchedule, useUpdateMeterReading } from '../../../hooks/useMaintenance';
 
 interface UpdateMeterReadingButtonProps {
   schedule: MaintenanceSchedule;
 }
 
-const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
-  schedule,
-}) => {
+const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({ schedule }) => {
   const canUpdate = useCanMutate('updateMeterReading');
   const { toast } = useToast();
   const updateMutation = useUpdateMeterReading();
@@ -79,9 +76,7 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
     } else if (meterParsed < 0) {
       errs.push('Sayaç okuması negatif olamaz.');
     } else if (lastMeter != null && meterParsed < lastMeter) {
-      errs.push(
-        `Yeni okuma (${meterParsed}) son bakım okumasından (${lastMeter}) küçük olamaz.`,
-      );
+      errs.push(`Yeni okuma (${meterParsed}) son bakım okumasından (${lastMeter}) küçük olamaz.`);
     }
     return errs;
   }, [meterParsed, lastMeter]);
@@ -119,7 +114,14 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
 
   return (
     <>
-      <Button variant="ghost" type="button" onClick={() => setIsOpen(true)} title="Sayaç okumasını güncelle (METER_BASED)">Sayaç Güncelle</Button>
+      <Button
+        variant="ghost"
+        type="button"
+        onClick={() => setIsOpen(true)}
+        title="Sayaç okumasını güncelle (METER_BASED)"
+      >
+        Sayaç Güncelle
+      </Button>
 
       <Modal
         isOpen={isOpen}
@@ -134,14 +136,8 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               {schedule.scheduleCode} — {schedule.name}
             </p>
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {currentMeter != null ? (
-                <>Mevcut: {currentMeter}</>
-              ) : (
-                <>Mevcut: kayıtlı okuma yok</>
-              )}
-              {lastMeter != null && (
-                <> · son bakım okuması: {lastMeter}</>
-              )}
+              {currentMeter != null ? <>Mevcut: {currentMeter}</> : <>Mevcut: kayıtlı okuma yok</>}
+              {lastMeter != null && <> · son bakım okuması: {lastMeter}</>}
               {schedule.nextMaintenanceMeterReading != null && (
                 <> · sonraki bakım: {schedule.nextMaintenanceMeterReading}</>
               )}
@@ -153,14 +149,23 @@ const UpdateMeterReadingButton: React.FC<UpdateMeterReadingButtonProps> = ({
               htmlFor="meter-reading-input"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Yeni Sayaç Okuması{' '}
-              <span className="text-red-600">*</span>
+              Yeni Sayaç Okuması <span className="text-error-600 dark:text-error-400">*</span>
             </label>
-            <Input fullWidth id="meter-reading-input" type="number" step="0.01" min={lastMeter ?? 0} value={meterRaw} onChange={(e) => setMeterRaw(e.target.value)} required autoFocus />
+            <Input
+              fullWidth
+              id="meter-reading-input"
+              type="number"
+              step="0.01"
+              min={lastMeter ?? 0}
+              value={meterRaw}
+              onChange={(e) => setMeterRaw(e.target.value)}
+              required
+              autoFocus
+            />
           </div>
 
           {errors.length > 0 && (
-            <ul className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-800 space-y-1">
+            <ul className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md p-3 text-sm text-error-800 dark:text-error-200 space-y-1">
               {errors.map((msg, idx) => (
                 <li key={idx}>• {msg}</li>
               ))}

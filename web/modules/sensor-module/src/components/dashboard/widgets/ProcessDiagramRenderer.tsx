@@ -403,14 +403,21 @@ const renderDemandFeeder = (x: number, y: number, displayName: string) => (
  */
 const renderConnectionPoint = (x: number, y: number, displayName: string) => (
   <g key={`cp-${x}-${y}`} transform={`translate(${x}, ${y})`}>
-    <circle cx={15} cy={15} r={12} fill={themeColors.warning[500]} stroke="#333" strokeWidth={2} />
+    <circle
+      cx={15}
+      cy={15}
+      r={12}
+      fill={themeColors.warning[500]}
+      stroke={themeColors.neutral[700]}
+      strokeWidth={2}
+    />
     <text
       x={15}
       y={19}
       textAnchor="middle"
       fontSize={8}
       fontFamily="system-ui, sans-serif"
-      fill="#333"
+      fill={themeColors.neutral[700]}
       fontWeight="bold"
     >
       CP
@@ -695,7 +702,9 @@ export const ProcessDiagramRenderer: React.FC<ProcessDiagramRendererProps> = ({
 
   if (nodes.length === 0) {
     return (
-      <div className={`flex items-center justify-center h-full text-gray-500 dark:text-gray-400 ${className}`}>
+      <div
+        className={`flex items-center justify-center h-full text-gray-500 dark:text-gray-400 ${className}`}
+      >
         No process diagram
       </div>
     );

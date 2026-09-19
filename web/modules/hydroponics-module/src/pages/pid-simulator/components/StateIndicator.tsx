@@ -8,34 +8,86 @@ interface StateIndicatorProps {
   currentState: SimStateName;
 }
 
-const STATE_INFO: Record<SimStateName, { label: string; bg: string; activeBg: string; text: string }> = {
-  IDLE:      { label: 'IDLE',      bg: 'bg-gray-100 dark:bg-gray-800',   activeBg: 'bg-gray-600',   text: 'text-gray-500 dark:text-gray-400' },
-  EC:        { label: 'EC',        bg: 'bg-orange-100', activeBg: 'bg-orange-500', text: 'text-orange-500' },
-  EC_WAIT:   { label: 'EC WAIT',   bg: 'bg-yellow-100', activeBg: 'bg-yellow-500', text: 'text-yellow-600' },
-  CHEM_DT:   { label: 'CHEM DT',   bg: 'bg-amber-100', activeBg: 'bg-amber-500', text: 'text-amber-600' },
-  PH:        { label: 'pH',        bg: 'bg-blue-100',   activeBg: 'bg-blue-500',   text: 'text-blue-500' },
-  PH_WAIT:   { label: 'pH WAIT',   bg: 'bg-indigo-100', activeBg: 'bg-indigo-500', text: 'text-indigo-600' },
-  DILUTE:    { label: 'DILUTE',    bg: 'bg-cyan-100',   activeBg: 'bg-cyan-500',   text: 'text-cyan-600' },
-  ALARM:     { label: 'ALARM',     bg: 'bg-red-100',    activeBg: 'bg-red-500',    text: 'text-red-600' },
+const STATE_INFO: Record<
+  SimStateName,
+  { label: string; bg: string; activeBg: string; text: string }
+> = {
+  IDLE: {
+    label: 'IDLE',
+    bg: 'bg-gray-100 dark:bg-gray-800',
+    activeBg: 'bg-gray-600',
+    text: 'text-gray-500 dark:text-gray-400',
+  },
+  EC: {
+    label: 'EC',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    activeBg: 'bg-accent-500',
+    text: 'text-accent-500',
+  },
+  EC_WAIT: {
+    label: 'EC WAIT',
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    activeBg: 'bg-warning-500',
+    text: 'text-warning-600 dark:text-warning-400',
+  },
+  CHEM_DT: {
+    label: 'CHEM DT',
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    activeBg: 'bg-warning-500',
+    text: 'text-warning-600 dark:text-warning-400',
+  },
+  PH: {
+    label: 'pH',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+    activeBg: 'bg-info-500',
+    text: 'text-info-500',
+  },
+  PH_WAIT: {
+    label: 'pH WAIT',
+    bg: 'bg-primary-100 dark:bg-primary-900/40',
+    activeBg: 'bg-primary-500',
+    text: 'text-primary-600 dark:text-primary-400',
+  },
+  DILUTE: {
+    label: 'DILUTE',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+    activeBg: 'bg-info-500',
+    text: 'text-info-600 dark:text-info-400',
+  },
+  ALARM: {
+    label: 'ALARM',
+    bg: 'bg-error-100 dark:bg-error-900/40',
+    activeBg: 'bg-error-500',
+    text: 'text-error-600 dark:text-error-400',
+  },
 };
 
-const STATES: SimStateName[] = ['IDLE', 'EC', 'EC_WAIT', 'CHEM_DT', 'PH', 'PH_WAIT', 'DILUTE', 'ALARM'];
+const STATES: SimStateName[] = [
+  'IDLE',
+  'EC',
+  'EC_WAIT',
+  'CHEM_DT',
+  'PH',
+  'PH_WAIT',
+  'DILUTE',
+  'ALARM',
+];
 
 const StateIndicator: React.FC<StateIndicatorProps> = ({ currentState }) => {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Controller</h4>
+      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+        Controller
+      </h4>
       <div className="flex flex-wrap gap-1">
-        {STATES.map(s => {
+        {STATES.map((s) => {
           const isActive = currentState === s;
           const info = STATE_INFO[s];
           return (
             <div
               key={s}
               className={`px-2 py-1 rounded text-xs font-mono font-semibold transition-colors ${
-                isActive
-                  ? `${info.activeBg} text-white`
-                  : `${info.bg} ${info.text}`
+                isActive ? `${info.activeBg} text-white` : `${info.bg} ${info.text}`
               }`}
             >
               {info.label}

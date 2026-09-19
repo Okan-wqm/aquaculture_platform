@@ -120,7 +120,7 @@ const TenantSettings: React.FC = () => {
         actions={
           <>
             {!canEditSettings && (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 rounded-lg border border-amber-200">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/20 rounded-lg border border-warning-200 dark:border-warning-800">
                 <Lock className="w-3.5 h-3.5" />
                 Read-only access
               </div>
@@ -141,13 +141,15 @@ const TenantSettings: React.FC = () => {
                   onClick={() => setActiveSection(section.id)}
                   className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
                     activeSection === section.id
-                      ? 'bg-green-50 text-green-700'
+                      ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300'
                       : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   <span
                     className={`flex-shrink-0 ${
-                      activeSection === section.id ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'
+                      activeSection === section.id
+                        ? 'text-success-600 dark:text-success-400'
+                        : 'text-gray-500 dark:text-gray-400'
                     }`}
                   >
                     {section.icon}
@@ -160,7 +162,9 @@ const TenantSettings: React.FC = () => {
                   </div>
                   <ChevronRight
                     className={`w-4 h-4 flex-shrink-0 ${
-                      activeSection === section.id ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'
+                      activeSection === section.id
+                        ? 'text-success-600 dark:text-success-400'
+                        : 'text-gray-500 dark:text-gray-400'
                     }`}
                   />
                 </button>

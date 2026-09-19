@@ -9,6 +9,7 @@ import { Button } from '@aquaculture/shared-ui';
 import { useTankCleanerFish } from '../../../hooks/useCleanerFish';
 import { isBlockingError } from '../../../utils/list-view-state';
 import { SourceTypeLabels } from '../types';
+import { Inbox } from 'lucide-react';
 
 interface TankCleanerFishCardProps {
   tankId: string;
@@ -59,7 +60,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
             <p className="text-sm text-gray-500 dark:text-gray-400">{tankCode}</p>
           </div>
         </div>
-        <p className="text-sm text-red-500">Failed to load cleaner fish info</p>
+        <p className="text-sm text-error-500">Failed to load cleaner fish info</p>
       </div>
     );
   }
@@ -70,13 +71,13 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
     <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
       {/* Non-blocking refresh error — keeps the last-loaded card visible. */}
       {error && (
-        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2">
-          <p className="text-xs text-amber-800">
+        <div className="flex items-center justify-between border-b border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 px-4 py-2">
+          <p className="text-xs text-warning-800 dark:text-warning-200">
             Couldn&apos;t refresh — showing the last loaded data.
           </p>
           <button
             onClick={() => refetch()}
-            className="ml-3 shrink-0 rounded bg-amber-100 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-200"
+            className="ml-3 shrink-0 rounded bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs text-warning-800 dark:text-warning-200 hover:bg-warning-200 dark:hover:bg-warning-800/60"
           >
             Retry
           </button>
@@ -93,7 +94,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
           <div className="text-right">
             {hasCleanerFish ? (
               <>
-                <p className="text-2xl font-bold text-blue-600">
+                <p className="text-2xl font-bold text-info-600 dark:text-info-400">
                   {tankInfo.cleanerFishQuantity.toLocaleString()}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">fish</p>
@@ -134,7 +135,9 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
             <div key={detail.batchId} className="px-4 py-3">
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">{detail.speciesName}</h4>
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {detail.speciesName}
+                  </h4>
                   <p className="text-xs text-gray-500 dark:text-gray-400">{detail.batchNumber}</p>
                 </div>
                 <div className="text-right">
@@ -148,14 +151,12 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
               </div>
 
               <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-2">
-                <span>
-                  Deployed: {formatDate(detail.deployedAt)}
-                </span>
+                <span>Deployed: {formatDate(detail.deployedAt)}</span>
                 <span
                   className={`px-2 py-0.5 rounded-full ${
                     detail.sourceType === 'farmed'
-                      ? 'bg-blue-100 text-blue-700'
-                      : 'bg-amber-100 text-amber-700'
+                      ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                      : 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
                   }`}
                 >
                   {SourceTypeLabels[detail.sourceType] || detail.sourceType}
@@ -176,7 +177,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
                   variant="secondary"
                   size="sm"
                   onClick={() => onMortality(tankId, detail.batchId)}
-                  className="flex-1 text-xs text-red-600 hover:text-red-700"
+                  className="flex-1 text-xs text-error-600 dark:text-error-400 hover:text-error-700 dark:hover:text-error-200"
                 >
                   Mortality
                 </Button>
@@ -197,22 +198,8 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
       {/* Empty State */}
       {!hasCleanerFish && (
         <div className="px-4 py-8 text-center">
-          <svg
-            className="mx-auto h-8 w-8 text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-            />
-          </svg>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            No cleaner fish deployed
-          </p>
+          <Inbox className="mx-auto h-8 w-8 text-gray-300" aria-hidden="true" />
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No cleaner fish deployed</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             Deploy cleaner fish from the Batches tab
           </p>

@@ -42,9 +42,15 @@
  * band AquaMobil's PageHeader owns (tone, back arrow, icon, actions) —
  * written by hand in a dozen spellings across 169 pages in the survey.
  *
+ * An icon-shaped `<svg>` (FE-MEDIUM-082) is a hand-pasted glyph — a 16, 20 or
+ * 24 unit viewBox — beside the lucide-react set every package renders from:
+ * 733 of them in the survey against lucide in 308 files.
  * A light-only surface (FE-MEDIUM-072) is a class string that paints
  * `bg-white`, `bg-gray-50` or `bg-gray-100` with no `dark:` sibling: under the
- * shell's dark theme the element keeps its light colour. theme.css keys
+ * shell's dark theme the element keeps its light colour. A semantic tint
+ * (`bg-success-50`, `bg-primary-100` — the Alert, Badge, KpiCard and chip
+ * surfaces, FE-MEDIUM-081) is a light surface too and pairs the same way.
+ * theme.css keys
  * `dark:` on `[data-theme='dark']` (the shell's toggle, or a dialog pinned
  * dark), so a surface is dark-aware exactly when every light class it paints
  * has a dark counterpart — 2,600 did not in the survey. The three shared-ui
@@ -80,7 +86,15 @@ function isPrimitive(file: string): boolean {
 }
 
 const OVERLAY = /fixed inset-0/;
-const RAW_HEX = /#[0-9a-fA-F]{6}\b/g;
+// A raw colour in any CSS spelling: #rgb, #rgba, #rrggbb, #rrggbbaa. Not an HTML
+// entity (&#9888;), an IEC literal (16#FF, T#5s) or an issue number in prose — the
+// look-behind rejects a word character, `&` or `#` before the hash, and comment
+// lines are stripped before counting.
+const RAW_HEX = /(?<![\w&#$])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g;
+/** Block comments — the JSX-wrapped ones too — including prose lines inside them that carry no star prefix. */
+const BLOCK_COMMENT = /\/\*[\s\S]*?\*\//g;
+/** The token source itself: the one file that may spell a colour as hex. */
+const THEME_TOKEN_SOURCE = 'web/shared-ui/src/styles/theme.ts';
 /**
  * A colour utility on one of Tailwind's raw hues (`bg-blue-600`,
  * `dark:text-red-400`, `focus:ring-indigo-500`) instead of a theme scale
@@ -130,14 +144,26 @@ const RAW_FIELD = /<(?:input|select|textarea)\b/g;
  * surface and is not counted.
  */
 const HARDCODED_JSX_TEXT = />\s*([^<>{};=]*[A-Za-zÇĞİŞÖÜçğışöü][^<>{};=]*?)\s*</g;
-const HARDCODED_TEXT_ATTRIBUTE = /\b(?:placeholder|title|aria-label|alt|label)="([^"{}]*[A-Za-zÇĞİŞÖÜçğışöü][^"{}]*)"/g;
+const HARDCODED_TEXT_ATTRIBUTE =
+  /\b(?:placeholder|title|aria-label|alt|label)="([^"{}]*[A-Za-zÇĞİŞÖÜçğışöü][^"{}]*)"/g;
 const DECLARED_ENGLISH_ONLY = ['web/modules/admin-panel'];
 function hardcodedText(source: string): number {
-  return (source.match(HARDCODED_JSX_TEXT)?.length ?? 0) + (source.match(HARDCODED_TEXT_ATTRIBUTE)?.length ?? 0);
+  return (
+    (source.match(HARDCODED_JSX_TEXT)?.length ?? 0) +
+    (source.match(HARDCODED_TEXT_ATTRIBUTE)?.length ?? 0)
+  );
 }
 const CLASS_ATTRIBUTE = /className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
 const FIXED_GRID = /(?<![\w:-])grid-cols-(?:[2-6]|8|9|1[01])(?![\w-])/;
 const RESPONSIVE_GRID = /\b(?:sm|md|lg|xl|2xl):grid-cols-/;
+/**
+ * An icon-shaped `<svg>` written in the file — a 16 / 20 / 24 unit viewBox,
+ * the shape of a hand-pasted Heroicons or lucide glyph (FE-MEDIUM-082) —
+ * beside the lucide-react set every package renders from. Counted per
+ * package, shared-ui included; a custom glyph (a SCADA equipment symbol)
+ * belongs in one shared icon module, not inline.
+ */
+const INLINE_ICON_SVG = /<svg\b[^>]*\bviewBox="0 0 (?:16 16|20 20|24 24)"/g;
 function fixedGrids(source: string): number {
   let count = 0;
   for (const match of source.matchAll(CLASS_ATTRIBUTE)) {
@@ -149,15 +175,18 @@ function fixedGrids(source: string): number {
 const MUTATION_WRAPPERS = ['web/modules/admin-panel/src/hooks/useAdminMutation.ts'];
 
 /** A lucide loader icon spun unconditionally — shared-ui's Spinner is the loading indicator. */
-const LOADER_ICON_SPINNER = /<(?:Loader2|LoaderCircle|Loader)\b[^>]*className="[^"]*\banimate-spin\b/g;
+const LOADER_ICON_SPINNER =
+  /<(?:Loader2|LoaderCircle|Loader)\b[^>]*className="[^"]*\banimate-spin\b/g;
 /** An inline `<svg>` spun unconditionally — the same arc Spinner draws. A conditional spin is an icon affordance. */
 const SVG_SPINNER = /<svg\b[^>]*className="[^"]*\banimate-spin\b/g;
 /** A className literal carrying `animate-spin`; a ring when it also draws a border or a circle. */
-const CLASS_WITH_SPIN = /className=(?:"[^"]*\banimate-spin\b[^"]*"|'[^']*\banimate-spin\b[^']*'|\{`[^`]*\banimate-spin\b[^`]*`\})/g;
+const CLASS_WITH_SPIN =
+  /className=(?:"[^"]*\banimate-spin\b[^"]*"|'[^']*\banimate-spin\b[^']*'|\{`[^`]*\banimate-spin\b[^`]*`\})/g;
 const RING = /\brounded-full\b|\bborder(?:-[tblrxy])?-\d\b/;
 
 /** A page title written by hand — PageHeader renders the h1. */
-const RAW_PAGE_TITLE = /<h1 className="[^"]*\b(?:text-2xl|text-xl|text-lg)\b[^"]*\bfont-(?:bold|semibold)\b[^"]*"/g;
+const RAW_PAGE_TITLE =
+  /<h1 className="[^"]*\b(?:text-2xl|text-xl|text-lg)\b[^"]*\bfont-(?:bold|semibold)\b[^"]*"/g;
 
 /**
  * A string literal — one class attribute, one ternary branch, one map value.
@@ -172,11 +201,13 @@ const STRING_LITERAL = /"[^"\n]*"|'[^'\n]*'|`[^`]*`/g;
  * surface; `after:bg-white` paints generated content (a toggle's knob, white
  * in both themes), not the element.
  */
-const LIGHT_SURFACE = /(?<![.\w-])(?<!after:)(?<!before:)(?:bg-white|bg-gray-50|bg-gray-100)\b/;
+const LIGHT_SURFACE =
+  /(?<![.\w-])(?<!after:)(?<!before:)(?:bg-white|bg-gray-50|bg-gray-100|bg-(?:primary|secondary|accent|success|warning|error|info)-(?:50|100))\b/;
 /** Every light gray/white class the strict form pairs (surfaces, text, borders, dividers, placeholders). */
 const LIGHT_CLASS = /\b(?:bg-white|(?:bg|text|border|divide|placeholder)-gray-\d{2,3})\b/;
 /** theme.css keys `dark:` on the shell's attribute — the one definition every entry imports. */
-const DARK_VARIANT_DEFINITION = /@custom-variant dark \(&:where\(\[data-theme='dark'\], \[data-theme='dark'\] \*\)\);/;
+const DARK_VARIANT_DEFINITION =
+  /@custom-variant dark \(&:where\(\[data-theme='dark'\], \[data-theme='dark'\] \*\)\);/;
 /** shared-ui primitives a `theme="dark"` dialog is built from; held to the strict form. */
 const DARK_AWARE_PRIMITIVES = [
   'web/shared-ui/src/components/DataTable/DataTable.tsx',
@@ -196,7 +227,8 @@ function lightOnlySurfaces(source: string): number {
 }
 
 function handRolledSpinners(source: string): number {
-  let hits = (source.match(LOADER_ICON_SPINNER) ?? []).length + (source.match(SVG_SPINNER) ?? []).length;
+  let hits =
+    (source.match(LOADER_ICON_SPINNER) ?? []).length + (source.match(SVG_SPINNER) ?? []).length;
   for (const match of source.matchAll(CLASS_WITH_SPIN)) {
     if (RING.test(match[0])) hits += 1;
   }
@@ -300,6 +332,7 @@ interface Allowlist {
   rawButton: { entries: PackageCeiling[] };
   rawField: { entries: PackageCeiling[] };
   fixedGrid: { entries: PackageCeiling[] };
+  inlineIconSvg: { entries: PackageCeiling[] };
   hardcodedText: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
   rawPageTitle: { entries: PackageCeiling[] };
@@ -335,11 +368,15 @@ function expiryIso(value: string | Date): string {
   return value instanceof Date ? value.toISOString().slice(0, 10) : String(value);
 }
 
-function countByPackage(files: string[], pattern: RegExp | ((source: string) => number)): Map<string, number> {
+function countByPackage(
+  files: string[],
+  pattern: RegExp | ((source: string) => number),
+): Map<string, number> {
   const counts = new Map<string, number>();
   for (const file of files) {
     const source = read(file);
-    const hits = typeof pattern === 'function' ? pattern(source) : (source.match(pattern)?.length ?? 0);
+    const hits =
+      typeof pattern === 'function' ? pattern(source) : (source.match(pattern)?.length ?? 0);
     if (hits === 0) continue;
     const pkg = packageOf(file);
     counts.set(pkg, (counts.get(pkg) ?? 0) + hits);
@@ -388,7 +425,14 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
   });
 
   it('ratchets raw hex colours outside theme.css per package (FE-HIGH-066)', () => {
-    const actual = countByPackage(files, RAW_HEX);
+    const actual = countByPackage(
+      [
+        ...files,
+        ...sourceFiles(['web/shared-ui/src']).filter((file) => file !== THEME_TOKEN_SOURCE),
+      ],
+      (source) =>
+        source.replace(BLOCK_COMMENT, '').replace(COMMENT_LINE, '').match(RAW_HEX)?.length ?? 0,
+    );
     const ceilings = new Map(doc.rawHex.entries.map((entry) => [entry.package, entry]));
 
     for (const [pkg, count] of actual) {
@@ -427,7 +471,9 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
 
     for (const [pkg, count] of actual) {
       const entry = ceilings.get(pkg);
-      expect(entry === undefined ? `${pkg}: ${count} raw-palette utilities, no ceiling` : '').toBe('');
+      expect(entry === undefined ? `${pkg}: ${count} raw-palette utilities, no ceiling` : '').toBe(
+        '',
+      );
       if (entry && count > entry.ceiling) {
         throw new Error(
           `${pkg}: ${count} raw-palette colour utilities, ceiling ${entry.ceiling}. Paint from the theme scales (bg-primary-*, text-error-*, border-warning-*) or through a shared-ui primitive; lower the ceiling when you remove some.`,
@@ -476,7 +522,9 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
 
     for (const [pkg, count] of actual) {
       const entry = ceilings.get(pkg);
-      expect(entry === undefined ? `${pkg}: ${count} direct useMutation calls, no ceiling` : '').toBe('');
+      expect(
+        entry === undefined ? `${pkg}: ${count} direct useMutation calls, no ceiling` : '',
+      ).toBe('');
       if (entry && count > entry.ceiling) {
         throw new Error(
           `${pkg}: ${count} direct useMutation calls, ceiling ${entry.ceiling}. Declare the outcome through useFeedbackMutation({ feedback: { success, error? } }) (admin-panel: useAdminMutation feedback) and lower the ceiling when you migrate one.`,
@@ -494,7 +542,10 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
   });
 
   it('ratchets raw <button> elements per package (FE-HIGH-079)', () => {
-    const actual = countByPackage(files.filter((file) => !isPrimitive(file)), RAW_BUTTON);
+    const actual = countByPackage(
+      files.filter((file) => !isPrimitive(file)),
+      RAW_BUTTON,
+    );
     const ceilings = new Map(doc.rawButton.entries.map((entry) => [entry.package, entry]));
     for (const [pkg, count] of actual) {
       const entry = ceilings.get(pkg);
@@ -540,10 +591,36 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
     }
   });
 
+  it('ratchets icon-shaped <svg> written in the file per package, shared-ui included (FE-MEDIUM-082)', () => {
+    const actual = countByPackage(
+      [...files, ...sourceFiles(['web/shared-ui/src'])].filter((file) => file.endsWith('.tsx')),
+      INLINE_ICON_SVG,
+    );
+    const ceilings = new Map(doc.inlineIconSvg.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} inline icon svgs, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} icon-shaped <svg> written in the file, ceiling ${entry.ceiling}. Render the icon from lucide-react (a custom glyph from one shared icon module) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.inlineIconSvg.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
   it('ratchets user-visible strings written in the file per package, shared-ui included (FE-HIGH-089)', () => {
     const actual = countByPackage(
       [...files, ...sourceFiles(['web/shared-ui/src'])].filter(
-        (file) => file.endsWith('.tsx') && !DECLARED_ENGLISH_ONLY.some((pkg) => file.startsWith(`${pkg}/`)),
+        (file) =>
+          file.endsWith('.tsx') && !DECLARED_ENGLISH_ONLY.some((pkg) => file.startsWith(`${pkg}/`)),
       ),
       hardcodedText,
     );
@@ -568,7 +645,10 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
   });
 
   it('ratchets raw <input>, <select> and <textarea> elements per package (FE-HIGH-079)', () => {
-    const actual = countByPackage(files.filter((file) => !isPrimitive(file)), RAW_FIELD);
+    const actual = countByPackage(
+      files.filter((file) => !isPrimitive(file)),
+      RAW_FIELD,
+    );
     const ceilings = new Map(doc.rawField.entries.map((entry) => [entry.package, entry]));
     for (const [pkg, count] of actual) {
       const entry = ceilings.get(pkg);
@@ -614,7 +694,9 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
 
     for (const [pkg, count] of actual) {
       const entry = ceilings.get(pkg);
-      expect(entry === undefined ? `${pkg}: ${count} hand-rolled spinners, no ceiling` : '').toBe('');
+      expect(entry === undefined ? `${pkg}: ${count} hand-rolled spinners, no ceiling` : '').toBe(
+        '',
+      );
       if (entry && count > entry.ceiling) {
         throw new Error(
           `${pkg}: ${count} hand-rolled spinners, ceiling ${entry.ceiling}. Render loading through shared-ui Spinner (aquamobil: components/ui/Spinner); lower the ceiling when you migrate one.`,
@@ -632,12 +714,17 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
   });
 
   it('ratchets hand-written page titles per package (FE-MEDIUM-071)', () => {
-    const actual = countByPackage(files.filter((file) => !isPrimitive(file)), RAW_PAGE_TITLE);
+    const actual = countByPackage(
+      files.filter((file) => !isPrimitive(file)),
+      RAW_PAGE_TITLE,
+    );
     const ceilings = new Map(doc.rawPageTitle.entries.map((entry) => [entry.package, entry]));
 
     for (const [pkg, count] of actual) {
       const entry = ceilings.get(pkg);
-      expect(entry === undefined ? `${pkg}: ${count} hand-written page titles, no ceiling` : '').toBe('');
+      expect(
+        entry === undefined ? `${pkg}: ${count} hand-written page titles, no ceiling` : '',
+      ).toBe('');
       if (entry && count > entry.ceiling) {
         throw new Error(
           `${pkg}: ${count} hand-written page titles, ceiling ${entry.ceiling}. Open the page with shared-ui PageHeader (title, description, actions, eyebrow, leading); lower the ceiling when you migrate one.`,
@@ -676,7 +763,9 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
 
     for (const [pkg, count] of actual) {
       const entry = ceilings.get(pkg);
-      expect(entry === undefined ? `${pkg}: ${count} light-only surfaces, no ceiling` : '').toBe('');
+      expect(entry === undefined ? `${pkg}: ${count} light-only surfaces, no ceiling` : '').toBe(
+        '',
+      );
       if (entry && count > entry.ceiling) {
         throw new Error(
           `${pkg}: ${count} light-only surfaces, ceiling ${entry.ceiling}. Pair every bg-white / bg-gray-50 / bg-gray-100 with a dark: class (theme.css keys it on the shell's data-theme); lower the ceiling when you pair some.`,

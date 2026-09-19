@@ -11,24 +11,37 @@ import {
 } from '../../../hooks/useGrowth';
 import { useBatchList } from '../../../hooks/useBatches';
 import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import { ChartColumn, Circle, CircleCheck, Plus } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const performanceLabels: Record<string, { label: string; color: string }> = {
-  excellent: { label: 'Mukemmel', color: 'bg-green-100 text-green-800' },
-  good: { label: 'Iyi', color: 'bg-blue-100 text-blue-800' },
-  average: { label: 'Orta', color: 'bg-yellow-100 text-yellow-800' },
-  below_average: { label: 'Ortalamanin Alti', color: 'bg-orange-100 text-orange-800' },
-  poor: { label: 'Zayif', color: 'bg-red-100 text-red-800' },
+  excellent: {
+    label: 'Mukemmel',
+    color: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  },
+  good: { label: 'Iyi', color: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200' },
+  average: {
+    label: 'Orta',
+    color: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  },
+  below_average: {
+    label: 'Ortalamanin Alti',
+    color: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  },
+  poor: {
+    label: 'Zayif',
+    color: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  },
 };
 
 const growthStatusLabels: Record<string, { label: string; color: string }> = {
-  ahead: { label: 'Hedefin Onunde', color: 'text-green-600' },
-  on_track: { label: 'Hedefte', color: 'text-blue-600' },
-  behind: { label: 'Hedefin Gerisinde', color: 'text-yellow-600' },
-  critical: { label: 'Kritik', color: 'text-red-600' },
+  ahead: { label: 'Hedefin Onunde', color: 'text-success-600 dark:text-success-400' },
+  on_track: { label: 'Hedefte', color: 'text-info-600 dark:text-info-400' },
+  behind: { label: 'Hedefin Gerisinde', color: 'text-warning-600 dark:text-warning-400' },
+  critical: { label: 'Kritik', color: 'text-error-600 dark:text-error-400' },
 };
 
 // ============================================================================
@@ -63,16 +76,17 @@ const LoadingSpinner: React.FC = () => (
 );
 
 const ErrorMessage: React.FC<{ message: string }> = ({ message }) => (
-  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-    <p className="text-sm text-red-700">{message}</p>
+  <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
+    <p className="text-sm text-error-700 dark:text-error-300">{message}</p>
   </div>
 );
 
 const EmptyState: React.FC<{ message: string }> = ({ message }) => (
   <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
-    <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-    </svg>
+    <ChartColumn
+      className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+      aria-hidden="true"
+    />
     <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
 );
@@ -92,10 +106,14 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
       <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">{analysis.batchCode}</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+              {analysis.batchCode}
+            </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">{analysis.speciesName}</p>
           </div>
-          <span className={`text-sm font-medium ${statusInfo?.color ?? 'text-gray-600 dark:text-gray-400'}`}>
+          <span
+            className={`text-sm font-medium ${statusInfo?.color ?? 'text-gray-600 dark:text-gray-400'}`}
+          >
             {statusInfo?.label ?? 'Bilinmiyor'}
           </span>
         </div>
@@ -107,19 +125,27 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">Mevcut Agirlik</p>
-            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{metrics.currentAvgWeightG.toFixed(1)} g</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {metrics.currentAvgWeightG.toFixed(1)} g
+            </p>
           </div>
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">Teorik Agirlik</p>
-            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{metrics.theoreticalWeightG.toFixed(1)} g</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {metrics.theoreticalWeightG.toFixed(1)} g
+            </p>
           </div>
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">SGR</p>
-            <p className="text-lg font-semibold text-blue-600">{metrics.specificGrowthRate.toFixed(2)} %/gun</p>
+            <p className="text-lg font-semibold text-info-600 dark:text-info-400">
+              {metrics.specificGrowthRate.toFixed(2)} %/gun
+            </p>
           </div>
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">FCR</p>
-            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{metrics.currentFCR.toFixed(2)}</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {metrics.currentFCR.toFixed(2)}
+            </p>
           </div>
         </div>
 
@@ -135,15 +161,15 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
           </div>
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
             <div
-              className="h-2 rounded-full bg-blue-500"
+              className="h-2 rounded-full bg-info-500"
               style={{
                 width: `${Math.min(
                   getTargetProgress(
                     metrics.currentAvgWeightG,
                     0,
-                    analysis.projection.harvestTargetWeightG
+                    analysis.projection.harvestTargetWeightG,
                   ),
-                  100
+                  100,
                 )}%`,
               }}
             />
@@ -158,7 +184,9 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">Yasama Orani</p>
-            <p className="font-medium text-green-600">{metrics.survivalRate.toFixed(1)}%</p>
+            <p className="font-medium text-success-600 dark:text-success-400">
+              {metrics.survivalRate.toFixed(1)}%
+            </p>
           </div>
           <div className="text-center">
             <p className="text-xs text-gray-500 dark:text-gray-400">Uretimde</p>
@@ -171,11 +199,16 @@ const BatchAnalysisCard: React.FC<{ analysis: GrowthAnalysis }> = ({ analysis })
           <div className="mt-4 border-t pt-3">
             <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Oneriler</p>
             {analysis.recommendations.slice(0, 2).map((rec, idx) => (
-              <div key={idx} className={`text-xs mb-1 px-2 py-1 rounded ${
-                rec.priority === 'high' ? 'bg-red-50 text-red-700' :
-                rec.priority === 'medium' ? 'bg-yellow-50 text-yellow-700' :
-                'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
-              }`}>
+              <div
+                key={idx}
+                className={`text-xs mb-1 px-2 py-1 rounded ${
+                  rec.priority === 'high'
+                    ? 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300'
+                    : rec.priority === 'medium'
+                      ? 'bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300'
+                      : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                }`}
+              >
                 {rec.description}
               </div>
             ))}
@@ -196,7 +229,9 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
   if (isLoading) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Buyume Gecmisi</h3>
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+          Buyume Gecmisi
+        </h3>
         <LoadingSpinner />
       </div>
     );
@@ -205,7 +240,9 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
   if (!history || history.length === 0) {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
-        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Buyume Gecmisi</h3>
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+          Buyume Gecmisi
+        </h3>
         <EmptyState message="Henuz olcum verisi yok" />
       </div>
     );
@@ -213,10 +250,10 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
 
   // Sort by date ascending for the chart
   const sortedHistory = [...history].sort(
-    (a, b) => new Date(a.measurementDate).getTime() - new Date(b.measurementDate).getTime()
+    (a, b) => new Date(a.measurementDate).getTime() - new Date(b.measurementDate).getTime(),
   );
 
-  const maxWeight = Math.max(...sortedHistory.map(m => m.averageWeight));
+  const maxWeight = Math.max(...sortedHistory.map((m) => m.averageWeight));
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
@@ -227,10 +264,7 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
         {sortedHistory.map((m) => {
           const heightPercent = maxWeight > 0 ? (m.averageWeight / maxWeight) * 100 : 0;
           return (
-            <div
-              key={m.id}
-              className="flex-1 flex flex-col items-center group relative"
-            >
+            <div key={m.id} className="flex-1 flex flex-col items-center group relative">
               {/* Tooltip */}
               <div className="invisible group-hover:visible absolute bottom-full mb-2 bg-gray-800 text-white text-xs rounded px-2 py-1 whitespace-nowrap z-10">
                 {formatDate(m.measurementDate)}: {m.averageWeight.toFixed(1)}g
@@ -238,10 +272,10 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
               <div
                 className={`w-full rounded-t ${
                   m.performance === 'excellent' || m.performance === 'good'
-                    ? 'bg-blue-400'
+                    ? 'bg-info-400'
                     : m.performance === 'average'
-                    ? 'bg-yellow-400'
-                    : 'bg-red-400'
+                      ? 'bg-warning-400'
+                      : 'bg-error-400'
                 }`}
                 style={{ height: `${heightPercent}%`, minHeight: '4px' }}
               />
@@ -253,7 +287,11 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
       {/* X-axis labels */}
       <div className="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-2">
         <span>{sortedHistory.length > 0 ? formatDate(sortedHistory[0]!.measurementDate) : ''}</span>
-        <span>{sortedHistory.length > 0 ? formatDate(sortedHistory[sortedHistory.length - 1]!.measurementDate) : ''}</span>
+        <span>
+          {sortedHistory.length > 0
+            ? formatDate(sortedHistory[sortedHistory.length - 1]!.measurementDate)
+            : ''}
+        </span>
       </div>
 
       {/* Summary row */}
@@ -268,15 +306,19 @@ const GrowthChart: React.FC<{ batchId: string }> = ({ batchId }) => {
         </div>
         <div>
           <p className="text-xs text-gray-500 dark:text-gray-400">Son Agirlik</p>
-          <p className="font-medium">{sortedHistory[sortedHistory.length - 1]?.averageWeight.toFixed(1)} g</p>
+          <p className="font-medium">
+            {sortedHistory[sortedHistory.length - 1]?.averageWeight.toFixed(1)} g
+          </p>
         </div>
         <div>
           <p className="text-xs text-gray-500 dark:text-gray-400">Artis</p>
-          <p className="font-medium text-green-600">
-            +{(
+          <p className="font-medium text-success-600 dark:text-success-400">
+            +
+            {(
               (sortedHistory[sortedHistory.length - 1]?.averageWeight ?? 0) -
               (sortedHistory[0]?.averageWeight ?? 0)
-            ).toFixed(1)} g
+            ).toFixed(1)}{' '}
+            g
           </p>
         </div>
       </div>
@@ -295,7 +337,7 @@ export const GrowthTab: React.FC = () => {
   // Fetch active batches for batch selection
   const { data: batchData, isLoading: batchesLoading } = useBatchList(
     { isActive: true },
-    { fetchAll: true, sortBy: 'stockedAt', sortOrder: 'DESC' }
+    { fetchAll: true, sortBy: 'stockedAt', sortOrder: 'DESC' },
   );
 
   const activeBatches = batchData?.items ?? [];
@@ -303,7 +345,7 @@ export const GrowthTab: React.FC = () => {
   // Fetch growth measurements (all or filtered by batch)
   const measurementFilter = useMemo(
     () => (selectedBatchId ? { batchId: selectedBatchId } : undefined),
-    [selectedBatchId]
+    [selectedBatchId],
   );
   const measurementPagination = useMemo(() => ({ limit: 50 }), []);
 
@@ -334,8 +376,12 @@ export const GrowthTab: React.FC = () => {
       header: 'Batch / Tank',
       render: (_value, sample) => (
         <>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{sample.batchId.substring(0, 8)}...</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">{sample.tankId ? `Tank: ${sample.tankId.substring(0, 8)}...` : '-'}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {sample.batchId.substring(0, 8)}...
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            {sample.tankId ? `Tank: ${sample.tankId.substring(0, 8)}...` : '-'}
+          </div>
         </>
       ),
     },
@@ -349,20 +395,14 @@ export const GrowthTab: React.FC = () => {
       key: 'ortAgirlik',
       header: 'Ort. Agirlik',
       align: 'right',
-      render: (_value, sample) => (
-        <>
-          {sample.averageWeight.toFixed(1)} g
-        </>
-      ),
+      render: (_value, sample) => <>{sample.averageWeight.toFixed(1)} g</>,
     },
     {
       key: 'ortBoy',
       header: 'Ort. Boy',
       align: 'right',
       render: (_value, sample) => (
-        <>
-          {sample.averageLength != null ? `${sample.averageLength.toFixed(1)} cm` : '-'}
-        </>
+        <>{sample.averageLength != null ? `${sample.averageLength.toFixed(1)} cm` : '-'}</>
       ),
     },
     {
@@ -370,7 +410,9 @@ export const GrowthTab: React.FC = () => {
       header: 'CV%',
       align: 'right',
       render: (_value, sample) => (
-        <span className={`text-sm font-medium ${sample.weightCV <= 15 ? 'text-green-600' : sample.weightCV <= 20 ? 'text-yellow-600' : 'text-red-600'}`}>
+        <span
+          className={`text-sm font-medium ${sample.weightCV <= 15 ? 'text-success-600 dark:text-success-400' : sample.weightCV <= 20 ? 'text-warning-600 dark:text-warning-400' : 'text-error-600 dark:text-error-400'}`}
+        >
           {sample.weightCV.toFixed(1)}%
         </span>
       ),
@@ -379,7 +421,8 @@ export const GrowthTab: React.FC = () => {
       key: 'sgr',
       header: 'SGR',
       align: 'right',
-      render: (_value, sample) => sample.specificGrowthRate != null ? sample.specificGrowthRate.toFixed(2) : '-',
+      render: (_value, sample) =>
+        sample.specificGrowthRate != null ? sample.specificGrowthRate.toFixed(2) : '-',
     },
     {
       key: 'performans',
@@ -387,7 +430,9 @@ export const GrowthTab: React.FC = () => {
       render: (_value, sample) => (
         <>
           {sample.performance ? (
-            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${performanceLabels[sample.performance]?.color ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
+            <span
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${performanceLabels[sample.performance]?.color ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+            >
               {performanceLabels[sample.performance]?.label ?? sample.performance}
             </span>
           ) : (
@@ -403,17 +448,13 @@ export const GrowthTab: React.FC = () => {
       render: (_value, sample) => (
         <>
           {sample.isVerified ? (
-            <svg className="h-5 w-5 text-green-500 inline" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-            </svg>
+            <CircleCheck className="h-5 w-5 text-success-500 inline" aria-hidden="true" />
           ) : (
-            <svg className="h-5 w-5 text-gray-300 inline" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z" clipRule="evenodd" />
-            </svg>
+            <Circle className="h-5 w-5 text-gray-300 inline" aria-hidden="true" />
           )}
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -425,7 +466,7 @@ export const GrowthTab: React.FC = () => {
             onClick={() => setActiveView('overview')}
             className={`px-4 py-2 text-sm font-medium rounded-md ${
               activeView === 'overview'
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -435,7 +476,7 @@ export const GrowthTab: React.FC = () => {
             onClick={() => setActiveView('samples')}
             className={`px-4 py-2 text-sm font-medium rounded-md ${
               activeView === 'samples'
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
@@ -448,7 +489,7 @@ export const GrowthTab: React.FC = () => {
           <select
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="block w-48 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+            className="block w-48 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
           >
             <option value="">Tum Batch'ler</option>
             {activeBatches.map((batch) => (
@@ -458,10 +499,10 @@ export const GrowthTab: React.FC = () => {
             ))}
           </select>
 
-          <Button variant="primary"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Ornekleme Ekle</Button>
+          <Button variant="primary">
+            <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+            Ornekleme Ekle
+          </Button>
         </div>
       </div>
 
@@ -473,7 +514,9 @@ export const GrowthTab: React.FC = () => {
             analysisLoading ? (
               <LoadingSpinner />
             ) : analysisError ? (
-              <ErrorMessage message={`Analiz yuklenemedi: ${analysisError instanceof Error ? analysisError.message : 'Bilinmeyen hata'}`} />
+              <ErrorMessage
+                message={`Analiz yuklenemedi: ${analysisError instanceof Error ? analysisError.message : 'Bilinmeyen hata'}`}
+              />
             ) : analysisData ? (
               <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -481,54 +524,92 @@ export const GrowthTab: React.FC = () => {
 
                   {/* Trend Card */}
                   <div className="bg-white dark:bg-gray-900 rounded-lg shadow-md p-4">
-                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Trend Analizi</h3>
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+                      Trend Analizi
+                    </h3>
                     <div className="space-y-4">
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-gray-500 dark:text-gray-400">Yonelim</span>
-                        <span className={`text-sm font-medium ${
-                          analysisData.trend.direction === 'improving' ? 'text-green-600' :
-                          analysisData.trend.direction === 'stable' ? 'text-blue-600' :
-                          'text-red-600'
-                        }`}>
-                          {analysisData.trend.direction === 'improving' ? 'Yukseliyor' :
-                           analysisData.trend.direction === 'stable' ? 'Stabil' : 'Dusuyor'}
+                        <span
+                          className={`text-sm font-medium ${
+                            analysisData.trend.direction === 'improving'
+                              ? 'text-success-600 dark:text-success-400'
+                              : analysisData.trend.direction === 'stable'
+                                ? 'text-info-600 dark:text-info-400'
+                                : 'text-error-600 dark:text-error-400'
+                          }`}
+                        >
+                          {analysisData.trend.direction === 'improving'
+                            ? 'Yukseliyor'
+                            : analysisData.trend.direction === 'stable'
+                              ? 'Stabil'
+                              : 'Dusuyor'}
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500 dark:text-gray-400">Son 7 Gun ADG</span>
-                        <span className="text-sm font-medium">{analysisData.trend.avgDailyGrowthLast7Days.toFixed(2)} g/gun</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          Son 7 Gun ADG
+                        </span>
+                        <span className="text-sm font-medium">
+                          {analysisData.trend.avgDailyGrowthLast7Days.toFixed(2)} g/gun
+                        </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500 dark:text-gray-400">Son 30 Gun ADG</span>
-                        <span className="text-sm font-medium">{analysisData.trend.avgDailyGrowthLast30Days.toFixed(2)} g/gun</span>
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          Son 30 Gun ADG
+                        </span>
+                        <span className="text-sm font-medium">
+                          {analysisData.trend.avgDailyGrowthLast30Days.toFixed(2)} g/gun
+                        </span>
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-gray-500 dark:text-gray-400">FCR Trendi</span>
-                        <span className={`text-sm font-medium ${
-                          analysisData.trend.fcrTrend === 'improving' ? 'text-green-600' :
-                          analysisData.trend.fcrTrend === 'stable' ? 'text-blue-600' :
-                          'text-red-600'
-                        }`}>
-                          {analysisData.trend.fcrTrend === 'improving' ? 'Iyilesiyor' :
-                           analysisData.trend.fcrTrend === 'stable' ? 'Stabil' : 'Kotulesiyor'}
+                        <span
+                          className={`text-sm font-medium ${
+                            analysisData.trend.fcrTrend === 'improving'
+                              ? 'text-success-600 dark:text-success-400'
+                              : analysisData.trend.fcrTrend === 'stable'
+                                ? 'text-info-600 dark:text-info-400'
+                                : 'text-error-600 dark:text-error-400'
+                          }`}
+                        >
+                          {analysisData.trend.fcrTrend === 'improving'
+                            ? 'Iyilesiyor'
+                            : analysisData.trend.fcrTrend === 'stable'
+                              ? 'Stabil'
+                              : 'Kotulesiyor'}
                         </span>
                       </div>
 
                       {/* Projection */}
                       <div className="border-t pt-3 mt-3">
-                        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Projeksiyon</h4>
+                        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                          Projeksiyon
+                        </h4>
                         <div className="space-y-2">
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500 dark:text-gray-400">30 Gun Sonra Agirlik</span>
-                            <span className="text-xs font-medium">{analysisData.projection.projectedWeightIn30Days.toFixed(1)} g</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              30 Gun Sonra Agirlik
+                            </span>
+                            <span className="text-xs font-medium">
+                              {analysisData.projection.projectedWeightIn30Days.toFixed(1)} g
+                            </span>
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Tahmini Hasat Tarihi</span>
-                            <span className="text-xs font-medium">{formatDate(analysisData.projection.estimatedHarvestDate)}</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              Tahmini Hasat Tarihi
+                            </span>
+                            <span className="text-xs font-medium">
+                              {formatDate(analysisData.projection.estimatedHarvestDate)}
+                            </span>
                           </div>
                           <div className="flex justify-between items-center">
-                            <span className="text-xs text-gray-500 dark:text-gray-400">Hasata Kalan Gun</span>
-                            <span className="text-xs font-medium">{analysisData.projection.daysToHarvest} gun</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
+                              Hasata Kalan Gun
+                            </span>
+                            <span className="text-xs font-medium">
+                              {analysisData.projection.daysToHarvest} gun
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -542,63 +623,59 @@ export const GrowthTab: React.FC = () => {
             ) : (
               <EmptyState message="Bu batch icin analiz verisi bulunamadi" />
             )
+          ) : // All batches overview - show analysis cards for each active batch
+          batchesLoading ? (
+            <LoadingSpinner />
+          ) : activeBatches.length === 0 ? (
+            <EmptyState message="Aktif batch bulunamadi" />
           ) : (
-            // All batches overview - show analysis cards for each active batch
-            batchesLoading ? (
-              <LoadingSpinner />
-            ) : activeBatches.length === 0 ? (
-              <EmptyState message="Aktif batch bulunamadi" />
-            ) : (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {activeBatches.slice(0, 6).map((batch) => (
-                    <BatchAnalysisCardWrapper key={batch.id} batchId={batch.id} />
-                  ))}
-                </div>
-                {activeBatches.length > 6 && (
-                  <p className="text-center text-sm text-gray-500 dark:text-gray-400">
-                    +{activeBatches.length - 6} daha fazla batch. Filtrelemek icin batch secin.
-                  </p>
-                )}
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {activeBatches.slice(0, 6).map((batch) => (
+                  <BatchAnalysisCardWrapper key={batch.id} batchId={batch.id} />
+                ))}
               </div>
-            )
+              {activeBatches.length > 6 && (
+                <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+                  +{activeBatches.length - 6} daha fazla batch. Filtrelemek icin batch secin.
+                </p>
+              )}
+            </div>
           )}
         </>
+      ) : /* Samples View */
+      measurementsLoading ? (
+        <LoadingSpinner />
+      ) : measurementsError ? (
+        <ErrorMessage
+          message={`Olcumler yuklenemedi: ${measurementsError instanceof Error ? measurementsError.message : 'Bilinmeyen hata'}`}
+        />
+      ) : measurements.length === 0 ? (
+        <EmptyState message="Henuz buyume olcumu bulunmuyor" />
       ) : (
-        /* Samples View */
-        measurementsLoading ? (
-          <LoadingSpinner />
-        ) : measurementsError ? (
-          <ErrorMessage message={`Olcumler yuklenemedi: ${measurementsError instanceof Error ? measurementsError.message : 'Bilinmeyen hata'}`} />
-        ) : measurements.length === 0 ? (
-          <EmptyState message="Henuz buyume olcumu bulunmuyor" />
-        ) : (
-          <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
-            <DataTable<SampleRow>
-              data={measurements}
-              columns={sampleRowColumns}
-              keyExtractor={(sample) => sample.id}
-              emptyMessage="No records found"
-              searchable={false}
-              sortable={false}
-              stickyHeader={false}
-            />
+        <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+          <DataTable<SampleRow>
+            data={measurements}
+            columns={sampleRowColumns}
+            keyExtractor={(sample) => sample.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
-            {/* Pagination info */}
-            {measurementsData && (
-              <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800">
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Toplam {measurementsData.total} olcum
-                </p>
-                {measurementsData.hasNextPage && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Daha fazla olcum mevcut
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        )
+          {/* Pagination info */}
+          {measurementsData && (
+            <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between bg-gray-50 dark:bg-gray-800">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Toplam {measurementsData.total} olcum
+              </p>
+              {measurementsData.hasNextPage && (
+                <p className="text-sm text-gray-500 dark:text-gray-400">Daha fazla olcum mevcut</p>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

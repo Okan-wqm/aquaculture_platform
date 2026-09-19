@@ -15,12 +15,7 @@ interface CullModalProps {
   onSuccess: () => void;
 }
 
-export const CullModal: React.FC<CullModalProps> = ({
-  isOpen,
-  onClose,
-  tank,
-  onSuccess,
-}) => {
+export const CullModal: React.FC<CullModalProps> = ({ isOpen, onClose, tank, onSuccess }) => {
   // Form state
   const [quantity, setQuantity] = useState<number>(0);
   const [avgWeightG, setAvgWeightG] = useState<number>(tank.avgWeightG || 0);
@@ -105,14 +100,22 @@ export const CullModal: React.FC<CullModalProps> = ({
 
     // Check if we have a batch
     if (!selectedBatchId) {
-      toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'No batch assigned to this tank.',
+        variant: 'error',
+      });
       return;
     }
 
     // FARM-LOW-142: programmatic future-date guard (the copy-paste from
     // MortalityModal dropped it; the browser max attr is a hint, not enforced).
     if (new Date(culledAt) > new Date()) {
-      toast({ title: 'Validation Error', description: 'Cull date cannot be in the future.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'Cull date cannot be in the future.',
+        variant: 'error',
+      });
       return;
     }
 
@@ -135,7 +138,11 @@ export const CullModal: React.FC<CullModalProps> = ({
       onClose();
     } catch (error) {
       if (import.meta.env.DEV) console.error('Failed to record cull:', error);
-      toast({ title: 'Error', description: 'Failed to record cull. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to record cull. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -178,18 +185,42 @@ export const CullModal: React.FC<CullModalProps> = ({
         <div className="space-y-4">
           {/* Quantity */}
           <div>
-            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Culled Fish Count <span className="text-orange-500">*</span>
+            <label
+              htmlFor="quantity"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Culled Fish Count <span className="text-accent-500">*</span>
             </label>
-            <Input fullWidth type="number" id="quantity" min="1" max={availableQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter number of culled fish" />
+            <Input
+              fullWidth
+              type="number"
+              id="quantity"
+              min="1"
+              max={availableQuantity}
+              value={quantity || ''}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              placeholder="Enter number of culled fish"
+            />
           </div>
 
           {/* Average Weight */}
           <div>
-            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="avgWeight"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Average Weight (g)
             </label>
-            <Input fullWidth type="number" id="avgWeight" min="0" step="0.1" value={avgWeightG || ''} onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)} placeholder="Enter average weight" />
+            <Input
+              fullWidth
+              type="number"
+              id="avgWeight"
+              min="0"
+              step="0.1"
+              value={avgWeightG || ''}
+              onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)}
+              placeholder="Enter average weight"
+            />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Default: {scopedAvgWeightG.toFixed(1)} g ({isCombined ? 'batch' : 'tank'} average)
             </p>
@@ -197,10 +228,12 @@ export const CullModal: React.FC<CullModalProps> = ({
 
           {/* Biomass Calculation */}
           {quantity > 0 && avgWeightG > 0 && (
-            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+            <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-orange-800">Biomass Removed</span>
-                <span className="text-lg font-bold text-orange-600">
+                <span className="text-sm font-medium text-accent-800 dark:text-accent-200">
+                  Biomass Removed
+                </span>
+                <span className="text-lg font-bold text-accent-600 dark:text-accent-400">
                   {calculatedBiomass.toFixed(2)} kg
                 </span>
               </div>
@@ -209,14 +242,17 @@ export const CullModal: React.FC<CullModalProps> = ({
 
           {/* Cull Reason */}
           <div>
-            <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Cull Reason <span className="text-orange-500">*</span>
+            <label
+              htmlFor="reason"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Cull Reason <span className="text-accent-500">*</span>
             </label>
             <select
               id="reason"
               value={reason}
               onChange={(e) => setReason(e.target.value as CullReason)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
             >
               {Object.entries(CullReasonLabels).map(([key, label]) => (
                 <option key={key} value={key}>
@@ -228,25 +264,48 @@ export const CullModal: React.FC<CullModalProps> = ({
 
           {/* Date */}
           <div>
-            <label htmlFor="culledAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="culledAt"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Cull Date
             </label>
-            <Input fullWidth type="date" id="culledAt" value={culledAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setCulledAt(e.target.value)} />
+            <Input
+              fullWidth
+              type="date"
+              id="culledAt"
+              value={culledAt}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={(e) => setCulledAt(e.target.value)}
+            />
           </div>
 
           {/* Notes */}
           <div>
-            <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Why were the fish culled? <span className="text-orange-500">*</span>
+            <label
+              htmlFor="notes"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Why were the fish culled? <span className="text-accent-500">*</span>
             </label>
-            <Textarea fullWidth id="notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Describe the reason for culling..." />
+            <Textarea
+              fullWidth
+              id="notes"
+              rows={3}
+              maxLength={2000}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Describe the reason for culling..."
+            />
           </div>
         </div>
 
         {/* Pre/Post Operation State */}
         {quantity > 0 && (
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Tank Status After Operation</h4>
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+              Tank Status After Operation
+            </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Before</p>
@@ -266,13 +325,13 @@ export const CullModal: React.FC<CullModalProps> = ({
                 <div className="space-y-1">
                   <p className="text-sm">
                     <span className="text-gray-600 dark:text-gray-400">Stock:</span>{' '}
-                    <span className="font-medium text-orange-600">
+                    <span className="font-medium text-accent-600 dark:text-accent-400">
                       {postOperationState.quantity.toLocaleString()}
                     </span>
                   </p>
                   <p className="text-sm">
                     <span className="text-gray-600 dark:text-gray-400">Biomass:</span>{' '}
-                    <span className="font-medium text-orange-600">
+                    <span className="font-medium text-accent-600 dark:text-accent-400">
                       {postOperationState.biomass.toFixed(1)} kg
                     </span>
                   </p>
@@ -284,8 +343,8 @@ export const CullModal: React.FC<CullModalProps> = ({
 
         {/* Validation Errors */}
         {errors.length > 0 && quantity > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-orange-600 space-y-1">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-accent-600 dark:text-accent-400 space-y-1">
               {errors.map((error, index) => (
                 <li key={index}>{error}</li>
               ))}
@@ -302,7 +361,7 @@ export const CullModal: React.FC<CullModalProps> = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || recordCull.isPending}
-            className="bg-orange-600 hover:bg-orange-700"
+            className="bg-accent-600 hover:bg-accent-700"
           >
             {recordCull.isPending ? 'Recording...' : 'Record Cull'}
           </Button>

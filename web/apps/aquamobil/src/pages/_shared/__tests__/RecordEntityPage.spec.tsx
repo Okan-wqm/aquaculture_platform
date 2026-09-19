@@ -83,21 +83,6 @@ vi.mock('@/components/QueuedStatusBadge', () => ({
   ),
 }));
 
-// lucide-react icons use forwardRef; stub each one the pages transitively need.
-vi.mock('lucide-react', () => {
-  const Stub = (): React.ReactElement => <svg data-testid="icon" />;
-  return {
-    ArrowLeft: Stub,
-    AlertCircle: Stub,
-    Minus: Stub,
-    Plus: Stub,
-    ChevronRight: Stub,
-    Scissors: Stub,
-    Skull: Stub,
-    Package: Stub,
-  };
-});
-
 // clsx — plain string joiner, avoid node_modules traversal
 vi.mock('clsx', () => ({
   clsx: (...args: unknown[]) => args.filter(Boolean).join(' '),

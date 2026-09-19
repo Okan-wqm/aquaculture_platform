@@ -19,7 +19,7 @@ const DynamicTankTable: React.FC<DynamicTankTableProps> = ({ tanks, onChange }) 
       key: 'tank',
       header: 'Tank',
       render: (_value, tank) => (
-        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-green-50 text-green-700 text-sm font-bold">
+        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 text-sm font-bold">
           {tank.tankLabel}
         </span>
       ),

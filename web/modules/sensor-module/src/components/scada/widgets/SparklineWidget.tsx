@@ -146,12 +146,12 @@ export const SparklineWidget: React.FC<SparklineWidgetProps> = ({
         <div
           className={`w-1.5 h-1.5 rounded-full ${
             status === 'normal'
-              ? 'bg-green-500'
+              ? 'bg-success-500'
               : status === 'warning'
-              ? 'bg-yellow-500 animate-pulse'
-              : status === 'critical'
-              ? 'bg-red-500 animate-pulse'
-              : 'bg-gray-400'
+                ? 'bg-warning-500 animate-pulse'
+                : status === 'critical'
+                  ? 'bg-error-500 animate-pulse'
+                  : 'bg-gray-400'
           }`}
         />
         <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">{status}</span>

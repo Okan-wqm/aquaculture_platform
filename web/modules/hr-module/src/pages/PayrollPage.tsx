@@ -8,17 +8,25 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
+import { Lock, Plus, Search, Filter, CheckCircle, Clock, FileText, TrendingUp } from 'lucide-react';
 import {
-  Lock,
-  Plus,
-  Search,
-  Filter,
-  CheckCircle,
-  Clock,
-  FileText,
-  TrendingUp,
-} from 'lucide-react';
-import { cn, Modal, useAuth, useConfirm, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+  cn,
+  Modal,
+  useAuth,
+  useConfirm,
+  SearchableSelect,
+  formatCurrency as sharedFormatCurrency,
+  parseMoney,
+  DEFAULT_CURRENCY,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   usePayrolls,
   usePendingPayrolls,
@@ -28,12 +36,7 @@ import {
 } from '../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../components/common';
-import type {
-  Payroll,
-  PayrollFilterInput,
-  CreatePayrollInput,
-  Employee,
-} from '../types';
+import type { Payroll, PayrollFilterInput, CreatePayrollInput, Employee } from '../types';
 import {
   PayrollStatus,
   PayPeriodType,
@@ -188,11 +191,20 @@ function CreatePayrollModal({
       bodyClassName="flex-1 min-h-0 overflow-y-auto"
       footer={
         <>
-          <Button variant="ghost" onClick={handleClose}>Cancel</Button>
-          <Button variant="primary" type="submit" form="create-payroll-form" disabled={isSubmitting || !employeeId || !payPeriodStart || !payPeriodEnd || baseSalary <= 0}>{isSubmitting && (
-              <Spinner size="sm" color="white" />
-            )}
-            Create Payroll</Button>
+          <Button variant="ghost" onClick={handleClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            form="create-payroll-form"
+            disabled={
+              isSubmitting || !employeeId || !payPeriodStart || !payPeriodEnd || baseSalary <= 0
+            }
+          >
+            {isSubmitting && <Spinner size="sm" color="white" />}
+            Create Payroll
+          </Button>
         </>
       }
     >
@@ -221,14 +233,17 @@ function CreatePayrollModal({
               </div>
 
               <div>
-                <label htmlFor="payroll-payPeriodType" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Pay Period Type <span className="text-red-500">*</span>
+                <label
+                  htmlFor="payroll-payPeriodType"
+                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  Pay Period Type <span className="text-error-500">*</span>
                 </label>
                 <select
                   id="payroll-payPeriodType"
                   value={payPeriodType}
                   onChange={(e) => setPayPeriodType(e.target.value as PayPeriodType)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-hidden focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
                 >
                   {Object.entries(PAY_PERIOD_TYPE_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>
@@ -239,24 +254,59 @@ function CreatePayrollModal({
               </div>
 
               <div>
-                <label htmlFor="payroll-currency" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label
+                  htmlFor="payroll-currency"
+                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
                   Currency
                 </label>
-                <Select fullWidth options={[{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'GBP', label: 'GBP' }, { value: 'TRY', label: 'TRY' }, { value: 'NOK', label: 'NOK' }]} id="payroll-currency" value={currency} onChange={(e) => setCurrency(e.target.value)} />
+                <Select
+                  fullWidth
+                  options={[
+                    { value: 'USD', label: 'USD' },
+                    { value: 'EUR', label: 'EUR' },
+                    { value: 'GBP', label: 'GBP' },
+                    { value: 'TRY', label: 'TRY' },
+                    { value: 'NOK', label: 'NOK' },
+                  ]}
+                  id="payroll-currency"
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                />
               </div>
 
               <div>
-                <label htmlFor="payroll-periodStart" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Period Start <span className="text-red-500">*</span>
+                <label
+                  htmlFor="payroll-periodStart"
+                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  Period Start <span className="text-error-500">*</span>
                 </label>
-                <Input fullWidth id="payroll-periodStart" type="date" value={payPeriodStart} onChange={(e) => setPayPeriodStart(e.target.value)} required />
+                <Input
+                  fullWidth
+                  id="payroll-periodStart"
+                  type="date"
+                  value={payPeriodStart}
+                  onChange={(e) => setPayPeriodStart(e.target.value)}
+                  required
+                />
               </div>
 
               <div>
-                <label htmlFor="payroll-periodEnd" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Period End <span className="text-red-500">*</span>
+                <label
+                  htmlFor="payroll-periodEnd"
+                  className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+                >
+                  Period End <span className="text-error-500">*</span>
                 </label>
-                <Input fullWidth id="payroll-periodEnd" type="date" value={payPeriodEnd} onChange={(e) => setPayPeriodEnd(e.target.value)} required />
+                <Input
+                  fullWidth
+                  id="payroll-periodEnd"
+                  type="date"
+                  value={payPeriodEnd}
+                  onChange={(e) => setPayPeriodEnd(e.target.value)}
+                  required
+                />
               </div>
             </div>
           </div>
@@ -277,10 +327,22 @@ function CreatePayrollModal({
                 const fieldId = `payroll-hours-${label.toLowerCase().replace(/\s+/g, '-')}`;
                 return (
                   <div key={label}>
-                    <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <label
+                      htmlFor={fieldId}
+                      className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
                       {label}
                     </label>
-                    <Input fullWidth id={fieldId} type="number" min="0" max="744" step="0.5" value={value} onChange={(e) => setter(parseFloat(e.target.value) || 0)} />
+                    <Input
+                      fullWidth
+                      id={fieldId}
+                      type="number"
+                      min="0"
+                      max="744"
+                      step="0.5"
+                      value={value}
+                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                    />
                   </div>
                 );
               })}
@@ -303,16 +365,30 @@ function CreatePayrollModal({
                 const fieldId = `payroll-earning-${label.toLowerCase().replace(/\s+/g, '-')}`;
                 return (
                   <div key={label}>
-                    <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <label
+                      htmlFor={fieldId}
+                      className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
                       {label}
                     </label>
-                    <Input fullWidth id={fieldId} type="number" min="0" step="0.01" value={value} onChange={(e) => setter(parseFloat(e.target.value) || 0)} />
+                    <Input
+                      fullWidth
+                      id={fieldId}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={value}
+                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                    />
                   </div>
                 );
               })}
             </div>
             <div className="mt-2 text-right text-sm font-medium text-gray-700 dark:text-gray-300">
-              Gross Pay: <span className="text-green-600 dark:text-green-400">{formatCurrency(grossPay, currency)}</span>
+              Gross Pay:{' '}
+              <span className="text-success-600 dark:text-success-400">
+                {formatCurrency(grossPay, currency)}
+              </span>
             </div>
           </div>
 
@@ -332,26 +408,40 @@ function CreatePayrollModal({
                 const fieldId = `payroll-deduction-${label.toLowerCase().replace(/\s+/g, '-')}`;
                 return (
                   <div key={label}>
-                    <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                    <label
+                      htmlFor={fieldId}
+                      className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400"
+                    >
                       {label}
                     </label>
-                    <Input fullWidth id={fieldId} type="number" min="0" step="0.01" value={value} onChange={(e) => setter(parseFloat(e.target.value) || 0)} />
+                    <Input
+                      fullWidth
+                      id={fieldId}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={value}
+                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                    />
                   </div>
                 );
               })}
             </div>
             <div className="mt-2 text-right text-sm font-medium text-gray-700 dark:text-gray-300">
-              Total Deductions: <span className="text-red-600 dark:text-red-400">{formatCurrency(totalDeductions, currency)}</span>
+              Total Deductions:{' '}
+              <span className="text-error-600 dark:text-error-400">
+                {formatCurrency(totalDeductions, currency)}
+              </span>
             </div>
           </div>
 
           {/* Net Pay Summary */}
-          <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
+          <div className="rounded-lg border border-primary-200 bg-primary-50 p-4 dark:border-primary-800 dark:bg-primary-900/20">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+              <span className="text-sm font-semibold text-primary-700 dark:text-primary-300">
                 Net Pay
               </span>
-              <span className="text-xl font-bold text-indigo-700 dark:text-indigo-300">
+              <span className="text-xl font-bold text-primary-700 dark:text-primary-300">
                 {formatCurrency(netPay, currency)}
               </span>
             </div>
@@ -359,10 +449,21 @@ function CreatePayrollModal({
 
           {/* Notes */}
           <div>
-            <label htmlFor="payroll-notes" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="payroll-notes"
+              className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Notes
             </label>
-            <Textarea fullWidth id="payroll-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} maxLength={1000} placeholder="Optional notes..." />
+            <Textarea
+              fullWidth
+              id="payroll-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              maxLength={1000}
+              placeholder="Optional notes..."
+            />
           </div>
         </div>
       </form>
@@ -389,9 +490,7 @@ function SummaryCard({ title, value, icon, iconBg, subtitle }: SummaryCardProps)
         <div>
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
           <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-          {subtitle && (
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>
-          )}
+          {subtitle && <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>}
         </div>
         <div className={cn('rounded-lg p-2.5', iconBg)}>{icon}</div>
       </div>
@@ -494,7 +593,7 @@ const PayrollPage: React.FC = () => {
       {
         key: 'employee',
         header: 'Employee',
-          render: (_value, row) => (
+        render: (_value, row) => (
           <div className="flex items-center gap-3">
             {row.employee ? (
               <>
@@ -519,7 +618,7 @@ const PayrollPage: React.FC = () => {
       {
         key: 'period',
         header: 'Period',
-          render: (_value, row) => (
+        render: (_value, row) => (
           <div className="text-sm">
             <p className="text-gray-900 dark:text-white">
               {formatDate(row.payPeriodStart)} - {formatDate(row.payPeriodEnd)}
@@ -533,7 +632,7 @@ const PayrollPage: React.FC = () => {
       {
         key: 'status',
         header: 'Status',
-          render: (_value, row) => {
+        render: (_value, row) => {
           const config = PAYROLL_STATUS_CONFIG[row.status] || {
             label: row.status,
             variant: 'default',
@@ -556,7 +655,7 @@ const PayrollPage: React.FC = () => {
         header: 'Deductions',
         align: 'right',
         render: (_value, row) => (
-          <span className="text-red-600 dark:text-red-400">
+          <span className="text-error-600 dark:text-error-400">
             {formatCurrency(parseMoney(row.deductionsTotalDecimal), row.currency)}
           </span>
         ),
@@ -566,7 +665,7 @@ const PayrollPage: React.FC = () => {
         header: 'Net Pay',
         align: 'right',
         render: (_value, row) => (
-          <span className="font-semibold text-green-700 dark:text-green-400">
+          <span className="font-semibold text-success-700 dark:text-success-400">
             {formatCurrency(parseMoney(row.netPayDecimal), row.currency)}
           </span>
         ),
@@ -579,17 +678,27 @@ const PayrollPage: React.FC = () => {
         render: (_value, row) => (
           <div className="flex items-center justify-end gap-2">
             {row.status === PayrollStatus.PENDING_APPROVAL && (
-              <Button variant="ghost" size="sm" iconOnly aria-label="Approve" onClick={(e) => {
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                aria-label="Approve"
+                onClick={(e) => {
                   e.stopPropagation();
                   void handleApprove(row.id);
-                }} disabled={approveMutation.isPending} title="Approve"><CheckCircle className="h-4 w-4" /></Button>
+                }}
+                disabled={approveMutation.isPending}
+                title="Approve"
+              >
+                <CheckCircle className="h-4 w-4" />
+              </Button>
             )}
           </div>
         ),
       },
     ],
-     
-    [approveMutation.isPending, handleApprove]
+
+    [approveMutation.isPending, handleApprove],
   );
 
   // Stable keyExtractor
@@ -628,8 +737,8 @@ const PayrollPage: React.FC = () => {
   if (!isAuthorised) {
     return (
       <div className="flex h-64 flex-col items-center justify-center gap-4 p-6 text-center">
-        <div className="rounded-full bg-red-100 p-4 dark:bg-red-900/30">
-          <Lock className="h-8 w-8 text-red-600" />
+        <div className="rounded-full bg-error-100 p-4 dark:bg-error-900/30">
+          <Lock className="h-8 w-8 text-error-600 dark:text-error-400" />
         </div>
         <div>
           <h2 className="text-xl font-bold text-gray-900 dark:text-white">Access Restricted</h2>
@@ -639,7 +748,7 @@ const PayrollPage: React.FC = () => {
         </div>
         <Link
           to="/hr"
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
         >
           Back to HR Dashboard
         </Link>
@@ -667,7 +776,13 @@ const PayrollPage: React.FC = () => {
         title="Payroll"
         description="Salary and payment management"
         actions={
-          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>Create Payroll</Button>
+          <Button
+            variant="primary"
+            leftIcon={<Plus className="h-4 w-4" />}
+            onClick={() => setShowCreateModal(true)}
+          >
+            Create Payroll
+          </Button>
         }
       />
 
@@ -676,22 +791,22 @@ const PayrollPage: React.FC = () => {
         <SummaryCard
           title="Total Payrolls"
           value={totalCount}
-          icon={<FileText className="h-5 w-5 text-indigo-600" />}
-          iconBg="bg-indigo-100 dark:bg-indigo-900/30"
+          icon={<FileText className="h-5 w-5 text-primary-600 dark:text-primary-400" />}
+          iconBg="bg-primary-100 dark:bg-primary-900/30"
           subtitle="All time records"
         />
         <SummaryCard
           title="Pending Approval"
           value={pendingCount}
-          icon={<Clock className="h-5 w-5 text-amber-600" />}
-          iconBg="bg-amber-100 dark:bg-amber-900/30"
+          icon={<Clock className="h-5 w-5 text-warning-600 dark:text-warning-400" />}
+          iconBg="bg-warning-100 dark:bg-warning-900/30"
           subtitle="Awaiting review"
         />
         <SummaryCard
           title="This Month Net Pay"
           value={formatCurrency(thisMonthNetPay)}
-          icon={<TrendingUp className="h-5 w-5 text-green-600" />}
-          iconBg="bg-green-100 dark:bg-green-900/30"
+          icon={<TrendingUp className="h-5 w-5 text-success-600 dark:text-success-400" />}
+          iconBg="bg-success-100 dark:bg-success-900/30"
           subtitle="Current pay period"
         />
       </div>
@@ -703,8 +818,8 @@ const PayrollPage: React.FC = () => {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'all'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           All Payrolls
@@ -714,13 +829,13 @@ const PayrollPage: React.FC = () => {
           className={cn(
             'flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'pending'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Pending Approval
           {pendingCount > 0 && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+            <span className="rounded-full bg-warning-100 dark:bg-warning-900/40 px-2 py-0.5 text-xs font-medium text-warning-700 dark:text-warning-300">
               {pendingCount}
             </span>
           )}
@@ -736,7 +851,7 @@ const PayrollPage: React.FC = () => {
             placeholder="Search payrolls..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+            className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:outline-hidden focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
           />
         </div>
 
@@ -745,8 +860,8 @@ const PayrollPage: React.FC = () => {
           className={cn(
             'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ring-1',
             showFilters
-              ? 'bg-indigo-50 text-indigo-600 ring-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400'
-              : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200'
+              ? 'bg-primary-50 text-primary-600 ring-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
+              : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200',
           )}
         >
           <Filter className="h-4 w-4" />
@@ -759,7 +874,10 @@ const PayrollPage: React.FC = () => {
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-800/50">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div>
-              <label htmlFor="payroll-filter-status" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="payroll-filter-status"
+                className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 Status
               </label>
               <select
@@ -800,7 +918,9 @@ const PayrollPage: React.FC = () => {
           </div>
 
           <div className="mt-4 flex justify-end">
-            <Button variant="ghost" onClick={() => setFilter({ limit: 20, page: 1 })}>Clear all filters</Button>
+            <Button variant="ghost" onClick={() => setFilter({ limit: 20, page: 1 })}>
+              Clear all filters
+            </Button>
           </div>
         </div>
       )}

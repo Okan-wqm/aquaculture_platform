@@ -9,10 +9,34 @@ import { severityClasses } from '@aquaculture/shared-ui';
 /* ------------------------------------------------------------------ */
 
 const SEVERITY_CONFIG = {
-  critical: { label: 'Critical', bg: severityClasses('critical', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
-  high: { label: 'High', bg: severityClasses('high', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
-  warning: { label: 'Warning', bg: severityClasses('warning', 'solid'), text: '', pillBg: 'bg-black/10', pillText: 'text-inherit' },
-  info: { label: 'Info', bg: severityClasses('info', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
+  critical: {
+    label: 'Critical',
+    bg: severityClasses('critical', 'solid'),
+    text: '',
+    pillBg: 'bg-black/20',
+    pillText: 'text-inherit',
+  },
+  high: {
+    label: 'High',
+    bg: severityClasses('high', 'solid'),
+    text: '',
+    pillBg: 'bg-black/20',
+    pillText: 'text-inherit',
+  },
+  warning: {
+    label: 'Warning',
+    bg: severityClasses('warning', 'solid'),
+    text: '',
+    pillBg: 'bg-black/10',
+    pillText: 'text-inherit',
+  },
+  info: {
+    label: 'Info',
+    bg: severityClasses('info', 'solid'),
+    text: '',
+    pillBg: 'bg-black/20',
+    pillText: 'text-inherit',
+  },
 } as const;
 
 type Severity = AlarmRuleDef['severity'];
@@ -38,7 +62,10 @@ export const GlobalAlarmBanner: React.FC = () => {
       }
       let highest: Severity | null = null;
       for (const sev of SEVERITY_ORDER) {
-        if (c[sev] > 0) { highest = sev; break; }
+        if (c[sev] > 0) {
+          highest = sev;
+          break;
+        }
       }
       return { counts: c, total: simAlarms.length, highestSeverity: highest };
     }
@@ -72,7 +99,9 @@ export const GlobalAlarmBanner: React.FC = () => {
   /* Bar background: red-600 + pulse if critical, otherwise neutral dark */
   const barClasses = [
     'flex items-center justify-between px-4 h-8 text-xs select-none',
-    hasCritical ? 'bg-red-600 text-white animate-pulse' : 'bg-gray-800 text-gray-500 dark:text-gray-400',
+    hasCritical
+      ? 'bg-error-600 text-white animate-pulse'
+      : 'bg-gray-800 text-gray-500 dark:text-gray-400',
   ].join(' ');
 
   return (
@@ -100,7 +129,11 @@ export const GlobalAlarmBanner: React.FC = () => {
               return (
                 <React.Fragment key={sev}>
                   {idx > 0 && (
-                    <span className={hasCritical ? 'text-red-300' : 'text-gray-600 dark:text-gray-400'}>
+                    <span
+                      className={
+                        hasCritical ? 'text-error-300' : 'text-gray-600 dark:text-gray-400'
+                      }
+                    >
                       &middot;
                     </span>
                   )}
@@ -125,7 +158,7 @@ export const GlobalAlarmBanner: React.FC = () => {
             isEmpty
               ? 'bg-gray-700 text-gray-500 dark:text-gray-400'
               : hasCritical
-                ? 'bg-red-800 text-red-100'
+                ? 'bg-error-800 text-error-100'
                 : 'bg-gray-700 text-gray-200'
           }`}
         >

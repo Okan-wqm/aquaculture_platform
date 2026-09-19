@@ -37,6 +37,17 @@ import { SmoltReportTab } from './tabs/SmoltReportTab';
 import { CleanerFishReportTab } from './tabs/CleanerFishReportTab';
 import { SlaughterReportTab } from './tabs/SlaughterReportTab';
 import { PageHeader, Button } from '@aquaculture/shared-ui';
+import {
+  Box,
+  Calendar,
+  ChartColumn,
+  DollarSign,
+  FlaskConical,
+  Settings as SettingsIcon,
+  Sparkles,
+  TriangleAlert,
+  Zap,
+} from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -57,53 +68,21 @@ interface ReportTab {
 // Icons
 // ============================================================================
 
-const SeaLiceIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-  </svg>
-);
+const SeaLiceIcon = () => <DollarSign className="w-5 h-5" aria-hidden="true" />;
 
-const BiomassIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-  </svg>
-);
+const BiomassIcon = () => <ChartColumn className="w-5 h-5" aria-hidden="true" />;
 
-const SmoltIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
-  </svg>
-);
+const SmoltIcon = () => <Box className="w-5 h-5" aria-hidden="true" />;
 
-const CleanerFishIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-  </svg>
-);
+const CleanerFishIcon = () => <Sparkles className="w-5 h-5" aria-hidden="true" />;
 
-const SlaughterIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-  </svg>
-);
+const SlaughterIcon = () => <Calendar className="w-5 h-5" aria-hidden="true" />;
 
-const WelfareIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-  </svg>
-);
+const WelfareIcon = () => <TriangleAlert className="w-5 h-5" aria-hidden="true" />;
 
-const DiseaseIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-  </svg>
-);
+const DiseaseIcon = () => <FlaskConical className="w-5 h-5" aria-hidden="true" />;
 
-const EscapeIcon = () => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-  </svg>
-);
+const EscapeIcon = () => <Zap className="w-5 h-5" aria-hidden="true" />;
 
 // ============================================================================
 // Tab Configuration
@@ -189,8 +168,8 @@ const Badge: React.FC<BadgeProps> = ({ count, variant }) => {
   if (count === 0) return null;
 
   const variantClasses = {
-    warning: 'bg-yellow-100 text-yellow-800',
-    error: 'bg-red-100 text-red-800',
+    warning: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+    error: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   };
 
   return (
@@ -215,23 +194,13 @@ const WarningBanner: React.FC<WarningBannerProps> = ({ failedCount, dueSoonCount
   if (failedCount === 0 && dueSoonCount === 0) return null;
 
   return (
-    <div className="bg-red-50 border-l-4 border-red-400 p-4">
+    <div className="bg-error-50 dark:bg-error-900/20 border-l-4 border-error-400 p-4">
       <div className="flex">
         <div className="flex-shrink-0">
-          <svg
-            className="h-5 w-5 text-red-400"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-          >
-            <path
-              fillRule="evenodd"
-              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <TriangleAlert className="h-5 w-5 text-error-400" aria-hidden="true" />
         </div>
         <div className="ml-3">
-          <p className="text-sm text-red-700">
+          <p className="text-sm text-error-700 dark:text-error-300">
             {failedCount > 0 && (
               <span className="font-medium">
                 {failedCount} failed {failedCount === 1 ? 'submission' : 'submissions'}
@@ -240,7 +209,8 @@ const WarningBanner: React.FC<WarningBannerProps> = ({ failedCount, dueSoonCount
             {failedCount > 0 && dueSoonCount > 0 && ' and '}
             {dueSoonCount > 0 && (
               <span className="font-medium">
-                {dueSoonCount} {dueSoonCount === 1 ? 'report type' : 'report types'} due within 3 days
+                {dueSoonCount} {dueSoonCount === 1 ? 'report type' : 'report types'} due within 3
+                days
               </span>
             )}
             {'. '}
@@ -337,7 +307,9 @@ export const ReportsPage: React.FC = () => {
   const currentPath = location.pathname.split('/').pop() || 'sea-lice';
   const activeTab = reportTabs.find((tab) => tab.path === currentPath)?.id || 'sea-lice';
 
-  const EXPORT_TYPES: Partial<Record<string, [RegulatoryReportTypeValue, RegulatoryReportTypeValue?]>> = {
+  const EXPORT_TYPES: Partial<
+    Record<string, [RegulatoryReportTypeValue, RegulatoryReportTypeValue?]>
+  > = {
     'sea-lice': ['SEA_LICE'],
     smolt: ['SMOLT'],
     'cleaner-fish': ['CLEANER_FISH'],
@@ -368,25 +340,35 @@ export const ReportsPage: React.FC = () => {
                 {/* Summary Stats */}
                 <div className="hidden sm:flex items-center space-x-4 mr-4">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totals.pending}</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                      {totals.pending}
+                    </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Pending</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-red-600">{totals.failed}</div>
+                    <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+                      {totals.failed}
+                    </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Failed</div>
                   </div>
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-green-600">{totals.submitted}</div>
+                    <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+                      {totals.submitted}
+                    </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Submitted</div>
                   </div>
                 </div>
 
                 {/* Report Settings Button */}
-                <Button variant="secondary" type="button" onClick={() => setShowSettingsModal(true)} title="Report Settings"><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                  </svg>
-                  Report Settings</Button>
+                <Button
+                  variant="secondary"
+                  type="button"
+                  onClick={() => setShowSettingsModal(true)}
+                  title="Report Settings"
+                >
+                  <SettingsIcon className="w-4 h-4 mr-2" aria-hidden="true" />
+                  Report Settings
+                </Button>
 
                 {/* Export (FARM-LOW-119) — CSV of the active tab's persisted
                     submissions. Biomass keeps its own draft table and has no
@@ -420,7 +402,7 @@ export const ReportsPage: React.FC = () => {
                   group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
                   ${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
+                      ? 'border-info-500 text-info-600 dark:text-info-400'
                       : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
@@ -429,7 +411,7 @@ export const ReportsPage: React.FC = () => {
                 <span
                   className={`mr-2 ${
                     activeTab === tab.id
-                      ? 'text-blue-500'
+                      ? 'text-info-500'
                       : 'text-gray-400 dark:text-gray-500 group-hover:text-gray-500 dark:group-hover:text-gray-300'
                   }`}
                 >
@@ -438,7 +420,10 @@ export const ReportsPage: React.FC = () => {
                 {tab.label}
                 {/* Deadline indicator */}
                 {tab.deadline === 'immediate' && (
-                  <span className="ml-1.5 w-2 h-2 rounded-full bg-red-500" title="Immediate reporting required" />
+                  <span
+                    className="ml-1.5 w-2 h-2 rounded-full bg-error-500"
+                    title="Immediate reporting required"
+                  />
                 )}
                 {/* Badge */}
                 {tab.badge && tab.badgeVariant && (

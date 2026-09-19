@@ -11,12 +11,23 @@ import {
   Worker,
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
-import { FormField, Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useConfirm,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
+import { Plus, Search as SearchIcon, Users } from 'lucide-react';
 
 const statusColors: Record<string, string> = {
-  active: 'bg-green-100 text-green-800',
-  on_leave: 'bg-yellow-100 text-yellow-800',
-  terminated: 'bg-red-100 text-red-800',
+  active: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  on_leave: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  terminated: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   suspended: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -97,7 +108,14 @@ export const WorkersTab: React.FC = () => {
   const confirm = useConfirm();
   const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this worker?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this worker?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteWorkerMutation.mutateAsync(id);
       } catch (err) {
@@ -201,11 +219,15 @@ export const WorkersTab: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>Edit</Button>
-          <Button variant="ghost" onClick={() => handleDelete(item.id)}>Delete</Button>
+          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => handleDelete(item.id)}>
+            Delete
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -219,32 +241,18 @@ export const WorkersTab: React.FC = () => {
               placeholder="Search workers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
-            <svg
+            <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
           </div>
         </div>
-        <Button variant="primary" onClick={openCreate}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-          Add Worker</Button>
+        <Button variant="primary" onClick={openCreate}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Add Worker
+        </Button>
       </div>
 
       {/* Loading */}
@@ -256,9 +264,13 @@ export const WorkersTab: React.FC = () => {
 
       {/* Error */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load workers. Please try again.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load workers. Please try again.
+          </p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -276,21 +288,16 @@ export const WorkersTab: React.FC = () => {
           />
           {filtered.length === 0 && (
             <div className="text-center py-12">
-              <svg
+              <Users
                 className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-                />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No workers found</h3>
-              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Add workers to manage your farm team.</p>
+                aria-hidden="true"
+              />
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No workers found
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Add workers to manage your farm team.
+              </p>
             </div>
           )}
         </div>
@@ -307,32 +314,83 @@ export const WorkersTab: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">First Name *</label>
-                <FormField error={formData.firstName ? undefined : fieldErrors.firstName} className="mb-0">
-                <Input fullWidth type="text" required value={formData.firstName} onChange={(e) => setFormData((prev) => ({ ...prev, firstName: e.target.value }))} />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  First Name *
+                </label>
+                <FormField
+                  error={formData.firstName ? undefined : fieldErrors.firstName}
+                  className="mb-0"
+                >
+                  <Input
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.firstName}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, firstName: e.target.value }))
+                    }
+                  />
                 </FormField>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Last Name *</label>
-                <FormField error={formData.lastName ? undefined : fieldErrors.lastName} className="mb-0">
-                <Input fullWidth type="text" required value={formData.lastName} onChange={(e) => setFormData((prev) => ({ ...prev, lastName: e.target.value }))} />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Last Name *
+                </label>
+                <FormField
+                  error={formData.lastName ? undefined : fieldErrors.lastName}
+                  className="mb-0"
+                >
+                  <Input
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.lastName}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, lastName: e.target.value }))}
+                  />
                 </FormField>
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Email *
+              </label>
               <FormField error={formData.email ? undefined : fieldErrors.email} className="mb-0">
-              <Input fullWidth type="email" required value={formData.email} onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))} />
+                <Input
+                  fullWidth
+                  type="email"
+                  required
+                  value={formData.email}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                />
               </FormField>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
-              <Input fullWidth type="text" value={formData.phone} onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))} />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Phone
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                value={formData.phone}
+                onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Position *</label>
-              <FormField error={formData.position ? undefined : fieldErrors.position} className="mb-0">
-              <Input fullWidth type="text" required value={formData.position} onChange={(e) => setFormData((prev) => ({ ...prev, position: e.target.value }))} placeholder="e.g., Farm Technician, Feed Operator" />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Position *
+              </label>
+              <FormField
+                error={formData.position ? undefined : fieldErrors.position}
+                className="mb-0"
+              >
+                <Input
+                  fullWidth
+                  type="text"
+                  required
+                  value={formData.position}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, position: e.target.value }))}
+                  placeholder="e.g., Farm Technician, Feed Operator"
+                />
               </FormField>
             </div>
             <div>
@@ -343,7 +401,7 @@ export const WorkersTab: React.FC = () => {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, isVeterinarian: e.target.checked }))
                   }
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                  className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
                 />
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Veterinarian (can be attributed to treatments)
@@ -355,18 +413,29 @@ export const WorkersTab: React.FC = () => {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Veterinary licence number
                 </label>
-                <Input fullWidth type="text" maxLength={50} value={formData.veterinaryLicenseNumber} onChange={(e) =>
-          setFormData((prev) => ({
-           ...prev,
-           veterinaryLicenseNumber: e.target.value,
-          }))
-         } placeholder="Professional licence / registration number" />
+                <Input
+                  fullWidth
+                  type="text"
+                  maxLength={50}
+                  value={formData.veterinaryLicenseNumber}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      veterinaryLicenseNumber: e.target.value,
+                    }))
+                  }
+                  placeholder="Professional licence / registration number"
+                />
               </div>
             )}
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={isSaving}>
+              {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+            </Button>
           </div>
         </form>
       </Modal>

@@ -25,23 +25,29 @@ const formatDataType = (column: ColumnInfo): string => {
  */
 const getTypeColor = (dataType: string): string => {
   const type = dataType.toLowerCase();
-  if (type.includes('int') || type.includes('numeric') || type.includes('decimal') || type.includes('float') || type.includes('double')) {
-    return 'text-blue-500';
+  if (
+    type.includes('int') ||
+    type.includes('numeric') ||
+    type.includes('decimal') ||
+    type.includes('float') ||
+    type.includes('double')
+  ) {
+    return 'text-info-500';
   }
   if (type.includes('varchar') || type.includes('text') || type.includes('char')) {
-    return 'text-green-500';
+    return 'text-success-500';
   }
   if (type.includes('timestamp') || type.includes('date') || type.includes('time')) {
-    return 'text-purple-500';
+    return 'text-accent-500';
   }
   if (type.includes('bool')) {
-    return 'text-orange-500';
+    return 'text-accent-500';
   }
   if (type.includes('json') || type.includes('array')) {
-    return 'text-pink-500';
+    return 'text-accent-500';
   }
   if (type.includes('uuid')) {
-    return 'text-cyan-500';
+    return 'text-info-500';
   }
   return 'text-gray-500 dark:text-gray-400';
 };
@@ -71,18 +77,14 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       key: 'indexName',
       header: 'Index Name',
       render: (_value, idx) => (
-        <span className="font-mono text-sm text-gray-700 dark:text-gray-300">
-          {idx.indexName}
-        </span>
+        <span className="font-mono text-sm text-gray-700 dark:text-gray-300">{idx.indexName}</span>
       ),
     },
     {
       key: 'column',
       header: 'Column',
       render: (_value, idx) => (
-        <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
-          {idx.columnName}
-        </span>
+        <span className="font-mono text-sm text-gray-600 dark:text-gray-400">{idx.columnName}</span>
       ),
     },
     {
@@ -92,7 +94,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       render: (_value, idx) => (
         <>
           {idx.isUnique ? (
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 text-xs font-medium">
               Y
             </span>
           ) : (
@@ -110,7 +112,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       render: (_value, idx) => (
         <>
           {idx.isPrimary ? (
-            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium">
+            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 text-xs font-medium">
               Y
             </span>
           ) : (
@@ -120,7 +122,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           )}
         </>
       ),
-    }
+    },
   ];
 
   const columnInfoColumns: DataTableColumn<ColumnInfo>[] = [
@@ -140,7 +142,9 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       key: 'type',
       header: 'Type',
       render: (_value, col) => (
-        <code className={`text-xs px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 ${getTypeColor(col.dataType)}`}>
+        <code
+          className={`text-xs px-2 py-1 rounded-md bg-gray-100 dark:bg-gray-800 ${getTypeColor(col.dataType)}`}
+        >
           {formatDataType(col)}
         </code>
       ),
@@ -154,7 +158,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           <span
             className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ${
               col.isNullable
-                ? 'bg-yellow-100 text-yellow-700'
+                ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
             }`}
           >
@@ -188,7 +192,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
         <div className="flex items-center justify-center gap-1">
           {col.isPrimaryKey && (
             <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 text-xs font-medium"
               title="Primary Key"
             >
               <Key className="w-3 h-3" />
@@ -197,7 +201,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           )}
           {col.isForeignKey && (
             <span
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 text-xs font-medium"
               title={`Foreign Key → ${col.foreignKeyTable}.${col.foreignKeyColumn}`}
             >
               <Link2 className="w-3 h-3" />
@@ -209,7 +213,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           )}
         </div>
       ),
-    }
+    },
   ];
 
   return (
@@ -222,7 +226,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       title="Table Schema"
       description={
         <>
-          <span className="text-green-600 font-medium">{schemaName}</span>
+          <span className="text-success-600 dark:text-success-400 font-medium">{schemaName}</span>
           <span className="mx-1">.</span>
           <span className="font-semibold text-gray-700 dark:text-gray-300">{tableOnly}</span>
         </>
@@ -234,12 +238,16 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
               <>
                 {columns.length} column{columns.length !== 1 ? 's' : ''}
                 {indexes && indexes.length > 0 && (
-                  <>, {indexes.length} index{indexes.length !== 1 ? 'es' : ''}</>
+                  <>
+                    , {indexes.length} index{indexes.length !== 1 ? 'es' : ''}
+                  </>
                 )}
               </>
             )}
           </p>
-          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button variant="secondary" onClick={onClose}>
+            Close
+          </Button>
         </div>
       }
     >
@@ -247,18 +255,24 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
       {loading && (
         <div className="flex flex-col items-center justify-center py-12">
           <Spinner size="lg" />
-          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Loading schema information...</p>
+          <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+            Loading schema information...
+          </p>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
         <div className="flex flex-col items-center justify-center py-12">
-          <div className="p-3 rounded-full bg-red-100">
-            <AlertCircle className="w-6 h-6 text-red-500" />
+          <div className="p-3 rounded-full bg-error-100 dark:bg-error-900/40">
+            <AlertCircle className="w-6 h-6 text-error-500" />
           </div>
-          <p className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">Failed to load schema</p>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 text-center max-w-md">{error}</p>
+          <p className="mt-3 text-sm font-medium text-gray-900 dark:text-gray-100">
+            Failed to load schema
+          </p>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 text-center max-w-md">
+            {error}
+          </p>
         </div>
       )}
 
@@ -308,7 +322,7 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
           )}
 
           {/* Foreign Key References */}
-          {columns.some(col => col.isForeignKey) && (
+          {columns.some((col) => col.isForeignKey) && (
             <div>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Link2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
@@ -316,17 +330,17 @@ export const TableSchemaModal: React.FC<TableSchemaModalProps> = ({
               </h3>
               <div className="grid gap-2">
                 {columns
-                  .filter(col => col.isForeignKey)
-                  .map(col => (
+                  .filter((col) => col.isForeignKey)
+                  .map((col) => (
                     <div
                       key={col.columnName}
-                      className="flex items-center gap-3 p-3 bg-blue-50 rounded-lg border border-blue-100"
+                      className="flex items-center gap-3 p-3 bg-info-50 dark:bg-info-900/20 rounded-lg border border-info-100 dark:border-info-800"
                     >
-                      <Link2 className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                      <Link2 className="w-4 h-4 text-info-500 flex-shrink-0" />
                       <span className="font-mono text-sm text-gray-700 dark:text-gray-300">
                         <span className="font-semibold">{col.columnName}</span>
                         <span className="text-gray-500 dark:text-gray-400 mx-2">→</span>
-                        <span className="text-blue-600">
+                        <span className="text-info-600 dark:text-info-400">
                           {col.foreignKeyTable}.{col.foreignKeyColumn}
                         </span>
                       </span>

@@ -9,7 +9,6 @@
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { ReportsDuePage } from '../ReportsDuePage';
@@ -64,11 +63,6 @@ vi.mock('@/hooks/useAuth', () => ({
 vi.mock('@/services/authenticated-fetch', () => ({
   graphqlRequest: (doc: unknown, vars: unknown) => h.graphqlRequest(doc, vars),
 }));
-
-vi.mock('lucide-react', () => {
-  const Stub = (): ReactNode => <svg data-testid="icon" />;
-  return { CloudOff: Stub, FileText: Stub };
-});
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),

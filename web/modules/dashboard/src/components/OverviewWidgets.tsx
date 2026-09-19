@@ -7,14 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { Card, Badge, chartChrome, colors, formatNumber, Button } from '@aquaculture/shared-ui';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   useTodaysTasks,
   useStorageOverview,
@@ -54,11 +47,6 @@ const waterQualityRanges: Record<string, { min: number; max: number }> = {
 };
 
 // PERF-M1: Tooltip style hoisted to module scope to avoid new object on every render
-const tooltipStyle = {
-  backgroundColor: 'white',
-  border: `1px solid ${chartChrome.border}`,
-  borderRadius: '8px',
-};
 
 // ============================================================================
 // Skeleton Components
@@ -84,8 +72,10 @@ const ErrorWidget: React.FC<{ title: string; onRetry: () => void }> = ({ title, 
   <Card className="p-4">
     <div className="text-center py-4">
       <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{title}</h3>
-      <p className="text-xs text-red-500 mb-2">Veri yuklenemedi</p>
-      <Button variant="ghost" size="xs" type="button" onClick={onRetry}>Tekrar Dene</Button>
+      <p className="text-xs text-error-500 mb-2">Veri yuklenemedi</p>
+      <Button variant="ghost" size="xs" type="button" onClick={onRetry}>
+        Tekrar Dene
+      </Button>
     </div>
   </Card>
 );
@@ -110,7 +100,12 @@ interface TaskStatsWidgetProps {
   refetch: () => void;
 }
 
-const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isError, refetch }) => {
+const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({
+  stats,
+  isLoading,
+  isError,
+  refetch,
+}) => {
   // Build simple chart data from stats.
   // Hook must run on every render (Rules of Hooks) — placed before the early
   // returns below; guarded against undefined `stats` (loading/empty states).
@@ -140,7 +135,11 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
             {formatNumber(stats.totalToday)} gorev
           </p>
         </div>
-        <Badge variant={stats.completionRate > 70 ? 'success' : stats.completionRate > 40 ? 'warning' : 'error'}>
+        <Badge
+          variant={
+            stats.completionRate > 70 ? 'success' : stats.completionRate > 40 ? 'warning' : 'error'
+          }
+        >
           %{stats.completionRate.toFixed(0)} tamamlandı
         </Badge>
       </div>
@@ -149,13 +148,14 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
           <XAxis dataKey="day" hide />
           <YAxis hide domain={['dataMin - 1', 'dataMax + 1']} />
           <Tooltip
-            contentStyle={tooltipStyle}
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 return (
                   <div className="bg-white dark:bg-gray-900 shadow-lg rounded-lg px-3 py-2 text-sm">
                     <p className="font-medium">{String(payload[0].payload.day)}</p>
-                    <p className="text-primary-600">{payload[0].value} gorev</p>
+                    <p className="text-primary-600 dark:text-primary-400">
+                      {payload[0].value} gorev
+                    </p>
                   </div>
                 );
               }
@@ -245,7 +245,7 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {entries.map(([key, value]) => {
           const range = waterQualityRanges[key];
-          const isWarning = range ? (value < range.min || value > range.max) : false;
+          const isWarning = range ? value < range.min || value > range.max : false;
           const progress = range
             ? Math.max(0, Math.min(((value - range.min) / (range.max - range.min)) * 100, 100))
             : 50;
@@ -253,15 +253,19 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
           return (
             <div key={key} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500 dark:text-gray-400">{waterQualityLabels[key] ?? key}</span>
-                <span className={`font-medium ${isWarning ? 'text-yellow-600' : 'text-gray-900 dark:text-gray-100'}`}>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {waterQualityLabels[key] ?? key}
+                </span>
+                <span
+                  className={`font-medium ${isWarning ? 'text-warning-600 dark:text-warning-400' : 'text-gray-900 dark:text-gray-100'}`}
+                >
                   {value.toFixed(1)} {waterQualityUnits[key] ?? ''}
                 </span>
               </div>
               <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    isWarning ? 'bg-yellow-500' : 'bg-green-500'
+                    isWarning ? 'bg-warning-500' : 'bg-success-500'
                   }`}
                   style={{ width: `${progress}%` }}
                 />
@@ -301,7 +305,16 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Aktif Gorevler</h3>
         {/* BUG-M3: replaced <span> fake link with an accessible <button> */}
-        <Button variant="ghost" size="xs" type="button" onClick={() => { /* TODO: navigate to /tasks */ }}>Tumunu Gor</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          type="button"
+          onClick={() => {
+            /* TODO: navigate to /tasks */
+          }}
+        >
+          Tumunu Gor
+        </Button>
       </div>
       <div className="space-y-3">
         {displayTasks.map((task) => (
@@ -310,15 +323,21 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
               <div
                 className={`w-2 h-2 rounded-full mr-2 ${
                   task.status === 'COMPLETED'
-                    ? 'bg-green-500'
+                    ? 'bg-success-500'
                     : task.status === 'IN_PROGRESS'
-                    ? 'bg-yellow-500'
-                    : task.status === 'OVERDUE'
-                    ? 'bg-red-500'
-                    : 'bg-gray-300'
+                      ? 'bg-warning-500'
+                      : task.status === 'OVERDUE'
+                        ? 'bg-error-500'
+                        : 'bg-gray-300'
                 }`}
               />
-              <span className={task.status === 'COMPLETED' ? 'text-gray-500 dark:text-gray-400 line-through' : 'text-gray-700 dark:text-gray-300'}>
+              <span
+                className={
+                  task.status === 'COMPLETED'
+                    ? 'text-gray-500 dark:text-gray-400 line-through'
+                    : 'text-gray-700 dark:text-gray-300'
+                }
+              >
                 {task.title}
               </span>
             </div>
@@ -337,10 +356,12 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
 // ============================================================================
 
 interface StockWidgetProps {
-  overview: {
-    lowStockAlertCount: number;
-    lowStockAlerts: LowStockAlert[];
-  } | undefined;
+  overview:
+    | {
+        lowStockAlertCount: number;
+        lowStockAlerts: LowStockAlert[];
+      }
+    | undefined;
   isLoading: boolean;
   isError: boolean;
   refetch: () => void;
@@ -361,30 +382,29 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Stok Durumu</h3>
         <Badge variant={overview.lowStockAlertCount > 0 ? 'error' : 'success'}>
-          {overview.lowStockAlertCount > 0
-            ? `${overview.lowStockAlertCount} Kritik`
-            : 'Normal'}
+          {overview.lowStockAlertCount > 0 ? `${overview.lowStockAlertCount} Kritik` : 'Normal'}
         </Badge>
       </div>
       <div className="space-y-3">
         {displayAlerts.map((stock) => {
-          const percentage = stock.minStock > 0
-            ? (stock.currentQuantity / stock.minStock) * 100
-            : 0;
+          const percentage =
+            stock.minStock > 0 ? (stock.currentQuantity / stock.minStock) * 100 : 0;
           const isLow = percentage < 100;
 
           return (
             <div key={stock.itemId} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-gray-500 dark:text-gray-400">{stock.itemName}</span>
-                <span className={`font-medium ${isLow ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
+                <span
+                  className={`font-medium ${isLow ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
+                >
                   {stock.currentQuantity.toFixed(0)} / {stock.minStock.toFixed(0)} {stock.unit}
                 </span>
               </div>
               <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    isLow ? 'bg-red-500' : percentage < 150 ? 'bg-yellow-500' : 'bg-green-500'
+                    isLow ? 'bg-error-500' : percentage < 150 ? 'bg-warning-500' : 'bg-success-500'
                   }`}
                   style={{ width: `${Math.min(percentage, 100)}%` }}
                 />

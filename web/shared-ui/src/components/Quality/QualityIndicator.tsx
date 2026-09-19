@@ -11,6 +11,7 @@
 import React from 'react';
 
 import { colors } from '../../styles/theme';
+import { CircleCheck, CircleMinus, CircleX, TriangleAlert } from 'lucide-react';
 
 export type TagQuality = 'good' | 'uncertain' | 'bad' | 'comm_failure' | 'not_initialized';
 
@@ -70,46 +71,14 @@ const Glyph: React.FC<{ quality: TagQuality; className: string }> = ({ quality, 
   // Each quality has its own shape, so the state reads without colour.
   switch (quality) {
     case 'good':
-      return (
-        <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.7-9.3a1 1 0 00-1.4-1.4L9 10.6 7.7 9.3a1 1 0 00-1.4 1.4l2 2a1 1 0 001.4 0l4-4z"
-            clipRule="evenodd"
-          />
-        </svg>
-      );
+      return <CircleCheck className={className} aria-hidden="true" />;
     case 'uncertain':
-      return (
-        <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path
-            fillRule="evenodd"
-            d="M8.3 3.4c.8-1.3 2.6-1.3 3.4 0l5.8 10.1c.8 1.3-.2 3-1.7 3H4.2c-1.5 0-2.5-1.7-1.7-3L8.3 3.4zM10 7a1 1 0 011 1v3a1 1 0 11-2 0V8a1 1 0 011-1zm0 8a1 1 0 100-2 1 1 0 000 2z"
-            clipRule="evenodd"
-          />
-        </svg>
-      );
+      return <TriangleAlert className={className} aria-hidden="true" />;
     case 'bad':
     case 'comm_failure':
-      return (
-        <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.7 7.3a1 1 0 00-1.4 1.4L8.6 10l-1.3 1.3a1 1 0 101.4 1.4L10 11.4l1.3 1.3a1 1 0 001.4-1.4L11.4 10l1.3-1.3a1 1 0 00-1.4-1.4L10 8.6 8.7 7.3z"
-            clipRule="evenodd"
-          />
-        </svg>
-      );
+      return <CircleX className={className} aria-hidden="true" />;
     case 'not_initialized':
-      return (
-        <svg className={className} viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-          <path
-            fillRule="evenodd"
-            d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z"
-            clipRule="evenodd"
-          />
-        </svg>
-      );
+      return <CircleMinus className={className} aria-hidden="true" />;
   }
 };
 

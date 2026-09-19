@@ -2,7 +2,17 @@
  * Create Purchase Order Modal
  */
 import React, { useState } from 'react';
-import { Modal, useToast, formatCurrency, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useToast,
+  formatCurrency,
+  DEFAULT_CURRENCY,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Input,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   useCreatePurchaseOrder,
   PurchaseOrderCategory,
@@ -11,6 +21,7 @@ import {
 import { useFeedList } from '../../../hooks/useFeeds';
 import { useChemicalList } from '../../../hooks/useChemicals';
 import { useConsumableList } from '../../../hooks/useConsumables';
+import { X } from 'lucide-react';
 
 const CATEGORIES: { value: PurchaseOrderCategory; label: string }[] = [
   { value: PurchaseOrderCategory.FEED, label: 'Feed' },
@@ -174,9 +185,13 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
       key: 'qty',
       header: 'Qty',
       render: (_value, item) => (
-        <Input type="number" min="0.01" step="0.01" value={item.quantity} onChange={(e) =>
-      updateItem(item.itemId, 'quantity', parseFloat(e.target.value) || 0)
-     } />
+        <Input
+          type="number"
+          min="0.01"
+          step="0.01"
+          value={item.quantity}
+          onChange={(e) => updateItem(item.itemId, 'quantity', parseFloat(e.target.value) || 0)}
+        />
       ),
     },
     {
@@ -188,13 +203,20 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
       key: 'price',
       header: 'Price',
       render: (_value, item) => (
-        <Input type="number" min="0" step="0.01" value={item.unitPrice ?? ''} onChange={(e) =>
-      updateItem(
-       item.itemId,
-       'unitPrice',
-       e.target.value ? parseFloat(e.target.value) : undefined,
-      )
-     } placeholder="0.00" />
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          value={item.unitPrice ?? ''}
+          onChange={(e) =>
+            updateItem(
+              item.itemId,
+              'unitPrice',
+              e.target.value ? parseFloat(e.target.value) : undefined,
+            )
+          }
+          placeholder="0.00"
+        />
       ),
     },
     {
@@ -202,9 +224,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
       header: 'Total',
       render: (_value, item) => (
         <>
-          {item.unitPrice
-            ? formatCurrency(item.unitPrice * item.quantity, DEFAULT_CURRENCY)
-            : '-'}
+          {item.unitPrice ? formatCurrency(item.unitPrice * item.quantity, DEFAULT_CURRENCY) : '-'}
         </>
       ),
     },
@@ -213,22 +233,12 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
       header: '',
       render: (_value, item) => (
         <>
-          <Button variant="ghost" type="button" onClick={() => removeItem(item.itemId)}><svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg></Button>
+          <Button variant="ghost" type="button" onClick={() => removeItem(item.itemId)}>
+            <X className="w-4 h-4" aria-hidden="true" />
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -237,7 +247,9 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
         <div className="space-y-4">
           {/* Category */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Category *
+            </label>
             <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {CATEGORIES.map((cat) => (
                 <button
@@ -249,7 +261,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                   }}
                   className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                     category === cat.value
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
+                      ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
                       : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
@@ -262,12 +274,27 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           {/* Supplier */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name *</label>
-              <Input fullWidth type="text" required value={supplierName} onChange={(e) => setSupplierName(e.target.value)} />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Supplier Name *
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                required
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact</label>
-              <Input fullWidth type="text" value={supplierContact} onChange={(e) => setSupplierContact(e.target.value)} />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Contact
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                value={supplierContact}
+                onChange={(e) => setSupplierContact(e.target.value)}
+              />
             </div>
           </div>
 
@@ -276,17 +303,24 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Expected Delivery Date
             </label>
-            <Input fullWidth type="date" value={expectedDeliveryDate} onChange={(e) => setExpectedDeliveryDate(e.target.value)} />
+            <Input
+              fullWidth
+              type="date"
+              value={expectedDeliveryDate}
+              onChange={(e) => setExpectedDeliveryDate(e.target.value)}
+            />
           </div>
 
           {/* Add Items */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Items *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Items *
+            </label>
             <div className="flex gap-2">
               <select
                 value={selectedItemId}
                 onChange={(e) => setSelectedItemId(e.target.value)}
-                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
+                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-info-500 focus:border-info-500"
               >
                 <option value="">Select item to add...</option>
                 {itemOptions
@@ -297,7 +331,9 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                     </option>
                   ))}
               </select>
-              <Button variant="primary" type="button" onClick={addItem} disabled={!selectedItemId}>Add</Button>
+              <Button variant="primary" type="button" onClick={addItem} disabled={!selectedItemId}>
+                Add
+              </Button>
             </div>
           </div>
 
@@ -323,14 +359,24 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Notes
+            </label>
             <Textarea fullWidth rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={!supplierName || items.length === 0 || createPO.isPending}>{createPO.isPending ? 'Creating...' : 'Create PO'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={!supplierName || items.length === 0 || createPO.isPending}
+          >
+            {createPO.isPending ? 'Creating...' : 'Create PO'}
+          </Button>
         </div>
       </form>
     </Modal>

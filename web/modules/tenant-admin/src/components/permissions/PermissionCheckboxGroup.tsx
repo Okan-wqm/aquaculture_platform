@@ -93,16 +93,11 @@ interface ActionCheckboxProps {
   readOnly?: boolean;
 }
 
-const ActionCheckbox = React.memo<ActionCheckboxProps>(({
-  checked,
-  onChange,
-  label,
-  disabled,
-  readOnly,
-}) => {
-  return (
-    <label
-      className={`
+const ActionCheckbox = React.memo<ActionCheckboxProps>(
+  ({ checked, onChange, label, disabled, readOnly }) => {
+    return (
+      <label
+        className={`
         inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium
         transition-all duration-150
         ${
@@ -110,37 +105,34 @@ const ActionCheckbox = React.memo<ActionCheckboxProps>(({
             ? 'cursor-not-allowed opacity-60'
             : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'
         }
-        ${checked ? 'text-green-700' : 'text-gray-500 dark:text-gray-400'}
+        ${checked ? 'text-success-700 dark:text-success-300' : 'text-gray-500 dark:text-gray-400'}
       `}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => !disabled && !readOnly && onChange(e.target.checked)}
-        disabled={disabled || readOnly}
-        className="sr-only"
-      />
-      <span
-        className={`
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => !disabled && !readOnly && onChange(e.target.checked)}
+          disabled={disabled || readOnly}
+          className="sr-only"
+        />
+        <span
+          className={`
           flex items-center justify-center w-4 h-4 rounded border transition-all
           ${
             checked
-              ? 'bg-green-600 border-green-600'
+              ? 'bg-success-600 border-success-600'
               : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600'
           }
-          ${
-            !disabled && !readOnly && !checked
-              ? 'group-hover:border-green-400'
-              : ''
-          }
+          ${!disabled && !readOnly && !checked ? 'group-hover:border-success-400' : ''}
         `}
-      >
-        {checked && <Check className="w-3 h-3 text-white" />}
-      </span>
-      <span>{label}</span>
-    </label>
-  );
-});
+        >
+          {checked && <Check className="w-3 h-3 text-white" />}
+        </span>
+        <span>{label}</span>
+      </label>
+    );
+  },
+);
 ActionCheckbox.displayName = 'ActionCheckbox';
 
 interface ResourceRowProps {
@@ -153,80 +145,80 @@ interface ResourceRowProps {
   readOnly?: boolean;
 }
 
-const ResourceRow = React.memo<ResourceRowProps>(({
-  categoryKey: _categoryKey,
-  resource,
-  permissions,
-  onChange,
-  onSelectAll,
-  disabled,
-  readOnly,
-}) => {
-  const allSelected = resource.actions.every(
-    (action) => permissions[action] === true
-  );
-  const someSelected =
-    resource.actions.some((action) => permissions[action] === true) &&
-    !allSelected;
+const ResourceRow = React.memo<ResourceRowProps>(
+  ({
+    categoryKey: _categoryKey,
+    resource,
+    permissions,
+    onChange,
+    onSelectAll,
+    disabled,
+    readOnly,
+  }) => {
+    const allSelected = resource.actions.every((action) => permissions[action] === true);
+    const someSelected =
+      resource.actions.some((action) => permissions[action] === true) && !allSelected;
 
-  return (
-    <div className="flex items-center py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors group">
-      {/* Resource Name with Select All */}
-      <div className="w-40 flex items-center gap-2">
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={allSelected ? 'true' : someSelected ? 'mixed' : 'false'}
-          aria-label={`Select all ${formatResourceName(resource.name)} permissions`}
-          onClick={() => !disabled && !readOnly && onSelectAll(resource.name, !allSelected)}
-          disabled={disabled || readOnly}
-          className={`
+    return (
+      <div className="flex items-center py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors group">
+        {/* Resource Name with Select All */}
+        <div className="w-40 flex items-center gap-2">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={allSelected ? 'true' : someSelected ? 'mixed' : 'false'}
+            aria-label={`Select all ${formatResourceName(resource.name)} permissions`}
+            onClick={() => !disabled && !readOnly && onSelectAll(resource.name, !allSelected)}
+            disabled={disabled || readOnly}
+            className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
-            focus:outline-hidden focus:ring-2 focus:ring-green-500
+            focus:outline-hidden focus:ring-2 focus:ring-success-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allSelected
-                ? 'bg-green-600 border-green-600'
+                ? 'bg-success-600 border-success-600'
                 : someSelected
-                ? 'bg-green-100 border-green-400'
-                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
+                  ? 'bg-success-100 dark:bg-success-900/40 border-success-400'
+                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-success-400'
             }
           `}
-        >
-          {allSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
-          {someSelected && <Minus className="w-3 h-3 text-green-600" aria-hidden="true" />}
-        </button>
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          {formatResourceName(resource.name)}
-        </span>
-      </div>
+          >
+            {allSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
+            {someSelected && (
+              <Minus
+                className="w-3 h-3 text-success-600 dark:text-success-400"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {formatResourceName(resource.name)}
+          </span>
+        </div>
 
-      {/* Actions */}
-      <div className="flex-1 flex flex-wrap gap-1">
-        {resource.actions.map((action) => (
-          <ActionCheckbox
-            key={action}
-            checked={permissions[action] === true}
-            onChange={(value) => onChange(resource.name, action, value)}
-            label={formatActionName(action)}
-            disabled={disabled}
-            readOnly={readOnly}
-          />
-        ))}
+        {/* Actions */}
+        <div className="flex-1 flex flex-wrap gap-1">
+          {resource.actions.map((action) => (
+            <ActionCheckbox
+              key={action}
+              checked={permissions[action] === true}
+              onChange={(value) => onChange(resource.name, action, value)}
+              label={formatActionName(action)}
+              disabled={disabled}
+              readOnly={readOnly}
+            />
+          ))}
+        </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 ResourceRow.displayName = 'ResourceRow';
 
 interface CategoryAccordionProps {
   category: PermissionCategory;
   permissions: Record<string, Record<string, boolean>>;
-  onChange: (
-    resourceName: string,
-    action: string,
-    value: boolean
-  ) => void;
+  onChange: (resourceName: string, action: string, value: boolean) => void;
   onSelectAllResource: (resourceName: string, selected: boolean) => void;
   onSelectAllCategory: (selected: boolean) => void;
   disabled?: boolean;
@@ -234,118 +226,132 @@ interface CategoryAccordionProps {
   defaultExpanded?: boolean;
 }
 
-const CategoryAccordion = React.memo<CategoryAccordionProps>(({
-  category,
-  permissions,
-  onChange,
-  onSelectAllResource,
-  onSelectAllCategory,
-  disabled,
-  readOnly,
-  defaultExpanded = true,
-}) => {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  const contentId = useId();
+const CategoryAccordion = React.memo<CategoryAccordionProps>(
+  ({
+    category,
+    permissions,
+    onChange,
+    onSelectAllResource,
+    onSelectAllCategory,
+    disabled,
+    readOnly,
+    defaultExpanded = true,
+  }) => {
+    const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+    const contentId = useId();
 
-  // Calculate category-level selection state
-  const allResourcesSelected = category.resources.every((resource) =>
-    resource.actions.every((action) => permissions[resource.name]?.[action] === true)
-  );
-  const someResourcesSelected =
-    category.resources.some((resource) =>
-      resource.actions.some((action) => permissions[resource.name]?.[action] === true)
-    ) && !allResourcesSelected;
+    // Calculate category-level selection state
+    const allResourcesSelected = category.resources.every((resource) =>
+      resource.actions.every((action) => permissions[resource.name]?.[action] === true),
+    );
+    const someResourcesSelected =
+      category.resources.some((resource) =>
+        resource.actions.some((action) => permissions[resource.name]?.[action] === true),
+      ) && !allResourcesSelected;
 
-  // Count selected permissions
-  const totalPermissions = category.resources.reduce(
-    (sum, r) => sum + r.actions.length,
-    0
-  );
-  const selectedPermissions = category.resources.reduce(
-    (sum, r) =>
-      sum +
-      r.actions.filter((a) => permissions[r.name]?.[a] === true).length,
-    0
-  );
+    // Count selected permissions
+    const totalPermissions = category.resources.reduce((sum, r) => sum + r.actions.length, 0);
+    const selectedPermissions = category.resources.reduce(
+      (sum, r) => sum + r.actions.filter((a) => permissions[r.name]?.[a] === true).length,
+      0,
+    );
 
-  return (
-    <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900">
-      {/* Category Header.
+    return (
+      <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900">
+        {/* Category Header.
           RBAC-MEDIUM-007 (M16): the select-all used to be a click-only
           <span role="checkbox"> NESTED inside the expand <button> — invalid
           interactive-inside-interactive (WCAG 4.1.2) and unreachable by
           keyboard (WCAG 2.1.1). It is now a real sibling <button
           role="checkbox">, so Tab reaches it and Space/Enter toggle natively;
           the expand trigger is its own button covering the rest of the row. */}
-      <div className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-gray-50 to-white">
-        <button
-          type="button"
-          role="checkbox"
-          aria-checked={allResourcesSelected ? 'true' : someResourcesSelected ? 'mixed' : 'false'}
-          aria-label={`Select all permissions in ${category.name}`}
-          disabled={disabled || readOnly}
-          onClick={() => onSelectAllCategory(!allResourcesSelected)}
-          className={`
+        <div className="w-full flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-gray-50 to-white">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={allResourcesSelected ? 'true' : someResourcesSelected ? 'mixed' : 'false'}
+            aria-label={`Select all permissions in ${category.name}`}
+            disabled={disabled || readOnly}
+            onClick={() => onSelectAllCategory(!allResourcesSelected)}
+            className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
-            focus:outline-hidden focus:ring-2 focus:ring-green-500
+            focus:outline-hidden focus:ring-2 focus:ring-success-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allResourcesSelected
-                ? 'bg-green-600 border-green-600'
+                ? 'bg-success-600 border-success-600'
                 : someResourcesSelected
-                ? 'bg-green-100 border-green-400'
-                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
+                  ? 'bg-success-100 dark:bg-success-900/40 border-success-400'
+                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-success-400'
             }
           `}
-        >
-          {allResourcesSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
-          {someResourcesSelected && (
-            <Minus className="w-3 h-3 text-green-600" aria-hidden="true" />
-          )}
-        </button>
-        <Button variant="ghost" className="flex-1" type="button" onClick={() => setIsExpanded(!isExpanded)} aria-expanded={isExpanded} aria-controls={contentId}><span className="flex items-center gap-3">
-            <span className="flex items-center gap-2 text-gray-600 dark:text-gray-400" aria-hidden="true">
-              {getCategoryIcon(category.categoryKey)}
-            </span>
-            <span className="font-semibold text-gray-900 dark:text-gray-100">{category.name}</span>
-            <span className="text-xs text-gray-500 dark:text-gray-400">
-              ({selectedPermissions}/{totalPermissions})
-            </span>
-          </span>
-          <span className="flex items-center gap-2" aria-hidden="true">
-            {isExpanded ? (
-              <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            ) : (
-              <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          >
+            {allResourcesSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
+            {someResourcesSelected && (
+              <Minus
+                className="w-3 h-3 text-success-600 dark:text-success-400"
+                aria-hidden="true"
+              />
             )}
-          </span></Button>
-      </div>
-
-      {/* Category Content */}
-      {isExpanded && (
-        <div
-          id={contentId}
-          role="region"
-          aria-label={`${category.name} permissions`}
-          className="border-t border-gray-100 dark:border-gray-700 divide-y divide-gray-50"
-        >
-          {category.resources.map((resource) => (
-            <ResourceRow
-              key={resource.name}
-              categoryKey={category.categoryKey}
-              resource={resource}
-              permissions={permissions[resource.name] || {}}
-              onChange={onChange}
-              onSelectAll={onSelectAllResource}
-              disabled={disabled}
-              readOnly={readOnly}
-            />
-          ))}
+          </button>
+          <Button
+            variant="ghost"
+            className="flex-1"
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            aria-expanded={isExpanded}
+            aria-controls={contentId}
+          >
+            <span className="flex items-center gap-3">
+              <span
+                className="flex items-center gap-2 text-gray-600 dark:text-gray-400"
+                aria-hidden="true"
+              >
+                {getCategoryIcon(category.categoryKey)}
+              </span>
+              <span className="font-semibold text-gray-900 dark:text-gray-100">
+                {category.name}
+              </span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">
+                ({selectedPermissions}/{totalPermissions})
+              </span>
+            </span>
+            <span className="flex items-center gap-2" aria-hidden="true">
+              {isExpanded ? (
+                <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              ) : (
+                <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+              )}
+            </span>
+          </Button>
         </div>
-      )}
-    </div>
-  );
-});
+
+        {/* Category Content */}
+        {isExpanded && (
+          <div
+            id={contentId}
+            role="region"
+            aria-label={`${category.name} permissions`}
+            className="border-t border-gray-100 dark:border-gray-700 divide-y divide-gray-50"
+          >
+            {category.resources.map((resource) => (
+              <ResourceRow
+                key={resource.name}
+                categoryKey={category.categoryKey}
+                resource={resource}
+                permissions={permissions[resource.name] || {}}
+                onChange={onChange}
+                onSelectAll={onSelectAllResource}
+                disabled={disabled}
+                readOnly={readOnly}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  },
+);
 CategoryAccordion.displayName = 'CategoryAccordion';
 
 // ============================================================================
@@ -379,7 +385,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
 
       onChange(newValue);
     },
-    [value, onChange]
+    [value, onChange],
   );
 
   // Handler for select all in a resource
@@ -401,7 +407,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
 
       onChange(newValue);
     },
-    [value, onChange]
+    [value, onChange],
   );
 
   // Handler for select all in a category
@@ -425,7 +431,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
 
       onChange(newValue);
     },
-    [value, onChange]
+    [value, onChange],
   );
 
   // Handler for select all globally
@@ -445,7 +451,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
 
       onChange(newValue);
     },
-    [categories, onChange]
+    [categories, onChange],
   );
 
   // Calculate global selection state
@@ -475,7 +481,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
   return (
     <div className="space-y-4">
       {/* Global Select All */}
-      <div className="flex items-center justify-between px-4 py-3 bg-green-50 rounded-xl border border-green-100">
+      <div className="flex items-center justify-between px-4 py-3 bg-success-50 dark:bg-success-900/20 rounded-xl border border-success-100 dark:border-success-800">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -486,15 +492,15 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
               ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
               ${
                 allSelected
-                  ? 'bg-green-600 border-green-600'
+                  ? 'bg-success-600 border-success-600'
                   : someSelected
-                  ? 'bg-green-100 border-green-400'
-                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
+                    ? 'bg-success-100 dark:bg-success-900/40 border-success-400'
+                    : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-success-400'
               }
             `}
           >
             {allSelected && <Check className="w-4 h-4 text-white" />}
-            {someSelected && <Minus className="w-4 h-4 text-green-600" />}
+            {someSelected && <Minus className="w-4 h-4 text-success-600 dark:text-success-400" />}
           </button>
           <div>
             <span className="font-semibold text-gray-900 dark:text-gray-100">All Permissions</span>
@@ -504,8 +510,24 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" size="xs" type="button" onClick={() => handleSelectAll(true)} disabled={disabled || readOnly}>Select All</Button>
-          <Button variant="secondary" size="xs" type="button" onClick={() => handleSelectAll(false)} disabled={disabled || readOnly}>Clear All</Button>
+          <Button
+            variant="secondary"
+            size="xs"
+            type="button"
+            onClick={() => handleSelectAll(true)}
+            disabled={disabled || readOnly}
+          >
+            Select All
+          </Button>
+          <Button
+            variant="secondary"
+            size="xs"
+            type="button"
+            onClick={() => handleSelectAll(false)}
+            disabled={disabled || readOnly}
+          >
+            Clear All
+          </Button>
         </div>
       </div>
 
@@ -526,13 +548,11 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
                   category.categoryKey,
                   resourceName,
                   resource.actions,
-                  selected
+                  selected,
                 );
               }
             }}
-            onSelectAllCategory={(selected) =>
-              handleSelectAllCategory(category, selected)
-            }
+            onSelectAllCategory={(selected) => handleSelectAllCategory(category, selected)}
             disabled={disabled}
             readOnly={readOnly}
           />

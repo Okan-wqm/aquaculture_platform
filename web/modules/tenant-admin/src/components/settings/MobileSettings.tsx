@@ -1,16 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Smartphone,
-  Save,
-  Check,
-  RefreshCw,
-  AlertCircle,
-  Info,
-} from 'lucide-react';
-import {
-  useMobileUsersData,
-  useUpdateMobileUserSettings,
-} from '../../hooks/useTenantData';
+import { Smartphone, Save, Check, RefreshCw, AlertCircle, Info } from 'lucide-react';
+import { useMobileUsersData, useUpdateMobileUserSettings } from '../../hooks/useTenantData';
 import type { MobileUserSettingsData } from '../../hooks/useTenantData';
 import { logError } from '../../utils/error-handling';
 import { SmallToggle } from './Toggle';
@@ -45,15 +35,13 @@ const createDefaultUserSettings = (userId: string): MobileUserSettingsData => ({
  * MobileSettings -- mobile user feature toggles table with bulk actions.
  */
 const MobileSettings: React.FC = () => {
-  const {
-    data: mobileData,
-    isLoading,
-    error: mobileQueryError,
-  } = useMobileUsersData(true);
+  const { data: mobileData, isLoading, error: mobileQueryError } = useMobileUsersData(true);
   const updateMobileSettingsMutation = useUpdateMobileUserSettings();
 
   const mobileUsers = mobileData?.users ?? [];
-  const [mobileSettings, setMobileSettings] = useState<Map<string, MobileUserSettingsData>>(new Map());
+  const [mobileSettings, setMobileSettings] = useState<Map<string, MobileUserSettingsData>>(
+    new Map(),
+  );
   const mobileError = mobileQueryError ? (mobileQueryError as Error).message : null;
   const mobileSaving = updateMobileSettingsMutation.isPending;
   const [dirtyUserIds, setDirtyUserIds] = useState<Set<string>>(new Set());
@@ -125,27 +113,35 @@ const MobileSettings: React.FC = () => {
     }
   }, [dirtyUserIds, getUserSettings, updateMobileSettingsMutation]);
 
-  const applyToAll = useCallback((field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'], value: boolean) => {
-    for (const user of mobileUsers) {
-      updateUserMobileSetting(user.id, field, value);
-    }
-  }, [mobileUsers, updateUserMobileSetting]);
+  const applyToAll = useCallback(
+    (
+      field: 'isMobileEnabled' | keyof MobileUserSettingsData['allowedFeatures'],
+      value: boolean,
+    ) => {
+      for (const user of mobileUsers) {
+        updateUserMobileSetting(user.id, field, value);
+      }
+    },
+    [mobileUsers, updateUserMobileSetting],
+  );
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <RefreshCw className="w-6 h-6 animate-spin text-green-600" />
+        <RefreshCw className="w-6 h-6 animate-spin text-success-600 dark:text-success-400" />
       </div>
     );
   }
 
   if (mobileError) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-        <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+        <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
         <div>
-          <p className="text-sm font-medium text-red-800">Failed to load mobile settings</p>
-          <p className="text-sm text-red-600">{mobileError}</p>
+          <p className="text-sm font-medium text-error-800 dark:text-error-200">
+            Failed to load mobile settings
+          </p>
+          <p className="text-sm text-error-600 dark:text-error-400">{mobileError}</p>
         </div>
       </div>
     );
@@ -155,7 +151,9 @@ const MobileSettings: React.FC = () => {
     return (
       <div className="py-12 text-center">
         <Smartphone className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
-        <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No users found</h3>
+        <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+          No users found
+        </h3>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Add users to your tenant first to configure mobile access.
         </p>
@@ -181,11 +179,10 @@ const MobileSettings: React.FC = () => {
       header: 'User',
       render: (_value, user) => {
         const name =
-          `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
-          user.email.split('@')[0];
+          `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email.split('@')[0];
         return (
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white text-xs font-semibold">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-success-500 to-success-700 flex items-center justify-center text-white text-xs font-semibold">
               {name
                 .split(' ')
                 .map((n) => n[0])
@@ -222,13 +219,13 @@ const MobileSettings: React.FC = () => {
         <span>Apply to all:</span>
         <button
           onClick={() => applyToAll('isMobileEnabled', true)}
-          className="px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100 transition-colors"
+          className="px-2 py-1 bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 rounded hover:bg-success-100 dark:hover:bg-success-900/50 transition-colors"
         >
           Enable All
         </button>
         <button
           onClick={() => applyToAll('isMobileEnabled', false)}
-          className="px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100 transition-colors"
+          className="px-2 py-1 bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300 rounded hover:bg-error-100 dark:hover:bg-error-900/50 transition-colors"
         >
           Disable All
         </button>
@@ -243,19 +240,26 @@ const MobileSettings: React.FC = () => {
         searchable={false}
         sortable={false}
         stickyHeader={false}
-        rowClassName={(user) => (dirtyUserIds.has(user.id) ? 'bg-green-50/30' : '')}
+        rowClassName={(user) =>
+          dirtyUserIds.has(user.id) ? 'bg-success-50/30 dark:bg-success-900/20/30' : ''
+        }
         className="shadow-none rounded-none"
       />
 
       {/* Dirty indicator + Save */}
       <div className="flex items-center justify-between">
         {dirtyUserIds.size > 0 && (
-          <div className="flex items-center gap-2 text-sm text-green-600">
+          <div className="flex items-center gap-2 text-sm text-success-600 dark:text-success-400">
             <Info className="w-4 h-4" />
             <span>{dirtyUserIds.size} user(s) have unsaved changes</span>
           </div>
         )}
-        <Button variant="primary" onClick={saveMobileSettings} disabled={mobileSaving || dirtyUserIds.size === 0}>{saved ? (
+        <Button
+          variant="primary"
+          onClick={saveMobileSettings}
+          disabled={mobileSaving || dirtyUserIds.size === 0}
+        >
+          {saved ? (
             <>
               <Check className="w-4 h-4" />
               Saved!
@@ -270,7 +274,8 @@ const MobileSettings: React.FC = () => {
               <Save className="w-4 h-4" />
               Save Changes
             </>
-          )}</Button>
+          )}
+        </Button>
       </div>
     </div>
   );

@@ -25,11 +25,11 @@ export function ForecastTab(): React.ReactElement {
   // Siteler yüklenmeden sorgu ATILMAZ (FARM-MEDIUM-232): siteId'siz istek
   // MODULE_USER'da Forbidden üretir ve site çözülünce ikinci istek doğurur.
   const effectiveSiteId = siteId || sites[0]?.id;
-  const { data: forecast, isLoading: forecastLoading, isError } = useProtocolFeedForecast(
-    effectiveSiteId,
-    horizonDays,
-    { enabled: !!effectiveSiteId },
-  );
+  const {
+    data: forecast,
+    isLoading: forecastLoading,
+    isError,
+  } = useProtocolFeedForecast(effectiveSiteId, horizonDays, { enabled: !!effectiveSiteId });
   const isLoading = sitesLoading || (!!effectiveSiteId && forecastLoading);
 
   return (
@@ -65,10 +65,16 @@ export function ForecastTab(): React.ReactElement {
         </label>
       </div>
 
-      {isLoading && <p className="text-sm text-gray-500 dark:text-gray-400 py-8">{t('common.loading')}</p>}
-      {isError && <p className="text-sm text-red-600 py-8">{t('common.error')}</p>}
+      {isLoading && (
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8">{t('common.loading')}</p>
+      )}
+      {isError && (
+        <p className="text-sm text-error-600 dark:text-error-400 py-8">{t('common.error')}</p>
+      )}
       {!isLoading && !isError && !forecast && (
-        <p className="text-sm text-gray-500 dark:text-gray-400 py-8">{t('feedingV2.forecast.notComputed')}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8">
+          {t('feedingV2.forecast.notComputed')}
+        </p>
       )}
       {forecast && (
         <>

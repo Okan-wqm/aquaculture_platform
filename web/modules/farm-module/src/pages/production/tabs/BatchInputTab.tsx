@@ -8,17 +8,18 @@ import { useBatchList, type BatchStatus, type Batch } from '../../../hooks/useBa
 import { useSpeciesList } from '../../../hooks/useSpecies';
 import { BatchFormModal } from '../components/BatchFormModal';
 import { ApiError, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import { ChartColumn, Layers, Plus, Scale, Search as SearchIcon, Users } from 'lucide-react';
 
 // Status badge colors
 const statusColors: Record<BatchStatus, string> = {
-  QUARANTINE: 'bg-yellow-100 text-yellow-800',
-  ACTIVE: 'bg-green-100 text-green-800',
-  GROWING: 'bg-blue-100 text-blue-800',
-  PRE_HARVEST: 'bg-purple-100 text-purple-800',
-  HARVESTING: 'bg-orange-100 text-orange-800',
+  QUARANTINE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  ACTIVE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  GROWING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  PRE_HARVEST: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  HARVESTING: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   HARVESTED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  TRANSFERRED: 'bg-indigo-100 text-indigo-800',
-  FAILED: 'bg-red-100 text-red-800',
+  TRANSFERRED: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  FAILED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   CLOSED: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
 };
 
@@ -44,12 +45,19 @@ export const BatchInputTab: React.FC = () => {
   const { data: speciesData } = useSpeciesList();
   const speciesById = useMemo(() => {
     const map = new Map<string, string>();
-    (speciesData?.items || []).forEach((s) => map.set(s.id, s.commonName || s.scientificName || s.id));
+    (speciesData?.items || []).forEach((s) =>
+      map.set(s.id, s.commonName || s.scientificName || s.id),
+    );
     return map;
   }, [speciesData]);
 
   // Fetch batches from API
-  const { data: batchData, isLoading, error, refetch } = useBatchList(
+  const {
+    data: batchData,
+    isLoading,
+    error,
+    refetch,
+  } = useBatchList(
     {
       status: statusFilter !== 'all' ? [statusFilter] : undefined,
       searchTerm: searchTerm || undefined,
@@ -60,7 +68,7 @@ export const BatchInputTab: React.FC = () => {
       fetchAll: true,
       sortBy: 'stockedAt',
       sortOrder: 'DESC',
-    }
+    },
   );
 
   // PERF-005: The hook already passes searchTerm to the server-side query, so the
@@ -92,12 +100,13 @@ export const BatchInputTab: React.FC = () => {
 
   // BUG-018: summaryStats must reflect the currently filtered set, not all batches (PERF-005: stable dep)
   const summaryStats = useMemo(() => {
-    const activeBatches = filteredBatches.filter(b => b.isActive);
+    const activeBatches = filteredBatches.filter((b) => b.isActive);
     const totalStock = filteredBatches.reduce((sum, b) => sum + b.currentQuantity, 0);
     const totalBiomass = filteredBatches.reduce((sum, b) => sum + getCurrentBiomass(b), 0);
-    const avgFCR = filteredBatches.length > 0
-      ? filteredBatches.reduce((sum, b) => sum + (b.fcr?.actual || 0), 0) / filteredBatches.length
-      : 0;
+    const avgFCR =
+      filteredBatches.length > 0
+        ? filteredBatches.reduce((sum, b) => sum + (b.fcr?.actual || 0), 0) / filteredBatches.length
+        : 0;
 
     return {
       activeBatches: activeBatches.length,
@@ -115,7 +124,9 @@ export const BatchInputTab: React.FC = () => {
       render: (_value, batch) => (
         <div className="flex items-center">
           <div>
-            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{batch.batchNumber}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {batch.batchNumber}
+            </div>
             {batch.name && (
               <div className="text-sm text-gray-500 dark:text-gray-400">{batch.name}</div>
             )}
@@ -132,7 +143,9 @@ export const BatchInputTab: React.FC = () => {
           <div className="text-sm text-gray-900 dark:text-gray-100">
             {speciesById.get(batch.speciesId) ?? batch.speciesId.substring(0, 8) + '…'}
           </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400 capitalize">{batch.inputType.replace('_', ' ')}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400 capitalize">
+            {batch.inputType.replace('_', ' ')}
+          </div>
         </>
       ),
     },
@@ -140,7 +153,9 @@ export const BatchInputTab: React.FC = () => {
       key: 'status',
       header: 'Status',
       render: (_value, batch) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[batch.status]}`}>
+        <span
+          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[batch.status]}`}
+        >
           {statusLabels[batch.status]}
         </span>
       ),
@@ -151,8 +166,12 @@ export const BatchInputTab: React.FC = () => {
       align: 'right',
       render: (_value, batch) => (
         <>
-          <div className="text-sm text-gray-900 dark:text-gray-100">{batch.currentQuantity.toLocaleString()}</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">/ {batch.initialQuantity.toLocaleString()}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">
+            {batch.currentQuantity.toLocaleString()}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            / {batch.initialQuantity.toLocaleString()}
+          </div>
         </>
       ),
     },
@@ -161,7 +180,9 @@ export const BatchInputTab: React.FC = () => {
       header: 'Biomass (kg)',
       align: 'right',
       render: (_value, batch) => (
-        <div className="text-sm text-gray-900 dark:text-gray-100">{getCurrentBiomass(batch).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+        <div className="text-sm text-gray-900 dark:text-gray-100">
+          {getCurrentBiomass(batch).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+        </div>
       ),
     },
     {
@@ -169,7 +190,9 @@ export const BatchInputTab: React.FC = () => {
       header: 'Survival',
       align: 'right',
       render: (_value, batch) => (
-        <div className={`text-sm font-medium ${getSurvivalRate(batch) >= 95 ? 'text-green-600' : getSurvivalRate(batch) >= 90 ? 'text-yellow-600' : 'text-red-600'}`}>
+        <div
+          className={`text-sm font-medium ${getSurvivalRate(batch) >= 95 ? 'text-success-600 dark:text-success-400' : getSurvivalRate(batch) >= 90 ? 'text-warning-600 dark:text-warning-400' : 'text-error-600 dark:text-error-400'}`}
+        >
           {getSurvivalRate(batch).toFixed(1)}%
         </div>
       ),
@@ -179,7 +202,9 @@ export const BatchInputTab: React.FC = () => {
       header: 'FCR',
       align: 'right',
       render: (_value, batch) => (
-        <div className={`text-sm font-medium ${(batch.fcr?.actual || 0) <= (batch.fcr?.target || 1.5) ? 'text-green-600' : 'text-red-600'}`}>
+        <div
+          className={`text-sm font-medium ${(batch.fcr?.actual || 0) <= (batch.fcr?.target || 1.5) ? 'text-success-600 dark:text-success-400' : 'text-error-600 dark:text-error-400'}`}
+        >
           {batch.fcr?.actual?.toFixed(2) || '-'}
         </div>
       ),
@@ -192,12 +217,8 @@ export const BatchInputTab: React.FC = () => {
     {
       key: 'spanClassnameSrOnlyActionsSpan',
       header: '<span className="sr-only">Actions</span>',
-      render: (_value, batch) => (
-        <>
-          View
-        </>
-      ),
-    }
+      render: (_value, batch) => <>View</>,
+    },
   ];
 
   return (
@@ -212,12 +233,10 @@ export const BatchInputTab: React.FC = () => {
               placeholder="Search batches..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm pl-10"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm pl-10"
             />
             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-              <svg className="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+              <SearchIcon className="h-5 w-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
             </div>
           </div>
 
@@ -225,20 +244,22 @@ export const BatchInputTab: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as BatchStatus | 'all')}
-            className="block rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
           >
             <option value="all">All Status</option>
             {Object.entries(statusLabels).map(([value, label]) => (
-              <option key={value} value={value}>{label}</option>
+              <option key={value} value={value}>
+                {label}
+              </option>
             ))}
           </select>
         </div>
 
         {/* Add Button */}
-        <Button variant="primary" onClick={() => setShowAddModal(true)}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Batch</Button>
+        <Button variant="primary" onClick={() => setShowAddModal(true)}>
+          <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+          New Batch
+        </Button>
       </div>
 
       {/* Error State */}
@@ -276,10 +297,13 @@ export const BatchInputTab: React.FC = () => {
 
           {filteredBatches.length === 0 && (
             <div className="text-center py-12">
-              <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No batches found</h3>
+              <Layers
+                className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
+                aria-hidden="true"
+              />
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No batches found
+              </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Get started by creating a new batch.
               </p>
@@ -293,10 +317,8 @@ export const BatchInputTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-blue-100 rounded-lg">
-                <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
+              <div className="p-3 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <Layers className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />
               </div>
             </div>
             <div className="ml-4">
@@ -311,10 +333,11 @@ export const BatchInputTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-green-100 rounded-lg">
-                <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
+              <div className="p-3 bg-success-100 dark:bg-success-900/40 rounded-lg">
+                <Users
+                  className="w-6 h-6 text-success-600 dark:text-success-400"
+                  aria-hidden="true"
+                />
               </div>
             </div>
             <div className="ml-4">
@@ -329,16 +352,18 @@ export const BatchInputTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-purple-100 rounded-lg">
-                <svg className="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3" />
-                </svg>
+              <div className="p-3 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <Scale
+                  className="w-6 h-6 text-accent-600 dark:text-accent-400"
+                  aria-hidden="true"
+                />
               </div>
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Biomass</p>
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
-                {summaryStats.totalBiomass.toLocaleString(undefined, { maximumFractionDigits: 0 })} kg
+                {summaryStats.totalBiomass.toLocaleString(undefined, { maximumFractionDigits: 0 })}{' '}
+                kg
               </p>
             </div>
           </div>
@@ -347,10 +372,11 @@ export const BatchInputTab: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <div className="p-3 bg-yellow-100 rounded-lg">
-                <svg className="w-6 h-6 text-yellow-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
+              <div className="p-3 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
+                <ChartColumn
+                  className="w-6 h-6 text-warning-600 dark:text-warning-400"
+                  aria-hidden="true"
+                />
               </div>
             </div>
             <div className="ml-4">

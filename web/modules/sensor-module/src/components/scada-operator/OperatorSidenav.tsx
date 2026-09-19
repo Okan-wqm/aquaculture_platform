@@ -70,15 +70,15 @@ const ICON_MAP: Record<string, React.ElementType> = {
   List,
   // Aliases for common SCADA screen types
   dashboard: LayoutDashboard,
-  process:   Workflow,
-  alarms:    AlertTriangle,
-  trends:    TrendingUp,
-  control:   Sliders,
+  process: Workflow,
+  alarms: AlertTriangle,
+  trends: TrendingUp,
+  control: Sliders,
   calibration: Gauge,
 };
 
 function NavIcon({ name, size = 15 }: { name?: string; size?: number }) {
-  const Icon = (name && ICON_MAP[name]) ? ICON_MAP[name] : Monitor;
+  const Icon = name && ICON_MAP[name] ? ICON_MAP[name] : Monitor;
   return <Icon size={size} className="shrink-0" aria-hidden="true" />;
 }
 
@@ -93,85 +93,90 @@ interface NavItemRowProps {
   onNavigate: (screenId: string) => void;
 }
 
-const NavItemRow = memo<NavItemRowProps>(
-  ({ item, activeScreenId, depth, onNavigate }) => {
-    const isActive   = item.screenId === activeScreenId;
-    const hasChildren = (item.children?.length ?? 0) > 0;
+const NavItemRow = memo<NavItemRowProps>(({ item, activeScreenId, depth, onNavigate }) => {
+  const isActive = item.screenId === activeScreenId;
+  const hasChildren = (item.children?.length ?? 0) > 0;
 
-    // Auto-expand when a child is active
-    const [expanded, setExpanded] = useState(
-      () =>
-        hasChildren &&
-        (item.children ?? []).some((c) => c.screenId === activeScreenId),
-    );
+  // Auto-expand when a child is active
+  const [expanded, setExpanded] = useState(
+    () => hasChildren && (item.children ?? []).some((c) => c.screenId === activeScreenId),
+  );
 
-    const handleClick = useCallback(() => {
-      if (hasChildren) {
-        setExpanded((prev) => !prev);
-      } else {
-        onNavigate(item.screenId);
+  const handleClick = useCallback(() => {
+    if (hasChildren) {
+      setExpanded((prev) => !prev);
+    } else {
+      onNavigate(item.screenId);
+    }
+  }, [hasChildren, item.screenId, onNavigate]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleClick();
       }
-    }, [hasChildren, item.screenId, onNavigate]);
+    },
+    [handleClick],
+  );
 
-    const handleKeyDown = useCallback(
-      (e: React.KeyboardEvent<HTMLDivElement>) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          handleClick();
-        }
-      },
-      [handleClick],
-    );
+  // Indent children by 16px per level, base padding is 12px
+  const leftPad = depth === 0 ? 12 : depth * 16 + 12;
 
-    // Indent children by 16px per level, base padding is 12px
-    const leftPad = depth === 0 ? 12 : depth * 16 + 12;
+  return (
+    <li>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-current={isActive ? 'page' : undefined}
+        aria-expanded={hasChildren ? expanded : undefined}
+        onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        className={[
+          'flex items-center gap-2.5 py-2 pr-3 mx-1.5 rounded cursor-pointer',
+          'text-sm transition-colors duration-100 select-none outline-hidden',
+          'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-info-500',
+          isActive
+            ? 'bg-info-600 text-white font-medium'
+            : 'text-gray-300 hover:bg-gray-700/70 hover:text-gray-100',
+        ].join(' ')}
+        style={{ paddingLeft: `${leftPad}px` }}
+      >
+        <NavIcon name={item.icon} />
+        <span className="flex-1 truncate leading-snug">{item.label}</span>
+        {hasChildren &&
+          (expanded ? (
+            <ChevronDown
+              size={13}
+              className="shrink-0 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
+          ) : (
+            <ChevronRight
+              size={13}
+              className="shrink-0 text-gray-400 dark:text-gray-500"
+              aria-hidden="true"
+            />
+          ))}
+      </div>
 
-    return (
-      <li>
-        <div
-          role="button"
-          tabIndex={0}
-          aria-current={isActive ? 'page' : undefined}
-          aria-expanded={hasChildren ? expanded : undefined}
-          onClick={handleClick}
-          onKeyDown={handleKeyDown}
-          className={[
-            'flex items-center gap-2.5 py-2 pr-3 mx-1.5 rounded cursor-pointer',
-            'text-sm transition-colors duration-100 select-none outline-hidden',
-            'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500',
-            isActive
-              ? 'bg-blue-600 text-white font-medium'
-              : 'text-gray-300 hover:bg-gray-700/70 hover:text-gray-100',
-          ].join(' ')}
-          style={{ paddingLeft: `${leftPad}px` }}
-        >
-          <NavIcon name={item.icon} />
-          <span className="flex-1 truncate leading-snug">{item.label}</span>
-          {hasChildren && (
-            expanded
-              ? <ChevronDown  size={13} className="shrink-0 text-gray-400 dark:text-gray-500" aria-hidden="true" />
-              : <ChevronRight size={13} className="shrink-0 text-gray-400 dark:text-gray-500" aria-hidden="true" />
-          )}
-        </div>
-
-        {/* Nested children */}
-        {hasChildren && expanded && (
-          <ul role="list" className="mt-0.5 space-y-0.5">
-            {(item.children ?? []).map((child) => (
-              <NavItemRow
-                key={child.id}
-                item={child}
-                activeScreenId={activeScreenId}
-                depth={depth + 1}
-                onNavigate={onNavigate}
-              />
-            ))}
-          </ul>
-        )}
-      </li>
-    );
-  },
-);
+      {/* Nested children */}
+      {hasChildren && expanded && (
+        <ul role="list" className="mt-0.5 space-y-0.5">
+          {(item.children ?? []).map((child) => (
+            <NavItemRow
+              key={child.id}
+              item={child}
+              activeScreenId={activeScreenId}
+              depth={depth + 1}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+});
 NavItemRow.displayName = 'NavItemRow';
 
 /* ------------------------------------------------------------------ */
@@ -193,9 +198,7 @@ export const OperatorSidenav = memo<OperatorSidenavProps>(
     //   push    → relative (flex row, animates width)
     //   overlay → absolute (floats over content, z-30)
     const positionClass =
-      mode === 'overlay'
-        ? 'absolute top-0 left-0 bottom-0 z-30'
-        : 'relative shrink-0 z-10';
+      mode === 'overlay' ? 'absolute top-0 left-0 bottom-0 z-30' : 'relative shrink-0 z-10';
 
     return (
       <nav

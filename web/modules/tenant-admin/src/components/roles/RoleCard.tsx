@@ -80,11 +80,7 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
  * />
  * ```
  */
-export const RoleCard: React.FC<RoleCardProps> = ({
-  role,
-  onEdit,
-  onDelete,
-}) => {
+export const RoleCard: React.FC<RoleCardProps> = ({ role, onEdit, onDelete }) => {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5 hover:shadow-lg transition-shadow">
       {/* Role Header */}
@@ -95,20 +91,17 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             style={{ backgroundColor: `${role.color}20` }}
             aria-hidden="true"
           >
-            <Shield
-              className="w-5 h-5"
-              style={{ color: role.color || DEFAULT_ROLE_COLOR }}
-            />
+            <Shield className="w-5 h-5" style={{ color: role.color || DEFAULT_ROLE_COLOR }} />
           </div>
           <div>
             <h3 className="font-semibold text-gray-900 dark:text-gray-100">{role.name}</h3>
             {role.isSystem && (
-              <span className="text-xs text-amber-600 font-medium">
+              <span className="text-xs text-warning-600 dark:text-warning-400 font-medium">
                 System Role
               </span>
             )}
             {role.isDefault && !role.isSystem && (
-              <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+              <span className="text-xs text-success-600 dark:text-success-400 font-medium flex items-center gap-1">
                 <Star className="w-3 h-3" aria-hidden="true" />
                 Default
               </span>
@@ -120,10 +113,28 @@ export const RoleCard: React.FC<RoleCardProps> = ({
         {(onEdit || onDelete) && (
           <div className="flex items-center gap-1">
             {onEdit && (
-              <Button variant="ghost" size="sm" iconOnly onClick={() => onEdit(role)} title="Edit role" aria-label={`Edit ${role.name} role`}><Edit className="w-4 h-4" /></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                onClick={() => onEdit(role)}
+                title="Edit role"
+                aria-label={`Edit ${role.name} role`}
+              >
+                <Edit className="w-4 h-4" />
+              </Button>
             )}
             {onDelete && !role.isSystem && (
-              <Button variant="ghost" size="sm" iconOnly onClick={() => onDelete(role)} title="Delete role" aria-label={`Delete ${role.name} role`}><Trash2 className="w-4 h-4" /></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                onClick={() => onDelete(role)}
+                title="Delete role"
+                aria-label={`Delete ${role.name} role`}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
             )}
           </div>
         )}

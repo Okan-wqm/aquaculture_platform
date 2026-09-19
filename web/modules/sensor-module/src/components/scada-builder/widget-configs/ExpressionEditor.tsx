@@ -159,7 +159,19 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
   return (
     <div className="space-y-1.5">
       <div className="relative">
-        <Textarea className="font-mono resize-y" fullWidth ref={textareaRef} data-testid="expression-textarea" value={expression} onChange={handleChange} onKeyDown={handleKeyDown} onSelect={checkAutocomplete} placeholder={placeholder} rows={3} spellCheck={false} />
+        <Textarea
+          className="font-mono resize-y"
+          fullWidth
+          ref={textareaRef}
+          data-testid="expression-textarea"
+          value={expression}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onSelect={checkAutocomplete}
+          placeholder={placeholder}
+          rows={3}
+          spellCheck={false}
+        />
         <div className="absolute top-2 right-2">
           <FunctionReference />
         </div>
@@ -175,12 +187,18 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
                 type="button"
                 onClick={() => insertTag(tag.name)}
                 className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 transition-colors ${
-                  idx === autocompleteIndex ? 'bg-cyan-50 text-cyan-700' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                  idx === autocompleteIndex
+                    ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 <Tag className="w-3 h-3 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span className="font-mono font-medium truncate">{tag.name}</span>
-                {tag.unit && <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">{tag.unit}</span>}
+                {tag.unit && (
+                  <span className="text-xs text-gray-400 dark:text-gray-500 ml-auto">
+                    {tag.unit}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -191,7 +209,7 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
         <div
           data-testid="expression-validation"
           className={`flex items-center gap-1.5 text-xs ${
-            validation.valid ? 'text-green-600' : 'text-red-500'
+            validation.valid ? 'text-success-600 dark:text-success-400' : 'text-error-500'
           }`}
         >
           {validation.valid ? (
@@ -204,7 +222,9 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
               <XCircle className="w-3.5 h-3.5" data-testid="validation-invalid" />
               <span>{validation.error}</span>
               {validation.position !== undefined && (
-                <span className="text-gray-400 dark:text-gray-500 ml-1">(pos {validation.position})</span>
+                <span className="text-gray-400 dark:text-gray-500 ml-1">
+                  (pos {validation.position})
+                </span>
               )}
             </>
           )}
@@ -226,7 +246,7 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
           {dependencies.map((dep) => (
             <span
               key={dep}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono font-medium bg-cyan-50 text-cyan-700 border border-cyan-200 rounded"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-mono font-medium bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border border-info-200 dark:border-info-800 rounded"
             >
               <Tag className="w-2.5 h-2.5" />
               {dep}

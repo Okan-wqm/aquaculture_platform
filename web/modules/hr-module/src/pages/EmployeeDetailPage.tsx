@@ -51,11 +51,14 @@ const EmployeeDetailPage: React.FC = () => {
   if (error || !employee) {
     return (
       <div className="flex h-64 flex-col items-center justify-center p-6 text-center">
-        <AlertTriangle className="mb-2 h-8 w-8 text-red-500" />
+        <AlertTriangle className="mb-2 h-8 w-8 text-error-500" />
         <p className="text-gray-700 dark:text-gray-300">
           {error ? 'Failed to load employee data.' : 'Employee not found.'}
         </p>
-        <Link to="/hr/employees" className="mt-4 text-indigo-600 hover:underline">
+        <Link
+          to="/hr/employees"
+          className="mt-4 text-primary-600 dark:text-primary-400 hover:underline"
+        >
           Back to Employees
         </Link>
       </div>
@@ -81,7 +84,7 @@ const EmployeeDetailPage: React.FC = () => {
         actions={
           <Link
             to={`/hr/employees/${employeeId}/edit`}
-            className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-accent-600 text-white rounded-lg hover:bg-accent-700 transition-colors"
           >
             <Edit className="w-4 h-4" />
             Edit
@@ -93,18 +96,21 @@ const EmployeeDetailPage: React.FC = () => {
         {/* Profile Card */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
           <div className="flex flex-col items-center text-center">
-            <div className="w-24 h-24 rounded-full bg-violet-100 flex items-center justify-center mb-4 dark:bg-violet-900/30">
-              <span className="text-3xl font-bold text-violet-600">
-                {employee.firstName?.[0]}{employee.lastName?.[0]}
+            <div className="w-24 h-24 rounded-full bg-accent-100 flex items-center justify-center mb-4 dark:bg-accent-900/30">
+              <span className="text-3xl font-bold text-accent-600 dark:text-accent-400">
+                {employee.firstName?.[0]}
+                {employee.lastName?.[0]}
               </span>
             </div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{fullName}</h2>
             <p className="text-gray-500 dark:text-gray-400">{employee.position}</p>
-            <span className={`mt-2 px-3 py-1 rounded-full text-sm font-medium ${
-              employee.status === EmployeeStatus.ACTIVE
-                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-            }`}>
+            <span
+              className={`mt-2 px-3 py-1 rounded-full text-sm font-medium ${
+                employee.status === EmployeeStatus.ACTIVE
+                  ? 'bg-success-100 text-success-800 dark:bg-success-900/30 dark:text-success-400'
+                  : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+              }`}
+            >
               {employee.status}
             </span>
           </div>
@@ -142,27 +148,39 @@ const EmployeeDetailPage: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           {/* Work Info */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Work Information</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+              Work Information
+            </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Employee Number</p>
-                <p className="font-medium text-gray-900 dark:text-white">{employee.employeeNumber || '-'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {employee.employeeNumber || '-'}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Employment Type</p>
-                <p className="font-medium text-gray-900 dark:text-white">{employee.employmentType || '-'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {employee.employmentType || '-'}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Department</p>
-                <p className="font-medium text-gray-900 dark:text-white">{employee.department || '-'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {employee.department || '-'}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Position</p>
-                <p className="font-medium text-gray-900 dark:text-white">{employee.position || '-'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {employee.position || '-'}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">Personnel Category</p>
-                <p className="font-medium text-gray-900 dark:text-white">{employee.personnelCategory || '-'}</p>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {employee.personnelCategory || '-'}
+                </p>
               </div>
             </div>
           </div>
@@ -171,40 +189,40 @@ const EmployeeDetailPage: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <Link
               to={`/hr/attendance?employee=${employeeId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-cyan-200 hover:bg-cyan-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-cyan-800"
+              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-info-200 hover:bg-info-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-info-800"
             >
-              <Clock className="w-8 h-8 text-cyan-600 mb-2" />
+              <Clock className="w-8 h-8 text-info-600 dark:text-info-400 mb-2" />
               <span className="text-sm font-medium text-gray-900 dark:text-white">Attendance</span>
             </Link>
             <Link
               to={`/hr/leaves?employee=${employeeId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-yellow-200 hover:bg-yellow-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-yellow-800"
+              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-warning-200 hover:bg-warning-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-warning-800"
             >
-              <Calendar className="w-8 h-8 text-yellow-600 mb-2" />
+              <Calendar className="w-8 h-8 text-warning-600 dark:text-warning-400 mb-2" />
               <span className="text-sm font-medium text-gray-900 dark:text-white">Leaves</span>
             </Link>
             {/* SEC-005: only show payroll link to authorised roles */}
             {isPayrollAdmin && (
               <Link
                 to={`/hr/payroll?employee=${employeeId}`}
-                className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-green-200 hover:bg-green-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-green-800"
+                className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-success-200 hover:bg-success-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-success-800"
               >
-                <Award className="w-8 h-8 text-green-600 mb-2" />
+                <Award className="w-8 h-8 text-success-600 dark:text-success-400 mb-2" />
                 <span className="text-sm font-medium text-gray-900 dark:text-white">Payroll</span>
               </Link>
             )}
             <Link
               to={`/hr/performance?employee=${employeeId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-orange-200 hover:bg-orange-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-orange-800"
+              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-accent-200 hover:bg-accent-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-accent-800"
             >
-              <Award className="w-8 h-8 text-orange-600 mb-2" />
+              <Award className="w-8 h-8 text-accent-600 dark:text-accent-400 mb-2" />
               <span className="text-sm font-medium text-gray-900 dark:text-white">Performance</span>
             </Link>
             <Link
               to={`/hr/training?employee=${employeeId}`}
-              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-indigo-200 hover:bg-indigo-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-800"
+              className="flex flex-col items-center p-4 bg-white rounded-xl border border-gray-100 hover:border-primary-200 hover:bg-primary-50 transition-all dark:border-gray-700 dark:bg-gray-800 dark:hover:border-primary-800"
             >
-              <GraduationCap className="w-8 h-8 text-indigo-600 mb-2" />
+              <GraduationCap className="w-8 h-8 text-primary-600 dark:text-primary-400 mb-2" />
               <span className="text-sm font-medium text-gray-900 dark:text-white">Training</span>
             </Link>
           </div>

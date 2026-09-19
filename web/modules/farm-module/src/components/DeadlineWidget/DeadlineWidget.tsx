@@ -7,6 +7,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { Button } from '@aquaculture/shared-ui';
+import { Check, CircleAlert, Clock } from 'lucide-react';
 
 // ============================================================================
 // Type Definitions
@@ -74,34 +75,34 @@ export const urgencyConfig: Record<
   }
 > = {
   overdue: {
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
-    iconColor: 'text-red-600',
-    textColor: 'text-red-700',
+    bgColor: 'bg-error-50 dark:bg-error-900/20',
+    borderColor: 'border-error-200 dark:border-error-800',
+    iconColor: 'text-error-600 dark:text-error-400',
+    textColor: 'text-error-700 dark:text-error-300',
     label: 'Overdue',
     priority: 4,
   },
   today: {
-    bgColor: 'bg-orange-50',
-    borderColor: 'border-orange-200',
-    iconColor: 'text-orange-600',
-    textColor: 'text-orange-700',
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    borderColor: 'border-accent-200 dark:border-accent-800',
+    iconColor: 'text-accent-600 dark:text-accent-400',
+    textColor: 'text-accent-700 dark:text-accent-300',
     label: 'Today',
     priority: 3,
   },
   this_week: {
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
-    iconColor: 'text-yellow-600',
-    textColor: 'text-yellow-700',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    iconColor: 'text-warning-600 dark:text-warning-400',
+    textColor: 'text-warning-700 dark:text-warning-300',
     label: 'This Week',
     priority: 2,
   },
   upcoming: {
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
-    iconColor: 'text-green-600',
-    textColor: 'text-green-700',
+    bgColor: 'bg-success-50 dark:bg-success-900/20',
+    borderColor: 'border-success-200 dark:border-success-800',
+    iconColor: 'text-success-600 dark:text-success-400',
+    textColor: 'text-success-700 dark:text-success-300',
     label: 'Upcoming',
     priority: 1,
   },
@@ -169,7 +170,7 @@ export function sortDeadlines(deadlines: UpcomingDeadline[]): UpcomingDeadline[]
  */
 export function filterDeadlines(
   deadlines: UpcomingDeadline[],
-  urgencyFilter?: DeadlineUrgency[]
+  urgencyFilter?: DeadlineUrgency[],
 ): UpcomingDeadline[] {
   if (!urgencyFilter?.length) return deadlines;
 
@@ -182,9 +183,7 @@ export function filterDeadlines(
 /**
  * Count deadlines by urgency
  */
-export function countByUrgency(
-  deadlines: UpcomingDeadline[]
-): Record<DeadlineUrgency, number> {
+export function countByUrgency(deadlines: UpcomingDeadline[]): Record<DeadlineUrgency, number> {
   const counts: Record<DeadlineUrgency, number> = {
     overdue: 0,
     today: 0,
@@ -231,14 +230,7 @@ export const DeadlineIcon: React.FC<DeadlineIconProps> = ({ urgency, className =
       `}
       data-testid={`deadline-icon-${urgency}`}
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      </svg>
+      <Clock className="w-4 h-4" aria-hidden="true" />
     </div>
   );
 };
@@ -284,7 +276,9 @@ export const DeadlineItemCard: React.FC<DeadlineItemCardProps> = ({
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
               {reportConfig.icon} {deadline.reportName}
             </p>
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${config.bgColor} ${config.textColor}`}>
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded-full ${config.bgColor} ${config.textColor}`}
+            >
               {config.label}
             </span>
           </div>
@@ -297,8 +291,8 @@ export const DeadlineItemCard: React.FC<DeadlineItemCardProps> = ({
                 {deadline.weekNumber
                   ? `Week ${deadline.weekNumber}, ${deadline.year}`
                   : deadline.month
-                  ? `${new Date(deadline.year, deadline.month - 1).toLocaleDateString('en-GB', { month: 'short' })} ${deadline.year}`
-                  : deadline.year}
+                    ? `${new Date(deadline.year, deadline.month - 1).toLocaleDateString('en-GB', { month: 'short' })} ${deadline.year}`
+                    : deadline.year}
               </span>
               <span className={`text-xs font-medium ${config.textColor}`}>
                 {formatDaysRemaining(deadline.daysRemaining)}
@@ -367,24 +361,10 @@ interface EmptyStateProps {
   message?: string;
 }
 
-export const EmptyState: React.FC<EmptyStateProps> = ({
-  message = 'No upcoming deadlines',
-}) => (
+export const EmptyState: React.FC<EmptyStateProps> = ({ message = 'No upcoming deadlines' }) => (
   <div className="p-8 text-center" data-testid="empty-state">
-    <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
-      <svg
-        className="w-6 h-6 text-green-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M5 13l4 4L19 7"
-        />
-      </svg>
+    <div className="mx-auto w-12 h-12 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mb-3">
+      <Check className="w-6 h-6 text-success-600 dark:text-success-400" aria-hidden="true" />
     </div>
     <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
@@ -415,24 +395,14 @@ interface ErrorStateProps {
 
 export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
   <div className="p-8 text-center" data-testid="error-state">
-    <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
-      <svg
-        className="w-6 h-6 text-red-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      </svg>
+    <div className="mx-auto w-12 h-12 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-3">
+      <CircleAlert className="w-6 h-6 text-error-600 dark:text-error-400" aria-hidden="true" />
     </div>
-    <p className="text-sm text-red-600 mb-2">{message}</p>
+    <p className="text-sm text-error-600 dark:text-error-400 mb-2">{message}</p>
     {onRetry && (
-      <Button variant="ghost" onClick={onRetry}>Retry</Button>
+      <Button variant="ghost" onClick={onRetry}>
+        Retry
+      </Button>
     )}
   </div>
 );
@@ -482,11 +452,13 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Deadlines</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Report Deadlines
+          </h3>
           <div className="flex items-center space-x-2">
             {overdueCount > 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700"
+                className="text-xs font-medium px-2 py-0.5 rounded-full bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300"
                 data-testid="overdue-count"
               >
                 {overdueCount} Overdue
@@ -494,7 +466,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
             )}
             {todayCount > 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700"
+                className="text-xs font-medium px-2 py-0.5 rounded-full bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300"
                 data-testid="today-count"
               >
                 {todayCount} Today
@@ -502,7 +474,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
             )}
             {overdueCount === 0 && todayCount === 0 && totalPending === 0 && (
               <span
-                className="text-xs font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700"
+                className="text-xs font-medium px-2 py-0.5 rounded-full bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
                 data-testid="all-clear"
               >
                 All Clear
@@ -554,11 +526,12 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
         <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <div className="flex items-center justify-between">
             <span className="text-xs text-gray-500 dark:text-gray-400">
-              Total: {totalPending} pending ({overdueCount} overdue, {thisWeekCount} this
-              week)
+              Total: {totalPending} pending ({overdueCount} overdue, {thisWeekCount} this week)
             </span>
             {onViewAll && (
-              <Button variant="ghost" onClick={onViewAll} data-testid="view-all-btn">View All Reports</Button>
+              <Button variant="ghost" onClick={onViewAll} data-testid="view-all-btn">
+                View All Reports
+              </Button>
             )}
           </div>
         </div>

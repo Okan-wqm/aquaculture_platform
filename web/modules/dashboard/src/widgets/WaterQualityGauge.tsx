@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { Card, Badge, chartChrome, colors, formatRelativeTime } from '@aquaculture/shared-ui';
+import { CircleAlert, Lightbulb, TriangleAlert } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -60,30 +61,30 @@ const statusConfig: Record<
   }
 > = {
   OPTIMAL: {
-    color: 'text-green-600',
-    bgColor: 'bg-green-50',
-    borderColor: 'border-green-200',
+    color: 'text-success-600 dark:text-success-400',
+    bgColor: 'bg-success-50 dark:bg-success-900/20',
+    borderColor: 'border-success-200 dark:border-success-800',
     label: 'Optimal',
     badgeVariant: 'success',
   },
   ACCEPTABLE: {
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50',
-    borderColor: 'border-blue-200',
+    color: 'text-info-600 dark:text-info-400',
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    borderColor: 'border-info-200 dark:border-info-800',
     label: 'Kabul Edilebilir',
     badgeVariant: 'info',
   },
   WARNING: {
-    color: 'text-yellow-600',
-    bgColor: 'bg-yellow-50',
-    borderColor: 'border-yellow-200',
+    color: 'text-warning-600 dark:text-warning-400',
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    borderColor: 'border-warning-200 dark:border-warning-800',
     label: 'Dikkat',
     badgeVariant: 'warning',
   },
   CRITICAL: {
-    color: 'text-red-600',
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
+    color: 'text-error-600 dark:text-error-400',
+    bgColor: 'bg-error-50 dark:bg-error-900/20',
+    borderColor: 'border-error-200 dark:border-error-800',
     label: 'Kritik',
     badgeVariant: 'error',
   },
@@ -101,7 +102,10 @@ const statusConfig: Record<
 // ============================================================================
 
 interface ParameterConfig {
-  key: keyof Pick<WaterQualityData, 'temperature' | 'dissolvedOxygen' | 'pH' | 'ammonia' | 'nitrite'>;
+  key: keyof Pick<
+    WaterQualityData,
+    'temperature' | 'dissolvedOxygen' | 'pH' | 'ammonia' | 'nitrite'
+  >;
   label: string;
   unit: string;
   optimalMin: number;
@@ -184,10 +188,7 @@ function getParameterStatus(
   return 'OPTIMAL';
 }
 
-function calculateGaugePercent(
-  value: number | undefined,
-  config: ParameterConfig,
-): number {
+function calculateGaugePercent(value: number | undefined, config: ParameterConfig): number {
   // BUG-L4: null is not in the type union — removed dead null check
   if (value === undefined) return 0;
 
@@ -282,7 +283,9 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
         status: paramStatus,
         percent,
         displayValue:
-          value !== undefined ? value.toFixed(param.decimals) + (param.unit ? ` ${param.unit}` : '') : '-',
+          value !== undefined
+            ? value.toFixed(param.decimals) + (param.unit ? ` ${param.unit}` : '')
+            : '-',
       };
     });
   }, [data]);
@@ -320,10 +323,11 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="text-center py-4">
-          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-red-100 flex items-center justify-center">
-            <svg className="w-6 h-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-error-100 dark:bg-error-900/40 flex items-center justify-center">
+            <CircleAlert
+              className="w-6 h-6 text-error-600 dark:text-error-400"
+              aria-hidden="true"
+            />
           </div>
           <p className="text-sm text-gray-600 dark:text-gray-400">{error}</p>
         </div>
@@ -337,9 +341,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
       <Card className={`p-4 ${className}`}>
         <div className="text-center py-8">
           <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
-            <svg className="w-6 h-6 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-            </svg>
+            <Lightbulb className="w-6 h-6 text-gray-500 dark:text-gray-400" aria-hidden="true" />
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400">Su kalitesi verisi yok</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Henüz ölçüm yapılmamış</p>
@@ -365,9 +367,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
             </p>
           )}
         </div>
-        <Badge variant={config.badgeVariant}>
-          {config.label}
-        </Badge>
+        <Badge variant={config.badgeVariant}>{config.label}</Badge>
       </div>
 
       {/* Main Gauge - Overall Status (BUG-M5: data-driven from parameter averages) */}
@@ -405,10 +405,8 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
 
       {/* Alarm Indicator */}
       {data.hasAlarm && (
-        <div className="mt-3 flex items-center gap-2 text-red-600">
-          <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-          </svg>
+        <div className="mt-3 flex items-center gap-2 text-error-600 dark:text-error-400">
+          <TriangleAlert className="w-4 h-4 animate-pulse" aria-hidden="true" />
           <span className="text-xs font-medium">Aktif alarm</span>
         </div>
       )}

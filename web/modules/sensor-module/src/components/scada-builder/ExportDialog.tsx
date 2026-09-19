@@ -159,7 +159,8 @@ async function captureViewport(
   selector: string,
   scale: ExportResolution,
 ): Promise<{ canvas: HTMLCanvasElement; width: number; height: number }> {
-  const viewport = document.querySelector(selector) ?? document.querySelector('.react-flow__viewport');
+  const viewport =
+    document.querySelector(selector) ?? document.querySelector('.react-flow__viewport');
   if (!viewport) {
     throw new Error('Could not find ReactFlow viewport element');
   }
@@ -189,7 +190,8 @@ async function captureViewport(
   const clone = container.cloneNode(true) as HTMLElement;
 
   // Remove interactive controls (minimap, controls panel, context menus)
-  clone.querySelectorAll('.react-flow__controls, .react-flow__minimap, [data-export-exclude]')
+  clone
+    .querySelectorAll('.react-flow__controls, .react-flow__minimap, [data-export-exclude]')
     .forEach((el) => el.remove());
 
   const svgStr = [
@@ -291,90 +293,101 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="sm" bodyClassName="" title="Export View">
+      {/* Body */}
+      <div className="px-5 py-4 space-y-4">
+        {/* Format selector */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Format
+          </label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFormat('png')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                format === 'png'
+                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+              }`}
+            >
+              <Image className="w-4 h-4" />
+              PNG
+            </button>
+            <button
+              onClick={() => setFormat('pdf')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
+                format === 'pdf'
+                  ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                  : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              PDF
+            </button>
+          </div>
+        </div>
 
-        {/* Body */}
-        <div className="px-5 py-4 space-y-4">
-          {/* Format selector */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Format</label>
-            <div className="flex gap-2">
+        {/* Resolution */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Resolution
+          </label>
+          <div className="flex gap-2">
+            {([1, 2, 3] as ExportResolution[]).map((res) => (
               <button
-                onClick={() => setFormat('png')}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                  format === 'png'
-                    ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
+                key={res}
+                onClick={() => setResolution(res)}
+                className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                  resolution === res
+                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
                     : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
-                <Image className="w-4 h-4" />
-                PNG
+                {res}x {res === 1 ? '(Screen)' : res === 2 ? '(Print)' : '(HiDPI)'}
               </button>
-              <button
-                onClick={() => setFormat('pdf')}
-                className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
-                  format === 'pdf'
-                    ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                    : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                }`}
-              >
-                <FileText className="w-4 h-4" />
-                PDF
-              </button>
-            </div>
+            ))}
           </div>
-
-          {/* Resolution */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Resolution</label>
-            <div className="flex gap-2">
-              {([1, 2, 3] as ExportResolution[]).map((res) => (
-                <button
-                  key={res}
-                  onClick={() => setResolution(res)}
-                  className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
-                    resolution === res
-                      ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                      : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  {res}x {res === 1 ? '(Screen)' : res === 2 ? '(Print)' : '(HiDPI)'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filename */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Filename</label>
-            <Input fullWidth type="text" value={filename} onChange={(e) => setFilename(e.target.value)} placeholder="scada-export" />
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</div>
-          )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-          <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <button
-            onClick={handleExport}
-            disabled={isExporting || !filename.trim()}
-            className={`flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg transition-colors ${
-              isExporting || !filename.trim()
-                ? 'bg-cyan-400 cursor-not-allowed'
-                : 'bg-cyan-600 hover:bg-cyan-700'
-            }`}
-          >
-            {isExporting ? (
-              <Spinner size="sm" color="inherit" />
-            ) : (
-              <Download className="w-4 h-4" />
-            )}
-            {isExporting ? 'Exporting...' : 'Export'}
-          </button>
+        {/* Filename */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Filename
+          </label>
+          <Input
+            fullWidth
+            type="text"
+            value={filename}
+            onChange={(e) => setFilename(e.target.value)}
+            placeholder="scada-export"
+          />
         </div>
+
+        {/* Error */}
+        {error && (
+          <div className="text-xs text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 px-3 py-2 rounded-lg">
+            {error}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+        <Button variant="secondary" onClick={onClose}>
+          Cancel
+        </Button>
+        <button
+          onClick={handleExport}
+          disabled={isExporting || !filename.trim()}
+          className={`flex items-center gap-2 px-4 py-2 text-sm text-white rounded-lg transition-colors ${
+            isExporting || !filename.trim()
+              ? 'bg-info-400 cursor-not-allowed'
+              : 'bg-info-600 hover:bg-info-700'
+          }`}
+        >
+          {isExporting ? <Spinner size="sm" color="inherit" /> : <Download className="w-4 h-4" />}
+          {isExporting ? 'Exporting...' : 'Export'}
+        </button>
+      </div>
     </Modal>
   );
 };

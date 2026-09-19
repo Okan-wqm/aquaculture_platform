@@ -58,9 +58,9 @@ const VAR_SECTIONS: VarSection[] = [
 const STATUS_CONFIG: Record<SimulationState, { color: string; label: string }> = {
   idle: { color: 'bg-gray-400', label: 'Boşta' },
   ready: { color: 'bg-gray-400', label: 'Hazır' },
-  running: { color: 'bg-green-500', label: 'Çalışıyor' },
-  paused: { color: 'bg-yellow-500', label: 'Duraklatıldı' },
-  error: { color: 'bg-red-500', label: 'Hata' },
+  running: { color: 'bg-success-500', label: 'Çalışıyor' },
+  paused: { color: 'bg-warning-500', label: 'Duraklatıldı' },
+  error: { color: 'bg-error-500', label: 'Hata' },
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -95,7 +95,9 @@ const StatusIndicator: React.FC<{ state: SimulationState }> = ({ state }) => {
   const { color, label } = STATUS_CONFIG[state];
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-500">
-      <span className={`w-2 h-2 rounded-full ${color} ${state === 'running' ? 'animate-pulse' : ''}`} />
+      <span
+        className={`w-2 h-2 rounded-full ${color} ${state === 'running' ? 'animate-pulse' : ''}`}
+      />
       {label}
     </span>
   );
@@ -119,9 +121,9 @@ const BoolToggle: React.FC<{
       className={
         'w-8 h-4 rounded-full transition-colors ' +
         'bg-gray-300 dark:bg-gray-600 ' +
-        'peer-checked:bg-indigo-600 dark:peer-checked:bg-indigo-500 ' +
+        'peer-checked:bg-primary-600 dark:peer-checked:bg-primary-500 ' +
         'peer-disabled:opacity-50 peer-disabled:cursor-not-allowed ' +
-        'after:content-[\'\'] after:absolute after:top-0.5 after:left-[2px] ' +
+        "after:content-[''] after:absolute after:top-0.5 after:left-[2px] " +
         'after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all ' +
         'peer-checked:after:translate-x-full'
       }
@@ -134,10 +136,12 @@ const BoolDisplay: React.FC<{ value: boolean }> = ({ value }) => (
   <span className="inline-flex items-center gap-1.5">
     <span
       className={`w-2.5 h-2.5 rounded-full ${
-        value ? 'bg-green-500' : 'bg-gray-400 dark:bg-gray-600'
+        value ? 'bg-success-500' : 'bg-gray-400 dark:bg-gray-600'
       }`}
     />
-    <span className={`font-mono text-xs ${value ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-500'}`}>
+    <span
+      className={`font-mono text-xs ${value ? 'text-success-600 dark:text-success-400' : 'text-gray-500 dark:text-gray-500'}`}
+    >
       {value ? 'TRUE' : 'FALSE'}
     </span>
   </span>
@@ -148,7 +152,7 @@ const BoolDisplay: React.FC<{ value: boolean }> = ({ value }) => (
 // ────────────────────────────────────────────────────────────────────────────
 
 const INPUT_CLASS =
-  'px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500';
+  'px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-primary-500';
 
 const VariableControl: React.FC<{
   variable: VariableInfo;
@@ -196,7 +200,9 @@ const VariableControl: React.FC<{
   }
 
   // Fallback: read-only display
-  return <span className="text-xs font-mono text-gray-600 dark:text-gray-500">{String(value)}</span>;
+  return (
+    <span className="text-xs font-mono text-gray-600 dark:text-gray-500">{String(value)}</span>
+  );
 };
 
 const VariableValue: React.FC<{ variable: VariableInfo }> = ({ variable }) => {
@@ -233,7 +239,9 @@ const VariableSection: React.FC<{
         header: 'Değişken',
         width: '33%',
         render: (_value, variable) => (
-          <span className="text-xs font-mono text-gray-900 dark:text-gray-200">{variable.name}</span>
+          <span className="text-xs font-mono text-gray-900 dark:text-gray-200">
+            {variable.name}
+          </span>
         ),
       },
       {
@@ -294,7 +302,7 @@ const VariableSection: React.FC<{
           rowClassName={(variable) =>
             `transition-colors duration-500 ${
               changedVars.has(variable.name)
-                ? 'bg-yellow-50 dark:bg-yellow-900/20'
+                ? 'bg-warning-50 dark:bg-warning-900/20'
                 : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
             }`
           }
@@ -325,7 +333,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
   } = useSimulation();
 
   // ── Debounced auto-load on code change ──────────────────────────────────
-  const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
     if (!code || code.trim().length === 0) return;
@@ -403,14 +411,41 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Load button (shown when idle/error) */}
           {(state === 'idle' || state === 'error') && (
-            <Button variant="primary" size="xs" leftIcon={<Download className="w-3.5 h-3.5" />} onClick={handleLoadClick} disabled={!code || code.trim().length === 0} title="Kodu yükle ve hazırla">Yükle</Button>
+            <Button
+              variant="primary"
+              size="xs"
+              leftIcon={<Download className="w-3.5 h-3.5" />}
+              onClick={handleLoadClick}
+              disabled={!code || code.trim().length === 0}
+              title="Kodu yükle ve hazırla"
+            >
+              Yükle
+            </Button>
           )}
 
           {/* Start */}
-          <Button variant="primary" size="xs" leftIcon={<Play className="w-3.5 h-3.5" />} onClick={handleStart} disabled={!canStart} title="Sürekli çalıştır">Başlat</Button>
+          <Button
+            variant="primary"
+            size="xs"
+            leftIcon={<Play className="w-3.5 h-3.5" />}
+            onClick={handleStart}
+            disabled={!canStart}
+            title="Sürekli çalıştır"
+          >
+            Başlat
+          </Button>
 
           {/* Pause */}
-          <Button variant="warning" size="xs" leftIcon={<Pause className="w-3.5 h-3.5" />} onClick={pause} disabled={!canPause} title="Duraklat">Duraklat</Button>
+          <Button
+            variant="warning"
+            size="xs"
+            leftIcon={<Pause className="w-3.5 h-3.5" />}
+            onClick={pause}
+            disabled={!canPause}
+            title="Duraklat"
+          >
+            Duraklat
+          </Button>
 
           {/* Stop / Reset */}
           <button
@@ -424,7 +459,16 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
           </button>
 
           {/* Single cycle step */}
-          <Button variant="primary" size="xs" leftIcon={<SkipForward className="w-3.5 h-3.5" />} onClick={runOneCycle} disabled={!canStep} title="Tek cycle çalıştır">1 Cycle</Button>
+          <Button
+            variant="primary"
+            size="xs"
+            leftIcon={<SkipForward className="w-3.5 h-3.5" />}
+            onClick={runOneCycle}
+            disabled={!canStep}
+            title="Tek cycle çalıştır"
+          >
+            1 Cycle
+          </Button>
         </div>
 
         {/* Row 2: Cycle count, scan interval, status */}
@@ -443,7 +487,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
             <select
               value={scanCycleMs}
               onChange={(e) => setScanCycleMs(Number(e.target.value))}
-              className="px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+              className="px-1.5 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-primary-500"
             >
               {SCAN_CYCLE_OPTIONS.map((ms) => (
                 <option key={ms} value={ms}>
@@ -460,9 +504,9 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
 
       {/* ── Error banner ─────────────────────────────────────────────────── */}
       {state === 'error' && error && (
-        <div className="flex items-start gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800 flex-shrink-0">
-          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
-          <div className="text-xs text-red-700 dark:text-red-300 break-words min-w-0">
+        <div className="flex items-start gap-2 px-3 py-2 bg-error-50 dark:bg-error-900/30 border-b border-error-200 dark:border-error-800 flex-shrink-0">
+          <AlertCircle className="w-4 h-4 text-error-500 flex-shrink-0 mt-0.5" />
+          <div className="text-xs text-error-700 dark:text-error-300 break-words min-w-0">
             <span className="font-semibold">Hata:</span> {error}
           </div>
         </div>
@@ -474,9 +518,7 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
           <div className="text-center text-sm text-gray-500 dark:text-gray-600">
             <Play className="w-8 h-8 mx-auto mb-2 opacity-50" />
             <p>ST kodunu yükleyin ve simülasyonu başlatın</p>
-            <p className="text-xs mt-1">
-              Kod değiştiğinde otomatik olarak yüklenir
-            </p>
+            <p className="text-xs mt-1">Kod değiştiğinde otomatik olarak yüklenir</p>
           </div>
         </div>
       )}
@@ -513,11 +555,9 @@ const SimulationPanel: React.FC<SimulationPanelProps> = ({ code }) => {
       {state === 'error' && (
         <div className="flex-1 flex items-center justify-center p-6">
           <div className="text-center text-sm text-gray-500 dark:text-gray-600">
-            <AlertCircle className="w-8 h-8 mx-auto mb-2 text-red-400 opacity-50" />
+            <AlertCircle className="w-8 h-8 mx-auto mb-2 text-error-400 opacity-50" />
             <p>Simülasyon yüklenemedi</p>
-            <p className="text-xs mt-1">
-              Yukarıdaki hatayı düzeltip tekrar yükleyin
-            </p>
+            <p className="text-xs mt-1">Yukarıdaki hatayı düzeltip tekrar yükleyin</p>
           </div>
         </div>
       )}

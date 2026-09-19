@@ -36,12 +36,12 @@ interface PresetOption {
 }
 
 const PRESETS: PresetOption[] = [
-  { label: 'Last 1h',  value: 'last1h',  ms: 60 * 60 * 1000 },
-  { label: 'Last 8h',  value: 'last8h',  ms: 8 * 60 * 60 * 1000 },
-  { label: 'Last 1d',  value: 'last1d',  ms: 24 * 60 * 60 * 1000 },
-  { label: 'Last 3d',  value: 'last3d',  ms: 3 * 24 * 60 * 60 * 1000 },
-  { label: 'Last 1w',  value: 'last1w',  ms: 7 * 24 * 60 * 60 * 1000 },
-  { label: 'Last 1m',  value: 'last1m',  ms: 30 * 24 * 60 * 60 * 1000 },
+  { label: 'Last 1h', value: 'last1h', ms: 60 * 60 * 1000 },
+  { label: 'Last 8h', value: 'last8h', ms: 8 * 60 * 60 * 1000 },
+  { label: 'Last 1d', value: 'last1d', ms: 24 * 60 * 60 * 1000 },
+  { label: 'Last 3d', value: 'last3d', ms: 3 * 24 * 60 * 60 * 1000 },
+  { label: 'Last 1w', value: 'last1w', ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: 'Last 1m', value: 'last1m', ms: 30 * 24 * 60 * 60 * 1000 },
 ];
 
 interface AggregationOption {
@@ -50,12 +50,12 @@ interface AggregationOption {
 }
 
 const AGGREGATION_OPTIONS: AggregationOption[] = [
-  { label: 'Raw',    value: 'raw' },
-  { label: '5 min',  value: '5min' },
+  { label: 'Raw', value: 'raw' },
+  { label: '5 min', value: '5min' },
   { label: '10 min', value: '10min' },
   { label: '30 min', value: '30min' },
   { label: '1 hour', value: '1h' },
-  { label: '1 day',  value: '1d' },
+  { label: '1 day', value: '1d' },
 ];
 
 interface AutoRefreshOption {
@@ -64,10 +64,10 @@ interface AutoRefreshOption {
 }
 
 const AUTO_REFRESH_OPTIONS: AutoRefreshOption[] = [
-  { label: 'Off',    ms: undefined },
-  { label: '30s',    ms: 30_000 },
-  { label: '1 min',  ms: 60_000 },
-  { label: '5 min',  ms: 300_000 },
+  { label: 'Off', ms: undefined },
+  { label: '30s', ms: 30_000 },
+  { label: '1 min', ms: 60_000 },
+  { label: '5 min', ms: 300_000 },
   { label: '10 min', ms: 600_000 },
   { label: '30 min', ms: 1_800_000 },
 ];
@@ -203,7 +203,6 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
   /* ---- Render ---- */
 
   return (
-     
     <div
       className="flex flex-wrap items-center gap-1 px-2 py-1.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-xs"
       onClick={closeMenus}
@@ -211,12 +210,37 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
       aria-label="Chart controls"
     >
       {/* Back */}
-      <Button variant="secondary" size="xs" type="button" aria-label="Navigate backward" onClick={(e) => { e.stopPropagation(); navigate('back'); }} disabled={isLoading}>&#9664;</Button>
+      <Button
+        variant="secondary"
+        size="xs"
+        type="button"
+        aria-label="Navigate backward"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate('back');
+        }}
+        disabled={isLoading}
+      >
+        &#9664;
+      </Button>
 
       {/* Preset dropdown */}
       <div className="relative" onClick={(e) => e.stopPropagation()}>
-        <Button variant="secondary" size="sm" className="min-w-[80px]" type="button" onClick={() => { setShowPresetMenu((v) => !v); setShowRefreshMenu(false); setShowAggMenu(false); }} disabled={isLoading}>{currentPresetLabel}
-          <span className="ml-auto text-gray-400 dark:text-gray-500">&#9662;</span></Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="min-w-[80px]"
+          type="button"
+          onClick={() => {
+            setShowPresetMenu((v) => !v);
+            setShowRefreshMenu(false);
+            setShowAggMenu(false);
+          }}
+          disabled={isLoading}
+        >
+          {currentPresetLabel}
+          <span className="ml-auto text-gray-400 dark:text-gray-500">&#9662;</span>
+        </Button>
         {showPresetMenu && (
           <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[110px]">
             {PRESETS.map((preset) => (
@@ -228,21 +252,45 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
                   setShowPresetMenu(false);
                   setShowCustom(false);
                 }}
-                className={`block w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors ${
-                  currentPreset?.value === preset.value ? 'font-semibold text-blue-600' : 'text-gray-700 dark:text-gray-300'
+                className={`block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors ${
+                  currentPreset?.value === preset.value
+                    ? 'font-semibold text-info-600 dark:text-info-400'
+                    : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
                 {preset.label}
               </button>
             ))}
             <hr className="my-1 border-gray-100 dark:border-gray-700" />
-            <Button variant="ghost" size="sm" type="button" onClick={() => { setShowCustom((v) => !v); setShowPresetMenu(false); }}>Custom range...</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              type="button"
+              onClick={() => {
+                setShowCustom((v) => !v);
+                setShowPresetMenu(false);
+              }}
+            >
+              Custom range...
+            </Button>
           </div>
         )}
       </div>
 
       {/* Forward */}
-      <Button variant="secondary" size="xs" type="button" aria-label="Navigate forward" onClick={(e) => { e.stopPropagation(); navigate('forward'); }} disabled={isLoading}>&#9654;</Button>
+      <Button
+        variant="secondary"
+        size="xs"
+        type="button"
+        aria-label="Navigate forward"
+        onClick={(e) => {
+          e.stopPropagation();
+          navigate('forward');
+        }}
+        disabled={isLoading}
+      >
+        &#9654;
+      </Button>
 
       {/* Custom date range inputs */}
       {showCustom && (
@@ -251,20 +299,43 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           onClick={(e) => e.stopPropagation()}
         >
           <span className="text-gray-500 dark:text-gray-400">From:</span>
-          <Input type="datetime-local" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+          <Input
+            type="datetime-local"
+            value={customFrom}
+            onChange={(e) => setCustomFrom(e.target.value)}
+          />
           <span className="text-gray-500 dark:text-gray-400">To:</span>
-          <Input type="datetime-local" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
-          <Button variant="primary" size="xs" type="button" onClick={applyCustomRange}>Apply</Button>
-          <Button variant="secondary" size="xs" type="button" onClick={() => setShowCustom(false)}>Cancel</Button>
+          <Input
+            type="datetime-local"
+            value={customTo}
+            onChange={(e) => setCustomTo(e.target.value)}
+          />
+          <Button variant="primary" size="xs" type="button" onClick={applyCustomRange}>
+            Apply
+          </Button>
+          <Button variant="secondary" size="xs" type="button" onClick={() => setShowCustom(false)}>
+            Cancel
+          </Button>
         </div>
       )}
 
       {/* Aggregation selector */}
       {onAggregationChange && (
         <div className="relative" onClick={(e) => e.stopPropagation()}>
-          <Button variant="secondary" size="sm" type="button" onClick={() => { setShowAggMenu((v) => !v); setShowPresetMenu(false); setShowRefreshMenu(false); }}><span className="text-gray-500 dark:text-gray-400">Agg:</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            type="button"
+            onClick={() => {
+              setShowAggMenu((v) => !v);
+              setShowPresetMenu(false);
+              setShowRefreshMenu(false);
+            }}
+          >
+            <span className="text-gray-500 dark:text-gray-400">Agg:</span>
             {currentAggLabel}
-            <span className="ml-1 text-gray-400 dark:text-gray-500">&#9662;</span></Button>
+            <span className="ml-1 text-gray-400 dark:text-gray-500">&#9662;</span>
+          </Button>
           {showAggMenu && (
             <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[100px]">
               {AGGREGATION_OPTIONS.map((opt) => (
@@ -275,8 +346,10 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
                     onAggregationChange(opt.value);
                     setShowAggMenu(false);
                   }}
-                  className={`block w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors ${
-                    opt.value === aggregationInterval ? 'font-semibold text-blue-600' : 'text-gray-700 dark:text-gray-300'
+                  className={`block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors ${
+                    opt.value === aggregationInterval
+                      ? 'font-semibold text-info-600 dark:text-info-400'
+                      : 'text-gray-700 dark:text-gray-300'
                   }`}
                 >
                   {opt.label}
@@ -293,7 +366,10 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
       <button
         type="button"
         aria-label="Refresh"
-        onClick={(e) => { e.stopPropagation(); onRefresh(); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRefresh();
+        }}
         disabled={isLoading}
         className={`inline-flex items-center px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors ${
           isLoading ? 'animate-spin' : ''
@@ -304,9 +380,20 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
 
       {/* Auto-refresh dropdown */}
       <div className="relative" onClick={(e) => e.stopPropagation()}>
-        <Button variant="secondary" size="sm" type="button" onClick={() => { setShowRefreshMenu((v) => !v); setShowPresetMenu(false); setShowAggMenu(false); }}><span className="text-gray-500 dark:text-gray-400">Auto:</span>
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          onClick={() => {
+            setShowRefreshMenu((v) => !v);
+            setShowPresetMenu(false);
+            setShowAggMenu(false);
+          }}
+        >
+          <span className="text-gray-500 dark:text-gray-400">Auto:</span>
           {currentRefreshLabel}
-          <span className="ml-1 text-gray-400 dark:text-gray-500">&#9662;</span></Button>
+          <span className="ml-1 text-gray-400 dark:text-gray-500">&#9662;</span>
+        </Button>
         {showRefreshMenu && (
           <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[90px]">
             {AUTO_REFRESH_OPTIONS.map((opt) => (
@@ -317,8 +404,10 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
                   onAutoRefreshChange(opt.ms);
                   setShowRefreshMenu(false);
                 }}
-                className={`block w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors ${
-                  opt.ms === autoRefreshMs ? 'font-semibold text-blue-600' : 'text-gray-700 dark:text-gray-300'
+                className={`block w-full text-left px-3 py-1.5 hover:bg-info-50 dark:hover:bg-info-900/30 transition-colors ${
+                  opt.ms === autoRefreshMs
+                    ? 'font-semibold text-info-600 dark:text-info-400'
+                    : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
                 {opt.label}
@@ -330,7 +419,15 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
 
       {/* Export button */}
       <div className="relative" onClick={(e) => e.stopPropagation()}>
-        <Button variant="secondary" size="sm" type="button" aria-label="Export data" onClick={() => setShowExport((v) => !v)}>Export &#9662;</Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          type="button"
+          aria-label="Export data"
+          onClick={() => setShowExport((v) => !v)}
+        >
+          Export &#9662;
+        </Button>
         {showExport && (
           <div className="absolute top-full right-0 mt-1 z-50">
             <ChartExport

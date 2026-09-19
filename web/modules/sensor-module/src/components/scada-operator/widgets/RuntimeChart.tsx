@@ -15,14 +15,7 @@
  *   - Configurable via widget config
  */
 
-import React, {
-  memo,
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  useMemo,
-} from 'react';
+import React, { memo, useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { RuntimeWidgetProps, TagValueChange } from '../../../types/scada-runtime.types';
@@ -64,8 +57,14 @@ class RingBuffer<T> {
     return result;
   }
 
-  get size(): number { return this._size; }
-  clear(): void { this.head = 0; this.tail = 0; this._size = 0; }
+  get size(): number {
+    return this._size;
+  }
+  clear(): void {
+    this.head = 0;
+    this.tail = 0;
+    this._size = 0;
+  }
 }
 
 const DEFAULT_COLORS = [
@@ -80,12 +79,12 @@ const DEFAULT_COLORS = [
 ];
 
 const RANGE_PRESETS: Array<{ label: string; minutes: number }> = [
-  { label: '1m',  minutes: 1 },
-  { label: '5m',  minutes: 5 },
+  { label: '1m', minutes: 1 },
+  { label: '5m', minutes: 5 },
   { label: '10m', minutes: 10 },
   { label: '30m', minutes: 30 },
-  { label: '1h',  minutes: 60 },
-  { label: '4h',  minutes: 240 },
+  { label: '1h', minutes: 60 },
+  { label: '4h', minutes: 240 },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -215,10 +214,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     const h = container.clientHeight || height;
 
     const opts = buildOptions(w, h);
-    const emptyData: uPlot.AlignedData = [
-      [],
-      ...seriesList.map(() => []),
-    ] as uPlot.AlignedData;
+    const emptyData: uPlot.AlignedData = [[], ...seriesList.map(() => [])] as uPlot.AlignedData;
 
     const instance = new uPlot(opts, emptyData, container);
     uplotRef.current = instance;
@@ -305,9 +301,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
 
       const tsSec = change.timestamp / 1000;
       const numVal =
-        typeof change.value === 'number'
-          ? change.value
-          : parseFloat(String(change.value));
+        typeof change.value === 'number' ? change.value : parseFloat(String(change.value));
       if (isNaN(numVal)) continue;
 
       if (!bufferRef.current.has(series.tagId)) {
@@ -361,7 +355,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
               onClick={() => handleRangeChange(preset.minutes)}
               className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
                 rangeMinutes === preset.minutes
-                  ? 'bg-blue-500 text-white font-semibold'
+                  ? 'bg-info-500 text-white font-semibold'
                   : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -384,10 +378,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
       )}
 
       {/* uPlot mount target */}
-      <div
-        ref={containerRef}
-        className="relative flex-1 min-h-0 overflow-hidden"
-      />
+      <div ref={containerRef} className="relative flex-1 min-h-0 overflow-hidden" />
     </div>
   );
 };

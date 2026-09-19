@@ -1,8 +1,18 @@
 import { clsx } from 'clsx';
-import { CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
+import {
+  AlertCircle,
+  Check,
+  CheckCircle,
+  Clock,
+  MapPin,
+  Play,
+  Send,
+  Tag,
+  WifiOff,
+} from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useEffect, useCallback } from 'react';
-import {useParams} from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -12,7 +22,6 @@ import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTaskActions } from '@/hooks/useTaskActions';
 import { graphqlRequest } from '@/services/authenticated-fetch';
 import type { Task, ChecklistItem, TaskNote } from '@/types';
-
 
 const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
   URGENT: { label: 'Urgent', color: 'bg-red-100 text-red-700' },
@@ -36,11 +45,17 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  PENDING: { label: 'Pending', color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' },
+  PENDING: {
+    label: 'Pending',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
+  },
   IN_PROGRESS: { label: 'In Progress', color: 'bg-amber-100 text-amber-700' },
   COMPLETED: { label: 'Completed', color: 'bg-green-100 text-green-700' },
   OVERDUE: { label: 'Overdue', color: 'bg-red-100 text-red-700' },
-  CANCELLED: { label: 'Cancelled', color: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' },
+  CANCELLED: {
+    label: 'Cancelled',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
+  },
 };
 
 export function TaskDetailPage(): JSX.Element {
@@ -66,10 +81,7 @@ export function TaskDetailPage(): JSX.Element {
     setError(null);
 
     try {
-      const result = await graphqlRequest(
-        GET_TASK_DETAIL,
-        { id: taskId },
-      );
+      const result = await graphqlRequest(GET_TASK_DETAIL, { id: taskId });
 
       setTask(result.task ?? null);
     } catch (err) {
@@ -100,10 +112,13 @@ export function TaskDetailPage(): JSX.Element {
         setSuccessMessage('Task started!');
       }
       setShowSuccess(true);
-      setTimeout(() => {
-        setShowSuccess(false);
-        void fetchTask();
-      }, result.wasQueued ? 2000 : 1000);
+      setTimeout(
+        () => {
+          setShowSuccess(false);
+          void fetchTask();
+        },
+        result.wasQueued ? 2000 : 1000,
+      );
     } catch {
       setError('Failed to start task');
     } finally {
@@ -128,10 +143,13 @@ export function TaskDetailPage(): JSX.Element {
         setSuccessMessage('Task completed!');
       }
       setShowSuccess(true);
-      setTimeout(() => {
-        setShowSuccess(false);
-        void fetchTask();
-      }, result.wasQueued ? 2000 : 1000);
+      setTimeout(
+        () => {
+          setShowSuccess(false);
+          void fetchTask();
+        },
+        result.wasQueued ? 2000 : 1000,
+      );
     } catch {
       setError('Failed to complete task');
     } finally {
@@ -143,7 +161,10 @@ export function TaskDetailPage(): JSX.Element {
   // current state, so a tap on a checked item targets `false` and vice versa. The
   // backend SETs this value (no server-side flip), so the operation is idempotent
   // and safe to queue offline.
-  const handleToggleChecklist = async (itemId: string, currentIsCompleted: boolean): Promise<void> => {
+  const handleToggleChecklist = async (
+    itemId: string,
+    currentIsCompleted: boolean,
+  ): Promise<void> => {
     if (!taskId) return;
     try {
       await setChecklistItem(taskId, itemId, !currentIsCompleted);
@@ -191,9 +212,7 @@ export function TaskDetailPage(): JSX.Element {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <PageHeader
-          title="Task Details"
-        />
+        <PageHeader title="Task Details" />
         <div className="flex items-center justify-center min-h-[50vh]">
           <Spinner size="lg" />
         </div>
@@ -204,13 +223,13 @@ export function TaskDetailPage(): JSX.Element {
   if (error || !task) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <PageHeader
-          title="Task Details"
-        />
+        <PageHeader title="Task Details" />
         <div className="px-4 mt-4">
           <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-center gap-3 border border-red-200 dark:border-red-800">
             <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
-            <span className="text-red-600 dark:text-red-300 text-sm">{error || 'Task not found'}</span>
+            <span className="text-red-600 dark:text-red-300 text-sm">
+              {error || 'Task not found'}
+            </span>
           </div>
         </div>
       </div>
@@ -229,9 +248,7 @@ export function TaskDetailPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <PageHeader
-        title="Task Details"
-      />
+      <PageHeader title="Task Details" />
 
       {/* Task info */}
       <div className="px-4 mt-4">
@@ -240,10 +257,14 @@ export function TaskDetailPage(): JSX.Element {
 
           {/* Badges row */}
           <div className="flex flex-wrap gap-2 mb-4">
-            <span className={clsx('px-2.5 py-1 rounded-full text-xs font-semibold', priorityInfo.color)}>
+            <span
+              className={clsx('px-2.5 py-1 rounded-full text-xs font-semibold', priorityInfo.color)}
+            >
               {priorityInfo.label}
             </span>
-            <span className={clsx('px-2.5 py-1 rounded-full text-xs font-semibold', statusInfo.color)}>
+            <span
+              className={clsx('px-2.5 py-1 rounded-full text-xs font-semibold', statusInfo.color)}
+            >
               {statusInfo.label}
             </span>
             <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-ocean-50 text-ocean-700 dark:bg-ocean-900/30">
@@ -261,7 +282,11 @@ export function TaskDetailPage(): JSX.Element {
               <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <Clock size={14} />
                 <span>
-                  {new Date(task.dueDate).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  {new Date(task.dueDate).toLocaleDateString('en-US', {
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                  })}
                   {task.dueTime && ` - ${task.dueTime}`}
                 </span>
               </div>
@@ -283,7 +308,10 @@ export function TaskDetailPage(): JSX.Element {
                 <Tag size={14} />
                 <div className="flex flex-wrap gap-1">
                   {task.tags.map((tag, i) => (
-                    <span key={i} className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded">
+                    <span
+                      key={i}
+                      className="text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded"
+                    >
                       {tag}
                     </span>
                   ))}
@@ -304,10 +332,13 @@ export function TaskDetailPage(): JSX.Element {
             {checklistItems.map((item, index) => (
               <button
                 key={item.id || index}
-                onClick={() => { void handleToggleChecklist(item.id, item.isCompleted); }}
+                onClick={() => {
+                  void handleToggleChecklist(item.id, item.isCompleted);
+                }}
                 className={clsx(
                   'w-full flex items-center gap-3 p-4 text-left touch-feedback transition-all',
-                  index < checklistItems.length - 1 && 'border-b border-gray-50 dark:border-gray-800',
+                  index < checklistItems.length - 1 &&
+                    'border-b border-gray-50 dark:border-gray-800',
                 )}
               >
                 <div
@@ -318,11 +349,7 @@ export function TaskDetailPage(): JSX.Element {
                       : 'border-gray-300 dark:border-gray-600',
                   )}
                 >
-                  {item.isCompleted && (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M20 6 9 17l-5-5" />
-                    </svg>
-                  )}
+                  {item.isCompleted && <Check strokeWidth="3" size={12} aria-hidden="true" />}
                 </div>
                 <span
                   className={clsx(
@@ -342,12 +369,17 @@ export function TaskDetailPage(): JSX.Element {
 
       {/* Notes */}
       <div className="px-4 mt-4">
-        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Notes</h3>
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
+          Notes
+        </h3>
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
           {notes.length > 0 && (
             <div className="space-y-3 mb-4">
               {notes.map((note, index) => (
-                <div key={note.id || index} className="border-b border-gray-50 dark:border-gray-800 pb-3 last:border-0 last:pb-0">
+                <div
+                  key={note.id || index}
+                  className="border-b border-gray-50 dark:border-gray-800 pb-3 last:border-0 last:pb-0"
+                >
                   <p className="text-sm text-gray-900 dark:text-white">{note.text}</p>
                   <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     {note.createdBy && `${note.createdBy} - `}
@@ -373,7 +405,9 @@ export function TaskDetailPage(): JSX.Element {
               )}
             />
             <button
-              onClick={() => { void handleAddNote(); }}
+              onClick={() => {
+                void handleAddNote();
+              }}
               disabled={!noteText.trim() || !isOnline}
               className="p-2.5 bg-ocean-500 text-white rounded-xl touch-feedback disabled:opacity-50 transition-all"
             >
@@ -397,7 +431,9 @@ export function TaskDetailPage(): JSX.Element {
           {task.status === 'PENDING' || task.status === 'OVERDUE' ? (
             <div className="space-y-3">
               <button
-                onClick={() => { void handleStartTask(); }}
+                onClick={() => {
+                  void handleStartTask();
+                }}
                 disabled={isSubmitting}
                 className="w-full py-4 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-bold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
               >
@@ -411,7 +447,9 @@ export function TaskDetailPage(): JSX.Element {
                 )}
               </button>
               <button
-                onClick={() => { void handleCompleteTask(); }}
+                onClick={() => {
+                  void handleCompleteTask();
+                }}
                 disabled={isSubmitting}
                 className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
               >
@@ -427,7 +465,9 @@ export function TaskDetailPage(): JSX.Element {
             </div>
           ) : task.status === 'IN_PROGRESS' ? (
             <button
-              onClick={() => { void handleCompleteTask(); }}
+              onClick={() => {
+                void handleCompleteTask();
+              }}
               disabled={isSubmitting}
               className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
             >
@@ -443,7 +483,6 @@ export function TaskDetailPage(): JSX.Element {
           ) : null}
         </div>
       )}
-
     </div>
   );
 }

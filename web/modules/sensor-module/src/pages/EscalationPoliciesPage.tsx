@@ -13,7 +13,15 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ConfirmModal, Modal, Spinner, PageHeader, severityClasses, Button, Input } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  Modal,
+  Spinner,
+  PageHeader,
+  severityClasses,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
@@ -139,7 +147,9 @@ const EMPTY_FORM: PolicyFormData = {
 const SeverityBadge: React.FC<{ severity: AlertSeverity }> = ({ severity }) => {
   const config = SEVERITY_OPTIONS.find((s) => s.value === severity) || SEVERITY_OPTIONS[5];
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${config.className}`}>
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${config.className}`}
+    >
       {config.label}
     </span>
   );
@@ -154,9 +164,7 @@ const LevelEditor: React.FC<{
   onChange: (levels: EscalationLevel[]) => void;
 }> = ({ levels, onChange }) => {
   const updateLevel = (index: number, field: keyof EscalationLevel, value: unknown) => {
-    const updated = levels.map((l, i) =>
-      i === index ? { ...l, [field]: value } : l,
-    );
+    const updated = levels.map((l, i) => (i === index ? { ...l, [field]: value } : l));
     onChange(updated);
   };
 
@@ -167,8 +175,7 @@ const LevelEditor: React.FC<{
 
   const removeLevel = (index: number) => {
     if (levels.length <= 1) return;
-    const updated = levels.filter((_, i) => i !== index)
-      .map((l, i) => ({ ...l, level: i + 1 }));
+    const updated = levels.filter((_, i) => i !== index).map((l, i) => ({ ...l, level: i + 1 }));
     onChange(updated);
   };
 
@@ -184,9 +191,16 @@ const LevelEditor: React.FC<{
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Eskalasyon Seviyeleri <span className="text-red-500">*</span>
+          Eskalasyon Seviyeleri <span className="text-error-500">*</span>
         </label>
-        <Button variant="ghost" leftIcon={<Plus className="w-4 h-4" />} type="button" onClick={addLevel}>Seviye Ekle</Button>
+        <Button
+          variant="ghost"
+          leftIcon={<Plus className="w-4 h-4" />}
+          type="button"
+          onClick={addLevel}
+        >
+          Seviye Ekle
+        </Button>
       </div>
 
       {levels.map((level, index) => (
@@ -197,24 +211,52 @@ const LevelEditor: React.FC<{
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Seviye {level.level}</span>
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                Seviye {level.level}
+              </span>
             </div>
             {levels.length > 1 && (
-              <Button variant="ghost" iconOnly aria-label="Close" type="button" onClick={() => removeLevel(index)}><X className="w-4 h-4" /></Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                aria-label="Close"
+                type="button"
+                onClick={() => removeLevel(index)}
+              >
+                <X className="w-4 h-4" />
+              </Button>
             )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Name */}
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Seviye Adi</label>
-              <Input fullWidth type="text" value={level.name} onChange={(e) => updateLevel(index, 'name', e.target.value)} placeholder="Ornegin: Ilk Bildirim" />
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Seviye Adi
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                value={level.name}
+                onChange={(e) => updateLevel(index, 'name', e.target.value)}
+                placeholder="Ornegin: Ilk Bildirim"
+              />
             </div>
 
             {/* Timeout */}
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bekleme Suresi (dk)</label>
-              <Input fullWidth type="number" min={0} value={level.timeoutMinutes} onChange={(e) => updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)} />
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Bekleme Suresi (dk)
+              </label>
+              <Input
+                fullWidth
+                type="number"
+                min={0}
+                value={level.timeoutMinutes}
+                onChange={(e) =>
+                  updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)
+                }
+              />
             </div>
 
             {/* Action */}
@@ -223,10 +265,12 @@ const LevelEditor: React.FC<{
               <select
                 value={level.action}
                 onChange={(e) => updateLevel(index, 'action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-info-500"
               >
                 {ACTION_OPTIONS.map((a) => (
-                  <option key={a.value} value={a.value}>{a.label}</option>
+                  <option key={a.value} value={a.value}>
+                    {a.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -234,13 +278,32 @@ const LevelEditor: React.FC<{
 
           {/* Notify User IDs */}
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bildirilecek Kullanicilar (virgul ile)</label>
-            <Input fullWidth type="text" value={level.notifyUserIds.join(', ')} onChange={(e) => updateLevel(index, 'notifyUserIds', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))} placeholder="Kullanici ID'leri" />
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Bildirilecek Kullanicilar (virgul ile)
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={level.notifyUserIds.join(', ')}
+              onChange={(e) =>
+                updateLevel(
+                  index,
+                  'notifyUserIds',
+                  e.target.value
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                )
+              }
+              placeholder="Kullanici ID'leri"
+            />
           </div>
 
           {/* Channels */}
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bildirim Kanallari</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Bildirim Kanallari
+            </label>
             <div className="flex flex-wrap gap-1.5">
               {CHANNEL_OPTIONS.map((ch) => (
                 <button
@@ -249,7 +312,7 @@ const LevelEditor: React.FC<{
                   onClick={() => toggleChannel(index, ch.value)}
                   className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
                     level.channels.includes(ch.value)
-                      ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
+                      ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 border-info-200 dark:border-info-800'
                       : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
@@ -303,7 +366,9 @@ const PolicyForm: React.FC<{
         <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           {mode === 'create' ? 'Yeni Eskalasyon Politikasi' : 'Politikayi Düzenle'}
         </h2>
-        <Button variant="ghost" iconOnly aria-label="Close" onClick={onCancel}><X className="w-5 h-5" /></Button>
+        <Button variant="ghost" iconOnly aria-label="Close" onClick={onCancel}>
+          <X className="w-5 h-5" />
+        </Button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
@@ -311,20 +376,37 @@ const PolicyForm: React.FC<{
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Politika Adi <span className="text-red-500">*</span>
+              Politika Adi <span className="text-error-500">*</span>
             </label>
-            <Input fullWidth type="text" value={form.name} onChange={(e) => updateField('name', e.target.value)} placeholder="Ornegin: Kritik Alarm Eskalasyonu" maxLength={200} required />
+            <Input
+              fullWidth
+              type="text"
+              value={form.name}
+              onChange={(e) => updateField('name', e.target.value)}
+              placeholder="Ornegin: Kritik Alarm Eskalasyonu"
+              maxLength={200}
+              required
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
-            <Input fullWidth type="text" value={form.description} onChange={(e) => updateField('description', e.target.value)} placeholder="Politikanin kisa aciklamasi" maxLength={1000} />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Açıklama
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={form.description}
+              onChange={(e) => updateField('description', e.target.value)}
+              placeholder="Politikanin kisa aciklamasi"
+              maxLength={1000}
+            />
           </div>
         </div>
 
         {/* Severity Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Onem Seviyeleri <span className="text-red-500">*</span>
+            Onem Seviyeleri <span className="text-error-500">*</span>
           </label>
           <div className="flex flex-wrap gap-2">
             {SEVERITY_OPTIONS.map((sev) => (
@@ -346,10 +428,7 @@ const PolicyForm: React.FC<{
         </div>
 
         {/* Escalation Levels */}
-        <LevelEditor
-          levels={form.levels}
-          onChange={(levels) => updateField('levels', levels)}
-        />
+        <LevelEditor levels={form.levels} onChange={(levels) => updateField('levels', levels)} />
 
         {/* Configuration Row */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -357,25 +436,51 @@ const PolicyForm: React.FC<{
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Tekrar Araligi (dk)
             </label>
-            <Input fullWidth type="number" min={1} value={form.repeatIntervalMinutes} onChange={(e) => updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)} />
+            <Input
+              fullWidth
+              type="number"
+              min={1}
+              value={form.repeatIntervalMinutes}
+              onChange={(e) =>
+                updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)
+              }
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Maks Tekrar
             </label>
-            <Input fullWidth type="number" min={0} value={form.maxRepeats} onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)} />
+            <Input
+              fullWidth
+              type="number"
+              min={0}
+              value={form.maxRepeats}
+              onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)}
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Oncelik
             </label>
-            <Input fullWidth type="number" min={0} value={form.priority} onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)} />
+            <Input
+              fullWidth
+              type="number"
+              min={0}
+              value={form.priority}
+              onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)}
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Saat Dilimi
             </label>
-            <Input fullWidth type="text" value={form.timezone} onChange={(e) => updateField('timezone', e.target.value)} placeholder="Europe/Istanbul" />
+            <Input
+              fullWidth
+              type="text"
+              value={form.timezone}
+              onChange={(e) => updateField('timezone', e.target.value)}
+              placeholder="Europe/Istanbul"
+            />
           </div>
         </div>
 
@@ -388,9 +493,11 @@ const PolicyForm: React.FC<{
               onChange={(e) => updateField('isDefault', e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
+            <div className="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-info-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-info-600" />
           </label>
-          <span className="text-sm text-gray-700 dark:text-gray-300">Varsayilan politika olarak ayarla</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            Varsayilan politika olarak ayarla
+          </span>
         </div>
 
         {/* Actions */}
@@ -403,8 +510,15 @@ const PolicyForm: React.FC<{
           >
             İptal
           </button>
-          <Button variant="primary" size="lg" type="submit" disabled={isPending || !form.name.trim() || form.severity.length === 0}>{isPending && <Spinner size="sm" color="inherit" />}
-            {mode === 'create' ? 'Oluştur' : 'Kaydet'}</Button>
+          <Button
+            variant="primary"
+            size="lg"
+            type="submit"
+            disabled={isPending || !form.name.trim() || form.severity.length === 0}
+          >
+            {isPending && <Spinner size="sm" color="inherit" />}
+            {mode === 'create' ? 'Oluştur' : 'Kaydet'}
+          </Button>
         </div>
       </form>
     </div>
@@ -436,7 +550,14 @@ const SuppressionWindowManager: React.FC<{
     e.preventDefault();
     if (!windowForm.name || !windowForm.startTime || !windowForm.endTime) return;
     onAdd(windowForm);
-    setWindowForm({ name: '', startTime: '', endTime: '', reason: '', isRecurring: false, recurringPattern: '' });
+    setWindowForm({
+      name: '',
+      startTime: '',
+      endTime: '',
+      reason: '',
+      isRecurring: false,
+      recurringPattern: '',
+    });
     setShowForm(false);
   };
 
@@ -447,34 +568,80 @@ const SuppressionWindowManager: React.FC<{
     <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <PauseCircle className="w-5 h-5 text-amber-500" />
+          <PauseCircle className="w-5 h-5 text-warning-500" />
           <h3 className="font-semibold text-gray-900 dark:text-gray-100">Baskim Pencereleri</h3>
           <span className="text-xs text-gray-400 dark:text-gray-500">({windows.length})</span>
         </div>
-        <Button variant="ghost" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setShowForm(!showForm)}>Pencere Ekle</Button>
+        <Button
+          variant="ghost"
+          leftIcon={<Plus className="w-4 h-4" />}
+          onClick={() => setShowForm(!showForm)}
+        >
+          Pencere Ekle
+        </Button>
       </div>
 
       {/* Add Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-4 space-y-3">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-4 space-y-3"
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ad</label>
-              <Input fullWidth type="text" value={windowForm.name} onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))} placeholder="Ornegin: Planli Bakim" required />
+              <Input
+                fullWidth
+                type="text"
+                value={windowForm.name}
+                onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="Ornegin: Planli Bakim"
+                required
+              />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sebep</label>
-              <Input fullWidth type="text" value={windowForm.reason} onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))} placeholder="Opsiyonel" />
+              <Input
+                fullWidth
+                type="text"
+                value={windowForm.reason}
+                onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))}
+                placeholder="Opsiyonel"
+              />
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Baslangic</label>
-              <Input fullWidth type="datetime-local" value={windowForm.startTime} onChange={(e) => setWindowForm((f) => ({ ...f, startTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))} required />
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Baslangic
+              </label>
+              <Input
+                fullWidth
+                type="datetime-local"
+                value={windowForm.startTime}
+                onChange={(e) =>
+                  setWindowForm((f) => ({
+                    ...f,
+                    startTime: e.target.value ? new Date(e.target.value).toISOString() : '',
+                  }))
+                }
+                required
+              />
             </div>
             <div>
               <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bitis</label>
-              <Input fullWidth type="datetime-local" value={windowForm.endTime} onChange={(e) => setWindowForm((f) => ({ ...f, endTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))} required />
+              <Input
+                fullWidth
+                type="datetime-local"
+                value={windowForm.endTime}
+                onChange={(e) =>
+                  setWindowForm((f) => ({
+                    ...f,
+                    endTime: e.target.value ? new Date(e.target.value).toISOString() : '',
+                  }))
+                }
+                required
+              />
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -485,14 +652,22 @@ const SuppressionWindowManager: React.FC<{
                 onChange={(e) => setWindowForm((f) => ({ ...f, isRecurring: e.target.checked }))}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
+              <div className="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-info-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-info-600" />
             </label>
             <span className="text-sm text-gray-700 dark:text-gray-300">Tekrarlayan</span>
           </div>
           {windowForm.isRecurring && (
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Cron Ifadesi</label>
-              <Input fullWidth type="text" value={windowForm.recurringPattern} onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))} placeholder="0 2 * * 0 (her pazar 02:00)" />
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Cron Ifadesi
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                value={windowForm.recurringPattern}
+                onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))}
+                placeholder="0 2 * * 0 (her pazar 02:00)"
+              />
             </div>
           )}
           <div className="flex justify-end gap-2">
@@ -503,15 +678,19 @@ const SuppressionWindowManager: React.FC<{
             >
               İptal
             </button>
-            <Button variant="primary" size="sm" type="submit" disabled={isAdding}>{isAdding && <Spinner size="sm" color="inherit" />}
-              Ekle</Button>
+            <Button variant="primary" size="sm" type="submit" disabled={isAdding}>
+              {isAdding && <Spinner size="sm" color="inherit" />}
+              Ekle
+            </Button>
           </div>
         </form>
       )}
 
       {/* Windows List */}
       {windows.length === 0 ? (
-        <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">Tanimli baskim penceresi yok</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">
+          Tanimli baskim penceresi yok
+        </p>
       ) : (
         <div className="space-y-2">
           {windows.map((w) => {
@@ -524,20 +703,22 @@ const SuppressionWindowManager: React.FC<{
                 key={w.id}
                 className={`flex items-center justify-between px-4 py-3 rounded-lg border ${
                   isActive
-                    ? 'bg-amber-50 border-amber-200'
+                    ? 'bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800'
                     : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                 }`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{w.name}</span>
+                    <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                      {w.name}
+                    </span>
                     {isActive && (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
                         Aktif
                       </span>
                     )}
                     {w.isRecurring && (
-                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700">
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300">
                         Tekrarlayan
                       </span>
                     )}
@@ -547,7 +728,16 @@ const SuppressionWindowManager: React.FC<{
                     {w.reason && <span className="ml-2">| {w.reason}</span>}
                   </div>
                 </div>
-                <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => onRemove(w.id)} disabled={isRemoving}><Trash2 className="w-4 h-4" /></Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  iconOnly
+                  aria-label="Delete"
+                  onClick={() => onRemove(w.id)}
+                  disabled={isRemoving}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
               </div>
             );
           })}
@@ -564,24 +754,37 @@ const SuppressionWindowManager: React.FC<{
 const OnCallScheduleDisplay: React.FC<{ schedule?: OnCallSchedule[] }> = ({ schedule }) => {
   if (!schedule || schedule.length === 0) {
     return (
-      <div className="text-sm text-gray-400 dark:text-gray-500 py-2">Nobetci takvimi tanimlanmamis</div>
+      <div className="text-sm text-gray-400 dark:text-gray-500 py-2">
+        Nobetci takvimi tanimlanmamis
+      </div>
     );
   }
 
   return (
     <div className="space-y-1.5">
       {schedule.map((entry, idx) => (
-        <div key={idx} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm">
+        <div
+          key={idx}
+          className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm"
+        >
           <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-          <span className="font-medium text-gray-700 dark:text-gray-300 w-24">{DAY_NAMES[entry.dayOfWeek]}</span>
+          <span className="font-medium text-gray-700 dark:text-gray-300 w-24">
+            {DAY_NAMES[entry.dayOfWeek]}
+          </span>
           <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-          <span className="text-gray-600 dark:text-gray-400">{entry.startTime} - {entry.endTime}</span>
+          <span className="text-gray-600 dark:text-gray-400">
+            {entry.startTime} - {entry.endTime}
+          </span>
           <UserCheck className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 ml-2" />
-          <span className="font-mono text-xs text-gray-600 dark:text-gray-400">{entry.userId.slice(0, 8)}...</span>
+          <span className="font-mono text-xs text-gray-600 dark:text-gray-400">
+            {entry.userId.slice(0, 8)}...
+          </span>
           {entry.backupUserId && (
             <>
               <Phone className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-              <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{entry.backupUserId.slice(0, 8)}...</span>
+              <span className="font-mono text-xs text-gray-500 dark:text-gray-400">
+                {entry.backupUserId.slice(0, 8)}...
+              </span>
             </>
           )}
         </div>
@@ -608,8 +811,8 @@ const DeleteDialog: React.FC<{
       title="Politikayi Sil"
       message={
         <>
-          <strong>"{policyName}"</strong> eskalasyon politikasini silmek istediginizden emin misiniz?
-          Bu islem geri alinamaz.
+          <strong>"{policyName}"</strong> eskalasyon politikasini silmek istediginizden emin
+          misiniz? Bu islem geri alinamaz.
         </>
       }
       confirmText="Evet, Sil"
@@ -643,8 +846,8 @@ const CloneDialog: React.FC<{
       closeOnOverlayClick={!isPending}
       title={
         <span className="flex items-center gap-3">
-          <span className="flex items-center justify-center w-10 h-10 bg-cyan-100 rounded-full">
-            <Copy className="w-5 h-5 text-cyan-600" />
+          <span className="flex items-center justify-center w-10 h-10 bg-info-100 dark:bg-info-900/40 rounded-full">
+            <Copy className="w-5 h-5 text-info-600 dark:text-info-400" />
           </span>
           <span>Politikayi Kopyala</span>
         </span>
@@ -659,8 +862,14 @@ const CloneDialog: React.FC<{
           >
             İptal
           </button>
-          <Button variant="primary" onClick={() => onConfirm(newName)} disabled={isPending || !newName.trim()}>{isPending && <Spinner size="sm" color="inherit" />}
-            Kopyala</Button>
+          <Button
+            variant="primary"
+            onClick={() => onConfirm(newName)}
+            disabled={isPending || !newName.trim()}
+          >
+            {isPending && <Spinner size="sm" color="inherit" />}
+            Kopyala
+          </Button>
         </>
       }
     >
@@ -668,7 +877,9 @@ const CloneDialog: React.FC<{
         <strong>"{sourceName}"</strong> politikasinin kopyasi olusturulacak.
       </p>
       <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yeni Ad</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Yeni Ad
+        </label>
         <Input fullWidth type="text" value={newName} onChange={(e) => setNewName(e.target.value)} />
       </div>
     </Modal>
@@ -700,9 +911,11 @@ const PolicyCard: React.FC<{
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{policy.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">
+              {policy.name}
+            </h3>
             {policy.isDefault && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-800">
                 <Star className="w-3 h-3" />
                 Varsayilan
               </span>
@@ -710,7 +923,7 @@ const PolicyCard: React.FC<{
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                 policy.isActive
-                  ? 'bg-green-100 text-green-700 border border-green-200'
+                  ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 border border-success-200 dark:border-success-800'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
               }`}
             >
@@ -764,7 +977,7 @@ const PolicyCard: React.FC<{
             title={policy.isActive ? 'Pasif yap' : 'Aktif yap'}
             className={`p-2 rounded-lg transition-colors ${
               policy.isActive
-                ? 'text-green-600 hover:bg-green-50'
+                ? 'text-success-600 dark:text-success-400 hover:bg-success-50 dark:hover:bg-success-900/30'
                 : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
             } disabled:opacity-50`}
           >
@@ -776,11 +989,50 @@ const PolicyCard: React.FC<{
               <BellOff className="w-4 h-4" />
             )}
           </button>
-          <Button variant="ghost" iconOnly aria-label="Baskim Pencereleri" onClick={() => onManageSuppression(policy)} title="Baskim Pencereleri"><PauseCircle className="w-4 h-4" /></Button>
-          <Button variant="ghost" iconOnly aria-label="Kopyala" onClick={() => onClone(policy)} title="Kopyala"><Copy className="w-4 h-4" /></Button>
-          <Button variant="ghost" iconOnly aria-label="Düzenle" onClick={() => onEdit(policy)} title="Düzenle"><Edit3 className="w-4 h-4" /></Button>
-          <Button variant="ghost" iconOnly aria-label="Sil" onClick={() => onDelete(policy)} title="Sil" disabled={policy.isDefault}><Trash2 className="w-4 h-4" /></Button>
-          <Button variant="ghost" onClick={() => setExpanded(!expanded)} title={expanded ? 'Daralt' : 'Genislet'}>{expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}</Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Baskim Pencereleri"
+            onClick={() => onManageSuppression(policy)}
+            title="Baskim Pencereleri"
+          >
+            <PauseCircle className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Kopyala"
+            onClick={() => onClone(policy)}
+            title="Kopyala"
+          >
+            <Copy className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Düzenle"
+            onClick={() => onEdit(policy)}
+            title="Düzenle"
+          >
+            <Edit3 className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Sil"
+            onClick={() => onDelete(policy)}
+            title="Sil"
+            disabled={policy.isDefault}
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            onClick={() => setExpanded(!expanded)}
+            title={expanded ? 'Daralt' : 'Genislet'}
+          >
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </Button>
         </div>
       </div>
 
@@ -802,14 +1054,17 @@ const PolicyCard: React.FC<{
                     key={level.level}
                     className="flex items-start gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-4 py-3"
                   >
-                    <div className="flex items-center justify-center w-7 h-7 rounded-full bg-cyan-100 text-cyan-700 text-sm font-bold shrink-0">
+                    <div className="flex items-center justify-center w-7 h-7 rounded-full bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 text-sm font-bold shrink-0">
                       {level.level}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{level.name}</span>
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
+                          {level.name}
+                        </span>
                         <span className="text-xs text-gray-400 dark:text-gray-500">
-                          {ACTION_OPTIONS.find((a) => a.value === level.action)?.label || level.action}
+                          {ACTION_OPTIONS.find((a) => a.value === level.action)?.label ||
+                            level.action}
                         </span>
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
@@ -818,9 +1073,10 @@ const PolicyCard: React.FC<{
                           {level.timeoutMinutes} dk sonra eskalasyon
                         </span>
                         <span>
-                          Kanallar: {level.channels.map((c) =>
-                            CHANNEL_OPTIONS.find((ch) => ch.value === c)?.label || c
-                          ).join(', ')}
+                          Kanallar:{' '}
+                          {level.channels
+                            .map((c) => CHANNEL_OPTIONS.find((ch) => ch.value === c)?.label || c)
+                            .join(', ')}
                         </span>
                         {level.notifyUserIds.length > 0 && (
                           <span>{level.notifyUserIds.length} kullanici</span>
@@ -860,12 +1116,16 @@ const PolicyCard: React.FC<{
                     <div
                       key={w.id}
                       className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
-                        isActive ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50 dark:bg-gray-800'
+                        isActive
+                          ? 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'
+                          : 'bg-gray-50 dark:bg-gray-800'
                       }`}
                     >
                       <span className="font-medium text-gray-700 dark:text-gray-300">{w.name}</span>
                       {isActive && (
-                        <span className="text-xs font-medium text-amber-700">AKTIF</span>
+                        <span className="text-xs font-medium text-warning-700 dark:text-warning-300">
+                          AKTIF
+                        </span>
                       )}
                       <span className="text-xs text-gray-500 dark:text-gray-400">
                         {start.toLocaleString('tr-TR')} - {end.toLocaleString('tr-TR')}
@@ -1062,11 +1322,17 @@ const EscalationPoliciesPage: React.FC = () => {
   if (error && !policies) {
     return (
       <div className="p-6">
-        <div className="bg-red-50 border border-red-100 rounded-xl p-6 text-center">
-          <XCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
-          <h3 className="font-semibold text-red-900 text-lg">Yukleme Hatasi</h3>
-          <p className="text-sm text-red-600 mt-1">{(error as Error).message}</p>
-          <Button variant="danger" className="mt-4" onClick={() => refetch()}>Tekrar Dene</Button>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-100 dark:border-error-800 rounded-xl p-6 text-center">
+          <XCircle className="w-10 h-10 text-error-400 mx-auto mb-3" />
+          <h3 className="font-semibold text-error-900 dark:text-error-100 text-lg">
+            Yukleme Hatasi
+          </h3>
+          <p className="text-sm text-error-600 dark:text-error-400 mt-1">
+            {(error as Error).message}
+          </p>
+          <Button variant="danger" className="mt-4" onClick={() => refetch()}>
+            Tekrar Dene
+          </Button>
         </div>
       </div>
     );
@@ -1080,7 +1346,7 @@ const EscalationPoliciesPage: React.FC = () => {
       <PageHeader
         title={
           <>
-            <ShieldCheck className="w-7 h-7 text-cyan-600" />
+            <ShieldCheck className="w-7 h-7 text-info-600 dark:text-info-400" />
             Eskalasyon Politikalari
           </>
         }
@@ -1088,12 +1354,16 @@ const EscalationPoliciesPage: React.FC = () => {
           <>
             {policyList.length} politika tanimli
             {policyList.filter((p) => p.isActive).length > 0 && (
-              <span className="text-green-600 font-medium">
-                {' '}({policyList.filter((p) => p.isActive).length} aktif)
+              <span className="text-success-600 dark:text-success-400 font-medium">
+                {' '}
+                ({policyList.filter((p) => p.isActive).length} aktif)
               </span>
             )}
             {policyList.find((p) => p.isDefault) && (
-              <span className="text-indigo-600 font-medium"> | 1 varsayilan</span>
+              <span className="text-primary-600 dark:text-primary-400 font-medium">
+                {' '}
+                | 1 varsayilan
+              </span>
             )}
           </>
         }
@@ -1107,10 +1377,16 @@ const EscalationPoliciesPage: React.FC = () => {
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Yenile
             </button>
-            <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={() => {
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="w-4 h-4" />}
+              onClick={() => {
                 setEditingPolicy(null);
                 setFormMode('create');
-              }}>Yeni Politika</Button>
+              }}
+            >
+              Yeni Politika
+            </Button>
           </div>
         }
       />
@@ -1144,36 +1420,46 @@ const EscalationPoliciesPage: React.FC = () => {
 
       {/* Error banners */}
       {error && policyList.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">{(error as Error).message}</p>
-          <Button variant="ghost" onClick={() => refetch()}>Tekrar Dene</Button>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">{(error as Error).message}</p>
+          <Button variant="ghost" onClick={() => refetch()}>
+            Tekrar Dene
+          </Button>
         </div>
       )}
 
       {/* Mutation error banners */}
       {createMutation.error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Oluşturma hatası: {(createMutation.error as Error).message}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Oluşturma hatası: {(createMutation.error as Error).message}
+          </p>
         </div>
       )}
       {updateMutation.error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Güncelleme hatası: {(updateMutation.error as Error).message}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Güncelleme hatası: {(updateMutation.error as Error).message}
+          </p>
         </div>
       )}
       {deleteMutation.error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Silme hatası: {(deleteMutation.error as Error).message}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Silme hatası: {(deleteMutation.error as Error).message}
+          </p>
         </div>
       )}
       {cloneMutation.error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
-          <XCircle className="w-4 h-4 text-red-500 shrink-0" />
-          <p className="text-sm text-red-700">Kopyalama hatası: {(cloneMutation.error as Error).message}</p>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 flex items-center gap-2">
+          <XCircle className="w-4 h-4 text-error-500 shrink-0" />
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Kopyalama hatası: {(cloneMutation.error as Error).message}
+          </p>
         </div>
       )}
 
@@ -1222,14 +1508,23 @@ const EscalationPoliciesPage: React.FC = () => {
       {filteredPolicies.length === 0 && !isLoading && formMode === 'closed' && (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Shield className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Eskalasyon Politikasi Bulunamadi</h3>
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Eskalasyon Politikasi Bulunamadi
+          </h3>
           <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
             {filterStatus !== 'all'
               ? 'Seçili filtrelerle eşleşen politika bulunamadı. Filtreleri değiştirmeyi deneyin.'
               : 'Henuz tanimlanmis eskalasyon politikasi bulunmuyor. Ilk politikayi olusturun.'}
           </p>
           {filterStatus === 'all' && (
-            <Button variant="primary" size="lg" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setFormMode('create')}>Ilk Politikayi Oluştur</Button>
+            <Button
+              variant="primary"
+              size="lg"
+              leftIcon={<Plus className="w-4 h-4" />}
+              onClick={() => setFormMode('create')}
+            >
+              Ilk Politikayi Oluştur
+            </Button>
           )}
         </div>
       )}

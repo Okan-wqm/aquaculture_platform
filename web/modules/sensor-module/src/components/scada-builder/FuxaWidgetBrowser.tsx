@@ -19,8 +19,15 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { Modal, Button } from '@aquaculture/shared-ui';
 import {
-  X, Search, ChevronRight, ChevronDown, Package,
-  Plus, Hash, Tag, Layers,
+  X,
+  Search,
+  ChevronRight,
+  ChevronDown,
+  Package,
+  Plus,
+  Hash,
+  Tag,
+  Layers,
 } from 'lucide-react';
 import {
   FUXA_WIDGET_CATALOG,
@@ -66,10 +73,7 @@ function fuzzyMatch(query: string, target: string): boolean {
  * Returns true if the query matches the name, tags, category,
  * subcategory, or description.
  */
-function matchesQuery(
-  entry: FuxaWidgetCatalogEntry,
-  query: string,
-): boolean {
+function matchesQuery(entry: FuxaWidgetCatalogEntry, query: string): boolean {
   if (!query.trim()) return true;
   const q = query.trim();
 
@@ -116,7 +120,7 @@ const CategoryTree: React.FC<{
         onClick={() => onSelectCategory(null, null)}
         className={`w-full text-left px-3 py-1.5 text-xs rounded transition-colors ${
           selectedCategory === null
-            ? 'bg-cyan-50 text-cyan-700 font-semibold'
+            ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
             : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
         }`}
       >
@@ -128,17 +132,24 @@ const CategoryTree: React.FC<{
           <div className="flex items-center">
             {/* Expand/collapse toggle */}
             {cat.children.length > 0 && (
-              <Button variant="ghost" onClick={() => toggle(cat.name)} aria-label={`Toggle ${cat.name}`}>{expanded.has(cat.name)
-                  ? <ChevronDown className="w-3 h-3" />
-                  : <ChevronRight className="w-3 h-3" />
-                }</Button>
+              <Button
+                variant="ghost"
+                onClick={() => toggle(cat.name)}
+                aria-label={`Toggle ${cat.name}`}
+              >
+                {expanded.has(cat.name) ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+              </Button>
             )}
             {/* Category button */}
             <button
               onClick={() => onSelectCategory(cat.name, null)}
               className={`flex-1 text-left px-2 py-1.5 text-xs rounded transition-colors ${
                 selectedCategory === cat.name && selectedSubcategory === null
-                  ? 'bg-cyan-50 text-cyan-700 font-semibold'
+                  ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
             >
@@ -156,7 +167,7 @@ const CategoryTree: React.FC<{
                   onClick={() => onSelectCategory(cat.name, sub)}
                   className={`w-full text-left px-2 py-1 text-xs rounded transition-colors ${
                     selectedCategory === cat.name && selectedSubcategory === sub
-                      ? 'bg-cyan-50 text-cyan-700 font-semibold'
+                      ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 font-semibold'
                       : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
@@ -184,8 +195,8 @@ const WidgetCard: React.FC<{
     onClick={onClick}
     className={`w-full text-left p-3 rounded-lg border transition-all ${
       isSelected
-        ? 'border-cyan-400 bg-cyan-50 ring-1 ring-cyan-400'
-        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-cyan-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+        ? 'border-info-400 bg-info-50 dark:bg-info-900/20 ring-1 ring-info-400'
+        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
     }`}
     data-testid={`fuxa-widget-card-${entry.id}`}
   >
@@ -193,7 +204,9 @@ const WidgetCard: React.FC<{
     <div className="w-full h-16 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center mb-2">
       <Package className="w-8 h-8 text-gray-400 dark:text-gray-500" />
     </div>
-    <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">{entry.name}</div>
+    <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
+      {entry.name}
+    </div>
     <div className="text-[10px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
       {entry.subcategory ? `${entry.category} > ${entry.subcategory}` : entry.category}
     </div>
@@ -218,9 +231,7 @@ const DetailPanel: React.FC<{
         <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
           <span className="flex items-center gap-1">
             <Layers className="w-3 h-3" />
-            {entry.subcategory
-              ? `${entry.category} > ${entry.subcategory}`
-              : entry.category}
+            {entry.subcategory ? `${entry.category} > ${entry.subcategory}` : entry.category}
           </span>
           <span className="flex items-center gap-1">
             <Hash className="w-3 h-3" />
@@ -245,7 +256,15 @@ const DetailPanel: React.FC<{
           </div>
         )}
       </div>
-      <Button variant="primary" className="flex-shrink-0" leftIcon={<Plus className="w-4 h-4" />} onClick={onAdd} data-testid="fuxa-add-to-canvas">Add to Canvas</Button>
+      <Button
+        variant="primary"
+        className="flex-shrink-0"
+        leftIcon={<Plus className="w-4 h-4" />}
+        onClick={onAdd}
+        data-testid="fuxa-add-to-canvas"
+      >
+        Add to Canvas
+      </Button>
     </div>
   </div>
 );
@@ -267,10 +286,7 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Build category tree from catalog
-  const categoryTree = useMemo(
-    () => buildCategoryTree(FUXA_WIDGET_CATALOG),
-    [],
-  );
+  const categoryTree = useMemo(() => buildCategoryTree(FUXA_WIDGET_CATALOG), []);
 
   // Filter catalog based on search query and selected category
   const filteredWidgets = useMemo(() => {
@@ -338,21 +354,15 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose, onSelect, selectedWidget, filteredWidgets]);
 
-  const handleCategorySelect = useCallback(
-    (cat: string | null, sub: string | null) => {
-      setSelectedCategory(cat);
-      setSelectedSubcategory(sub);
-      setSelectedWidget(null);
-    },
-    [],
-  );
+  const handleCategorySelect = useCallback((cat: string | null, sub: string | null) => {
+    setSelectedCategory(cat);
+    setSelectedSubcategory(sub);
+    setSelectedWidget(null);
+  }, []);
 
-  const handleWidgetSelect = useCallback(
-    (entry: FuxaWidgetCatalogEntry) => {
-      setSelectedWidget(entry);
-    },
-    [],
-  );
+  const handleWidgetSelect = useCallback((entry: FuxaWidgetCatalogEntry) => {
+    setSelectedWidget(entry);
+  }, []);
 
   const handleAdd = useCallback(() => {
     if (selectedWidget) {
@@ -372,7 +382,7 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
       bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
       title={
         <span className="flex items-center gap-2">
-          <Package className="w-4 h-4 text-cyan-600" />
+          <Package className="w-4 h-4 text-info-600 dark:text-info-400" />
           <span>FUXA Widget Library</span>
         </span>
       }
@@ -388,11 +398,19 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search widgets by name, tag, or category..."
-            className="w-full h-9 pl-9 pr-4 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full h-9 pl-9 pr-4 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-info-500"
             data-testid="fuxa-search-input"
           />
           {searchQuery && (
-            <Button variant="ghost" iconOnly aria-label="Close" className="absolute right-3 top-1/2" onClick={() => setSearchQuery('')}><X className="w-3.5 h-3.5" /></Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Close"
+              className="absolute right-3 top-1/2"
+              onClick={() => setSearchQuery('')}
+            >
+              <X className="w-3.5 h-3.5" />
+            </Button>
           )}
         </div>
       </div>
@@ -438,9 +456,7 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
       </div>
 
       {/* Footer: selected widget detail panel */}
-      {selectedWidget && (
-        <DetailPanel entry={selectedWidget} onAdd={handleAdd} />
-      )}
+      {selectedWidget && <DetailPanel entry={selectedWidget} onAdd={handleAdd} />}
     </Modal>
   );
 };

@@ -11,7 +11,8 @@ import type { Size } from '../../types';
 // Tip Tanımlamaları
 // ============================================================================
 
-export interface NumberInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size' | 'type'> {
+export interface NumberInputProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size' | 'type'> {
   /** Input etiketi */
   label?: string;
   /** Hata mesajı */
@@ -81,7 +82,7 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
       id: providedId,
       ...props
     },
-    ref
+    ref,
   ) => {
     const generatedId = useId();
     const inputId = providedId || generatedId;
@@ -151,7 +152,11 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
 
         {/* Hata mesajı */}
         {error && (
-          <p id={`${inputId}-error`} className="mt-1 text-sm text-error-600" role="alert">
+          <p
+            id={`${inputId}-error`}
+            className="mt-1 text-sm text-error-600 dark:text-error-400"
+            role="alert"
+          >
             {error}
           </p>
         )}
@@ -164,7 +169,7 @@ export const NumberInput = forwardRef<HTMLInputElement, NumberInputProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 NumberInput.displayName = 'NumberInput';

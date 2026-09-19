@@ -15,11 +15,41 @@ interface AlertWidgetContentProps {
 
 // Alert severity styles
 const severityConfig = {
-  EMERGENCY: { icon: Zap, bg: 'bg-red-100', text: 'text-red-800', border: 'border-red-300', badge: 'bg-red-600 text-white' },
-  CRITICAL: { icon: AlertCircle, bg: 'bg-orange-100', text: 'text-orange-800', border: 'border-orange-300', badge: 'bg-orange-500 text-white' },
-  WARNING: { icon: AlertTriangle, bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-300', badge: 'bg-yellow-500 text-white' },
-  OFFLINE: { icon: WifiOff, bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-800 dark:text-gray-200', border: 'border-gray-300 dark:border-gray-600', badge: 'bg-gray-600 text-white' },
-  INFO: { icon: Info, bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-300', badge: 'bg-blue-500 text-white' },
+  EMERGENCY: {
+    icon: Zap,
+    bg: 'bg-error-100 dark:bg-error-900/40',
+    text: 'text-error-800 dark:text-error-200',
+    border: 'border-error-300 dark:border-error-700',
+    badge: 'bg-error-600 text-white',
+  },
+  CRITICAL: {
+    icon: AlertCircle,
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    text: 'text-accent-800 dark:text-accent-200',
+    border: 'border-accent-300 dark:border-accent-700',
+    badge: 'bg-accent-500 text-white',
+  },
+  WARNING: {
+    icon: AlertTriangle,
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    text: 'text-warning-800 dark:text-warning-200',
+    border: 'border-warning-300 dark:border-warning-700',
+    badge: 'bg-warning-500 text-white',
+  },
+  OFFLINE: {
+    icon: WifiOff,
+    bg: 'bg-gray-100 dark:bg-gray-800',
+    text: 'text-gray-800 dark:text-gray-200',
+    border: 'border-gray-300 dark:border-gray-600',
+    badge: 'bg-gray-600 text-white',
+  },
+  INFO: {
+    icon: Info,
+    bg: 'bg-info-100 dark:bg-info-900/40',
+    text: 'text-info-800 dark:text-info-200',
+    border: 'border-info-300 dark:border-info-700',
+    badge: 'bg-info-500 text-white',
+  },
 };
 
 // Mock alert data structure (in production, this comes from useAlerts hook)
@@ -40,8 +70,11 @@ export const AlertWidgetContent: React.FC<AlertWidgetContentProps> = ({ config }
     if (!data || data.length === 0) return [];
     // Widget data is sensor readings — for alert widget, we generate alerts from threshold breaches and offline sensors
     return data
-      .filter((reading: WidgetDataPoint) =>
-        reading.status === 'critical' || reading.status === 'warning' || reading.status === 'offline'
+      .filter(
+        (reading: WidgetDataPoint) =>
+          reading.status === 'critical' ||
+          reading.status === 'warning' ||
+          reading.status === 'offline',
       )
       .map((reading: WidgetDataPoint): AlertItem => {
         let severity: keyof typeof severityConfig;
@@ -80,16 +113,14 @@ export const AlertWidgetContent: React.FC<AlertWidgetContentProps> = ({ config }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-red-500 text-sm">
-        {error}
-      </div>
+      <div className="flex items-center justify-center h-full text-error-500 text-sm">{error}</div>
     );
   }
 
   if (alerts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
-        <CheckCircle size={32} className="mb-2 text-green-500" />
+        <CheckCircle size={32} className="mb-2 text-success-500" />
         <span className="text-sm font-medium">No Active Alerts</span>
         <span className="text-xs text-gray-400 dark:text-gray-500 mt-1">All systems normal</span>
       </div>
@@ -126,9 +157,7 @@ export const AlertWidgetContent: React.FC<AlertWidgetContentProps> = ({ config }
                     {alert.severity}
                   </span>
                 </div>
-                <p className={`text-xs ${sev.text} mt-0.5 truncate`}>
-                  {alert.message}
-                </p>
+                <p className={`text-xs ${sev.text} mt-0.5 truncate`}>{alert.message}</p>
                 <span className="text-[10px] text-gray-500 dark:text-gray-400">
                   {formatTimeAgo(alert.timestamp)}
                 </span>

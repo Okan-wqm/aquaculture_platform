@@ -20,6 +20,7 @@ import {
 import { settingsApi, EmailTemplate } from '../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components';
+import { X } from 'lucide-react';
 
 const EMPTY_TEMPLATES: EmailTemplate[] = [];
 
@@ -186,19 +187,13 @@ const EmailTemplatesPage: React.FC = () => {
 
       {/* Success message */}
       {successMessage && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
-          <span className="text-green-700">{successMessage}</span>
+        <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4 flex items-center justify-between">
+          <span className="text-success-700 dark:text-success-300">{successMessage}</span>
           <button
             onClick={() => setSuccessMessage(null)}
-            className="text-green-400 hover:text-green-600 ml-4"
+            className="text-success-400 hover:text-success-600 dark:hover:text-success-300 ml-4"
           >
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
       )}
@@ -222,7 +217,7 @@ const EmailTemplatesPage: React.FC = () => {
               onClick={() => setActiveCategory(cat)}
               className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 activeCategory === cat
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-info-600 text-white'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
@@ -249,7 +244,9 @@ const EmailTemplatesPage: React.FC = () => {
             <div className="flex justify-between items-start mb-3">
               <div>
                 <h3 className="font-semibold text-gray-900 dark:text-gray-100">{template.name}</h3>
-                <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{template.code}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">
+                  {template.code}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant={getCategoryColor(template.category)}>
@@ -275,7 +272,7 @@ const EmailTemplatesPage: React.FC = () => {
             <div className="flex items-center justify-between pt-4 border-t">
               <div className="flex items-center">
                 <span
-                  className={`w-2 h-2 rounded-full mr-2 ${template.isActive ? 'bg-green-500' : 'bg-gray-400'}`}
+                  className={`w-2 h-2 rounded-full mr-2 ${template.isActive ? 'bg-success-500' : 'bg-gray-400'}`}
                 />
                 <span className="text-sm text-gray-500 dark:text-gray-400">
                   {template.isActive ? 'Active' : 'Inactive'}
@@ -314,7 +311,9 @@ const EmailTemplatesPage: React.FC = () => {
           <div className="space-y-4">
             {/* Subject Preview */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Konu</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Konu
+              </label>
               <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm">
                 {selectedTemplate.subject.replace(/\{\{([^}]+)\}\}/g, (_, key) => {
                   const variable = selectedTemplate.variables.find((v) => v.name === key);
@@ -325,15 +324,17 @@ const EmailTemplatesPage: React.FC = () => {
 
             {/* Variables */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Variables</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Variables
+              </label>
               <div className="flex flex-wrap gap-2">
                 {selectedTemplate.variables.map((v) => (
                   <span
                     key={v.name}
-                    className="inline-flex items-center px-2 py-1 rounded text-xs bg-blue-100 text-blue-800"
+                    className="inline-flex items-center px-2 py-1 rounded text-xs bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
                   >
                     {`{{${v.name}}}`}
-                    {v.required && <span className="ml-1 text-red-500">*</span>}
+                    {v.required && <span className="ml-1 text-error-500">*</span>}
                   </span>
                 ))}
               </div>
@@ -412,7 +413,9 @@ const EmailTemplatesPage: React.FC = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Category</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Category
+                </label>
                 <select
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
                   value={selectedTemplate?.category || 'notification'}
@@ -432,7 +435,9 @@ const EmailTemplatesPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Description
+                </label>
                 <Input
                   type="text"
                   value={selectedTemplate?.description || ''}
@@ -447,7 +452,9 @@ const EmailTemplatesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email Subject</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Email Subject
+              </label>
               <Input
                 type="text"
                 value={selectedTemplate?.subject || ''}
@@ -461,7 +468,9 @@ const EmailTemplatesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">HTML Content</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                HTML Content
+              </label>
               <textarea
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono"
                 rows={12}
@@ -476,10 +485,15 @@ const EmailTemplatesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Variables</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Variables
+              </label>
               <div className="space-y-2">
                 {selectedTemplate?.variables.map((variable, index) => (
-                  <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                  <div
+                    key={index}
+                    className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded"
+                  >
                     <Input
                       type="text"
                       value={variable.name}
@@ -530,14 +544,14 @@ const EmailTemplatesPage: React.FC = () => {
                             prev ? { ...prev, variables: newVars } : null,
                           );
                         }}
-                        className="h-4 w-4 text-blue-600 rounded"
+                        className="h-4 w-4 text-info-600 dark:text-info-400 rounded"
                       />
                       <span className="ml-1 text-xs">Required</span>
                     </label>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-red-500"
+                      className="text-error-500"
                       onClick={() => {
                         const newVars =
                           selectedTemplate?.variables.filter((_, i) => i !== index) || [];

@@ -21,6 +21,7 @@ import { useReportPrefill, findFieldMeta, ReportPrefill } from '../../../hooks/u
 import { ProvenanceBadge } from '../components/common';
 import { BiomassAltinnPanel } from '../components/BiomassAltinnPanel';
 import { CREATE_BIOMASS_REPORT_MUTATION } from '../../../graphql/regulatory.operations';
+import { ArrowLeftRight, Box, Check, Download, Plus, X } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -316,85 +317,52 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
   <div className="space-y-4">
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Site
+        </label>
         <Input fullWidth type="text" value={siteName} disabled />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Period</label>
-        <Input fullWidth type="text" value={getMonthLabel(formData.month, formData.year)} disabled />
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Report Period
+        </label>
+        <Input
+          fullWidth
+          type="text"
+          value={getMonthLabel(formData.month, formData.year)}
+          disabled
+        />
       </div>
     </div>
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-      <h4 className="text-sm font-medium text-blue-800">Report Contents</h4>
-      <p className="text-sm text-blue-600 mt-1">
+    <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+      <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Contents</h4>
+      <p className="text-sm text-info-600 dark:text-info-400 mt-1">
         This report includes biomass, stocking records, mortality, harvests, transfers, and feed
         consumption for the reporting period.
       </p>
-      <ul className="mt-3 space-y-1 text-sm text-blue-700">
+      <ul className="mt-3 space-y-1 text-sm text-info-700 dark:text-info-300">
         <li className="flex items-center">
-          <svg
-            className="w-4 h-4 mr-2 text-blue-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Current biomass by species
         </li>
         <li className="flex items-center">
-          <svg
-            className="w-4 h-4 mr-2 text-blue-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Stocking records (fish arrivals)
         </li>
         <li className="flex items-center">
-          <svg
-            className="w-4 h-4 mr-2 text-blue-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Mortality by cause
         </li>
         <li className="flex items-center">
-          <svg
-            className="w-4 h-4 mr-2 text-blue-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Slaughter/harvest records
         </li>
         <li className="flex items-center">
-          <svg
-            className="w-4 h-4 mr-2 text-blue-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Feed consumption
         </li>
         <li className="flex items-center">
-          <svg
-            className="w-4 h-4 mr-2 text-blue-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+          <Check className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
           Transfers in/out
         </li>
       </ul>
@@ -493,37 +461,28 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
             <button
               type="button"
               onClick={handleLoadFromSystem}
-              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1.5"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
+              <Download className="w-4 h-4" aria-hidden="true" />
               Load from System
             </button>
           )}
           {!biomassFromRecords && (
-            <Button variant="secondary" size="sm" type="button" onClick={addSpecies}>+ Add Species</Button>
+            <Button variant="secondary" size="sm" type="button" onClick={addSpecies}>
+              + Add Species
+            </Button>
           )}
         </div>
       </div>
 
       {/* Auto-populated notice */}
       {formData.biomassLoadedFromSystem && formData.currentBiomass.bySpecies.length > 0 && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-          <svg
-            className="w-4 h-4 text-green-600 flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-          <span className="text-sm text-green-700">
+        <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-3 flex items-center gap-2">
+          <Check
+            className="w-4 h-4 text-success-600 dark:text-success-400 flex-shrink-0"
+            aria-hidden="true"
+          />
+          <span className="text-sm text-success-700 dark:text-success-300">
             Assembled from batch and tank records.
             {biomassFromRecords
               ? ' Corrections go to the batch/tank records, not the report.'
@@ -533,10 +492,12 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
       )}
 
       {/* Total Summary */}
-      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+      <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-green-800">Total Biomass</span>
-          <span className="text-2xl font-bold text-green-700">
+          <span className="text-sm font-medium text-success-800 dark:text-success-200">
+            Total Biomass
+          </span>
+          <span className="text-2xl font-bold text-success-700 dark:text-success-300">
             {formatWeight(formData.currentBiomass.totalKg)}
           </span>
         </div>
@@ -544,19 +505,7 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
 
       {formData.currentBiomass.bySpecies.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <svg
-            className="w-12 h-12 mx-auto text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-            />
-          </svg>
+          <Box className="w-12 h-12 mx-auto text-gray-300" aria-hidden="true" />
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No species added</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             {prefill
@@ -572,34 +521,37 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
               className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
             >
               <div className="flex items-start justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Species #{index + 1}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Species #{index + 1}
+                </span>
                 {!biomassFromRecords && (
-                  <Button variant="ghost" type="button" onClick={() => removeSpecies(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg></Button>
+                  <Button variant="ghost" type="button" onClick={() => removeSpecies(index)}>
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </Button>
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="col-span-2 md:col-span-1">
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species Name</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Species Name
+                  </label>
                   <input
                     type="text"
                     value={species.speciesName}
                     onChange={(e) => updateSpecies(index, { speciesName: e.target.value })}
                     disabled={biomassFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      biomassFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
+                      biomassFromRecords
+                        ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., Atlantic Salmon"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fish Count</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Fish Count
+                  </label>
                   <input
                     type="number"
                     min="0"
@@ -609,13 +561,17 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
                     }
                     disabled={biomassFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      biomassFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
+                      biomassFromRecords
+                        ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Biomass (kg)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Biomass (kg)
+                  </label>
                   <input
                     type="number"
                     min="0"
@@ -625,13 +581,17 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
                     }
                     disabled={biomassFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      biomassFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
+                      biomassFromRecords
+                        ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Avg Weight (g)
+                  </label>
                   <Input fullWidth type="text" value={species.avgWeightG.toFixed(0)} disabled />
                 </div>
               </div>
@@ -693,15 +653,19 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
           </p>
         </div>
         {!stockingsFromRecords && (
-          <Button variant="secondary" size="sm" type="button" onClick={addStockingRecord}>+ Add Stocking Record</Button>
+          <Button variant="secondary" size="sm" type="button" onClick={addStockingRecord}>
+            + Add Stocking Record
+          </Button>
         )}
       </div>
 
       {/* Summary */}
-      <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+      <div className="bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-indigo-800">Total Stocked</span>
-          <span className="text-2xl font-bold text-indigo-700">
+          <span className="text-sm font-medium text-primary-800 dark:text-primary-200">
+            Total Stocked
+          </span>
+          <span className="text-2xl font-bold text-primary-700 dark:text-primary-300">
             {formatNumber(formData.stockings.reduce((sum, s) => sum + s.quantity, 0))} fish
           </span>
         </div>
@@ -709,19 +673,7 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
 
       {formData.stockings.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <svg
-            className="w-12 h-12 mx-auto text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
+          <Plus className="w-12 h-12 mx-auto text-gray-300" aria-hidden="true" />
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No stocking records</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             Click "+ Add Stocking Record" if fish were received this period
@@ -733,48 +685,98 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
           className={`space-y-3 border-0 p-0 m-0 ${stockingsFromRecords ? 'opacity-75' : ''}`}
         >
           {formData.stockings.map((record, index) => (
-            <div key={record.id} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <div
+              key={record.id}
+              className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+            >
               <div className="flex items-start justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Stocking #{index + 1}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Stocking #{index + 1}
+                </span>
                 {!stockingsFromRecords && (
-                  <Button variant="ghost" type="button" onClick={() => removeStockingRecord(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg></Button>
+                  <Button variant="ghost" type="button" onClick={() => removeStockingRecord(index)}>
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </Button>
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
-                  <Input fullWidth type="date" value={record.date} onChange={(e) => updateStockingRecord(index, { date: e.target.value })} />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Date
+                  </label>
+                  <Input
+                    fullWidth
+                    type="date"
+                    value={record.date}
+                    onChange={(e) => updateStockingRecord(index, { date: e.target.value })}
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
-                  <Input fullWidth type="text" value={record.speciesName} onChange={(e) => updateStockingRecord(index, { speciesName: e.target.value })} placeholder="e.g., Atlantic Salmon" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Species
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={record.speciesName}
+                    onChange={(e) => updateStockingRecord(index, { speciesName: e.target.value })}
+                    placeholder="e.g., Atlantic Salmon"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
-                  <Input fullWidth type="number" min="0" value={record.quantity || ''} onChange={(e) =>
-           updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })
-          } placeholder="0" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Quantity
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={record.quantity || ''}
+                    onChange={(e) =>
+                      updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
-                  <Input fullWidth type="number" min="0" step="0.1" value={record.avgWeightG || ''} onChange={(e) =>
-           updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })
-          } placeholder="0" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Avg Weight (g)
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.1"
+                    value={record.avgWeightG || ''}
+                    onChange={(e) =>
+                      updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Supplier</label>
-                  <Input fullWidth type="text" value={record.supplier} onChange={(e) => updateStockingRecord(index, { supplier: e.target.value })} placeholder="e.g., SalmoBreed" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Supplier
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={record.supplier}
+                    onChange={(e) => updateStockingRecord(index, { supplier: e.target.value })}
+                    placeholder="e.g., SalmoBreed"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Batch Number</label>
-                  <Input fullWidth type="text" value={record.batchNumber} onChange={(e) => updateStockingRecord(index, { batchNumber: e.target.value })} placeholder="e.g., B-2024-001" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Batch Number
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={record.batchNumber}
+                    onChange={(e) => updateStockingRecord(index, { batchNumber: e.target.value })}
+                    placeholder="e.g., B-2024-001"
+                  />
                 </div>
               </div>
             </div>
@@ -861,32 +863,29 @@ export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange
             Mortality by Cause
             <SectionProvenance prefill={prefill} path="/mortality" />
           </h4>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Record fish losses during the reporting period</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Record fish losses during the reporting period
+          </p>
         </div>
         {prefill && !mortalityFromRecords && (
           <button
             type="button"
             onClick={handleLoadMortalityFromSystem}
-            className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+            className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1.5"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-              />
-            </svg>
+            <Download className="w-4 h-4" aria-hidden="true" />
             Load from System
           </button>
         )}
       </div>
 
       {/* Total Summary */}
-      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+      <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-red-800">Total Mortality</span>
-          <span className="text-2xl font-bold text-red-700">
+          <span className="text-sm font-medium text-error-800 dark:text-error-200">
+            Total Mortality
+          </span>
+          <span className="text-2xl font-bold text-error-700 dark:text-error-300">
             {formatNumber(formData.mortality.totalCount)}
           </span>
         </div>
@@ -902,8 +901,13 @@ export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange
       {/* Cause Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {MORTALITY_CAUSES.map((cause) => (
-          <div key={cause} className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{cause}</label>
+          <div
+            key={cause}
+            className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+          >
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">
+              {cause}
+            </label>
             <input
               type="number"
               min="0"
@@ -1002,44 +1006,37 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
             Feed Consumption
             <SectionProvenance prefill={prefill} path="/feedConsumption" />
           </h4>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Total feed used during the reporting period</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Total feed used during the reporting period
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {prefill && !feedFromRecords && (
             <button
               type="button"
               onClick={handleLoadFeedFromSystem}
-              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1.5"
+              className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1.5"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
+              <Download className="w-4 h-4" aria-hidden="true" />
               Load from System
             </button>
           )}
           {!feedFromRecords && (
-            <Button variant="secondary" size="sm" type="button" onClick={addFeedType}>+ Add Feed Type</Button>
+            <Button variant="secondary" size="sm" type="button" onClick={addFeedType}>
+              + Add Feed Type
+            </Button>
           )}
         </div>
       </div>
 
       {/* Auto-populated notice */}
       {formData.feedLoadedFromSystem && formData.feedConsumption.byFeedType.length > 0 && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
-          <svg
-            className="w-4 h-4 text-green-600 flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-          <span className="text-sm text-green-700">
+        <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-3 flex items-center gap-2">
+          <Check
+            className="w-4 h-4 text-success-600 dark:text-success-400 flex-shrink-0"
+            aria-hidden="true"
+          />
+          <span className="text-sm text-success-700 dark:text-success-300">
             Summed from feeding records for the reporting period.
             {feedFromRecords
               ? ' Corrections go to the feeding records, not the report.'
@@ -1049,10 +1046,12 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
       )}
 
       {/* Total Summary */}
-      <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+      <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-orange-800">Total Feed Consumption</span>
-          <span className="text-2xl font-bold text-orange-700">
+          <span className="text-sm font-medium text-accent-800 dark:text-accent-200">
+            Total Feed Consumption
+          </span>
+          <span className="text-2xl font-bold text-accent-700 dark:text-accent-300">
             {formatWeight(formData.feedConsumption.totalKg)}
           </span>
         </div>
@@ -1060,19 +1059,7 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
 
       {formData.feedConsumption.byFeedType.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <svg
-            className="w-12 h-12 mx-auto text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-            />
-          </svg>
+          <Box className="w-12 h-12 mx-auto text-gray-300" aria-hidden="true" />
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No feed records added</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             {prefill
@@ -1083,49 +1070,59 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
       ) : (
         <div className="space-y-3">
           {formData.feedConsumption.byFeedType.map((feed, index) => (
-            <div key={index} className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <div
+              key={index}
+              className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+            >
               <div className="flex items-start justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Feed #{index + 1}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Feed #{index + 1}
+                </span>
                 {!feedFromRecords && (
-                  <Button variant="ghost" type="button" onClick={() => removeFeedType(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg></Button>
+                  <Button variant="ghost" type="button" onClick={() => removeFeedType(index)}>
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </Button>
                 )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Feed Name</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Feed Name
+                  </label>
                   <input
                     type="text"
                     value={feed.feedName}
                     onChange={(e) => updateFeedType(index, { feedName: e.target.value })}
                     disabled={feedFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      feedFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
+                      feedFromRecords
+                        ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., Grower 2mm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Brand</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Brand
+                  </label>
                   <input
                     type="text"
                     value={feed.brandName}
                     onChange={(e) => updateFeedType(index, { brandName: e.target.value })}
                     disabled={feedFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      feedFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
+                      feedFromRecords
+                        ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., Skretting"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity (kg)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Quantity (kg)
+                  </label>
                   <input
                     type="number"
                     min="0"
@@ -1135,7 +1132,9 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
                     }
                     disabled={feedFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      feedFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
+                      feedFromRecords
+                        ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="0"
                   />
@@ -1204,41 +1203,37 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
           </p>
         </div>
         {!transfersFromRecords && (
-          <Button variant="secondary" size="sm" type="button" onClick={addTransfer}>+ Add Transfer</Button>
+          <Button variant="secondary" size="sm" type="button" onClick={addTransfer}>
+            + Add Transfer
+          </Button>
         )}
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-blue-800">Incoming</span>
-            <span className="text-xl font-bold text-blue-700">{incomingCount}</span>
+            <span className="text-sm font-medium text-info-800 dark:text-info-200">Incoming</span>
+            <span className="text-xl font-bold text-info-700 dark:text-info-300">
+              {incomingCount}
+            </span>
           </div>
         </div>
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+        <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-purple-800">Outgoing</span>
-            <span className="text-xl font-bold text-purple-700">{outgoingCount}</span>
+            <span className="text-sm font-medium text-accent-800 dark:text-accent-200">
+              Outgoing
+            </span>
+            <span className="text-xl font-bold text-accent-700 dark:text-accent-300">
+              {outgoingCount}
+            </span>
           </div>
         </div>
       </div>
 
       {formData.transfers.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <svg
-            className="w-12 h-12 mx-auto text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-            />
-          </svg>
+          <ArrowLeftRight className="w-12 h-12 mx-auto text-gray-300" aria-hidden="true" />
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No transfers recorded</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             Click "+ Add Transfer" if fish were transferred this period
@@ -1250,73 +1245,138 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
           className={`space-y-3 border-0 p-0 m-0 ${transfersFromRecords ? 'opacity-75' : ''}`}
         >
           {formData.transfers.map((transfer, index) => (
-            <div key={transfer.id} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <div
+              key={transfer.id}
+              className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+            >
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Transfer #{index + 1}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Transfer #{index + 1}
+                  </span>
                   <span
                     className={`px-2 py-0.5 text-xs rounded-full ${
                       transfer.direction === 'incoming'
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'bg-purple-100 text-purple-700'
+                        ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+                        : 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300'
                     }`}
                   >
                     {transfer.direction === 'incoming' ? 'IN' : 'OUT'}
                   </span>
                 </div>
                 {!transfersFromRecords && (
-                  <Button variant="ghost" type="button" onClick={() => removeTransfer(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg></Button>
+                  <Button variant="ghost" type="button" onClick={() => removeTransfer(index)}>
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </Button>
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
-                  <Select fullWidth options={[{ value: 'incoming', label: 'Incoming' }, { value: 'outgoing', label: 'Outgoing' }]} value={transfer.direction} onChange={(e) =>
-           updateTransfer(index, {
-            direction: e.target.value as 'incoming' | 'outgoing',
-           })
-          } />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Direction
+                  </label>
+                  <Select
+                    fullWidth
+                    options={[
+                      { value: 'incoming', label: 'Incoming' },
+                      { value: 'outgoing', label: 'Outgoing' },
+                    ]}
+                    value={transfer.direction}
+                    onChange={(e) =>
+                      updateTransfer(index, {
+                        direction: e.target.value as 'incoming' | 'outgoing',
+                      })
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
-                  <Input fullWidth type="date" value={transfer.date} onChange={(e) => updateTransfer(index, { date: e.target.value })} />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Date
+                  </label>
+                  <Input
+                    fullWidth
+                    type="date"
+                    value={transfer.date}
+                    onChange={(e) => updateTransfer(index, { date: e.target.value })}
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
-                  <Input fullWidth type="text" value={transfer.speciesName} onChange={(e) => updateTransfer(index, { speciesName: e.target.value })} placeholder="e.g., Atlantic Salmon" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Species
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={transfer.speciesName}
+                    onChange={(e) => updateTransfer(index, { speciesName: e.target.value })}
+                    placeholder="e.g., Atlantic Salmon"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
-                  <Input fullWidth type="number" min="0" value={transfer.quantity || ''} onChange={(e) =>
-           updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })
-          } placeholder="0" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Quantity
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={transfer.quantity || ''}
+                    onChange={(e) =>
+                      updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Biomass (kg)</label>
-                  <Input fullWidth type="number" min="0" value={transfer.biomassKg || ''} onChange={(e) =>
-           updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })
-          } placeholder="0" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Biomass (kg)
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={transfer.biomassKg || ''}
+                    onChange={(e) =>
+                      updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                  />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                     {transfer.direction === 'incoming' ? 'From Site' : 'To Site'}
                   </label>
-                  <Input fullWidth type="text" value={transfer.fromToSite} onChange={(e) => updateTransfer(index, { fromToSite: e.target.value })} placeholder="Site name" />
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={transfer.fromToSite}
+                    onChange={(e) => updateTransfer(index, { fromToSite: e.target.value })}
+                    placeholder="Site name"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Batch Number</label>
-                  <Input fullWidth type="text" value={transfer.batchNumber} onChange={(e) => updateTransfer(index, { batchNumber: e.target.value })} placeholder="e.g., B-2024-001" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Batch Number
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={transfer.batchNumber}
+                    onChange={(e) => updateTransfer(index, { batchNumber: e.target.value })}
+                    placeholder="e.g., B-2024-001"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Reason</label>
-                  <Input fullWidth type="text" value={transfer.reason} onChange={(e) => updateTransfer(index, { reason: e.target.value })} placeholder="e.g., Production move" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Reason
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={transfer.reason}
+                    onChange={(e) => updateTransfer(index, { reason: e.target.value })}
+                    placeholder="e.g., Production move"
+                  />
                 </div>
               </div>
             </div>
@@ -1353,9 +1413,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   return (
     <div className="space-y-6">
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">
           {siteName} - {getMonthLabel(formData.month, formData.year)}
         </p>
       </div>
@@ -1363,25 +1423,25 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {formatWeight(formData.currentBiomass.totalKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Biomass</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">
+          <div className="text-2xl font-bold text-error-600 dark:text-error-400">
             {formatNumber(formData.mortality.totalCount)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Mortality</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-orange-600">
+          <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
             {formatWeight(formData.feedConsumption.totalKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Feed Used</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{fcrDisplay}</div>
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">{fcrDisplay}</div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Estimated FCR</div>
         </div>
       </div>
@@ -1389,14 +1449,22 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Species Breakdown */}
       {formData.currentBiomass.bySpecies.length > 0 && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Biomass by Species</h5>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
+            Biomass by Species
+          </h5>
           <div className="space-y-2">
             {formData.currentBiomass.bySpecies.map((s, i) => (
               <div key={i} className="flex items-center justify-between text-sm">
-                <span className="text-gray-700 dark:text-gray-300">{s.speciesName || 'Unknown'}</span>
+                <span className="text-gray-700 dark:text-gray-300">
+                  {s.speciesName || 'Unknown'}
+                </span>
                 <div className="text-right">
-                  <span className="font-medium text-gray-900 dark:text-gray-100">{formatWeight(s.biomassKg)}</span>
-                  <span className="text-gray-500 dark:text-gray-400 ml-2">({formatNumber(s.fishCount)} fish)</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">
+                    {formatWeight(s.biomassKg)}
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-2">
+                    ({formatNumber(s.fishCount)} fish)
+                  </span>
                 </div>
               </div>
             ))}
@@ -1407,23 +1475,31 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Stocking Records */}
       {formData.stockings.length > 0 && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Stocking Records</h5>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
+            Stocking Records
+          </h5>
           <div className="space-y-2">
             {formData.stockings.map((s, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm bg-indigo-50 rounded p-2"
+                className="flex items-center justify-between text-sm bg-primary-50 dark:bg-primary-900/20 rounded p-2"
               >
                 <div>
-                  <span className="text-gray-700 dark:text-gray-300">{s.speciesName || 'Unknown'}</span>
-                  {s.date && <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">{s.date}</span>}
+                  <span className="text-gray-700 dark:text-gray-300">
+                    {s.speciesName || 'Unknown'}
+                  </span>
+                  {s.date && (
+                    <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">{s.date}</span>
+                  )}
                 </div>
                 <div className="text-right">
-                  <span className="font-medium text-indigo-700">
+                  <span className="font-medium text-primary-700 dark:text-primary-300">
                     {formatNumber(s.quantity)} fish
                   </span>
                   {s.avgWeightG > 0 && (
-                    <span className="text-gray-500 dark:text-gray-400 ml-2">({s.avgWeightG.toFixed(0)}g avg)</span>
+                    <span className="text-gray-500 dark:text-gray-400 ml-2">
+                      ({s.avgWeightG.toFixed(0)}g avg)
+                    </span>
                   )}
                 </div>
               </div>
@@ -1435,15 +1511,19 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Mortality Breakdown */}
       {formData.mortality.byCause.length > 0 && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Mortality by Cause</h5>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
+            Mortality by Cause
+          </h5>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {formData.mortality.byCause.map((c, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm bg-red-50 rounded p-2"
+                className="flex items-center justify-between text-sm bg-error-50 dark:bg-error-900/20 rounded p-2"
               >
                 <span className="text-gray-700 dark:text-gray-300">{c.cause}</span>
-                <span className="font-medium text-red-700">{formatNumber(c.count)}</span>
+                <span className="font-medium text-error-700 dark:text-error-300">
+                  {formatNumber(c.count)}
+                </span>
               </div>
             ))}
           </div>
@@ -1453,20 +1533,28 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Feed Breakdown */}
       {formData.feedConsumption.byFeedType.length > 0 && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Feed Consumption</h5>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
+            Feed Consumption
+          </h5>
           <div className="space-y-2">
             {formData.feedConsumption.byFeedType.map((f, i) => (
               <div
                 key={i}
-                className="flex items-center justify-between text-sm bg-orange-50 rounded p-2"
+                className="flex items-center justify-between text-sm bg-accent-50 dark:bg-accent-900/20 rounded p-2"
               >
                 <div>
-                  <span className="text-gray-700 dark:text-gray-300">{f.feedName || 'Unknown'}</span>
+                  <span className="text-gray-700 dark:text-gray-300">
+                    {f.feedName || 'Unknown'}
+                  </span>
                   {f.brandName && (
-                    <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">({f.brandName})</span>
+                    <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">
+                      ({f.brandName})
+                    </span>
                   )}
                 </div>
-                <span className="font-medium text-orange-700">{formatWeight(f.quantityKg)}</span>
+                <span className="font-medium text-accent-700 dark:text-accent-300">
+                  {formatWeight(f.quantityKg)}
+                </span>
               </div>
             ))}
           </div>
@@ -1476,27 +1564,35 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Transfers */}
       {formData.transfers.length > 0 && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Transfers</h5>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
+            Transfers
+          </h5>
           {incomingTransfers.length > 0 && (
             <div className="mb-3">
-              <p className="text-xs font-medium text-blue-600 mb-1">Incoming</p>
+              <p className="text-xs font-medium text-info-600 dark:text-info-400 mb-1">Incoming</p>
               <div className="space-y-1">
                 {incomingTransfers.map((t, i) => (
                   <div
                     key={i}
-                    className="flex items-center justify-between text-sm bg-blue-50 rounded p-2"
+                    className="flex items-center justify-between text-sm bg-info-50 dark:bg-info-900/20 rounded p-2"
                   >
                     <div>
-                      <span className="text-gray-700 dark:text-gray-300">{t.speciesName || 'Unknown'}</span>
+                      <span className="text-gray-700 dark:text-gray-300">
+                        {t.speciesName || 'Unknown'}
+                      </span>
                       {t.fromToSite && (
-                        <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">from {t.fromToSite}</span>
+                        <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">
+                          from {t.fromToSite}
+                        </span>
                       )}
                     </div>
                     <div className="text-right">
-                      <span className="font-medium text-blue-700">
+                      <span className="font-medium text-info-700 dark:text-info-300">
                         {formatNumber(t.quantity)} fish
                       </span>
-                      <span className="text-gray-500 dark:text-gray-400 ml-2">({formatWeight(t.biomassKg)})</span>
+                      <span className="text-gray-500 dark:text-gray-400 ml-2">
+                        ({formatWeight(t.biomassKg)})
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -1505,24 +1601,32 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           )}
           {outgoingTransfers.length > 0 && (
             <div>
-              <p className="text-xs font-medium text-purple-600 mb-1">Outgoing</p>
+              <p className="text-xs font-medium text-accent-600 dark:text-accent-400 mb-1">
+                Outgoing
+              </p>
               <div className="space-y-1">
                 {outgoingTransfers.map((t, i) => (
                   <div
                     key={i}
-                    className="flex items-center justify-between text-sm bg-purple-50 rounded p-2"
+                    className="flex items-center justify-between text-sm bg-accent-50 dark:bg-accent-900/20 rounded p-2"
                   >
                     <div>
-                      <span className="text-gray-700 dark:text-gray-300">{t.speciesName || 'Unknown'}</span>
+                      <span className="text-gray-700 dark:text-gray-300">
+                        {t.speciesName || 'Unknown'}
+                      </span>
                       {t.fromToSite && (
-                        <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">to {t.fromToSite}</span>
+                        <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">
+                          to {t.fromToSite}
+                        </span>
                       )}
                     </div>
                     <div className="text-right">
-                      <span className="font-medium text-purple-700">
+                      <span className="font-medium text-accent-700 dark:text-accent-300">
                         {formatNumber(t.quantity)} fish
                       </span>
-                      <span className="text-gray-500 dark:text-gray-400 ml-2">({formatWeight(t.biomassKg)})</span>
+                      <span className="text-gray-500 dark:text-gray-400 ml-2">
+                        ({formatWeight(t.biomassKg)})
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -1533,8 +1637,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       )}
 
       {/* FCR Note */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-        <p className="text-xs text-yellow-700">
+      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
+        <p className="text-xs text-warning-700 dark:text-warning-300">
           <span className="font-medium">Note on Estimated FCR:</span> The displayed FCR is a
           simplified ratio (total feed / current biomass). Accurate FCR requires: total feed
           consumed / (current biomass - initial biomass + harvested biomass + mortality biomass).
@@ -1563,14 +1667,26 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 function biomassStatusChip(status: BiomassReportStatusValue): { label: string; className: string } {
   switch (status) {
     case 'CONFIRMED_SUBMITTED':
-      return { label: 'Submitted (Altinn)', className: 'bg-green-100 text-green-800' };
+      return {
+        label: 'Submitted (Altinn)',
+        className: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+      };
     case 'SUBMITTED':
-      return { label: 'Submitted (legacy)', className: 'bg-green-100 text-green-800' };
+      return {
+        label: 'Submitted (legacy)',
+        className: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+      };
     case 'READY':
-      return { label: 'Ready for Altinn', className: 'bg-blue-100 text-blue-800' };
+      return {
+        label: 'Ready for Altinn',
+        className: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+      };
     case 'DRAFT':
     default:
-      return { label: 'Draft', className: 'bg-amber-100 text-amber-800' };
+      return {
+        label: 'Draft',
+        className: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+      };
   }
 }
 
@@ -1835,7 +1951,9 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
         id: 'transfers',
         title: 'Transfers',
         description: 'Fish movements in/out',
-        content: <TransfersStep formData={formData} onChange={handleFormChange} prefill={prefill} />,
+        content: (
+          <TransfersStep formData={formData} onChange={handleFormChange} prefill={prefill} />
+        ),
       },
       {
         id: 'review',
@@ -1852,7 +1970,9 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Biomass Reports</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Biomass Reports
+          </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Monthly reports for Fiskeridirektoratet - Due 7th of each month
           </p>
@@ -1872,21 +1992,21 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
               ))}
             </select>
           )}
-          <Button variant="primary" onClick={() => handleOpenWizard()} disabled={!periodEditable} title={
+          <Button
+            variant="primary"
+            onClick={() => handleOpenWizard()}
+            disabled={!periodEditable}
+            title={
               periodTerminal
                 ? `${getMonthLabel(targetPeriod.month, targetPeriod.year)} is already submitted and immutable`
                 : !periodEditable
                   ? `${getMonthLabel(targetPeriod.month, targetPeriod.year)} is ready for Altinn — reopen it to draft to edit`
                   : undefined
-            }><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            {periodDraftExists ? 'Continue Draft' : 'New Report'}</Button>
+            }
+          >
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            {periodDraftExists ? 'Continue Draft' : 'New Report'}
+          </Button>
         </div>
       </div>
 
@@ -1906,12 +2026,16 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Reports</div>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-amber-200 p-4">
-          <div className="text-2xl font-bold text-amber-600">{stats.inProgress}</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-warning-200 p-4">
+          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+            {stats.inProgress}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">In Progress</div>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-green-200 p-4">
-          <div className="text-2xl font-bold text-green-600">{stats.submitted}</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-success-200 p-4">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+            {stats.submitted}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Submitted</div>
         </div>
       </div>
@@ -1924,15 +2048,21 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           </p>
         </div>
       ) : reportsLoading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">Loading report history…</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+          Loading report history…
+        </p>
       ) : reportsError ? (
-        <div className="text-center py-8 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-sm text-red-700">Failed to load report history. Please retry.</p>
+        <div className="text-center py-8 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Failed to load report history. Please retry.
+          </p>
         </div>
       ) : biomassReports.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No reports found</p>
-          <Button variant="secondary" className="mt-4" onClick={() => handleOpenWizard()}>Create First Report</Button>
+          <Button variant="secondary" className="mt-4" onClick={() => handleOpenWizard()}>
+            Create First Report
+          </Button>
         </div>
       ) : (
         <ul className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">

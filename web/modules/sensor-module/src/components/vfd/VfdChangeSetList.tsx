@@ -6,7 +6,15 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { usePrompt, type PromptFn, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  usePrompt,
+  type PromptFn,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  SeverityBadge,
+} from '@aquaculture/shared-ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -48,54 +56,57 @@ const STATUS_OPTIONS: { value: VfdChangeSetStatus | ''; label: string }[] = [
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   [VfdChangeSetStatus.DRAFT]: {
-    bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
+    text: 'text-gray-800 dark:text-gray-200',
     icon: <FileText className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.PENDING_APPROVAL]: {
-    bg: 'bg-yellow-100', text: 'text-yellow-800',
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
+    text: 'text-warning-800 dark:text-warning-200',
     icon: <Clock className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.APPROVED]: {
-    bg: 'bg-blue-100', text: 'text-blue-800',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+    text: 'text-info-800 dark:text-info-200',
     icon: <Check className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.REJECTED]: {
-    bg: 'bg-red-100', text: 'text-red-800',
+    bg: 'bg-error-100 dark:bg-error-900/40',
+    text: 'text-error-800 dark:text-error-200',
     icon: <X className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.APPLYING]: {
-    bg: 'bg-indigo-100', text: 'text-indigo-800',
+    bg: 'bg-primary-100 dark:bg-primary-900/40',
+    text: 'text-primary-800 dark:text-primary-200',
     icon: <Spinner size="sm" color="inherit" />,
   },
   [VfdChangeSetStatus.APPLIED]: {
-    bg: 'bg-green-100', text: 'text-green-800',
+    bg: 'bg-success-100 dark:bg-success-900/40',
+    text: 'text-success-800 dark:text-success-200',
     icon: <Check className="h-3 w-3" />,
   },
   // SENSOR-HIGH-028: VERIFIED is a real backend state — a verified change set
   // rendered STATUS_STYLES[undefined] before this key existed.
   [VfdChangeSetStatus.VERIFIED]: {
-    bg: 'bg-emerald-100', text: 'text-emerald-800',
+    bg: 'bg-success-100 dark:bg-success-900/40',
+    text: 'text-success-800 dark:text-success-200',
     icon: <Check className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.FAILED]: {
-    bg: 'bg-red-100', text: 'text-red-800',
+    bg: 'bg-error-100 dark:bg-error-900/40',
+    text: 'text-error-800 dark:text-error-200',
     icon: <AlertTriangle className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.ROLLED_BACK]: {
-    bg: 'bg-purple-100', text: 'text-purple-800',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+    text: 'text-accent-800 dark:text-accent-200',
     icon: <RotateCcw className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.CANCELLED]: {
-    bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-500 dark:text-gray-400',
+    bg: 'bg-gray-100 dark:bg-gray-800',
+    text: 'text-gray-500 dark:text-gray-400',
     icon: <Ban className="h-3 w-3" />,
   },
-};
-
-const RISK_BADGE: Record<string, string> = {
-  [VfdRiskLevel.LOW]: 'bg-green-100 text-green-700',
-  [VfdRiskLevel.MEDIUM]: 'bg-yellow-100 text-yellow-700',
-  [VfdRiskLevel.HIGH]: 'bg-orange-100 text-orange-700',
-  [VfdRiskLevel.CRITICAL]: 'bg-red-100 text-red-700',
 };
 
 // ============================================================================
@@ -155,8 +166,8 @@ export function VfdChangeSetList({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-12" role="alert">
-        <AlertTriangle className="mb-2 h-8 w-8 text-red-500" />
-        <p className="text-sm text-red-600">{error}</p>
+        <AlertTriangle className="mb-2 h-8 w-8 text-error-500" />
+        <p className="text-sm text-error-600 dark:text-error-400">{error}</p>
       </div>
     );
   }
@@ -186,7 +197,7 @@ export function VfdChangeSetList({
       key: 'status',
       header: 'Status',
       render: (_value, item) => item.status || '-',
-    }
+    },
   ];
 
   return (
@@ -211,9 +222,7 @@ export function VfdChangeSetList({
           <select
             value={changeSetFilter ?? ''}
             onChange={(e) =>
-              setChangeSetFilter(
-                e.target.value ? (e.target.value as VfdChangeSetStatus) : null,
-              )
+              setChangeSetFilter(e.target.value ? (e.target.value as VfdChangeSetStatus) : null)
             }
             className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
             aria-label="Filter by status"
@@ -247,7 +256,6 @@ export function VfdChangeSetList({
         <div className="space-y-3">
           {filteredSets.map((cs) => {
             const style = STATUS_STYLES[cs.status] ?? STATUS_STYLES[VfdChangeSetStatus.DRAFT];
-            const riskClass = RISK_BADGE[computeMaxRisk(cs)] ?? RISK_BADGE[VfdRiskLevel.LOW];
             const isExpanded = expandedIds.has(cs.id);
 
             return (
@@ -260,23 +268,33 @@ export function VfdChangeSetList({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <Button variant="ghost" type="button" onClick={() => toggleExpand(cs.id)} aria-label={isExpanded ? 'Collapse items' : 'Expand items'} aria-expanded={isExpanded}>{isExpanded ? (
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          onClick={() => toggleExpand(cs.id)}
+                          aria-label={isExpanded ? 'Collapse items' : 'Expand items'}
+                          aria-expanded={isExpanded}
+                        >
+                          {isExpanded ? (
                             <ChevronDown className="h-4 w-4" />
                           ) : (
                             <ChevronRight className="h-4 w-4" />
-                          )}</Button>
+                          )}
+                        </Button>
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                           {cs.description || `Change Set ${cs.id.slice(0, 8)}`}
                         </h4>
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}>
-                          {computeMaxRisk(cs)}
-                        </span>
+                        <SeverityBadge severity={computeMaxRisk(cs)} label={computeMaxRisk(cs)} />
                       </div>
                       <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}
+                        >
                           {style.icon} {formatStatus(cs.status)}
                         </span>
-                        <span>{cs.items.length} item{cs.items.length !== 1 ? 's' : ''}</span>
+                        <span>
+                          {cs.items.length} item{cs.items.length !== 1 ? 's' : ''}
+                        </span>
                         <span>By: {cs.createdBy}</span>
                         <span>{formatDate(cs.createdAt)}</span>
                         {cs.scheduledAt && (
@@ -290,8 +308,19 @@ export function VfdChangeSetList({
 
                   {/* Action buttons */}
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <Button variant="secondary" size="xs" type="button" onClick={() => setSelectedChangeSetId(cs.id)}>View Details</Button>
-                    {renderActions(cs, { onApprove, onReject, onRollback, onCancel, onSubmitForApproval }, prompt)}
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      type="button"
+                      onClick={() => setSelectedChangeSetId(cs.id)}
+                    >
+                      View Details
+                    </Button>
+                    {renderActions(
+                      cs,
+                      { onApprove, onReject, onRollback, onCancel, onSubmitForApproval },
+                      prompt,
+                    )}
                   </div>
                 </div>
 
@@ -319,8 +348,10 @@ export function VfdChangeSetList({
       {/* Load more */}
       {hasMore && (
         <div className="mt-4 text-center">
-          <Button variant="secondary" type="button" onClick={onLoadMore} disabled={loading}>{loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
-            Load More</Button>
+          <Button variant="secondary" type="button" onClick={onLoadMore} disabled={loading}>
+            {loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
+            Load More
+          </Button>
         </div>
       )}
     </div>
@@ -347,8 +378,11 @@ function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString('en-GB', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   } catch {
     return iso;
@@ -368,19 +402,60 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks, prompt: PromptFn)
 
   if (cs.status === VfdChangeSetStatus.DRAFT) {
     buttons.push(
-      <Button variant="primary" size="xs" leftIcon={<Play className="h-3 w-3" />} key="submit" type="button" onClick={() => cbs.onSubmitForApproval(cs.id)}>Submit</Button>,
-      <Button variant="secondary" size="xs" key="cancel" type="button" onClick={() => cbs.onCancel(cs.id)}>Cancel</Button>,
+      <Button
+        variant="primary"
+        size="xs"
+        leftIcon={<Play className="h-3 w-3" />}
+        key="submit"
+        type="button"
+        onClick={() => cbs.onSubmitForApproval(cs.id)}
+      >
+        Submit
+      </Button>,
+      <Button
+        variant="secondary"
+        size="xs"
+        key="cancel"
+        type="button"
+        onClick={() => cbs.onCancel(cs.id)}
+      >
+        Cancel
+      </Button>,
     );
   }
 
   if (cs.status === VfdChangeSetStatus.PENDING_APPROVAL) {
     buttons.push(
-      <Button variant="primary" size="xs" leftIcon={<Check className="h-3 w-3" />} key="approve" type="button" onClick={() => cbs.onApprove(cs.id)} data-testid={`approve-btn-${cs.id}`}>Approve</Button>,
-      <Button variant="secondary" size="xs" leftIcon={<X className="h-3 w-3" />} key="reject" type="button" onClick={() =>
-          void prompt({ title: 'Reject change set', label: 'Rejection reason', confirmText: 'Reject', cancelText: 'Cancel' }).then((reason) => {
+      <Button
+        variant="primary"
+        size="xs"
+        leftIcon={<Check className="h-3 w-3" />}
+        key="approve"
+        type="button"
+        onClick={() => cbs.onApprove(cs.id)}
+        data-testid={`approve-btn-${cs.id}`}
+      >
+        Approve
+      </Button>,
+      <Button
+        variant="secondary"
+        size="xs"
+        leftIcon={<X className="h-3 w-3" />}
+        key="reject"
+        type="button"
+        onClick={() =>
+          void prompt({
+            title: 'Reject change set',
+            label: 'Rejection reason',
+            confirmText: 'Reject',
+            cancelText: 'Cancel',
+          }).then((reason) => {
             if (reason) void cbs.onReject(cs.id, reason);
           })
-        }>Reject</Button>,
+        }
+      >
+        Reject
+      </Button>,
     );
   }
 
@@ -396,24 +471,46 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks, prompt: PromptFn)
       <span
         key="auto-apply"
         data-testid={`changeset-auto-apply-${cs.id}`}
-        className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700"
+        className="inline-flex items-center gap-1 rounded-md bg-primary-50 dark:bg-primary-900/20 px-3 py-1 text-xs font-medium text-primary-700 dark:text-primary-300"
       >
         <Play className="h-3 w-3" />
         {cs.scheduledAt
           ? `Scheduled for ${new Date(cs.scheduledAt).toLocaleString()}`
           : 'Applying automatically'}
       </span>,
-      <Button variant="secondary" size="xs" key="cancel-approved" type="button" onClick={() => cbs.onCancel(cs.id)}>Cancel</Button>,
+      <Button
+        variant="secondary"
+        size="xs"
+        key="cancel-approved"
+        type="button"
+        onClick={() => cbs.onCancel(cs.id)}
+      >
+        Cancel
+      </Button>,
     );
   }
 
   if (cs.status === VfdChangeSetStatus.APPLIED) {
     buttons.push(
-      <Button variant="secondary" size="xs" leftIcon={<RotateCcw className="h-3 w-3" />} key="rollback" type="button" onClick={() =>
-          void prompt({ title: 'Roll back change set', label: 'Rollback reason', confirmText: 'Roll back', cancelText: 'Cancel' }).then((reason) => {
+      <Button
+        variant="secondary"
+        size="xs"
+        leftIcon={<RotateCcw className="h-3 w-3" />}
+        key="rollback"
+        type="button"
+        onClick={() =>
+          void prompt({
+            title: 'Roll back change set',
+            label: 'Rollback reason',
+            confirmText: 'Roll back',
+            cancelText: 'Cancel',
+          }).then((reason) => {
             if (reason) void cbs.onRollback(cs.id, reason);
           })
-        }>Rollback</Button>,
+        }
+      >
+        Rollback
+      </Button>,
     );
   }
 

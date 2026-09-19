@@ -8,12 +8,16 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, Calendar, Users, CheckCircle, Filter, Search } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn, PageHeader, Button, Input, Select } from '@aquaculture/shared-ui';
 import {
-  useAttendanceRecords,
-  useDailyAttendanceOverview,
-  useCurrentEmployeeId,
-} from '../hooks';
+  cn,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+} from '@aquaculture/shared-ui';
+import { useAttendanceRecords, useDailyAttendanceOverview, useCurrentEmployeeId } from '../hooks';
 import { TimeClockWidget } from '../components/attendance/TimeClockWidget';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge } from '../components/common';
@@ -37,7 +41,7 @@ export function AttendancePage() {
   const { data: overview, isLoading: loadingOverview } = useDailyAttendanceOverview(today);
   const { data: records, isLoading: loadingRecords } = useAttendanceRecords(
     { ...filter },
-    pagination
+    pagination,
   );
 
   const handleFilterChange = (key: keyof AttendanceFilterInput, value: string | undefined) => {
@@ -54,9 +58,7 @@ export function AttendancePage() {
       key: 'employee',
       header: 'Employee',
       render: (_value, row) => (
-        <span className="font-medium text-gray-900 dark:text-white">
-          {row.employeeId}
-        </span>
+        <span className="font-medium text-gray-900 dark:text-white">{row.employeeId}</span>
       ),
     },
     {
@@ -120,7 +122,7 @@ export function AttendancePage() {
         actions={
           <Link
             to="/hr/scheduling"
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 sm:w-auto"
           >
             <Calendar className="h-4 w-4" />
             Schedule
@@ -139,13 +141,13 @@ export function AttendancePage() {
                   {loadingOverview ? (
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
-                    <p className="mt-1 text-2xl font-bold text-green-600">
+                    <p className="mt-1 text-2xl font-bold text-success-600 dark:text-success-400">
                       {overview?.present ?? '-'}
                     </p>
                   )}
                 </div>
-                <div className="rounded-lg bg-green-50 p-3 dark:bg-green-900/30">
-                  <CheckCircle className="h-6 w-6 text-green-600" />
+                <div className="rounded-lg bg-success-50 p-3 dark:bg-success-900/30">
+                  <CheckCircle className="h-6 w-6 text-success-600 dark:text-success-400" />
                 </div>
               </div>
             </div>
@@ -156,13 +158,13 @@ export function AttendancePage() {
                   {loadingOverview ? (
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
-                    <p className="mt-1 text-2xl font-bold text-red-600">
+                    <p className="mt-1 text-2xl font-bold text-error-600 dark:text-error-400">
                       {overview?.absent ?? '-'}
                     </p>
                   )}
                 </div>
-                <div className="rounded-lg bg-red-50 p-3 dark:bg-red-900/30">
-                  <Users className="h-6 w-6 text-red-600" />
+                <div className="rounded-lg bg-error-50 p-3 dark:bg-error-900/30">
+                  <Users className="h-6 w-6 text-error-600 dark:text-error-400" />
                 </div>
               </div>
             </div>
@@ -173,13 +175,13 @@ export function AttendancePage() {
                   {loadingOverview ? (
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
-                    <p className="mt-1 text-2xl font-bold text-amber-600">
+                    <p className="mt-1 text-2xl font-bold text-warning-600 dark:text-warning-400">
                       {overview?.onLeave ?? '-'}
                     </p>
                   )}
                 </div>
-                <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/30">
-                  <Calendar className="h-6 w-6 text-amber-600" />
+                <div className="rounded-lg bg-warning-50 p-3 dark:bg-warning-900/30">
+                  <Calendar className="h-6 w-6 text-warning-600 dark:text-warning-400" />
                 </div>
               </div>
             </div>
@@ -190,14 +192,16 @@ export function AttendancePage() {
                   {loadingOverview ? (
                     <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
-                    <p className="mt-1 text-2xl font-bold text-indigo-600">
+                    <p className="mt-1 text-2xl font-bold text-primary-600 dark:text-primary-400">
                       {overview?.attendanceRate?.toFixed(1) ?? '-'}
-                      <span className="text-sm font-normal text-gray-500 dark:text-gray-400">%</span>
+                      <span className="text-sm font-normal text-gray-500 dark:text-gray-400">
+                        %
+                      </span>
                     </p>
                   )}
                 </div>
-                <div className="rounded-lg bg-indigo-50 p-3 dark:bg-indigo-900/30">
-                  <Clock className="h-6 w-6 text-indigo-600" />
+                <div className="rounded-lg bg-primary-50 p-3 dark:bg-primary-900/30">
+                  <Clock className="h-6 w-6 text-primary-600 dark:text-primary-400" />
                 </div>
               </div>
             </div>
@@ -219,8 +223,8 @@ export function AttendancePage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'overview'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Today's Overview
@@ -230,8 +234,8 @@ export function AttendancePage() {
           className={cn(
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'records'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
+              ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100',
           )}
         >
           Attendance Records
@@ -250,7 +254,7 @@ export function AttendancePage() {
                 placeholder="Search employees..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-primary-500 focus:outline-hidden focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
               />
             </div>
             <div className="flex items-center gap-2">
@@ -259,8 +263,8 @@ export function AttendancePage() {
                 className={cn(
                   'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ring-1',
                   showFilters
-                    ? 'bg-indigo-50 text-indigo-600 ring-indigo-200'
-                    : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600'
+                    ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 ring-primary-200'
+                    : 'bg-white text-gray-700 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600',
                 )}
               >
                 <Filter className="h-4 w-4" />
@@ -277,23 +281,46 @@ export function AttendancePage() {
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Start Date
                   </label>
-                  <Input fullWidth type="date" value={filter.startDate || ''} onChange={(e) => handleFilterChange('startDate', e.target.value)} />
+                  <Input
+                    fullWidth
+                    type="date"
+                    value={filter.startDate || ''}
+                    onChange={(e) => handleFilterChange('startDate', e.target.value)}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     End Date
                   </label>
-                  <Input fullWidth type="date" value={filter.endDate || ''} onChange={(e) => handleFilterChange('endDate', e.target.value)} />
+                  <Input
+                    fullWidth
+                    type="date"
+                    value={filter.endDate || ''}
+                    onChange={(e) => handleFilterChange('endDate', e.target.value)}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Status
                   </label>
-                  <Select fullWidth options={[{ value: '', label: 'All' }, { value: 'present', label: 'Present' }, { value: 'absent', label: 'Absent' }, { value: 'late', label: 'Late' }, { value: 'on_leave', label: 'On Leave' }]} value={filter.status || ''} onChange={(e) => handleFilterChange('status', e.target.value)} />
+                  <Select
+                    fullWidth
+                    options={[
+                      { value: '', label: 'All' },
+                      { value: 'present', label: 'Present' },
+                      { value: 'absent', label: 'Absent' },
+                      { value: 'late', label: 'Late' },
+                      { value: 'on_leave', label: 'On Leave' },
+                    ]}
+                    value={filter.status || ''}
+                    onChange={(e) => handleFilterChange('status', e.target.value)}
+                  />
                 </div>
               </div>
               <div className="mt-4 flex justify-end">
-                <Button variant="ghost" onClick={() => setFilter({})}>Clear all filters</Button>
+                <Button variant="ghost" onClick={() => setFilter({})}>
+                  Clear all filters
+                </Button>
               </div>
             </div>
           )}
@@ -309,7 +336,11 @@ export function AttendancePage() {
               emptyMessage="No attendance records found"
               pagination={
                 records
-                  ? derivePaginationMetadataV1(records.total, pagination.page || 1, pagination.limit || 20)
+                  ? derivePaginationMetadataV1(
+                      records.total,
+                      pagination.page || 1,
+                      pagination.limit || 20,
+                    )
                   : undefined
               }
               onPageChange={handlePageChange}

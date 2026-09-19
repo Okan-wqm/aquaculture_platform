@@ -106,13 +106,21 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
     // Check if we have a batch
     if (!selectedBatchId) {
-      toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'No batch assigned to this tank.',
+        variant: 'error',
+      });
       return;
     }
 
     // LOW-03: programmatic future-date guard (max attr is a browser hint, not enforced)
     if (new Date(observedAt) > new Date()) {
-      toast({ title: 'Validation Error', description: 'Observation date cannot be in the future.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'Observation date cannot be in the future.',
+        variant: 'error',
+      });
       return;
     }
 
@@ -135,7 +143,11 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
       onClose();
     } catch (error) {
       if (import.meta.env.DEV) console.error('Failed to record mortality:', error);
-      toast({ title: 'Error', description: 'Failed to record mortality. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to record mortality. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -178,18 +190,42 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
         <div className="space-y-4">
           {/* Quantity */}
           <div>
-            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Dead Fish Count <span className="text-red-500">*</span>
+            <label
+              htmlFor="quantity"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Dead Fish Count <span className="text-error-500">*</span>
             </label>
-            <Input fullWidth type="number" id="quantity" min="1" max={availableQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter number of dead fish" />
+            <Input
+              fullWidth
+              type="number"
+              id="quantity"
+              min="1"
+              max={availableQuantity}
+              value={quantity || ''}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              placeholder="Enter number of dead fish"
+            />
           </div>
 
           {/* Average Weight */}
           <div>
-            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="avgWeight"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Average Weight (g)
             </label>
-            <Input fullWidth type="number" id="avgWeight" min="0" step="0.1" value={avgWeightG || ''} onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)} placeholder="Enter average weight" />
+            <Input
+              fullWidth
+              type="number"
+              id="avgWeight"
+              min="0"
+              step="0.1"
+              value={avgWeightG || ''}
+              onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || 0)}
+              placeholder="Enter average weight"
+            />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Default: {scopedAvgWeightG.toFixed(1)} g ({isCombined ? 'batch' : 'tank'} average)
             </p>
@@ -197,10 +233,12 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
           {/* Biomass Calculation */}
           {quantity > 0 && avgWeightG > 0 && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-red-800">Biomass Loss</span>
-                <span className="text-lg font-bold text-red-600">
+                <span className="text-sm font-medium text-error-800 dark:text-error-200">
+                  Biomass Loss
+                </span>
+                <span className="text-lg font-bold text-error-600 dark:text-error-400">
                   {calculatedBiomass.toFixed(2)} kg
                 </span>
               </div>
@@ -209,14 +247,17 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
           {/* Mortality Reason */}
           <div>
-            <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Mortality Reason <span className="text-red-500">*</span>
+            <label
+              htmlFor="reason"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Mortality Reason <span className="text-error-500">*</span>
             </label>
             <select
               id="reason"
               value={reason}
               onChange={(e) => setReason(e.target.value as MortalityReason)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-red-500 focus:ring-red-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-error-500 focus:ring-error-500 sm:text-sm"
             >
               {Object.entries(MortalityReasonLabels).map(([key, label]) => (
                 <option key={key} value={key}>
@@ -228,25 +269,48 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
           {/* Date */}
           <div>
-            <label htmlFor="observedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="observedAt"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Observation Date
             </label>
-            <Input fullWidth type="date" id="observedAt" value={observedAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setObservedAt(e.target.value)} />
+            <Input
+              fullWidth
+              type="date"
+              id="observedAt"
+              value={observedAt}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={(e) => setObservedAt(e.target.value)}
+            />
           </div>
 
           {/* Notes */}
           <div>
-            <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Why did the fish die? <span className="text-red-500">*</span>
+            <label
+              htmlFor="notes"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Why did the fish die? <span className="text-error-500">*</span>
             </label>
-            <Textarea fullWidth id="notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Describe the circumstances of the mortality..." />
+            <Textarea
+              fullWidth
+              id="notes"
+              rows={3}
+              maxLength={2000}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Describe the circumstances of the mortality..."
+            />
           </div>
         </div>
 
         {/* Pre/Post Operation State */}
         {quantity > 0 && (
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Tank Status After Operation</h4>
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+              Tank Status After Operation
+            </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Before</p>
@@ -266,13 +330,13 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
                 <div className="space-y-1">
                   <p className="text-sm">
                     <span className="text-gray-600 dark:text-gray-400">Stock:</span>{' '}
-                    <span className="font-medium text-red-600">
+                    <span className="font-medium text-error-600 dark:text-error-400">
                       {postOperationState.quantity.toLocaleString()}
                     </span>
                   </p>
                   <p className="text-sm">
                     <span className="text-gray-600 dark:text-gray-400">Biomass:</span>{' '}
-                    <span className="font-medium text-red-600">
+                    <span className="font-medium text-error-600 dark:text-error-400">
                       {postOperationState.biomass.toFixed(1)} kg
                     </span>
                   </p>
@@ -284,8 +348,8 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
 
         {/* Validation Errors */}
         {errors.length > 0 && quantity > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-error-600 dark:text-error-400 space-y-1">
               {errors.map((error, index) => (
                 <li key={index}>{error}</li>
               ))}
@@ -302,7 +366,7 @@ export const MortalityModal: React.FC<MortalityModalProps> = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || recordMortality.isPending}
-            className="bg-red-600 hover:bg-red-700"
+            className="bg-error-600 hover:bg-error-700"
           >
             {recordMortality.isPending ? 'Recording...' : 'Record Mortality'}
           </Button>

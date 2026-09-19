@@ -14,14 +14,7 @@
  * it when an input field receives/loses focus.
  */
 
-import React, {
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  useMemo,
-  memo,
-} from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
 import { X, Delete, CornerDownLeft } from 'lucide-react';
 import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
@@ -165,14 +158,11 @@ const NUMERIC_ROWS: KeyDef[][] = [
 /* ------------------------------------------------------------------ */
 
 const VARIANT_CLASSES: Record<string, string> = {
-  default:
-    'bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 border-gray-600',
-  action:
-    'bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-gray-200 border-gray-500',
-  submit:
-    'bg-blue-700 hover:bg-blue-600 active:bg-blue-500 text-white border-blue-600',
+  default: 'bg-gray-700 hover:bg-gray-600 active:bg-gray-500 text-gray-100 border-gray-600',
+  action: 'bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-gray-200 border-gray-500',
+  submit: 'bg-info-700 hover:bg-info-600 active:bg-info-500 text-white border-info-600',
   danger:
-    'bg-red-800/60 hover:bg-red-700/60 active:bg-red-600/60 text-red-200 border-red-700/50',
+    'bg-error-800/60 hover:bg-error-700/60 active:bg-error-600/60 text-error-200 border-error-700/50',
 };
 
 interface KeyButtonProps {
@@ -191,8 +181,7 @@ const KeyButton = memo<KeyButtonProps>(({ keyDef, shifted, onPress }) => {
     [keyDef, onPress],
   );
 
-  const displayLabel =
-    keyDef.value && shifted ? keyDef.label.toUpperCase() : keyDef.label;
+  const displayLabel = keyDef.value && shifted ? keyDef.label.toUpperCase() : keyDef.label;
 
   const variantClass = VARIANT_CLASSES[keyDef.variant ?? 'default'];
 
@@ -203,7 +192,7 @@ const KeyButton = memo<KeyButtonProps>(({ keyDef, shifted, onPress }) => {
       className={`
         flex items-center justify-center rounded border text-sm font-medium
         transition-colors select-none
-        focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400
+        focus:outline-hidden focus-visible:ring-1 focus-visible:ring-info-400
         ${variantClass}
       `}
       style={{
@@ -262,9 +251,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
         // If keyboard would go below viewport, position above
         const maxKbHeight = mode === 'numeric' ? 300 : 320;
         const adjustedY =
-          y + maxKbHeight > window.innerHeight
-            ? Math.max(8, anchorRect.top - maxKbHeight - 8)
-            : y;
+          y + maxKbHeight > window.innerHeight ? Math.max(8, anchorRect.top - maxKbHeight - 8) : y;
         return { x, y: adjustedY };
       }
       return position ?? { x: 0, y: 0 };
@@ -345,7 +332,8 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
         aria-label={label ? `Keyboard: ${label}` : 'Virtual keyboard'}
         aria-modal="false"
       >
-        <div className="bg-gray-900 border border-gray-600 rounded-lg shadow-2xl overflow-hidden"
+        <div
+          className="bg-gray-900 border border-gray-600 rounded-lg shadow-2xl overflow-hidden"
           style={{ backgroundColor: themeColors.neutral[900] }}
         >
           {/* Header */}
@@ -365,7 +353,16 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
               >
                 {internalValue || '\u00A0'}
               </div>
-              <Button variant="ghost" size="sm" iconOnly type="button" onClick={onClose} aria-label="Close keyboard"><X size={14} /></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                type="button"
+                onClick={onClose}
+                aria-label="Close keyboard"
+              >
+                <X size={14} />
+              </Button>
             </div>
           </div>
 
@@ -397,9 +394,7 @@ export const TouchKeyboard = memo<TouchKeyboardProps>(
               {mode === 'numeric' ? 'Numeric' : 'Text'}
             </span>
             {shifted && mode === 'text' && (
-              <span className="text-[9px] text-blue-400 uppercase tracking-wider">
-                SHIFT
-              </span>
+              <span className="text-[9px] text-info-400 uppercase tracking-wider">SHIFT</span>
             )}
           </div>
         </div>

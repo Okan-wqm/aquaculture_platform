@@ -70,7 +70,7 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
           transform: 'translate(-50%, -50%)',
           width,
           height,
-          background: '#fff',
+          background: themeColors.white,
           borderRadius: 16,
           boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
           display: 'flex',
@@ -96,7 +96,11 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
           <span style={{ fontWeight: 600, fontSize: 14, color: colors.neutral[900] }}>
             {screenName}
           </span>
-          <Button variant="ghost" iconOnly onClick={handleClose} style={{
+          <Button
+            variant="ghost"
+            iconOnly
+            onClick={handleClose}
+            style={{
               background: 'none',
               border: 'none',
               cursor: 'pointer',
@@ -106,7 +110,11 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
               justifyContent: 'center',
               borderRadius: 6,
               color: colors.gray[400],
-            }} aria-label="Close overlay"><X size={16} /></Button>
+            }}
+            aria-label="Close overlay"
+          >
+            <X size={16} />
+          </Button>
         </div>
 
         {/* Content */}
@@ -128,7 +136,14 @@ export const ModalDialog: React.FC<ModalDialogProps> = ({ overlay }) => {
               variableMap={overlay.variableMap}
             />
           ) : (
-            <div style={{ fontSize: 12, color: colors.neutral[400], textAlign: 'center', paddingTop: 40 }}>
+            <div
+              style={{
+                fontSize: 12,
+                color: colors.neutral[400],
+                textAlign: 'center',
+                paddingTop: 40,
+              }}
+            >
               Screen not found
             </div>
           )}

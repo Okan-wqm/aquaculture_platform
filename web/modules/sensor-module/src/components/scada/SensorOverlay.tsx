@@ -63,31 +63,34 @@ const getTypeIcon = (type: SensorType, className: string = 'w-3 h-3') => {
 const getTrendIcon = (trend: 'up' | 'down' | 'stable') => {
   switch (trend) {
     case 'up':
-      return <TrendingUp className="w-2.5 h-2.5 text-green-500" />;
+      return <TrendingUp className="w-2.5 h-2.5 text-success-500" />;
     case 'down':
-      return <TrendingDown className="w-2.5 h-2.5 text-red-500" />;
+      return <TrendingDown className="w-2.5 h-2.5 text-error-500" />;
     default:
       return <Minus className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />;
   }
 };
 
 const getStatusConfig = (status: SensorStatus) => {
-  const configs: Record<SensorStatus, { bg: string; border: string; text: string; icon?: React.ReactNode }> = {
+  const configs: Record<
+    SensorStatus,
+    { bg: string; border: string; text: string; icon?: React.ReactNode }
+  > = {
     normal: {
-      bg: 'bg-green-50',
-      border: 'border-green-300',
-      text: 'text-green-700',
+      bg: 'bg-success-50 dark:bg-success-900/20',
+      border: 'border-success-300 dark:border-success-700',
+      text: 'text-success-700 dark:text-success-300',
     },
     warning: {
-      bg: 'bg-yellow-50',
-      border: 'border-yellow-400',
-      text: 'text-yellow-700',
+      bg: 'bg-warning-50 dark:bg-warning-900/20',
+      border: 'border-warning-400',
+      text: 'text-warning-700 dark:text-warning-300',
       icon: <AlertTriangle className="w-3 h-3" />,
     },
     critical: {
-      bg: 'bg-red-50',
-      border: 'border-red-400',
-      text: 'text-red-700',
+      bg: 'bg-error-50 dark:bg-error-900/20',
+      border: 'border-error-400',
+      text: 'text-error-700 dark:text-error-300',
       icon: <AlertCircle className="w-3 h-3" />,
     },
     offline: {
@@ -204,22 +207,19 @@ export const SensorOverlay: React.FC<SensorOverlayProps> = ({
     <div className="sensor-overlay absolute -right-2 top-0 z-10 pointer-events-none">
       <div className="flex flex-col gap-1 items-end">
         {visibleReadings.map((reading) => (
-          <SensorValueDisplay
-            key={reading.id}
-            reading={reading}
-            compact={compact}
-          />
+          <SensorValueDisplay key={reading.id} reading={reading} compact={compact} />
         ))}
 
         {hiddenCount > 0 && (
           <div
             className={`
               px-1.5 py-0.5 rounded text-[10px] font-medium
-              ${hasCritical
-                ? 'bg-red-100 text-red-700'
-                : hasWarning
-                ? 'bg-yellow-100 text-yellow-700'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+              ${
+                hasCritical
+                  ? 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
+                  : hasWarning
+                    ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
               }
             `}
           >
@@ -278,30 +278,31 @@ export const SensorSummaryBar: React.FC<SensorSummaryBarProps> = ({ readings, on
       className={`
         flex items-center gap-2 px-3 py-1.5 rounded-lg
         border transition-all
-        ${hasCritical
-          ? 'bg-red-50 border-red-300 hover:bg-red-100'
-          : hasWarning
-          ? 'bg-yellow-50 border-yellow-300 hover:bg-yellow-100'
-          : 'bg-green-50 border-green-300 hover:bg-green-100'
+        ${
+          hasCritical
+            ? 'bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-700 hover:bg-error-100 dark:hover:bg-error-900/50'
+            : hasWarning
+              ? 'bg-warning-50 dark:bg-warning-900/20 border-warning-300 dark:border-warning-700 hover:bg-warning-100 dark:hover:bg-warning-900/50'
+              : 'bg-success-50 dark:bg-success-900/20 border-success-300 dark:border-success-700 hover:bg-success-100 dark:hover:bg-success-900/50'
         }
       `}
     >
       <Activity
         className={`w-4 h-4 ${
           hasCritical
-            ? 'text-red-600'
+            ? 'text-error-600 dark:text-error-400'
             : hasWarning
-            ? 'text-yellow-600'
-            : 'text-green-600'
+              ? 'text-warning-600 dark:text-warning-400'
+              : 'text-success-600 dark:text-success-400'
         }`}
       />
       <span
         className={`text-sm font-medium ${
           hasCritical
-            ? 'text-red-700'
+            ? 'text-error-700 dark:text-error-300'
             : hasWarning
-            ? 'text-yellow-700'
-            : 'text-green-700'
+              ? 'text-warning-700 dark:text-warning-300'
+              : 'text-success-700 dark:text-success-300'
         }`}
       >
         {readings.length} sensör
@@ -309,7 +310,9 @@ export const SensorSummaryBar: React.FC<SensorSummaryBarProps> = ({ readings, on
       {(hasCritical || hasWarning) && (
         <span
           className={`text-xs px-1.5 py-0.5 rounded ${
-            hasCritical ? 'bg-red-200 text-red-800' : 'bg-yellow-200 text-yellow-800'
+            hasCritical
+              ? 'bg-error-200 dark:bg-error-800/50 text-error-800 dark:text-error-200'
+              : 'bg-warning-200 dark:bg-warning-800/50 text-warning-800 dark:text-warning-200'
           }`}
         >
           {hasCritical ? 'Kritik' : 'Uyarı'}

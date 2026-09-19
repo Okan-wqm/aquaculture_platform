@@ -56,11 +56,7 @@ function getDeviceIcon(deviceType: string | null): React.ReactNode {
   }
 }
 
-function getUserName(
-  firstName: string | null,
-  lastName: string | null,
-  email: string,
-): string {
+function getUserName(firstName: string | null, lastName: string | null, email: string): string {
   const name = `${firstName || ''} ${lastName || ''}`.trim();
   return name || email.split('@')[0];
 }
@@ -105,7 +101,7 @@ const PeriodSelector: React.FC<{
         onClick={() => onChange(p)}
         className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
           value === p
-            ? 'bg-white dark:bg-gray-900 text-green-700 shadow-sm'
+            ? 'bg-white dark:bg-gray-900 text-success-700 shadow-sm'
             : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
         }`}
       >
@@ -134,8 +130,7 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
       {data.map((day) => {
         const heightPercent = (day.count / maxCount) * 100;
         const date = new Date(day.date);
-        const isToday =
-          date.toDateString() === new Date().toDateString();
+        const isToday = date.toDateString() === new Date().toDateString();
 
         return (
           <div key={day.date} className="flex-1 flex flex-col items-center gap-1 group">
@@ -146,7 +141,7 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
             {/* Bar */}
             <div
               className={`w-full rounded-t transition-all duration-200 ${
-                isToday ? 'bg-green-500' : 'bg-green-300 group-hover:bg-green-400'
+                isToday ? 'bg-success-500' : 'bg-success-300 group-hover:bg-success-400'
               }`}
               style={{ height: `${Math.max(heightPercent, 2)}%`, minHeight: '2px' }}
             />
@@ -175,7 +170,10 @@ const ActivitySkeleton: React.FC = () => (
     </div>
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5 h-24" />
+        <div
+          key={i}
+          className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5 h-24"
+        />
       ))}
     </div>
     <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6 h-60" />
@@ -201,16 +199,11 @@ const TenantActivityPage: React.FC = () => {
 
   // Computed stats
   const uniqueActiveUsers = useMemo(() => {
-    const uniqueEmails = new Set(
-      recentLogins.filter((l) => l.success).map((l) => l.email),
-    );
+    const uniqueEmails = new Set(recentLogins.filter((l) => l.success).map((l) => l.email));
     return uniqueEmails.size;
   }, [recentLogins]);
 
-  const failedLogins = useMemo(
-    () => recentLogins.filter((l) => !l.success).length,
-    [recentLogins],
-  );
+  const failedLogins = useMemo(() => recentLogins.filter((l) => !l.success).length, [recentLogins]);
 
   if (isLoading) {
     return <ActivitySkeleton />;
@@ -225,20 +218,32 @@ const TenantActivityPage: React.FC = () => {
         actions={
           <div className="flex items-center gap-3">
             <PeriodSelector value={period} onChange={changePeriod} />
-            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={() => refetch()} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Refresh"
+              onClick={() => refetch()}
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </Button>
           </div>
         }
       />
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-red-800">Failed to load activity data</p>
-            <p className="text-sm text-red-600">{(error as Error).message}</p>
+            <p className="text-sm font-medium text-error-800 dark:text-error-200">
+              Failed to load activity data
+            </p>
+            <p className="text-sm text-error-600 dark:text-error-400">{(error as Error).message}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" size="sm" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -247,28 +252,28 @@ const TenantActivityPage: React.FC = () => {
         <StatCard
           label="Active Sessions"
           value={activeSessions}
-          icon={<Wifi className="w-5 h-5 text-green-600" />}
-          color="bg-green-50"
+          icon={<Wifi className="w-5 h-5 text-success-600 dark:text-success-400" />}
+          color="bg-success-50 dark:bg-success-900/20"
           subtext="Currently online"
         />
         <StatCard
           label="Unique Users"
           value={uniqueActiveUsers}
-          icon={<Users className="w-5 h-5 text-green-600" />}
-          color="bg-green-50"
+          icon={<Users className="w-5 h-5 text-success-600 dark:text-success-400" />}
+          color="bg-success-50 dark:bg-success-900/20"
           subtext={`${period === '7d' ? 'Last 7 days' : 'Last 30 days'}`}
         />
         <StatCard
           label="Total Logins"
           value={recentLogins.filter((l) => l.success).length}
-          icon={<Activity className="w-5 h-5 text-blue-600" />}
-          color="bg-blue-50"
+          icon={<Activity className="w-5 h-5 text-info-600 dark:text-info-400" />}
+          color="bg-info-50 dark:bg-info-900/20"
         />
         <StatCard
           label="Failed Logins"
           value={failedLogins}
-          icon={<Shield className="w-5 h-5 text-red-600" />}
-          color="bg-red-50"
+          icon={<Shield className="w-5 h-5 text-error-600 dark:text-error-400" />}
+          color="bg-error-50 dark:bg-error-900/20"
           subtext={failedLogins > 0 ? 'Review recommended' : 'No issues'}
         />
       </div>
@@ -277,7 +282,9 @@ const TenantActivityPage: React.FC = () => {
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daily Active Users</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Daily Active Users
+            </h2>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {period === '7d' ? 'Last 7 days' : 'Last 30 days'} trend
             </p>
@@ -292,28 +299,40 @@ const TenantActivityPage: React.FC = () => {
         {/* Recent Logins */}
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Logins</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Recent Logins
+            </h2>
           </div>
           {recentLogins.length > 0 ? (
             <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
               {recentLogins.slice(0, 20).map((login: RecentLogin) => (
-                <div key={login.id} className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                  <UserAvatar name={getUserName(login.firstName, login.lastName, login.email)} size="sm" />
+                <div
+                  key={login.id}
+                  className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                >
+                  <UserAvatar
+                    name={getUserName(login.firstName, login.lastName, login.email)}
+                    size="sm"
+                  />
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                       {getUserName(login.firstName, login.lastName, login.email)}
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{login.email}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {login.email}
+                    </p>
                   </div>
                   <div className="hidden sm:flex items-center gap-3">
                     {getDeviceIcon(login.deviceType)}
-                    <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{login.ipAddress || '--'}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                      {login.ipAddress || '--'}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     {login.success ? (
-                      <CheckCircle className="w-4 h-4 text-green-500" />
+                      <CheckCircle className="w-4 h-4 text-success-500" />
                     ) : (
-                      <XCircle className="w-4 h-4 text-red-500" />
+                      <XCircle className="w-4 h-4 text-error-500" />
                     )}
                     <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                       {formatRelativeTime(login.loginAt)}
@@ -333,7 +352,9 @@ const TenantActivityPage: React.FC = () => {
         {/* User Activity Summary */}
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">User Activity Summary</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              User Activity Summary
+            </h2>
           </div>
           {userSummaries.length > 0 ? (
             <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
@@ -350,7 +371,9 @@ const TenantActivityPage: React.FC = () => {
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                       {getUserName(summary.firstName, summary.lastName, summary.email)}
                     </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{summary.email}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                      {summary.email}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="text-sm font-medium text-gray-900 dark:text-gray-100">

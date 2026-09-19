@@ -10,7 +10,19 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import { Modal, graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  graphqlClient,
+  useAuth,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
+import { Check, CircleArrowDown, CircleCheck, CircleX, TriangleAlert } from 'lucide-react';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -148,24 +160,12 @@ interface ReportSettingsModalProps {
 
 const StatusBadge: React.FC<{ label: string; configured: boolean }> = ({ label, configured }) => (
   <span
-    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${configured ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${configured ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
   >
     {configured ? (
-      <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-        <path
-          fillRule="evenodd"
-          d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-          clipRule="evenodd"
-        />
-      </svg>
+      <Check className="w-3 h-3 mr-1" aria-hidden="true" />
     ) : (
-      <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-        <path
-          fillRule="evenodd"
-          d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z"
-          clipRule="evenodd"
-        />
-      </svg>
+      <CircleArrowDown className="w-3 h-3 mr-1" aria-hidden="true" />
     )}
     {label}
   </span>
@@ -337,8 +337,17 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
       size="lg"
       footer={
         <>
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="button" onClick={handleSave} disabled={updateSettingsMutation.isPending || isLoading}>{updateSettingsMutation.isPending ? 'Saving...' : 'Save Settings'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="button"
+            onClick={handleSave}
+            disabled={updateSettingsMutation.isPending || isLoading}
+          >
+            {updateSettingsMutation.isPending ? 'Saving...' : 'Save Settings'}
+          </Button>
         </>
       }
     >
@@ -353,36 +362,16 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
             {/* Configuration Status Banner */}
             {statusData && (
               <div
-                className={`rounded-lg p-4 ${statusData.isFullyConfigured ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}
+                className={`rounded-lg p-4 ${statusData.isFullyConfigured ? 'bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800' : 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'}`}
               >
                 <div className="flex items-center">
                   {statusData.isFullyConfigured ? (
-                    <svg
-                      className="w-5 h-5 text-green-500 mr-2"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
+                    <CircleCheck className="w-5 h-5 text-success-500 mr-2" aria-hidden="true" />
                   ) : (
-                    <svg
-                      className="w-5 h-5 text-yellow-500 mr-2"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
+                    <TriangleAlert className="w-5 h-5 text-warning-500 mr-2" aria-hidden="true" />
                   )}
                   <span
-                    className={`font-medium ${statusData.isFullyConfigured ? 'text-green-800' : 'text-yellow-800'}`}
+                    className={`font-medium ${statusData.isFullyConfigured ? 'text-success-800 dark:text-success-200' : 'text-warning-800 dark:text-warning-200'}`}
                   >
                     {statusData.isFullyConfigured
                       ? 'Report settings are fully configured'
@@ -409,15 +398,9 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
             {/* Success Message */}
             {saveSuccess && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                <div className="flex items-center text-green-800">
-                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+              <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4">
+                <div className="flex items-center text-success-800 dark:text-success-200">
+                  <CircleCheck className="w-5 h-5 mr-2" aria-hidden="true" />
                   Settings saved successfully!
                 </div>
               </div>
@@ -426,9 +409,11 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
             {/* Maskinporten Integration */}
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Maskinporten Integration</h3>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                  Maskinporten Integration
+                </h3>
                 {settingsData?.maskinportenConfigured && (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200">
                     Configured
                   </span>
                 )}
@@ -455,34 +440,62 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     Client ID{' '}
                     {settingsData?.maskinportenConfigured && '(leave empty to keep existing)'}
                   </label>
-                  <Input fullWidth type="text" value={formData.maskinportenClientId} onChange={(e) =>
-           setFormData({ ...formData, maskinportenClientId: e.target.value })
-          } placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" />
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.maskinportenClientId}
+                    onChange={(e) =>
+                      setFormData({ ...formData, maskinportenClientId: e.target.value })
+                    }
+                    placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Key ID (kid)
                   </label>
-                  <Input fullWidth type="text" value={formData.maskinportenKeyId} onChange={(e) =>
-           setFormData({ ...formData, maskinportenKeyId: e.target.value })
-          } placeholder="optional-key-id" />
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.maskinportenKeyId}
+                    onChange={(e) =>
+                      setFormData({ ...formData, maskinportenKeyId: e.target.value })
+                    }
+                    placeholder="optional-key-id"
+                  />
                 </div>
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Private Key (PEM){' '}
                     {settingsData?.maskinportenConfigured && '(leave empty to keep existing)'}
                   </label>
-                  <Textarea className="font-mono" fullWidth value={formData.maskinportenPrivateKey} onChange={(e) =>
-           setFormData({ ...formData, maskinportenPrivateKey: e.target.value })
-          } rows={3} placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----" />
+                  <Textarea
+                    className="font-mono"
+                    fullWidth
+                    value={formData.maskinportenPrivateKey}
+                    onChange={(e) =>
+                      setFormData({ ...formData, maskinportenPrivateKey: e.target.value })
+                    }
+                    rows={3}
+                    placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Environment
                   </label>
-                  <Select fullWidth options={[{ value: 'TEST', label: 'Test (test.maskinporten.no)' }, { value: 'PRODUCTION', label: 'Production (maskinporten.no)' }, { value: 'VER2', label: 'Ver2 (ver2.maskinporten.no)' }]} value={formData.maskinportenEnvironment} onChange={(e) =>
-           setFormData({ ...formData, maskinportenEnvironment: e.target.value })
-          } />
+                  <Select
+                    fullWidth
+                    options={[
+                      { value: 'TEST', label: 'Test (test.maskinporten.no)' },
+                      { value: 'PRODUCTION', label: 'Production (maskinporten.no)' },
+                      { value: 'VER2', label: 'Ver2 (ver2.maskinporten.no)' },
+                    ]}
+                    value={formData.maskinportenEnvironment}
+                    onChange={(e) =>
+                      setFormData({ ...formData, maskinportenEnvironment: e.target.value })
+                    }
+                  />
                 </div>
                 <div className="flex items-end">
                   <button
@@ -500,25 +513,13 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
               {connectionTestResult && (
                 <div
-                  className={`mt-4 p-3 rounded-md ${connectionTestResult.success ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}
+                  className={`mt-4 p-3 rounded-md ${connectionTestResult.success ? 'bg-success-50 dark:bg-success-900/20 text-success-800 dark:text-success-200' : 'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200'}`}
                 >
                   <div className="flex items-center">
                     {connectionTestResult.success ? (
-                      <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                        <path
-                          fillRule="evenodd"
-                          d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
+                      <CircleCheck className="w-5 h-5 mr-2" aria-hidden="true" />
                     ) : (
-                      <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                        <path
-                          fillRule="evenodd"
-                          d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                          clipRule="evenodd"
-                        />
-                      </svg>
+                      <CircleX className="w-5 h-5 mr-2" aria-hidden="true" />
                     )}
                     {connectionTestResult.message}
                   </div>
@@ -537,29 +538,55 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
-                  <Input fullWidth type="text" value={formData.defaultContactName} onChange={(e) =>
-           setFormData({ ...formData, defaultContactName: e.target.value })
-          } placeholder="Ola Nordmann" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Name
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.defaultContactName}
+                    onChange={(e) =>
+                      setFormData({ ...formData, defaultContactName: e.target.value })
+                    }
+                    placeholder="Ola Nordmann"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
-                  <Input fullWidth type="email" value={formData.defaultContactEmail} onChange={(e) =>
-           setFormData({ ...formData, defaultContactEmail: e.target.value })
-          } placeholder="ola@example.com" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Email
+                  </label>
+                  <Input
+                    fullWidth
+                    type="email"
+                    value={formData.defaultContactEmail}
+                    onChange={(e) =>
+                      setFormData({ ...formData, defaultContactEmail: e.target.value })
+                    }
+                    placeholder="ola@example.com"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
-                  <Input fullWidth type="tel" value={formData.defaultContactPhone} onChange={(e) =>
-           setFormData({ ...formData, defaultContactPhone: e.target.value })
-          } placeholder="+47 123 45 678" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Phone
+                  </label>
+                  <Input
+                    fullWidth
+                    type="tel"
+                    value={formData.defaultContactPhone}
+                    onChange={(e) =>
+                      setFormData({ ...formData, defaultContactPhone: e.target.value })
+                    }
+                    placeholder="+47 123 45 678"
+                  />
                 </div>
               </div>
             </div>
 
             {/* Site Locality Mappings */}
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Site Locality Mappings</h3>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                Site Locality Mappings
+              </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 Map your sites to their official Mattilsynet locality numbers (lokalitetsnummer).
               </p>
@@ -569,12 +596,20 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     <div key={site.id} className="flex items-center gap-4">
                       <div className="flex-1">
                         <span className="font-medium">{site.name}</span>
-                        <span className="text-gray-500 dark:text-gray-400 text-sm ml-2">({site.code})</span>
+                        <span className="text-gray-500 dark:text-gray-400 text-sm ml-2">
+                          ({site.code})
+                        </span>
                       </div>
                       <div className="w-48">
-                        <Input fullWidth type="number" value={siteMappings[site.id] || ''} onChange={(e) =>
-              setSiteMappings({ ...siteMappings, [site.id]: e.target.value })
-             } placeholder="Lokalitetsnummer" />
+                        <Input
+                          fullWidth
+                          type="number"
+                          value={siteMappings[site.id] || ''}
+                          onChange={(e) =>
+                            setSiteMappings({ ...siteMappings, [site.id]: e.target.value })
+                          }
+                          placeholder="Lokalitetsnummer"
+                        />
                       </div>
                     </div>
                   ))}
@@ -588,18 +623,20 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
             {/* Slaughter Facility — managed in the facility catalog (SSoT) */}
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Slaughter Facility</h3>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                Slaughter Facility
+              </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
                 Slaughter facilities and their approval numbers (godkjenningsnummer) are managed in
-                Setup → Slaughter Facilities. The default facility supplies the godkjenningsnummer on
-                the executed/planned slaughter reports — no approval number is entered here.
+                Setup → Slaughter Facilities. The default facility supplies the godkjenningsnummer
+                on the executed/planned slaughter reports — no approval number is entered here.
               </p>
               <div className="mt-2">
                 <span
                   className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${
                     statusData?.hasSlaughterApproval
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-amber-100 text-amber-800'
+                      ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+                      : 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200'
                   }`}
                 >
                   {statusData?.hasSlaughterApproval
@@ -611,7 +648,9 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
             {/* Automated submission (RPT-003) */}
             <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">Automated submission</h3>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">
+                Automated submission
+              </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 When enabled, a READY draft for the report type is submitted to Mattilsynet
                 automatically each period — no manual approval needed. Leave off to review and
@@ -638,7 +677,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                           })
                         }
                         className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors disabled:opacity-50 ${
-                          enabled ? 'bg-blue-600' : 'bg-gray-300'
+                          enabled ? 'bg-info-600' : 'bg-gray-300'
                         }`}
                       >
                         <span

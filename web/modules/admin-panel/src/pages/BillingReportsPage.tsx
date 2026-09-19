@@ -47,7 +47,9 @@ const BillingReportsPage: React.FC = () => {
         totalOverdue: invoiceStats.totalOverdue ?? 0,
         activeSubscriptions: subscriptions.total ?? 0,
         successfulPayments: payments.total ?? 0,
-        refundedPayments: payments.payments.filter((payment) => Number(payment.refundedAmount ?? 0) > 0).length,
+        refundedPayments: payments.payments.filter(
+          (payment) => Number(payment.refundedAmount ?? 0) > 0,
+        ).length,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load billing report');
@@ -100,7 +102,7 @@ const BillingReportsPage: React.FC = () => {
             <button
               onClick={exportCsv}
               disabled={!summary}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-info-600 px-4 py-2 text-sm font-medium text-white hover:bg-info-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Export CSV
             </button>
@@ -109,13 +111,13 @@ const BillingReportsPage: React.FC = () => {
       />
 
       {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-4">
-          <p className="text-sm text-red-700">{error}</p>
+        <div className="rounded-lg border border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20 p-4">
+          <p className="text-sm text-error-700 dark:text-error-300">{error}</p>
           <button
             onClick={() => {
               void loadReport();
             }}
-            className="mt-2 text-sm font-medium text-red-700 hover:text-red-900"
+            className="mt-2 text-sm font-medium text-error-700 dark:text-error-300 hover:text-error-900 dark:hover:text-error-100"
           >
             Retry
           </button>
@@ -125,7 +127,10 @@ const BillingReportsPage: React.FC = () => {
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="h-28 animate-pulse rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+            <div
+              key={index}
+              className="h-28 animate-pulse rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4"
+            >
               <div className="h-4 w-24 rounded bg-gray-200 dark:bg-gray-700" />
               <div className="mt-4 h-8 w-32 rounded bg-gray-200 dark:bg-gray-700" />
             </div>
@@ -156,7 +161,9 @@ interface ReportCardProps {
 const ReportCard: React.FC<ReportCardProps> = ({ label, value, tone = 'default' }) => (
   <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
     <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
-    <p className={`mt-2 text-2xl font-bold ${tone === 'danger' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
+    <p
+      className={`mt-2 text-2xl font-bold ${tone === 'danger' ? 'text-error-600 dark:text-error-400' : 'text-gray-900 dark:text-gray-100'}`}
+    >
       {value}
     </p>
   </div>

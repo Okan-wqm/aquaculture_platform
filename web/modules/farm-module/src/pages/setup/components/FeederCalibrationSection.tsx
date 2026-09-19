@@ -10,6 +10,7 @@ import {
   useSaveFeederCalibrations,
   FeederCalibrationItemInput,
 } from '../../../hooks/useFeederCalibration';
+import { Plus, X } from 'lucide-react';
 
 interface CalibrationRow extends FeederCalibrationItemInput {
   _key: string; // local key for React rendering
@@ -69,12 +70,12 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
     setIsDirty(true);
   };
 
-  const updateRow = (key: string, field: keyof FeederCalibrationItemInput, value: string | number) => {
-    setRows((prev) =>
-      prev.map((r) =>
-        r._key === key ? { ...r, [field]: value } : r,
-      ),
-    );
+  const updateRow = (
+    key: string,
+    field: keyof FeederCalibrationItemInput,
+    value: string | number,
+  ) => {
+    setRows((prev) => prev.map((r) => (r._key === key ? { ...r, [field]: value } : r)));
     setIsDirty(true);
   };
 
@@ -112,41 +113,64 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       key: 'feedSizeMm',
       header: 'Feed Size (mm)',
       render: (_value, row) => (
-        <Input type="number" step="0.01" min="0" value={row.feedSizeMm} onChange={(e) =>
-      updateRow(row._key, 'feedSizeMm', parseFloat(e.target.value) || 0)
-     } />
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          value={row.feedSizeMm}
+          onChange={(e) => updateRow(row._key, 'feedSizeMm', parseFloat(e.target.value) || 0)}
+        />
       ),
     },
     {
       key: 'label',
       header: 'Label',
       render: (_value, row) => (
-        <Input type="text" value={row.feedSizeLabel || ''} onChange={(e) => updateRow(row._key, 'feedSizeLabel', e.target.value)} placeholder="e.g., Starter" />
+        <Input
+          type="text"
+          value={row.feedSizeLabel || ''}
+          onChange={(e) => updateRow(row._key, 'feedSizeLabel', e.target.value)}
+          placeholder="e.g., Starter"
+        />
       ),
     },
     {
       key: 'dispensingGShot',
       header: 'Dispensing (g/shot)',
       render: (_value, row) => (
-        <Input type="number" step="0.01" min="0" value={row.gramsPerDispensing} onChange={(e) =>
-      updateRow(row._key, 'gramsPerDispensing', parseFloat(e.target.value) || 0)
-     } />
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          value={row.gramsPerDispensing}
+          onChange={(e) =>
+            updateRow(row._key, 'gramsPerDispensing', parseFloat(e.target.value) || 0)
+          }
+        />
       ),
     },
     {
       key: 'siloCapacityKg',
       header: 'Silo Capacity (kg)',
       render: (_value, row) => (
-        <Input type="number" step="0.01" min="0" value={row.siloCapacityKg} onChange={(e) =>
-      updateRow(row._key, 'siloCapacityKg', parseFloat(e.target.value) || 0)
-     } />
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          value={row.siloCapacityKg}
+          onChange={(e) => updateRow(row._key, 'siloCapacityKg', parseFloat(e.target.value) || 0)}
+        />
       ),
     },
     {
       key: 'notes',
       header: 'Notes',
       render: (_value, row) => (
-        <Input type="text" value={row.notes || ''} onChange={(e) => updateRow(row._key, 'notes', e.target.value)} />
+        <Input
+          type="text"
+          value={row.notes || ''}
+          onChange={(e) => updateRow(row._key, 'notes', e.target.value)}
+        />
       ),
     },
     {
@@ -154,12 +178,17 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       header: '',
       render: (_value, row) => (
         <>
-          <Button variant="ghost" type="button" onClick={() => removeRow(row._key)} title="Remove row"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg></Button>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() => removeRow(row._key)}
+            title="Remove row"
+          >
+            <X className="w-4 h-4" aria-hidden="true" />
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -184,27 +213,35 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       )}
 
       {rows.length === 0 && (
-        <p className="text-sm text-gray-400 dark:text-gray-500 italic mb-3">No calibration data yet.</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 italic mb-3">
+          No calibration data yet.
+        </p>
       )}
 
       <div className="flex items-center gap-3 mt-3">
         <button
           type="button"
           onClick={addRow}
-          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 rounded hover:bg-blue-100"
+          className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20 rounded hover:bg-info-100 dark:hover:bg-info-900/50"
         >
-          <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v12m6-6H6" />
-          </svg>
+          <Plus className="w-4 h-4 mr-1" aria-hidden="true" />
           Add Row
         </button>
 
         {isDirty && (
-          <Button variant="primary" size="sm" type="button" onClick={handleSave} disabled={saveCalibrations.isPending}>{saveCalibrations.isPending ? 'Saving...' : 'Save Calibrations'}</Button>
+          <Button
+            variant="primary"
+            size="sm"
+            type="button"
+            onClick={handleSave}
+            disabled={saveCalibrations.isPending}
+          >
+            {saveCalibrations.isPending ? 'Saving...' : 'Save Calibrations'}
+          </Button>
         )}
 
         {saveCalibrations.isSuccess && !isDirty && (
-          <span className="text-sm text-green-600">Saved</span>
+          <span className="text-sm text-success-600 dark:text-success-400">Saved</span>
         )}
       </div>
     </div>

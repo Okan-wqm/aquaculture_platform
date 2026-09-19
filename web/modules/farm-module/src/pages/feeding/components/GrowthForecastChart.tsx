@@ -41,10 +41,7 @@ interface GrowthForecastChartProps {
   batches: readonly Batch[];
 }
 
-export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
-  batchId,
-  batches,
-}) => {
+export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchId, batches }) => {
   const [selectedBatchId, setSelectedBatchId] = useState<string>(batchId || batches[0]?.id || '');
   const [projectionDays, setProjectionDays] = useState<number>(30);
   const [customSGR, setCustomSGR] = useState<number | null>(null);
@@ -109,7 +106,9 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
       header: 'Feed Type',
       render: (_value, feed) => (
         <>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{feed.feedName}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {feed.feedName}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">{feed.feedCode}</div>
         </>
       ),
@@ -118,21 +117,13 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
       key: 'totalRequired',
       header: 'Total Required',
       align: 'right',
-      render: (_value, feed) => (
-        <>
-          {feed.totalKg.toFixed(0)} kg
-        </>
-      ),
+      render: (_value, feed) => <>{feed.totalKg.toFixed(0)} kg</>,
     },
     {
       key: 'daysUsed',
       header: 'Days Used',
       align: 'right',
-      render: (_value, feed) => (
-        <>
-          {feed.daysUsed} days
-        </>
-      ),
+      render: (_value, feed) => <>{feed.daysUsed} days</>,
     },
     {
       key: 'period',
@@ -143,7 +134,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
           Day {feed.startDay} - Day {feed.endDay}
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -159,7 +150,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
             <select
               value={selectedBatchId}
               onChange={(e) => setSelectedBatchId(e.target.value)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             >
               {batches.map((batch) => (
                 <option key={batch.id} value={batch.id}>
@@ -177,7 +168,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
             <select
               value={projectionDays}
               onChange={(e) => setProjectionDays(Number(e.target.value))}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             >
               <option value={14}>14 days</option>
               <option value={30}>30 days</option>
@@ -192,7 +183,14 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               SGR (%) - Default: {batchSGR.toFixed(2)}%
             </label>
-            <Input fullWidth type="number" step="0.1" placeholder={`${batchSGR.toFixed(2)}`} value={customSGR ?? ''} onChange={(e) => setCustomSGR(e.target.value ? Number(e.target.value) : null)} />
+            <Input
+              fullWidth
+              type="number"
+              step="0.1"
+              placeholder={`${batchSGR.toFixed(2)}`}
+              value={customSGR ?? ''}
+              onChange={(e) => setCustomSGR(e.target.value ? Number(e.target.value) : null)}
+            />
           </div>
 
           {/* Current Stats */}
@@ -218,7 +216,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
 
       {/* Error State */}
       {error && (
-        <div className="bg-red-50 rounded-lg shadow p-6 text-center text-red-600">
+        <div className="bg-error-50 dark:bg-error-900/20 rounded-lg shadow p-6 text-center text-error-600 dark:text-error-400">
           Error loading growth simulation. Please try again.
         </div>
       )}
@@ -233,9 +231,16 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {simulationData.summary.endWeight.toFixed(0)}g
               </p>
-              <p className="text-xs text-green-600">
-                +{(simulationData.summary.endWeight - simulationData.summary.startWeight).toFixed(0)}g
-                ({(((simulationData.summary.endWeight - simulationData.summary.startWeight) / simulationData.summary.startWeight) * 100).toFixed(0)}%)
+              <p className="text-xs text-success-600 dark:text-success-400">
+                +
+                {(simulationData.summary.endWeight - simulationData.summary.startWeight).toFixed(0)}
+                g (
+                {(
+                  ((simulationData.summary.endWeight - simulationData.summary.startWeight) /
+                    simulationData.summary.startWeight) *
+                  100
+                ).toFixed(0)}
+                %)
               </p>
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
@@ -243,8 +248,13 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
               <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {(simulationData.summary.endBiomass / 1000).toFixed(2)}t
               </p>
-              <p className="text-xs text-green-600">
-                +{((simulationData.summary.endBiomass - simulationData.summary.startBiomass) / 1000).toFixed(2)}t
+              <p className="text-xs text-success-600 dark:text-success-400">
+                +
+                {(
+                  (simulationData.summary.endBiomass - simulationData.summary.startBiomass) /
+                  1000
+                ).toFixed(2)}
+                t
               </p>
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
@@ -269,14 +279,23 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
 
           {/* Weight & Biomass Chart */}
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Weight & Biomass Projection</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+              Weight & Biomass Projection
+            </h3>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
-                  <YAxis yAxisId="left" label={{ value: 'Weight (g)', angle: -90, position: 'insideLeft' }} />
-                  <YAxis yAxisId="right" orientation="right" label={{ value: 'Biomass (kg)', angle: 90, position: 'insideRight' }} />
+                  <YAxis
+                    yAxisId="left"
+                    label={{ value: 'Weight (g)', angle: -90, position: 'insideLeft' }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    label={{ value: 'Biomass (kg)', angle: 90, position: 'insideRight' }}
+                  />
                   <Tooltip />
                   <Legend />
                   <Line
@@ -303,14 +322,23 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
 
           {/* Daily Feed Chart */}
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
-            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Daily Feed Requirements</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+              Daily Feed Requirements
+            </h3>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="date" />
-                  <YAxis yAxisId="left" label={{ value: 'Daily Feed (kg)', angle: -90, position: 'insideLeft' }} />
-                  <YAxis yAxisId="right" orientation="right" label={{ value: 'Cumulative (kg)', angle: 90, position: 'insideRight' }} />
+                  <YAxis
+                    yAxisId="left"
+                    label={{ value: 'Daily Feed (kg)', angle: -90, position: 'insideLeft' }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    label={{ value: 'Cumulative (kg)', angle: 90, position: 'insideRight' }}
+                  />
                   <Tooltip />
                   <Legend />
                   <Bar
@@ -336,7 +364,9 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
           {simulationData.feedRequirements.length > 0 && (
             <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Feed Requirements by Type</h3>
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                  Feed Requirements by Type
+                </h3>
               </div>
               <DataTable<FeedRow>
                 data={simulationData.feedRequirements}

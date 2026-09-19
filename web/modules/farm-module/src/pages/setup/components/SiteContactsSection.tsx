@@ -35,11 +35,7 @@
  *   - Empty list is valid (semantics: "clear all contacts").
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import {
-  Button,
-  formatErrorForToast,
-  useCanMutate,
-  useToast, Input } from '@aquaculture/shared-ui';
+import { Button, formatErrorForToast, useCanMutate, useToast, Input } from '@aquaculture/shared-ui';
 
 import {
   type SiteContact,
@@ -132,8 +128,8 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
       <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">İrtibat Kişileri</h3>
         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          Site oluşturulduktan sonra irtibat kişileri eklenebilir.
-          Önce yukarıdaki "Kaydet" butonu ile siteyi oluşturun.
+          Site oluşturulduktan sonra irtibat kişileri eklenebilir. Önce yukarıdaki "Kaydet" butonu
+          ile siteyi oluşturun.
         </p>
       </div>
     );
@@ -157,7 +153,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
                 {c.email && <span className="text-gray-500 dark:text-gray-400"> · {c.email}</span>}
                 {c.phone && <span className="text-gray-500 dark:text-gray-400"> · {c.phone}</span>}
                 {c.isPrimary && (
-                  <span className="ml-2 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                  <span className="ml-2 px-1.5 py-0.5 text-xs bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded">
                     Ana
                   </span>
                 )}
@@ -177,13 +173,8 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
     setRows((prev) => prev.filter((r) => r.localKey !== localKey));
   };
 
-  const handleChange = (
-    localKey: string,
-    patch: Partial<Omit<RowDraft, 'localKey'>>,
-  ) => {
-    setRows((prev) =>
-      prev.map((r) => (r.localKey === localKey ? { ...r, ...patch } : r)),
-    );
+  const handleChange = (localKey: string, patch: Partial<Omit<RowDraft, 'localKey'>>) => {
+    setRows((prev) => prev.map((r) => (r.localKey === localKey ? { ...r, ...patch } : r)));
   };
 
   const handleMarkPrimary = (localKey: string) => {
@@ -226,11 +217,12 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
     <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">İrtibat Kişileri</h3>
-        <Button variant="ghost" type="button" onClick={handleAddRow}>+ Yeni Kişi</Button>
+        <Button variant="ghost" type="button" onClick={handleAddRow}>
+          + Yeni Kişi
+        </Button>
       </div>
       <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-        Sitenin operatif irtibat kişileri. En fazla bir kişi "ana
-        irtibat" olarak işaretlenebilir.
+        Sitenin operatif irtibat kişileri. En fazla bir kişi "ana irtibat" olarak işaretlenebilir.
       </p>
 
       {contactsQuery.isLoading ? (
@@ -246,18 +238,34 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
               key={row.localKey}
               className="grid grid-cols-1 md:grid-cols-12 gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded"
             >
-              <Input type="text" placeholder="İsim *" value={row.name} onChange={(e) =>
-         handleChange(row.localKey, { name: e.target.value })
-        } maxLength={100} />
-              <Input type="text" placeholder="Rol" value={row.role} onChange={(e) =>
-         handleChange(row.localKey, { role: e.target.value })
-        } maxLength={100} />
-              <Input type="email" placeholder="E-posta" value={row.email} onChange={(e) =>
-         handleChange(row.localKey, { email: e.target.value })
-        } maxLength={150} />
-              <Input type="tel" placeholder="Telefon" value={row.phone} onChange={(e) =>
-         handleChange(row.localKey, { phone: e.target.value })
-        } maxLength={50} />
+              <Input
+                type="text"
+                placeholder="İsim *"
+                value={row.name}
+                onChange={(e) => handleChange(row.localKey, { name: e.target.value })}
+                maxLength={100}
+              />
+              <Input
+                type="text"
+                placeholder="Rol"
+                value={row.role}
+                onChange={(e) => handleChange(row.localKey, { role: e.target.value })}
+                maxLength={100}
+              />
+              <Input
+                type="email"
+                placeholder="E-posta"
+                value={row.email}
+                onChange={(e) => handleChange(row.localKey, { email: e.target.value })}
+                maxLength={150}
+              />
+              <Input
+                type="tel"
+                placeholder="Telefon"
+                value={row.phone}
+                onChange={(e) => handleChange(row.localKey, { phone: e.target.value })}
+                maxLength={50}
+              />
               <div className="md:col-span-2 flex items-center justify-end gap-2">
                 <label className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
                   <input
@@ -269,7 +277,15 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
                   />
                   Ana
                 </label>
-                <Button variant="ghost" size="xs" type="button" onClick={() => handleRemoveRow(row.localKey)} aria-label={`${row.name || 'Kişi'} satırını çıkar`}>Sil</Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  type="button"
+                  onClick={() => handleRemoveRow(row.localKey)}
+                  aria-label={`${row.name || 'Kişi'} satırını çıkar`}
+                >
+                  Sil
+                </Button>
               </div>
             </div>
           ))}
@@ -277,7 +293,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
       )}
 
       {errors.length > 0 && (
-        <ul className="mt-3 bg-red-50 border border-red-200 rounded-md p-2 text-xs text-red-800 space-y-1">
+        <ul className="mt-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-md p-2 text-xs text-error-800 dark:text-error-200 space-y-1">
           {errors.map((msg, idx) => (
             <li key={idx}>• {msg}</li>
           ))}

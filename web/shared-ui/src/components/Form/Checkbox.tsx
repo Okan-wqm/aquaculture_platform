@@ -9,7 +9,8 @@ import React, { forwardRef, InputHTMLAttributes, useId } from 'react';
 // Checkbox Tip Tanımlamaları
 // ============================================================================
 
-export interface CheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size' | 'type'> {
+export interface CheckboxProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, 'size' | 'type'> {
   /** Checkbox etiketi */
   label?: string;
   /** Açıklama metni */
@@ -78,7 +79,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
       id: providedId,
       ...props
     },
-    ref
+    ref,
   ) => {
     const generatedId = useId();
     const checkboxId = providedId || generatedId;
@@ -101,7 +102,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
           ref.current = node;
         }
       },
-      [indeterminate, ref]
+      [indeterminate, ref],
     );
 
     return (
@@ -148,7 +149,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
               </p>
             )}
             {error && (
-              <p className="text-sm text-error-600 mt-1" role="alert">
+              <p className="text-sm text-error-600 dark:text-error-400 mt-1" role="alert">
                 {error}
               </p>
             )}
@@ -156,7 +157,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 Checkbox.displayName = 'Checkbox';
@@ -203,7 +204,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
       onChange,
       ...props
     },
-    ref
+    ref,
   ) => {
     const generatedId = useId();
     const switchId = providedId || generatedId;
@@ -282,7 +283,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 Switch.displayName = 'Switch';
@@ -352,7 +353,9 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
   return (
     <fieldset className={className}>
       {label && (
-        <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{label}</legend>
+        <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          {label}
+        </legend>
       )}
       <div className={`${vertical ? 'space-y-2' : 'flex flex-wrap gap-4'}`}>
         {options.map((option) => {
@@ -400,7 +403,7 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
         })}
       </div>
       {error && (
-        <p className="mt-2 text-sm text-error-600" role="alert">
+        <p className="mt-2 text-sm text-error-600 dark:text-error-400" role="alert">
           {error}
         </p>
       )}

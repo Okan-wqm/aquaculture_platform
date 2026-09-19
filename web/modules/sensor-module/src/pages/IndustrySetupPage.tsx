@@ -30,13 +30,13 @@ const IndustrySetupPage: React.FC = () => {
           title="Sektor Secimi"
           description={
             <>
-              Sensor modulunu sektorunuze gore yapilandirin. Bir sablon secerek
-              uygun sensor tipleri ve alarm esikleri otomatik olarak olusturulur.
+              Sensor modulunu sektorunuze gore yapilandirin. Bir sablon secerek uygun sensor tipleri
+              ve alarm esikleri otomatik olarak olusturulur.
             </>
           }
           leading={
-            <div className="p-2 rounded-lg bg-cyan-50">
-              <Layers className="w-6 h-6 text-cyan-600" />
+            <div className="p-2 rounded-lg bg-info-50 dark:bg-info-900/20">
+              <Layers className="w-6 h-6 text-info-600 dark:text-info-400" />
             </div>
           }
           className="mb-8"
@@ -47,7 +47,13 @@ const IndustrySetupPage: React.FC = () => {
 
         {/* Skip link */}
         <div className="mt-6 flex justify-center">
-          <Button variant="ghost" rightIcon={<ArrowRight className="w-4 h-4" />} onClick={handleSkip}>Atla</Button>
+          <Button
+            variant="ghost"
+            rightIcon={<ArrowRight className="w-4 h-4" />}
+            onClick={handleSkip}
+          >
+            Atla
+          </Button>
         </div>
       </div>
     </div>

@@ -4,6 +4,8 @@
  */
 
 import React, { useId } from 'react';
+import { ArrowDown, ArrowUp, Minus } from 'lucide-react';
+import { colors as themeColors } from '../../styles/theme';
 
 // ============================================================================
 // Types
@@ -74,31 +76,21 @@ const TrendIndicator: React.FC<{
   isPercentage?: boolean;
 }> = ({ value, direction, label, isPercentage = true }) => {
   const colors = {
-    up: 'text-success-600 bg-success-50',
-    down: 'text-error-600 bg-error-50',
+    up: 'text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20',
+    down: 'text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20',
     neutral: 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800',
   };
 
   const icons = {
-    up: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
-      </svg>
-    ),
-    down: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-      </svg>
-    ),
-    neutral: (
-      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14" />
-      </svg>
-    ),
+    up: <ArrowUp className="w-4 h-4" aria-hidden="true" />,
+    down: <ArrowDown className="w-4 h-4" aria-hidden="true" />,
+    neutral: <Minus className="w-4 h-4" aria-hidden="true" />,
   };
 
   return (
-    <div className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${colors[direction]}`}>
+    <div
+      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${colors[direction]}`}
+    >
       {icons[direction]}
       <span>
         {direction === 'up' ? '+' : direction === 'down' ? '-' : ''}
@@ -113,9 +105,13 @@ const TrendIndicator: React.FC<{
 // PERF-009: Wrap in React.memo — sparkline re-renders are expensive due to SVG coordinate math
 const MiniSparkline = React.memo(function MiniSparkline({
   data,
-  color = '#3B82F6',
+  color = themeColors.info[500],
   height = 32,
-}: { data: number[]; color?: string; height?: number }) {
+}: {
+  data: number[];
+  color?: string;
+  height?: number;
+}) {
   // BUG-009: useId() ensures gradient ID is unique per instance — prevents collision when
   // multiple KpiCards with sparklines render on the same page
   const uid = useId().replace(/:/g, '');
@@ -137,7 +133,11 @@ const MiniSparkline = React.memo(function MiniSparkline({
   const pathD = `M${points.join(' L')}`;
 
   // Area fill
-  const areaPoints = [...points, `${width - padding},${height - padding}`, `${padding},${height - padding}`];
+  const areaPoints = [
+    ...points,
+    `${width - padding},${height - padding}`,
+    `${padding},${height - padding}`,
+  ];
   const areaD = `M${areaPoints.join(' L')}Z`;
   const gradientId = `sparkline-gradient-${uid}`;
 
@@ -150,8 +150,20 @@ const MiniSparkline = React.memo(function MiniSparkline({
         </linearGradient>
       </defs>
       <path d={areaD} fill={`url(#${gradientId})`} />
-      <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={points[points.length - 1].split(',')[0]} cy={points[points.length - 1].split(',')[1]} r="3" fill={color} />
+      <path
+        d={pathD}
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle
+        cx={points[points.length - 1].split(',')[0]}
+        cy={points[points.length - 1].split(',')[1]}
+        r="3"
+        fill={color}
+      />
     </svg>
   );
 });
@@ -165,7 +177,9 @@ const ProgressBar: React.FC<{
 }> = ({ current, max, label, showPercentage = true, variant = 'default' }) => {
   // BUG-010: Guard against NaN (max=0) and Infinity (max negative)
   const rawRatio = max > 0 ? current / max : 0;
-  const percentage = Number.isFinite(rawRatio) ? Math.min(Math.max(Math.round(rawRatio * 100), 0), 100) : 0;
+  const percentage = Number.isFinite(rawRatio)
+    ? Math.min(Math.max(Math.round(rawRatio * 100), 0), 100)
+    : 0;
 
   const colors = {
     default: 'bg-primary-500',
@@ -224,7 +238,7 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
   sparklineData,
   progress,
   icon,
-  iconBackground = 'bg-primary-100',
+  iconBackground = 'bg-primary-100 dark:bg-primary-900/40',
   variant = 'default',
   size = 'md',
   className = '',
@@ -263,29 +277,29 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
       iconText: 'text-gray-600 dark:text-gray-400',
     },
     primary: {
-      border: 'border-primary-200',
-      iconBg: 'bg-primary-100',
-      iconText: 'text-primary-600',
+      border: 'border-primary-200 dark:border-primary-800',
+      iconBg: 'bg-primary-100 dark:bg-primary-900/40',
+      iconText: 'text-primary-600 dark:text-primary-400',
     },
     success: {
-      border: 'border-success-200',
-      iconBg: 'bg-success-100',
-      iconText: 'text-success-600',
+      border: 'border-success-200 dark:border-success-800',
+      iconBg: 'bg-success-100 dark:bg-success-900/40',
+      iconText: 'text-success-600 dark:text-success-400',
     },
     warning: {
-      border: 'border-warning-200',
-      iconBg: 'bg-warning-100',
-      iconText: 'text-warning-600',
+      border: 'border-warning-200 dark:border-warning-800',
+      iconBg: 'bg-warning-100 dark:bg-warning-900/40',
+      iconText: 'text-warning-600 dark:text-warning-400',
     },
     danger: {
-      border: 'border-error-200',
-      iconBg: 'bg-error-100',
-      iconText: 'text-error-600',
+      border: 'border-error-200 dark:border-error-800',
+      iconBg: 'bg-error-100 dark:bg-error-900/40',
+      iconText: 'text-error-600 dark:text-error-400',
     },
     info: {
-      border: 'border-info-200',
-      iconBg: 'bg-info-100',
-      iconText: 'text-info-600',
+      border: 'border-info-200 dark:border-info-800',
+      iconBg: 'bg-info-100 dark:bg-info-900/40',
+      iconText: 'text-info-600 dark:text-info-400',
     },
   };
 
@@ -297,7 +311,7 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
       className={`
         bg-white dark:bg-gray-900 rounded-xl shadow-sm border ${colors.border}
         ${sizes.padding}
-        ${onClick ? 'cursor-pointer hover:shadow-md hover:border-primary-300 transition-all duration-200' : ''}
+        ${onClick ? 'cursor-pointer hover:shadow-md hover:border-primary-300 dark:hover:border-primary-600 transition-all duration-200' : ''}
         ${className}
       `}
       onClick={onClick}
@@ -309,16 +323,28 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
-              <h3 className={`${sizes.title} font-medium text-gray-500 dark:text-gray-400 truncate`}>{title}</h3>
+              <h3
+                className={`${sizes.title} font-medium text-gray-500 dark:text-gray-400 truncate`}
+              >
+                {title}
+              </h3>
               <div className="flex items-baseline gap-2 mt-1">
-                <span className={`${sizes.value} font-bold text-gray-900 dark:text-gray-100`}>{value}</span>
-                {subtitle && <span className={`${sizes.subtitle} text-gray-500 dark:text-gray-400`}>{subtitle}</span>}
+                <span className={`${sizes.value} font-bold text-gray-900 dark:text-gray-100`}>
+                  {value}
+                </span>
+                {subtitle && (
+                  <span className={`${sizes.subtitle} text-gray-500 dark:text-gray-400`}>
+                    {subtitle}
+                  </span>
+                )}
               </div>
             </div>
 
             {/* Icon or Sparkline */}
             {icon ? (
-              <div className={`flex-shrink-0 ${sizes.icon} ${colors.iconBg} ${colors.iconText} rounded-lg flex items-center justify-center`}>
+              <div
+                className={`flex-shrink-0 ${sizes.icon} ${colors.iconBg} ${colors.iconText} rounded-lg flex items-center justify-center`}
+              >
                 {icon}
               </div>
             ) : sparklineData && sparklineData.length > 0 ? (
@@ -327,12 +353,12 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
                   data={sparklineData}
                   color={
                     variant === 'success'
-                      ? '#10B981'
+                      ? themeColors.success[500]
                       : variant === 'danger'
-                      ? '#EF4444'
-                      : variant === 'warning'
-                      ? '#F59E0B'
-                      : '#3B82F6'
+                        ? themeColors.error[500]
+                        : variant === 'warning'
+                          ? themeColors.warning[500]
+                          : themeColors.info[500]
                   }
                 />
               </div>
@@ -340,7 +366,9 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
           </div>
 
           {/* Description */}
-          {description && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{description}</p>}
+          {description && (
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{description}</p>
+          )}
 
           {/* Trend & Comparison */}
           {(trend || comparison) && (
@@ -355,7 +383,10 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
               )}
               {comparison && (
                 <span className="text-xs text-gray-500 dark:text-gray-400">
-                  <span className="font-medium text-gray-700 dark:text-gray-300">{comparison.value}</span> {comparison.label}
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
+                    {comparison.value}
+                  </span>{' '}
+                  {comparison.label}
                 </span>
               )}
             </div>
@@ -373,7 +404,9 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
           )}
 
           {/* Footer */}
-          {footer && <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">{footer}</div>}
+          {footer && (
+            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">{footer}</div>
+          )}
         </>
       )}
     </div>

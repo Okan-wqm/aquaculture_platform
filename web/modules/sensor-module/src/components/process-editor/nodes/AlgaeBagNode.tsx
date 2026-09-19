@@ -14,7 +14,14 @@ type HandleType = 'source' | 'target';
 /**
  * Node data keys that can be updated for handles
  */
-type HandleDataKey = 'top1Type' | 'top2Type' | 'top3Type' | 'top4Type' | 'leftType' | 'rightType' | 'bottomType';
+type HandleDataKey =
+  | 'top1Type'
+  | 'top2Type'
+  | 'top3Type'
+  | 'top4Type'
+  | 'leftType'
+  | 'rightType'
+  | 'bottomType';
 
 interface AlgaeBagNodeData extends Record<string, unknown> {
   color?: 'red' | 'green' | 'yellow';
@@ -68,13 +75,14 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
   const [rightType, setRightType] = useState<HandleType>(data?.rightType || 'source');
   const [bottomType, setBottomType] = useState<HandleType>(data?.bottomType || 'source');
 
-  const getColor = (type: HandleType) => (type === 'source' ? themeColors.success[500] : themeColors.info[500]);
+  const getColor = (type: HandleType) =>
+    type === 'source' ? themeColors.success[500] : themeColors.info[500];
 
   const toggleHandle = (
     e: React.MouseEvent,
     current: HandleType,
     setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
-    key: HandleDataKey
+    key: HandleDataKey,
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -85,7 +93,17 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
   useEffect(() => {
     updateNodeInternals(id);
-  }, [id, top1Type, top2Type, top3Type, top4Type, leftType, rightType, bottomType, updateNodeInternals]);
+  }, [
+    id,
+    top1Type,
+    top2Type,
+    top3Type,
+    top4Type,
+    leftType,
+    rightType,
+    bottomType,
+    updateNodeInternals,
+  ]);
 
   const gradientId = `algaeGradient-${id}`;
 
@@ -152,9 +170,33 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
         {/* Triangular stand (masked - only visible outside bag) */}
         <g mask={`url(#standMask-${id})`}>
-          <line x1="10" y1="340" x2="75" y2="20" stroke={themeColors.neutral[600]} strokeWidth="6" strokeLinecap="round" />
-          <line x1="140" y1="340" x2="75" y2="20" stroke={themeColors.neutral[600]} strokeWidth="6" strokeLinecap="round" />
-          <line x1="10" y1="340" x2="140" y2="340" stroke={themeColors.neutral[600]} strokeWidth="6" strokeLinecap="round" />
+          <line
+            x1="10"
+            y1="340"
+            x2="75"
+            y2="20"
+            stroke={themeColors.neutral[600]}
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
+          <line
+            x1="140"
+            y1="340"
+            x2="75"
+            y2="20"
+            stroke={themeColors.neutral[600]}
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
+          <line
+            x1="10"
+            y1="340"
+            x2="140"
+            y2="340"
+            stroke={themeColors.neutral[600]}
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
         </g>
 
         {/* Bag body */}
@@ -162,7 +204,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
           d="M 30 25 Q 12 30, 15 60 Q 10 100, 15 140 L 12 220 Q 8 260, 18 285 Q 35 310, 75 310 Q 115 310, 132 285 Q 142 260, 138 220 L 135 140 Q 140 100, 135 60 Q 138 30, 120 25 Q 100 20, 75 20 Q 50 20, 30 25 Z"
           fill={themeColors.neutral[100]}
           fillOpacity="0.4"
-          stroke="#999"
+          stroke={themeColors.neutral[400]}
           strokeWidth="1.5"
         />
 
@@ -207,7 +249,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
         />
 
         {/* Label */}
-        <text x="75" y="345" textAnchor="middle" fontSize="10" fill="#333">
+        <text x="75" y="345" textAnchor="middle" fontSize="10" fill={themeColors.neutral[700]}>
           {data?.label || config.label}
         </text>
       </svg>

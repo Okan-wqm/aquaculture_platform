@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Modal, Button } from '@aquaculture/shared-ui';
 import { Task, CATEGORY_CONFIG, PRIORITY_CONFIG } from '../types/task.types';
 import { TaskDetailModal } from './TaskDetailModal';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface CalendarTabProps {
   tasks: Task[];
@@ -79,16 +80,16 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
 
   const getCategoryDot = (category: string) => {
     const colors: Record<string, string> = {
-      FEEDING: 'bg-orange-400',
-      WATER_QUALITY: 'bg-blue-400',
-      HEALTH_CHECK: 'bg-red-400',
+      FEEDING: 'bg-accent-400',
+      WATER_QUALITY: 'bg-info-400',
+      HEALTH_CHECK: 'bg-error-400',
       EQUIPMENT_MAINTENANCE: 'bg-gray-400',
-      STOCK_MANAGEMENT: 'bg-purple-400',
-      CLEANING: 'bg-cyan-400',
-      REGULATORY: 'bg-indigo-400',
-      HARVEST: 'bg-green-400',
-      ENVIRONMENTAL: 'bg-emerald-400',
-      SAFETY: 'bg-yellow-400',
+      STOCK_MANAGEMENT: 'bg-accent-400',
+      CLEANING: 'bg-info-400',
+      REGULATORY: 'bg-primary-400',
+      HARVEST: 'bg-success-400',
+      ENVIRONMENTAL: 'bg-success-400',
+      SAFETY: 'bg-warning-400',
       GENERAL: 'bg-slate-400',
     };
     return colors[category] || 'bg-gray-400';
@@ -99,33 +100,26 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" onClick={() => (viewMode === 'week' ? navigateWeek(-1) : navigateMonth(-1))}><svg
-              className="w-5 h-5 text-gray-600 dark:text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15 19l-7-7 7-7"
-              />
-            </svg></Button>
+          <Button
+            variant="ghost"
+            onClick={() => (viewMode === 'week' ? navigateWeek(-1) : navigateMonth(-1))}
+          >
+            <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
+          </Button>
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {viewMode === 'week'
               ? `${weekDays[0].toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })} - ${weekDays[6].toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })}`
               : currentDate.toLocaleDateString('tr-TR', { month: 'long', year: 'numeric' })}
           </h3>
-          <Button variant="ghost" onClick={() => (viewMode === 'week' ? navigateWeek(1) : navigateMonth(1))}><svg
-              className="w-5 h-5 text-gray-600 dark:text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg></Button>
-          <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>Bugün</Button>
+          <Button
+            variant="ghost"
+            onClick={() => (viewMode === 'week' ? navigateWeek(1) : navigateMonth(1))}
+          >
+            <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setCurrentDate(new Date())}>
+            Bugün
+          </Button>
         </div>
 
         {/* View Toggle */}
@@ -155,18 +149,20 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               return (
                 <div
                   key={i}
-                  className={`p-3 border-r last:border-r-0 border-gray-200 dark:border-gray-700 min-h-[200px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-blue-50' : ''}`}
+                  className={`p-3 border-r last:border-r-0 border-gray-200 dark:border-gray-700 min-h-[200px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-info-50 dark:bg-info-900/20' : ''}`}
                   onClick={() => dayTasks.length > 0 && setSelectedDayTasks(dayTasks)}
                 >
                   <div className="text-center mb-2">
                     <p className="text-xs text-gray-500 dark:text-gray-400">{dayNames[i]}</p>
                     <p
-                      className={`text-lg font-semibold ${isToday ? 'text-blue-600' : 'text-gray-900 dark:text-gray-100'}`}
+                      className={`text-lg font-semibold ${isToday ? 'text-info-600 dark:text-info-400' : 'text-gray-900 dark:text-gray-100'}`}
                     >
                       {day.getDate()}
                     </p>
                     {dayTasks.length > 0 && (
-                      <span className="text-xs text-gray-500 dark:text-gray-400">{dayTasks.length} görev</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {dayTasks.length} görev
+                      </span>
                     )}
                   </div>
                   <div className="space-y-1">
@@ -179,9 +175,9 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                         }}
                         className={`text-xs p-1.5 rounded cursor-pointer hover:opacity-80 ${
                           task.status === 'COMPLETED'
-                            ? 'bg-green-50 text-green-700 line-through'
+                            ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 line-through'
                             : task.status === 'OVERDUE'
-                              ? 'bg-red-50 text-red-700'
+                              ? 'bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300'
                               : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                         }`}
                       >
@@ -191,7 +187,11 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                           />
                           <span className="truncate">{task.title}</span>
                         </div>
-                        {task.dueTime && <span className="text-gray-400 dark:text-gray-500 ml-3">{task.dueTime}</span>}
+                        {task.dueTime && (
+                          <span className="text-gray-400 dark:text-gray-500 ml-3">
+                            {task.dueTime}
+                          </span>
+                        )}
                       </div>
                     ))}
                     {dayTasks.length > 4 && (
@@ -237,10 +237,12 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
               return (
                 <div
                   key={i}
-                  className={`p-2 border-r border-b border-gray-100 dark:border-gray-700 min-h-[80px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-blue-50' : ''}`}
+                  className={`p-2 border-r border-b border-gray-100 dark:border-gray-700 min-h-[80px] cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${isToday ? 'bg-info-50 dark:bg-info-900/20' : ''}`}
                   onClick={() => dayTasks.length > 0 && setSelectedDayTasks(dayTasks)}
                 >
-                  <p className={`text-sm ${isToday ? 'font-bold text-blue-600' : 'text-gray-700 dark:text-gray-300'}`}>
+                  <p
+                    className={`text-sm ${isToday ? 'font-bold text-info-600 dark:text-info-400' : 'text-gray-700 dark:text-gray-300'}`}
+                  >
                     {day.getDate()}
                   </p>
                   <div className="mt-1 space-y-0.5">
@@ -249,11 +251,15 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                         <span
                           className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${getCategoryDot(task.category)}`}
                         />
-                        <span className="text-xs text-gray-600 dark:text-gray-400 truncate">{task.title}</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-400 truncate">
+                          {task.title}
+                        </span>
                       </div>
                     ))}
                     {dayTasks.length > 2 && (
-                      <p className="text-xs text-gray-400 dark:text-gray-500">+{dayTasks.length - 2}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        +{dayTasks.length - 2}
+                      </p>
                     )}
                   </div>
                 </div>
@@ -286,7 +292,9 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                 >
                   <div className="flex items-center gap-2 mb-1">
                     <span className={`w-2 h-2 rounded-full ${getCategoryDot(task.category)}`} />
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{task.title}</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {task.title}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2 ml-4">
                     <span
@@ -299,8 +307,14 @@ export const CalendarTab: React.FC<CalendarTabProps> = ({
                     >
                       {pri.label}
                     </span>
-                    {task.dueTime && <span className="text-xs text-gray-500 dark:text-gray-400">{task.dueTime}</span>}
-                    <span className="text-xs text-gray-500 dark:text-gray-400">{task.assignedToName}</span>
+                    {task.dueTime && (
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {task.dueTime}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                      {task.assignedToName}
+                    </span>
                   </div>
                 </div>
               );

@@ -69,7 +69,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
       closeLabel="Close"
       title={
         <span className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary-600" />
+          <Sparkles className="h-5 w-5 text-primary-600 dark:text-primary-400" />
           <span>AI Assistant</span>
         </span>
       }
@@ -148,7 +148,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
                 m.role === 'user'
                   ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-primary-600 px-3 py-2 text-sm text-white'
                   : m.errorCode
-                    ? 'max-w-[85%] rounded-2xl rounded-bl-sm border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800'
+                    ? 'max-w-[85%] rounded-2xl rounded-bl-sm border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 px-3 py-2 text-sm text-warning-800 dark:text-warning-200'
                     : 'max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'
               }
             >
@@ -157,7 +157,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
               )}
               <span className="whitespace-pre-wrap">{m.content}</span>
               {m.errorCode === 'AI_KEY_MISSING' && (
-                <span className="mt-1 block text-xs text-amber-700">
+                <span className="mt-1 block text-xs text-warning-700 dark:text-warning-300">
                   A tenant admin can add an API key in Settings → AI Assistant.
                 </span>
               )}

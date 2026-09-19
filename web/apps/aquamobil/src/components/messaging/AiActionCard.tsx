@@ -8,7 +8,7 @@
  */
 
 import { clsx } from 'clsx';
-import { Check, X, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, Check, CheckCircle2, X, Zap } from 'lucide-react';
 import { useCallback, type ReactElement } from 'react';
 
 import { Spinner } from '@/components/ui/Spinner';
@@ -79,28 +79,14 @@ export function AiActionCard({
           ) : status === 'failed' ? (
             <AlertCircle size={18} className="text-red-500" />
           ) : (
-            <svg
-              className="w-[18px] h-[18px] text-purple-500"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
+            <Zap className="w-[18px] h-[18px] text-purple-500" aria-hidden="true" />
           )}
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wider mb-1">
             AI Proposed Action
           </p>
-          <p className="text-sm text-gray-900 dark:text-white leading-relaxed">
-            {description}
-          </p>
+          <p className="text-sm text-gray-900 dark:text-white leading-relaxed">{description}</p>
         </div>
       </div>
 
@@ -131,11 +117,7 @@ export function AiActionCard({
                 : 'bg-green-500 text-white active:scale-95 shadow-sm shadow-green-500/30',
             )}
           >
-            {status === 'confirming' ? (
-              <Spinner size="md" color="inherit" />
-            ) : (
-              <Check size={18} />
-            )}
+            {status === 'confirming' ? <Spinner size="md" color="inherit" /> : <Check size={18} />}
             {status === 'confirming' ? 'Confirming...' : 'Confirm'}
           </button>
 

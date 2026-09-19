@@ -49,25 +49,34 @@ export interface DragChannelData {
 // Helper Components
 // ============================================================================
 
-const TypeIcon: React.FC<{ type: string; className?: string }> = ({ type, className = 'w-4 h-4' }) => {
+const TypeIcon: React.FC<{ type: string; className?: string }> = ({
+  type,
+  className = 'w-4 h-4',
+}) => {
   const normalizedType = type?.toLowerCase() || 'unknown';
   const icons: Record<string, React.ReactNode> = {
-    temperature: <Thermometer className={`${className} text-orange-500`} />,
-    dissolved_oxygen: <Droplets className={`${className} text-blue-500`} />,
-    ph: <Gauge className={`${className} text-purple-500`} />,
-    salinity: <Activity className={`${className} text-cyan-500`} />,
-    ammonia: <Activity className={`${className} text-yellow-500`} />,
-    turbidity: <Activity className={`${className} text-amber-500`} />,
-    conductivity: <Activity className={`${className} text-indigo-500`} />,
-    water_level: <Activity className={`${className} text-blue-600`} />,
-    flow_rate: <Activity className={`${className} text-teal-500`} />,
-    pressure: <Gauge className={`${className} text-red-500`} />,
-    voltage: <Activity className={`${className} text-green-500`} />,
-    current: <Activity className={`${className} text-pink-500`} />,
-    power: <Activity className={`${className} text-violet-500`} />,
+    temperature: <Thermometer className={`${className} text-accent-500`} />,
+    dissolved_oxygen: <Droplets className={`${className} text-info-500`} />,
+    ph: <Gauge className={`${className} text-accent-500`} />,
+    salinity: <Activity className={`${className} text-info-500`} />,
+    ammonia: <Activity className={`${className} text-warning-500`} />,
+    turbidity: <Activity className={`${className} text-warning-500`} />,
+    conductivity: <Activity className={`${className} text-primary-500`} />,
+    water_level: <Activity className={`${className} text-info-600 dark:text-info-400`} />,
+    flow_rate: <Activity className={`${className} text-info-500`} />,
+    pressure: <Gauge className={`${className} text-error-500`} />,
+    voltage: <Activity className={`${className} text-success-500`} />,
+    current: <Activity className={`${className} text-accent-500`} />,
+    power: <Activity className={`${className} text-accent-500`} />,
   };
 
-  return <>{icons[normalizedType] || <Activity className={`${className} text-gray-500 dark:text-gray-400`} />}</>;
+  return (
+    <>
+      {icons[normalizedType] || (
+        <Activity className={`${className} text-gray-500 dark:text-gray-400`} />
+      )}
+    </>
+  );
 };
 
 // ============================================================================
@@ -106,9 +115,13 @@ const DataChannelItem: React.FC<DataChannelItemProps> = ({ channel, parentSensor
       <GripVertical className="w-3 h-3 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
       <TypeIcon type={type} className="w-4 h-4" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{channel.name}</p>
+        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+          {channel.name}
+        </p>
         {channel.dataPath && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">{channel.dataPath}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
+            {channel.dataPath}
+          </p>
         )}
       </div>
       {channel.unit && (
@@ -128,7 +141,11 @@ interface DeviceGroupProps {
   searchTerm?: string;
 }
 
-const DeviceGroup: React.FC<DeviceGroupProps> = ({ group, defaultExpanded = false, searchTerm = '' }) => {
+const DeviceGroup: React.FC<DeviceGroupProps> = ({
+  group,
+  defaultExpanded = false,
+  searchTerm = '',
+}) => {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const { parent, children } = group;
 
@@ -142,7 +159,7 @@ const DeviceGroup: React.FC<DeviceGroupProps> = ({ group, defaultExpanded = fals
       (child) =>
         child.name.toLowerCase().includes(term) ||
         child.dataPath?.toLowerCase().includes(term) ||
-        child.type?.toLowerCase().includes(term)
+        child.type?.toLowerCase().includes(term),
     );
   }, [children, searchTerm]);
 
@@ -163,10 +180,12 @@ const DeviceGroup: React.FC<DeviceGroupProps> = ({ group, defaultExpanded = fals
         ) : (
           <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
         )}
-        <Server className="w-4 h-4 text-cyan-600" />
-        <span className="flex-1 text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{parent.name}</span>
+        <Server className="w-4 h-4 text-info-600 dark:text-info-400" />
+        <span className="flex-1 text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+          {parent.name}
+        </span>
         {isConnected ? (
-          <Wifi className="w-3 h-3 text-green-500" />
+          <Wifi className="w-3 h-3 text-success-500" />
         ) : (
           <WifiOff className="w-3 h-3 text-gray-500 dark:text-gray-400" />
         )}
@@ -177,11 +196,7 @@ const DeviceGroup: React.FC<DeviceGroupProps> = ({ group, defaultExpanded = fals
       {isExpanded && filteredChildren.length > 0 && (
         <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 py-1">
           {filteredChildren.map((channel) => (
-            <DataChannelItem
-              key={channel.id}
-              channel={channel}
-              parentSensor={parent}
-            />
+            <DataChannelItem key={channel.id} channel={channel} parentSensor={parent} />
           ))}
         </div>
       )}
@@ -226,8 +241,8 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
             (child) =>
               child.name.toLowerCase().includes(term) ||
               child.dataPath?.toLowerCase().includes(term) ||
-              child.type?.toLowerCase().includes(term)
-          )
+              child.type?.toLowerCase().includes(term),
+          ),
       );
     }
 
@@ -235,13 +250,12 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
   }, [sensors, searchTerm]);
 
   // Stats
-  const totalChannels = useMemo(
-    () => sensors.filter((s) => !s.isParentDevice).length,
-    [sensors]
-  );
+  const totalChannels = useMemo(() => sensors.filter((s) => !s.isParentDevice).length, [sensors]);
 
   return (
-    <div className={`flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 ${className}`}>
+    <div
+      className={`flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 ${className}`}
+    >
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Sensör Verileri</h3>
@@ -259,7 +273,7 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Sensör ara..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 focus:border-transparent"
           />
         </div>
       </div>
@@ -277,8 +291,8 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
         {/* Error State */}
         {error && (
           <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400">
-            <AlertCircle className="w-6 h-6 text-red-500 mb-2" />
-            <p className="text-sm text-red-600">Hata: {error}</p>
+            <AlertCircle className="w-6 h-6 text-error-500 mb-2" />
+            <p className="text-sm text-error-600 dark:text-error-400">Hata: {error}</p>
             <button
               onClick={() => refetch()}
               className="mt-2 px-3 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
@@ -292,24 +306,26 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
         {!loading && !error && groupedDevices.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400">
             <Activity className="w-8 h-8 mb-2 opacity-50" />
-            <p className="text-sm">
-              {searchTerm ? 'Sonuç bulunamadı' : 'Henüz sensör yok'}
-            </p>
+            <p className="text-sm">{searchTerm ? 'Sonuç bulunamadı' : 'Henüz sensör yok'}</p>
             {searchTerm && (
-              <Button variant="ghost" size="xs" className="mt-2" onClick={() => setSearchTerm('')}>Aramayı temizle</Button>
+              <Button variant="ghost" size="xs" className="mt-2" onClick={() => setSearchTerm('')}>
+                Aramayı temizle
+              </Button>
             )}
           </div>
         )}
 
         {/* Device Groups */}
-        {!loading && !error && groupedDevices.map((group) => (
-          <DeviceGroup
-            key={group.parent.id}
-            group={group}
-            defaultExpanded={groupedDevices.length <= 3}
-            searchTerm={searchTerm}
-          />
-        ))}
+        {!loading &&
+          !error &&
+          groupedDevices.map((group) => (
+            <DeviceGroup
+              key={group.parent.id}
+              group={group}
+              defaultExpanded={groupedDevices.length <= 3}
+              searchTerm={searchTerm}
+            />
+          ))}
       </div>
 
       {/* Footer */}

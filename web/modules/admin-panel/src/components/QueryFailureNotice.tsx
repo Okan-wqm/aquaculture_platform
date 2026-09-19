@@ -82,11 +82,11 @@ export const QueryFailureNotice: React.FC<QueryFailureNoticeProps> = ({
   if (!hasContent) {
     return (
       <div className="flex h-64 flex-col items-center justify-center" role="alert">
-        <AlertTriangle className="mb-4 h-12 w-12 text-red-500" />
-        <p className="mb-4 text-red-600">{text}</p>
+        <AlertTriangle className="mb-4 h-12 w-12 text-error-500" />
+        <p className="mb-4 text-error-600 dark:text-error-400">{text}</p>
         <button
           onClick={onRetry}
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="rounded-lg bg-info-600 px-4 py-2 text-sm font-medium text-white hover:bg-info-700"
         >
           Retry
         </button>
@@ -96,14 +96,14 @@ export const QueryFailureNotice: React.FC<QueryFailureNoticeProps> = ({
 
   return (
     <div
-      className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4"
+      className="flex items-start gap-3 rounded-lg border border-warning-200 dark:border-warning-800 bg-warning-50 dark:bg-warning-900/20 p-4"
       role="alert"
     >
-      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-      <p className="flex-1 text-sm text-amber-800">{text}</p>
+      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning-600 dark:text-warning-400" />
+      <p className="flex-1 text-sm text-warning-800 dark:text-warning-200">{text}</p>
       <button
         onClick={onRetry}
-        className="shrink-0 rounded-lg border border-amber-300 px-3 py-1 text-sm font-medium text-amber-800 hover:bg-amber-100"
+        className="shrink-0 rounded-lg border border-warning-300 dark:border-warning-700 px-3 py-1 text-sm font-medium text-warning-800 dark:text-warning-200 hover:bg-warning-100 dark:hover:bg-warning-900/50"
       >
         Retry
       </button>

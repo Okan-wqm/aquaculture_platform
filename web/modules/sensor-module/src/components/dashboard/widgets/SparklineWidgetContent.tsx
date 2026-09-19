@@ -85,9 +85,9 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({ 
 
   // Status colors
   const statusColors = {
-    normal: 'text-green-600',
-    warning: 'text-yellow-600',
-    critical: 'text-red-600',
+    normal: 'text-success-600 dark:text-success-400',
+    warning: 'text-warning-600 dark:text-warning-400',
+    critical: 'text-error-600 dark:text-error-400',
     offline: 'text-gray-500 dark:text-gray-400',
   };
 
@@ -133,7 +133,9 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({ 
             </span>
             <span className="text-xs text-gray-500 dark:text-gray-400">{unit}</span>
           </div>
-          <div className={`flex items-center gap-1 ${statusColors[status] || 'text-gray-500 dark:text-gray-400'}`}>
+          <div
+            className={`flex items-center gap-1 ${statusColors[status] || 'text-gray-500 dark:text-gray-400'}`}
+          >
             <TrendIcon size={14} />
             <span className="text-xs capitalize">{status}</span>
           </div>

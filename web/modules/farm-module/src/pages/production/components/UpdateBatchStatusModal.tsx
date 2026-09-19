@@ -14,10 +14,7 @@
 import React, { useMemo, useState } from 'react';
 import { Modal, Button, useToast, Textarea } from '@aquaculture/shared-ui';
 
-import {
-  BatchStatus,
-  useUpdateBatchStatus,
-} from '../../../hooks/useBatches';
+import { BatchStatus, useUpdateBatchStatus } from '../../../hooks/useBatches';
 
 interface UpdateBatchStatusModalProps {
   isOpen: boolean;
@@ -83,8 +80,7 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
       onSuccess?.();
       onClose();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to update status.';
+      const message = error instanceof Error ? error.message : 'Failed to update status.';
       toast({ title: 'Error', description: message, variant: 'error' });
     }
   };
@@ -111,20 +107,16 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
               htmlFor="target-status"
               className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              Target status <span className="text-orange-500">*</span>
+              Target status <span className="text-accent-500">*</span>
             </label>
             <select
               id="target-status"
               value={status}
               onChange={(e) => setStatus(e.target.value as BatchStatus)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
             >
               {STATUS_OPTIONS.map((opt) => (
-                <option
-                  key={opt.value}
-                  value={opt.value}
-                  disabled={opt.value === currentStatus}
-                >
+                <option key={opt.value} value={opt.value} disabled={opt.value === currentStatus}>
                   {opt.label}
                   {opt.value === currentStatus ? ' (current)' : ''}
                 </option>
@@ -139,13 +131,21 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
             >
               Reason (optional)
             </label>
-            <Textarea fullWidth id="status-reason" rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Explain the transition (written to the audit log)" />
+            <Textarea
+              fullWidth
+              id="status-reason"
+              rows={3}
+              maxLength={500}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Explain the transition (written to the audit log)"
+            />
           </div>
         </div>
 
         {errors.length > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-orange-600 space-y-1">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-accent-600 dark:text-accent-400 space-y-1">
               {errors.map((err) => (
                 <li key={err}>{err}</li>
               ))}
@@ -161,7 +161,7 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || updateStatus.isPending}
-            className="bg-orange-600 hover:bg-orange-700"
+            className="bg-accent-600 hover:bg-accent-700"
           >
             {updateStatus.isPending ? 'Updating…' : 'Update status'}
           </Button>

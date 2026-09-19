@@ -5,6 +5,7 @@
 import React, { useMemo } from 'react';
 import { ReportStatus } from '../../types/reports.types';
 import { getDaysUntilDeadline, isDeadlineOverdue, isDeadlineUrgent } from '../../utils/thresholds';
+import { Calendar, Check, CircleAlert, CircleCheck, Clock, TriangleAlert } from 'lucide-react';
 
 interface DeadlineIndicatorProps {
   deadline: Date;
@@ -37,69 +38,45 @@ const urgencyConfig: Record<
 > = {
   overdue: {
     label: 'Overdue',
-    bgColor: 'bg-red-50',
-    textColor: 'text-red-700',
-    borderColor: 'border-red-200',
-    icon: (
-      <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    ),
+    bgColor: 'bg-error-50 dark:bg-error-900/20',
+    textColor: 'text-error-700 dark:text-error-300',
+    borderColor: 'border-error-200 dark:border-error-800',
+    icon: <TriangleAlert className="w-4 h-4 text-error-500" aria-hidden="true" />,
   },
   today: {
     label: 'Due today',
-    bgColor: 'bg-orange-50',
-    textColor: 'text-orange-700',
-    borderColor: 'border-orange-200',
-    icon: (
-      <svg className="w-4 h-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    bgColor: 'bg-accent-50 dark:bg-accent-900/20',
+    textColor: 'text-accent-700 dark:text-accent-300',
+    borderColor: 'border-accent-200 dark:border-accent-800',
+    icon: <Clock className="w-4 h-4 text-accent-500" aria-hidden="true" />,
   },
   urgent: {
     label: 'Due soon',
-    bgColor: 'bg-yellow-50',
-    textColor: 'text-yellow-700',
-    borderColor: 'border-yellow-200',
-    icon: (
-      <svg className="w-4 h-4 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    bgColor: 'bg-warning-50 dark:bg-warning-900/20',
+    textColor: 'text-warning-700 dark:text-warning-300',
+    borderColor: 'border-warning-200 dark:border-warning-800',
+    icon: <CircleAlert className="w-4 h-4 text-warning-500" aria-hidden="true" />,
   },
   soon: {
     label: 'Coming up',
-    bgColor: 'bg-blue-50',
-    textColor: 'text-blue-700',
-    borderColor: 'border-blue-200',
-    icon: (
-      <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
+    bgColor: 'bg-info-50 dark:bg-info-900/20',
+    textColor: 'text-info-700 dark:text-info-300',
+    borderColor: 'border-info-200 dark:border-info-800',
+    icon: <Calendar className="w-4 h-4 text-info-500" aria-hidden="true" />,
   },
   normal: {
     label: 'On track',
-    bgColor: 'bg-green-50',
-    textColor: 'text-green-700',
-    borderColor: 'border-green-200',
-    icon: (
-      <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    bgColor: 'bg-success-50 dark:bg-success-900/20',
+    textColor: 'text-success-700 dark:text-success-300',
+    borderColor: 'border-success-200 dark:border-success-800',
+    icon: <CircleCheck className="w-4 h-4 text-success-500" aria-hidden="true" />,
   },
   submitted: {
     label: 'Submitted',
     bgColor: 'bg-gray-50 dark:bg-gray-800',
     textColor: 'text-gray-600 dark:text-gray-400',
     borderColor: 'border-gray-200 dark:border-gray-700',
-    icon: (
-      <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-      </svg>
-    ),
+    icon: <Check className="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden="true" />,
   },
 };
 
@@ -253,9 +230,7 @@ export const DeadlineIndicator: React.FC<DeadlineIndicatorProps> = ({
       {config.icon}
       <div className="flex flex-col">
         <span className="font-medium">{formatDaysRemaining(daysUntil)}</span>
-        {showDate && (
-          <span className="text-xs opacity-75">{formatDate(deadline)}</span>
-        )}
+        {showDate && <span className="text-xs opacity-75">{formatDate(deadline)}</span>}
       </div>
     </div>
   );

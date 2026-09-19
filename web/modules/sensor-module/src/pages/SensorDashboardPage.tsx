@@ -55,12 +55,7 @@ interface StatCardProps {
   trend?: 'up' | 'down' | 'stable';
 }
 
-const StatCard: React.FC<StatCardProps> = ({
-  title,
-  value,
-  icon,
-  color,
-}) => {
+const StatCard: React.FC<StatCardProps> = ({ title, value, icon, color }) => {
   return (
     <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-100 dark:border-gray-700 px-4 py-3 flex items-center gap-3">
       <div className={`p-2 rounded-lg ${color}`}>{icon}</div>
@@ -118,10 +113,16 @@ const SensorDashboardPage: React.FC = () => {
   // Show loading state
   if (loading && sensors.length === 0) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-800" role="status" aria-live="polite">
+      <div
+        className="h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-800"
+        role="status"
+        aria-live="polite"
+      >
         <div className="text-center">
           <Spinner size="xl" block className="mb-4" />
-          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Sensörler Yükleniyor...</h2>
+          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">
+            Sensörler Yükleniyor...
+          </h2>
           <p className="text-gray-500 dark:text-gray-400 mt-2">Lütfen bekleyin</p>
         </div>
       </div>
@@ -133,10 +134,14 @@ const SensorDashboardPage: React.FC = () => {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-800">
         <div className="text-center max-w-md">
-          <AlertTriangle size={48} className="mx-auto mb-4 text-red-500" />
-          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Sensörler Yüklenemedi</h2>
+          <AlertTriangle size={48} className="mx-auto mb-4 text-error-500" />
+          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">
+            Sensörler Yüklenemedi
+          </h2>
           <p className="text-gray-500 dark:text-gray-400 mt-2">{error}</p>
-          <Button variant="primary" className="mt-4" onClick={() => refetch()}>Tekrar Dene</Button>
+          <Button variant="primary" className="mt-4" onClick={() => refetch()}>
+            Tekrar Dene
+          </Button>
         </div>
       </div>
     );
@@ -148,23 +153,25 @@ const SensorDashboardPage: React.FC = () => {
       <div className="h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-800">
         <div className="text-center max-w-md">
           <Cpu size={64} className="mx-auto mb-4 text-gray-500 dark:text-gray-400" />
-          <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300 mb-2">Henüz Sensör Yok</h2>
+          <h2 className="text-2xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
+            Henüz Sensör Yok
+          </h2>
           <p className="text-gray-500 dark:text-gray-400 mb-6">
             Dashboard'da görüntülemek için önce sensör kaydetmeniz gerekiyor.
           </p>
           <Link
             to="/sensor/devices/register"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-info-600 text-white rounded-lg hover:bg-info-700 transition-colors"
           >
             <Plus size={20} />
             Sensör Kaydet
           </Link>
           <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
             veya{' '}
-            <Link to="/sensor/devices" className="text-cyan-600 hover:underline">
+            <Link to="/sensor/devices" className="text-info-600 dark:text-info-400 hover:underline">
               Cihaz Yönetimi
-            </Link>
-            {' '}sayfasına gidin
+            </Link>{' '}
+            sayfasına gidin
           </p>
         </div>
       </div>
@@ -198,7 +205,7 @@ const SensorDashboardPage: React.FC = () => {
             <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg">
               <div
                 className={`w-2 h-2 rounded-full ${
-                  isLiveMode ? 'bg-green-500 animate-pulse' : 'bg-gray-400'
+                  isLiveMode ? 'bg-success-500 animate-pulse' : 'bg-gray-400'
                 }`}
               />
               <span className="text-xs text-gray-600 dark:text-gray-400">
@@ -213,7 +220,7 @@ const SensorDashboardPage: React.FC = () => {
             <select
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
-              className="px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 bg-white dark:bg-gray-900"
+              className="px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500 bg-white dark:bg-gray-900"
               title="Yenileme aralığı"
             >
               {REFRESH_RATES.map((rate) => (
@@ -230,7 +237,7 @@ const SensorDashboardPage: React.FC = () => {
                 flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors
                 ${
                   isLiveMode
-                    ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                    ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 hover:bg-success-200 dark:hover:bg-success-800/60'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
                 }
               `}
@@ -243,12 +250,10 @@ const SensorDashboardPage: React.FC = () => {
             {/* Alerts button */}
             <Link
               to="/sensor/alerts"
-              className="flex items-center gap-2 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 bg-error-50 dark:bg-error-900/20 text-error-600 dark:text-error-400 rounded-lg hover:bg-error-100 dark:hover:bg-error-900/50 transition-colors"
             >
               <Bell size={16} />
-              <span className="text-sm">
-                {stats.critical + stats.warning} Uyarı
-              </span>
+              <span className="text-sm">{stats.critical + stats.warning} Uyarı</span>
             </Link>
 
             {/* Add Sensor */}
@@ -276,26 +281,26 @@ const SensorDashboardPage: React.FC = () => {
           <StatCard
             title="Toplam Sensör"
             value={stats.total}
-            icon={<Cpu size={18} className="text-cyan-600" />}
-            color="bg-cyan-50"
+            icon={<Cpu size={18} className="text-info-600 dark:text-info-400" />}
+            color="bg-info-50 dark:bg-info-900/20"
           />
           <StatCard
             title="Normal"
             value={stats.normal}
-            icon={<CheckCircle size={18} className="text-green-600" />}
-            color="bg-green-50"
+            icon={<CheckCircle size={18} className="text-success-600 dark:text-success-400" />}
+            color="bg-success-50 dark:bg-success-900/20"
           />
           <StatCard
             title="Uyarı"
             value={stats.warning}
-            icon={<AlertTriangle size={18} className="text-yellow-600" />}
-            color="bg-yellow-50"
+            icon={<AlertTriangle size={18} className="text-warning-600 dark:text-warning-400" />}
+            color="bg-warning-50 dark:bg-warning-900/20"
           />
           <StatCard
             title="Kritik"
             value={stats.critical}
-            icon={<AlertTriangle size={18} className="text-red-600" />}
-            color="bg-red-50"
+            icon={<AlertTriangle size={18} className="text-error-600 dark:text-error-400" />}
+            color="bg-error-50 dark:bg-error-900/20"
           />
           <StatCard
             title="Çevrimdışı"
@@ -310,21 +315,21 @@ const SensorDashboardPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <Link
               to="/sensor/processes"
-              className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
+              className="text-xs text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200 hover:underline"
             >
               Prosesleri Düzenle
             </Link>
             <span className="text-gray-500 dark:text-gray-400">|</span>
             <Link
               to="/sensor/analytics"
-              className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
+              className="text-xs text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200 hover:underline"
             >
               Analitik
             </Link>
             <span className="text-gray-500 dark:text-gray-400">|</span>
             <Link
               to="/sensor/readings"
-              className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
+              className="text-xs text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200 hover:underline"
             >
               Veri Geçmişi
             </Link>
@@ -357,12 +362,10 @@ const SensorDashboardPage: React.FC = () => {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {isLiveMode && (
-            <RefreshCw size={12} className="text-green-500 animate-spin" />
-          )}
+          {isLiveMode && <RefreshCw size={12} className="text-success-500 animate-spin" />}
           <span>
             {isLiveMode
-              ? `Veriler her ${REFRESH_RATES.find(r => r.value === refreshInterval)?.label || '10 sn'} güncelleniyor`
+              ? `Veriler her ${REFRESH_RATES.find((r) => r.value === refreshInterval)?.label || '10 sn'} güncelleniyor`
               : 'Güncelleme duraklatıldı'}
           </span>
         </div>

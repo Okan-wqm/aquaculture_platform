@@ -70,7 +70,8 @@ export const DeployModal: React.FC<DeployModalProps> = ({
 
   // Validation
   const maxQuantity = selectedBatch?.currentQuantity || 0;
-  const isValid = selectedBatchId && targetTankId && quantity > 0 && quantity <= maxQuantity && deployedAt;
+  const isValid =
+    selectedBatchId && targetTankId && quantity > 0 && quantity <= maxQuantity && deployedAt;
 
   // Handle submit
   const handleSubmit = async () => {
@@ -91,7 +92,11 @@ export const DeployModal: React.FC<DeployModalProps> = ({
       onClose();
     } catch (error) {
       if (import.meta.env.DEV) console.error('Failed to deploy cleaner fish:', error);
-      toast({ title: 'Error', description: 'Failed to deploy cleaner fish. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to deploy cleaner fish. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -106,19 +111,23 @@ export const DeployModal: React.FC<DeployModalProps> = ({
       <div className="space-y-6">
         {/* Batch Selection */}
         <div>
-          <label htmlFor="batch" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Cleaner Fish Batch <span className="text-red-500">*</span>
+          <label
+            htmlFor="batch"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Cleaner Fish Batch <span className="text-error-500">*</span>
           </label>
           <select
             id="batch"
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
           >
             <option value="">Select a batch...</option>
             {batches.map((b) => (
               <option key={b.id} value={b.id}>
-                {b.batchNumber} - {b.speciesName || 'Unknown'} ({b.currentQuantity.toLocaleString()} available)
+                {b.batchNumber} - {b.speciesName || 'Unknown'} ({b.currentQuantity.toLocaleString()}{' '}
+                available)
               </option>
             ))}
           </select>
@@ -129,8 +138,12 @@ export const DeployModal: React.FC<DeployModalProps> = ({
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="font-medium text-gray-900 dark:text-gray-100">{selectedBatch.batchNumber}</h4>
-                <p className="text-sm text-gray-500 dark:text-gray-400">{selectedBatch.speciesName}</p>
+                <h4 className="font-medium text-gray-900 dark:text-gray-100">
+                  {selectedBatch.batchNumber}
+                </h4>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {selectedBatch.speciesName}
+                </p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-gray-500 dark:text-gray-400">Available</p>
@@ -144,14 +157,17 @@ export const DeployModal: React.FC<DeployModalProps> = ({
 
         {/* Target Tank */}
         <div>
-          <label htmlFor="targetTank" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Target Tank <span className="text-red-500">*</span>
+          <label
+            htmlFor="targetTank"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Target Tank <span className="text-error-500">*</span>
           </label>
           <select
             id="targetTank"
             value={targetTankId}
             onChange={(e) => setTargetTankId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
           >
             <option value="">Select a tank...</option>
             {tanks.map((tank) => (
@@ -165,28 +181,54 @@ export const DeployModal: React.FC<DeployModalProps> = ({
         {/* Quantity */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Quantity to Deploy <span className="text-red-500">*</span>
+            <label
+              htmlFor="quantity"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              Quantity to Deploy <span className="text-error-500">*</span>
             </label>
-            <Input fullWidth type="number" id="quantity" min="1" max={maxQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter quantity" />
+            <Input
+              fullWidth
+              type="number"
+              id="quantity"
+              min="1"
+              max={maxQuantity}
+              value={quantity || ''}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              placeholder="Enter quantity"
+            />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Max: {maxQuantity.toLocaleString()}
             </p>
           </div>
           <div>
-            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="avgWeight"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Avg Weight (g)
             </label>
-            <Input fullWidth type="number" id="avgWeight" min="0.1" step="0.1" value={avgWeightG || ''} onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)} placeholder="Optional" />
+            <Input
+              fullWidth
+              type="number"
+              id="avgWeight"
+              min="0.1"
+              step="0.1"
+              value={avgWeightG || ''}
+              onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)}
+              placeholder="Optional"
+            />
           </div>
         </div>
 
         {/* Calculated Biomass */}
         {quantity > 0 && avgWeightG && avgWeightG > 0 && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+          <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-green-800">Biomass to Deploy</span>
-              <span className="text-lg font-bold text-green-600">
+              <span className="text-sm font-medium text-success-800 dark:text-success-200">
+                Biomass to Deploy
+              </span>
+              <span className="text-lg font-bold text-success-600 dark:text-success-400">
                 {calculatedBiomass.toFixed(2)} kg
               </span>
             </div>
@@ -195,24 +237,45 @@ export const DeployModal: React.FC<DeployModalProps> = ({
 
         {/* Date */}
         <div>
-          <label htmlFor="deployedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="deployedAt"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Deployment Date
           </label>
-          <Input fullWidth type="date" id="deployedAt" value={deployedAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setDeployedAt(e.target.value)} />
+          <Input
+            fullWidth
+            type="date"
+            id="deployedAt"
+            value={deployedAt}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={(e) => setDeployedAt(e.target.value)}
+          />
         </div>
 
         {/* Notes */}
         <div>
-          <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="notes"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Notes
           </label>
-          <Textarea fullWidth id="notes" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes..." />
+          <Textarea
+            fullWidth
+            id="notes"
+            rows={2}
+            maxLength={2000}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Optional notes..."
+          />
         </div>
 
         {/* Validation Error */}
         {quantity > maxQuantity && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-600">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-600 dark:text-error-400">
               Quantity exceeds available stock ({maxQuantity.toLocaleString()})
             </p>
           </div>

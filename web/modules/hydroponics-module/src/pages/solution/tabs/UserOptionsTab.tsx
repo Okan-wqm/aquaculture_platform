@@ -99,7 +99,14 @@ const UserOptionsTab: React.FC = () => {
     {
       key: 'unit',
       header: 'Unit',
-      render: (_value, target) => target.unit === 'mmol' ? 'mmol/L' : target.unit === 'ppm' ? 'mg/L' : target.unit === 'ms_cm' ? 'mS/cm' : target.unit || '—',
+      render: (_value, target) =>
+        target.unit === 'mmol'
+          ? 'mmol/L'
+          : target.unit === 'ppm'
+            ? 'mg/L'
+            : target.unit === 'ms_cm'
+              ? 'mS/cm'
+              : target.unit || '—',
     },
     {
       key: 'actualValue',
@@ -108,27 +115,31 @@ const UserOptionsTab: React.FC = () => {
       render: (_value, target, idx) => {
         const displayValue = displayActualValues[idx];
         return (
-          <span className={`text-xs ${displayValue !== null ? 'text-gray-700 dark:text-gray-300 font-medium' : 'text-gray-400 dark:text-gray-500'}`}>
+          <span
+            className={`text-xs ${displayValue !== null ? 'text-gray-700 dark:text-gray-300 font-medium' : 'text-gray-400 dark:text-gray-500'}`}
+          >
             {displayValue !== null ? displayValue.toFixed(3) : '—'}
           </span>
         );
       },
-    }
+    },
   ];
 
   return (
     <div className="space-y-6">
       {/* No Profile Warning */}
       {!profile && (
-        <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-          No nutrient profile found for {g.species} / {g.cultivationStage} / {g.season}.
-          Go to Setup &gt; Nutrient Profiles to add one, or click "Import Default Data".
+        <div className="px-4 py-3 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg text-sm text-warning-700 dark:text-warning-300">
+          No nutrient profile found for {g.species} / {g.cultivationStage} / {g.season}. Go to Setup
+          &gt; Nutrient Profiles to add one, or click "Import Default Data".
         </div>
       )}
 
       {/* Method Selectors */}
       <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">Calculation Methods</h3>
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">
+          Calculation Methods
+        </h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Select
             label="K/Ca/Mg Method"
@@ -154,7 +165,9 @@ const UserOptionsTab: React.FC = () => {
       {/* Target Table */}
       <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Target Parameters</h3>
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+            Target Parameters
+          </h3>
         </div>
         <DataTable<TargetRow>
           data={uo.targets}

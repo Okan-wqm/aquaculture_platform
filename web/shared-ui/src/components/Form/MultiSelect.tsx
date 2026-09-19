@@ -6,6 +6,7 @@
 
 import React, { forwardRef, useState, useRef, useEffect, useId } from 'react';
 import type { Size } from '../../types';
+import { ChevronDown, X } from 'lucide-react';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -105,7 +106,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
       className = '',
       id: providedId,
     },
-    ref
+    ref,
   ) => {
     const generatedId = useId();
     const selectId = providedId || generatedId;
@@ -166,7 +167,11 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
             aria-hidden="false"
           >
             {label}
-            {required && <span className="text-error-500 ml-1" aria-hidden="true">*</span>}
+            {required && (
+              <span className="text-error-500 ml-1" aria-hidden="true">
+                *
+              </span>
+            )}
           </span>
         )}
 
@@ -211,7 +216,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                   key={opt.value}
                   className={`
                     inline-flex items-center gap-1
-                    bg-primary-100 text-primary-800 rounded
+                    bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200 rounded
                     ${chipSizeStyles[size]}
                   `}
                 >
@@ -220,11 +225,9 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     <button
                       type="button"
                       onClick={(e) => handleRemove(opt.value, e)}
-                      className="hover:text-primary-600 focus:outline-hidden"
+                      className="hover:text-primary-600 dark:hover:text-primary-300 focus:outline-hidden"
                     >
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
+                      <X className="w-3 h-3" aria-hidden="true" />
                     </button>
                   )}
                 </span>
@@ -235,14 +238,10 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
 
             {/* Dropdown ikonu */}
             <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-              <svg
+              <ChevronDown
                 className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
+                aria-hidden="true"
+              />
             </div>
           </div>
 
@@ -254,7 +253,9 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
               className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto"
             >
               {options.length === 0 ? (
-                <div className="px-3 py-2 text-gray-500 dark:text-gray-400 text-sm">No options available</div>
+                <div className="px-3 py-2 text-gray-500 dark:text-gray-400 text-sm">
+                  No options available
+                </div>
               ) : (
                 options.map((option) => (
                   <div
@@ -265,7 +266,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     className={`
                       flex items-center gap-2 px-3 py-2
                       ${option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
-                      ${value.includes(option.value) ? 'bg-primary-50' : ''}
+                      ${value.includes(option.value) ? 'bg-primary-50 dark:bg-primary-900/20' : ''}
                     `}
                   >
                     <input
@@ -285,7 +286,11 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
 
         {/* Hata mesajı */}
         {error && (
-          <p id={`${selectId}-error`} className="mt-1 text-sm text-error-600" role="alert">
+          <p
+            id={`${selectId}-error`}
+            className="mt-1 text-sm text-error-600 dark:text-error-400"
+            role="alert"
+          >
             {error}
           </p>
         )}
@@ -298,7 +303,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 MultiSelect.displayName = 'MultiSelect';

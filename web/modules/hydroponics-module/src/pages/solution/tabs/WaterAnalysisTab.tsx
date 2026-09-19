@@ -1,5 +1,11 @@
 import React, { useMemo } from 'react';
-import { Checkbox, DataTable, NumberInput, Select, type DataTableColumn } from '@aquaculture/shared-ui';
+import {
+  Checkbox,
+  DataTable,
+  NumberInput,
+  Select,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import { useSolution } from '../../../context/SolutionContext';
 import { UNIT_MMOL_PPM_OPTIONS, UNIT_EC_OPTIONS } from '../../../types/solution.types';
 import type { WaterParameter } from '../../../types/solution.types';
@@ -18,23 +24,34 @@ const WaterAnalysisTab: React.FC = () => {
   };
 
   // PERF-HYD-006: Memoize the filter passes so they only re-run when parameters change.
-  const macroParams = useMemo(() => wa.parameters.filter((p) => p.group === 'macro'), [wa.parameters]);
-  const microParams = useMemo(() => wa.parameters.filter((p) => p.group === 'micro'), [wa.parameters]);
-  const otherParams = useMemo(() => wa.parameters.filter((p) => p.group === 'other'), [wa.parameters]);
+  const macroParams = useMemo(
+    () => wa.parameters.filter((p) => p.group === 'macro'),
+    [wa.parameters],
+  );
+  const microParams = useMemo(
+    () => wa.parameters.filter((p) => p.group === 'micro'),
+    [wa.parameters],
+  );
+  const otherParams = useMemo(
+    () => wa.parameters.filter((p) => p.group === 'other'),
+    [wa.parameters],
+  );
 
   // SEC-HYD-007 / BUG-HYD-009: Apply valence multipliers to convert mmol/L → meq/L
   // so the displayed balance is dimensionally correct (Ca²⁺ contributes 2 meq/L per mmol/L).
-  const cationSum = useMemo(() =>
-    wa.parameters
-      .filter((p) => p.id in CATION_VALENCE)
-      .reduce((sum, p) => sum + p.value * (CATION_VALENCE[p.id] ?? 1), 0),
-    [wa.parameters]
+  const cationSum = useMemo(
+    () =>
+      wa.parameters
+        .filter((p) => p.id in CATION_VALENCE)
+        .reduce((sum, p) => sum + p.value * (CATION_VALENCE[p.id] ?? 1), 0),
+    [wa.parameters],
   );
-  const anionSum = useMemo(() =>
-    wa.parameters
-      .filter((p) => p.id in ANION_VALENCE)
-      .reduce((sum, p) => sum + p.value * (ANION_VALENCE[p.id] ?? 1), 0),
-    [wa.parameters]
+  const anionSum = useMemo(
+    () =>
+      wa.parameters
+        .filter((p) => p.id in ANION_VALENCE)
+        .reduce((sum, p) => sum + p.value * (ANION_VALENCE[p.id] ?? 1), 0),
+    [wa.parameters],
   );
 
   const getUnitOptions = (param: WaterParameter) => {
@@ -55,7 +72,9 @@ const WaterAnalysisTab: React.FC = () => {
           <>
             <div className="flex items-center gap-2 whitespace-nowrap text-gray-700 dark:text-gray-300">
               <span>{param.label}</span>
-              {param.symbol && <span className="text-xs text-gray-400 dark:text-gray-500">({param.symbol})</span>}
+              {param.symbol && (
+                <span className="text-xs text-gray-400 dark:text-gray-500">({param.symbol})</span>
+              )}
             </div>
             {param.hasSubParameter && param.subParameterOptions && (
               <Select
@@ -119,7 +138,9 @@ const WaterAnalysisTab: React.FC = () => {
 
   const renderGroup = (title: string, params: WaterParameter[]) => (
     <div>
-      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title}</h4>
+      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
+        {title}
+      </h4>
       <DataTable<WaterParameter>
         data={params}
         columns={parameterColumns}
@@ -155,17 +176,23 @@ const WaterAnalysisTab: React.FC = () => {
           <div className="flex gap-8 text-sm">
             <div>
               <span className="text-gray-500 dark:text-gray-400">Sum of Cations:</span>{' '}
-              <span className="font-semibold text-gray-700 dark:text-gray-300">{cationSum.toFixed(2)} meq/L</span>
+              <span className="font-semibold text-gray-700 dark:text-gray-300">
+                {cationSum.toFixed(2)} meq/L
+              </span>
             </div>
             <div>
               <span className="text-gray-500 dark:text-gray-400">Sum of Anions:</span>{' '}
-              <span className="font-semibold text-gray-700 dark:text-gray-300">{anionSum.toFixed(2)} meq/L</span>
+              <span className="font-semibold text-gray-700 dark:text-gray-300">
+                {anionSum.toFixed(2)} meq/L
+              </span>
             </div>
             <div>
               <span className="text-gray-500 dark:text-gray-400">Balance:</span>{' '}
               <span
                 className={`font-semibold ${
-                  Math.abs(cationSum - anionSum) < 0.5 ? 'text-green-600' : 'text-amber-600'
+                  Math.abs(cationSum - anionSum) < 0.5
+                    ? 'text-success-600 dark:text-success-400'
+                    : 'text-warning-600 dark:text-warning-400'
                 }`}
               >
                 {(cationSum - anionSum).toFixed(2)} meq/L

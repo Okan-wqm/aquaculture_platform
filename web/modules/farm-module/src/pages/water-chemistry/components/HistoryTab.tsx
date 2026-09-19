@@ -35,7 +35,14 @@ import {
 import { useTanksList } from '../../../hooks/useTanks';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
-import { colors, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import {
+  colors,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -61,15 +68,153 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
 // ============================================================================
 
 const FALLBACK_COLUMNS: ParameterConfig[] = [
-  { id: 'fb-temp', code: 'temperature', name: 'Temp', unit: '\u00B0C', dataType: 'NUMBER', precision: 1, group: 'BASIC', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: colors.info[500], icon: null, displayOrder: 1, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
-  { id: 'fb-do', code: 'dissolvedOxygen', name: 'DO', unit: 'mg/L', dataType: 'NUMBER', precision: 1, group: 'BASIC', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: colors.success[500], icon: null, displayOrder: 2, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
-  { id: 'fb-ph', code: 'pH', name: 'pH', unit: '', dataType: 'NUMBER', precision: 2, group: 'BASIC', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: colors.primary[700], icon: null, displayOrder: 3, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'left', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
-  { id: 'fb-nh3', code: 'ammonia', name: 'NH\u2083', unit: 'mg/L', dataType: 'NUMBER', precision: 3, group: 'NITROGEN_CYCLE', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: colors.error[500], icon: null, displayOrder: 4, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'right', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
-  { id: 'fb-no2', code: 'nitrite', name: 'NO\u2082', unit: 'mg/L', dataType: 'NUMBER', precision: 3, group: 'NITROGEN_CYCLE', optimalMin: null, optimalMax: null, warningMin: null, warningMax: null, criticalMin: null, criticalMax: null, speciesLimits: null, enumValues: null, chartColor: colors.accent[600], icon: null, displayOrder: 5, isVisible: true, isRequired: false, isActive: true, chartAxisGroup: 'right', isQuickAccess: false, templateSource: null, createdAt: '', updatedAt: '' },
+  {
+    id: 'fb-temp',
+    code: 'temperature',
+    name: 'Temp',
+    unit: '\u00B0C',
+    dataType: 'NUMBER',
+    precision: 1,
+    group: 'BASIC',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.info[500],
+    icon: null,
+    displayOrder: 1,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'left',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
+  {
+    id: 'fb-do',
+    code: 'dissolvedOxygen',
+    name: 'DO',
+    unit: 'mg/L',
+    dataType: 'NUMBER',
+    precision: 1,
+    group: 'BASIC',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.success[500],
+    icon: null,
+    displayOrder: 2,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'left',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
+  {
+    id: 'fb-ph',
+    code: 'pH',
+    name: 'pH',
+    unit: '',
+    dataType: 'NUMBER',
+    precision: 2,
+    group: 'BASIC',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.primary[700],
+    icon: null,
+    displayOrder: 3,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'left',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
+  {
+    id: 'fb-nh3',
+    code: 'ammonia',
+    name: 'NH\u2083',
+    unit: 'mg/L',
+    dataType: 'NUMBER',
+    precision: 3,
+    group: 'NITROGEN_CYCLE',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.error[500],
+    icon: null,
+    displayOrder: 4,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'right',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
+  {
+    id: 'fb-no2',
+    code: 'nitrite',
+    name: 'NO\u2082',
+    unit: 'mg/L',
+    dataType: 'NUMBER',
+    precision: 3,
+    group: 'NITROGEN_CYCLE',
+    optimalMin: null,
+    optimalMax: null,
+    warningMin: null,
+    warningMax: null,
+    criticalMin: null,
+    criticalMax: null,
+    speciesLimits: null,
+    enumValues: null,
+    chartColor: colors.accent[600],
+    icon: null,
+    displayOrder: 5,
+    isVisible: true,
+    isRequired: false,
+    isActive: true,
+    chartAxisGroup: 'right',
+    isQuickAccess: false,
+    templateSource: null,
+    createdAt: '',
+    updatedAt: '',
+  },
 ];
 
 /** Maps parameter codes to the fixed statistics API fields */
-const STAT_FIELD_MAP: Record<string, 'avgTemperature' | 'avgDO' | 'avgPH' | 'avgAmmonia' | 'avgNitrite'> = {
+const STAT_FIELD_MAP: Record<
+  string,
+  'avgTemperature' | 'avgDO' | 'avgPH' | 'avgAmmonia' | 'avgNitrite'
+> = {
   temperature: 'avgTemperature',
   dissolvedOxygen: 'avgDO',
   pH: 'avgPH',
@@ -174,22 +319,22 @@ export const HistoryTab: React.FC = () => {
 
   // Tank-level hooks (only active in tank mode)
   const tankStatsQuery = useWaterQualityStatistics(
-    viewMode === 'tank' ? (selectedTankId || null) : null,
+    viewMode === 'tank' ? selectedTankId || null : null,
     days,
   );
   const tankChartQuery = useWaterQualityChart(
-    viewMode === 'tank' ? (selectedTankId || null) : null,
+    viewMode === 'tank' ? selectedTankId || null : null,
     viewMode === 'tank' && selectedTankId ? fromDate : null,
     viewMode === 'tank' && selectedTankId ? toDate : null,
   );
 
   // System-level hooks (only active in system mode)
   const systemStatsQuery = useWaterQualityStatisticsBySystem(
-    viewMode === 'system' ? (selectedSystemId || null) : null,
+    viewMode === 'system' ? selectedSystemId || null : null,
     days,
   );
   const systemChartQuery = useWaterQualityChartBySystem(
-    viewMode === 'system' ? (selectedSystemId || null) : null,
+    viewMode === 'system' ? selectedSystemId || null : null,
     viewMode === 'system' && selectedSystemId ? fromDate : null,
     viewMode === 'system' && selectedSystemId ? toDate : null,
   );
@@ -198,21 +343,28 @@ export const HistoryTab: React.FC = () => {
   const statisticsQuery = viewMode === 'tank' ? tankStatsQuery : systemStatsQuery;
   const chartQuery = viewMode === 'tank' ? tankChartQuery : systemChartQuery;
 
-  const listFilters = useMemo<WaterQualityFilters>(() => ({
-    ...(viewMode === 'tank' ? { tankId: selectedTankId || undefined } : { systemId: selectedSystemId || undefined }),
-    status: (statusFilter as WaterQualityStatus) || undefined,
-    fromDate: fromDate.toISOString(),
-    toDate: toDate.toISOString(),
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
-  }), [viewMode, selectedTankId, selectedSystemId, statusFilter, fromDate, toDate, page]);
+  const listFilters = useMemo<WaterQualityFilters>(
+    () => ({
+      ...(viewMode === 'tank'
+        ? { tankId: selectedTankId || undefined }
+        : { systemId: selectedSystemId || undefined }),
+      status: (statusFilter as WaterQualityStatus) || undefined,
+      fromDate: fromDate.toISOString(),
+      toDate: toDate.toISOString(),
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    }),
+    [viewMode, selectedTankId, selectedSystemId, statusFilter, fromDate, toDate, page],
+  );
 
   const listQuery = useWaterQualityList(listFilters);
 
   // Tank name lookup
   const tankMap = useMemo(() => {
     const map: Record<string, string> = {};
-    tanks.forEach((t) => { map[t.id] = t.name || t.code; });
+    tanks.forEach((t) => {
+      map[t.id] = t.name || t.code;
+    });
     return map;
   }, [tanks]);
 
@@ -286,29 +438,43 @@ export const HistoryTab: React.FC = () => {
     {
       key: 'measuredAt',
       header: 'Date',
-      render: (_value, m) => <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">{formatDate(m.measuredAt)}</span>,
+      render: (_value, m) => (
+        <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">
+          {formatDate(m.measuredAt)}
+        </span>
+      ),
     },
     {
       key: 'tankId',
       header: 'Tank',
       render: (_value, m) => (
-        <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">{m.tankId ? tankMap[m.tankId] || m.tankId.slice(0, 8) : '-'}</span>
+        <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">
+          {m.tankId ? tankMap[m.tankId] || m.tankId.slice(0, 8) : '-'}
+        </span>
       ),
     },
-    ...visibleConfigs.map((config: ParameterConfig): DataTableColumn<MeasurementRow> => ({
-      key: config.code,
-      header: `${config.name} ${config.unit ? `(${config.unit})` : ''}`.trim(),
-      align: 'right',
-      render: (_value, m) => {
-        const val = resolveParameterValue(m, config.code);
-        return <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">{val != null ? Number(val).toFixed(config.precision) : '-'}</span>;
-      },
-    })),
+    ...visibleConfigs.map(
+      (config: ParameterConfig): DataTableColumn<MeasurementRow> => ({
+        key: config.code,
+        header: `${config.name} ${config.unit ? `(${config.unit})` : ''}`.trim(),
+        align: 'right',
+        render: (_value, m) => {
+          const val = resolveParameterValue(m, config.code);
+          return (
+            <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">
+              {val != null ? Number(val).toFixed(config.precision) : '-'}
+            </span>
+          );
+        },
+      }),
+    ),
     {
       key: 'overallStatus',
       header: 'Status',
       render: (_value, m) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}>
+        <span
+          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}
+        >
           {getStatusLabel(m.overallStatus)}
         </span>
       ),
@@ -316,7 +482,11 @@ export const HistoryTab: React.FC = () => {
     {
       key: 'source',
       header: 'Source',
-      render: (_value, m) => <span className="whitespace-nowrap text-gray-500 dark:text-gray-400">{getSourceLabel(m.source)}</span>,
+      render: (_value, m) => (
+        <span className="whitespace-nowrap text-gray-500 dark:text-gray-400">
+          {getSourceLabel(m.source)}
+        </span>
+      ),
     },
   ];
 
@@ -327,23 +497,31 @@ export const HistoryTab: React.FC = () => {
         <div className="flex flex-wrap items-center gap-4">
           {/* View Mode Toggle */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">View</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              View
+            </label>
             <div className="flex rounded-md shadow-sm">
               <button
-                onClick={() => { setViewMode('tank'); setSelectedSystemId(''); }}
+                onClick={() => {
+                  setViewMode('tank');
+                  setSelectedSystemId('');
+                }}
                 className={`px-3 py-2 text-sm font-medium rounded-l-md border ${
                   viewMode === 'tank'
-                    ? 'bg-blue-600 text-white border-blue-600'
+                    ? 'bg-info-600 text-white border-info-600'
                     : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 Tank
               </button>
               <button
-                onClick={() => { setViewMode('system'); setSelectedTankId(''); }}
+                onClick={() => {
+                  setViewMode('system');
+                  setSelectedTankId('');
+                }}
                 className={`px-3 py-2 text-sm font-medium rounded-r-md border-t border-b border-r ${
                   viewMode === 'system'
-                    ? 'bg-blue-600 text-white border-blue-600'
+                    ? 'bg-info-600 text-white border-info-600'
                     : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
@@ -361,22 +539,30 @@ export const HistoryTab: React.FC = () => {
               <select
                 value={selectedTankId}
                 onChange={handleTankChange}
-                className="block w-full min-w-[200px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full min-w-[200px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
               >
                 <option value="">All Tanks</option>
                 {tanks.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name || t.code}</option>
+                  <option key={t.id} value={t.id}>
+                    {t.name || t.code}
+                  </option>
                 ))}
               </select>
             ) : (
               <select
                 value={selectedSystemId}
-                onChange={(e) => { setSelectedSystemId(e.target.value); setPage(1); }}
-                className="block w-full min-w-[200px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                onChange={(e) => {
+                  setSelectedSystemId(e.target.value);
+                  setPage(1);
+                }}
+                className="block w-full min-w-[200px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
               >
                 <option value="">Select System...</option>
                 {systems.map((s: { id: string; name: string; code?: string; type?: string }) => (
-                  <option key={s.id} value={s.id}>{s.name}{s.type ? ` (${s.type})` : ''}</option>
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.type ? ` (${s.type})` : ''}
+                  </option>
                 ))}
               </select>
             )}
@@ -384,7 +570,9 @@ export const HistoryTab: React.FC = () => {
 
           {/* Time Range Buttons */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Time Range</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Time Range
+            </label>
             <div className="flex items-center space-x-1">
               {TIME_RANGE_OPTIONS.map((opt) => (
                 <button
@@ -392,7 +580,7 @@ export const HistoryTab: React.FC = () => {
                   onClick={() => handleTimeRange(opt.days)}
                   className={`px-3 py-1.5 text-sm font-medium rounded-md border ${
                     !customRange && days === opt.days
-                      ? 'bg-blue-600 text-white border-blue-600'
+                      ? 'bg-info-600 text-white border-info-600'
                       : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
@@ -403,7 +591,7 @@ export const HistoryTab: React.FC = () => {
                 onClick={() => setCustomRange(true)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md border ${
                   customRange
-                    ? 'bg-blue-600 text-white border-blue-600'
+                    ? 'bg-info-600 text-white border-info-600'
                     : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
@@ -416,26 +604,48 @@ export const HistoryTab: React.FC = () => {
           {customRange && (
             <div className="flex items-center space-x-2">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From</label>
-                <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }} />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  From
+                </label>
+                <Input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => {
+                    setCustomFrom(e.target.value);
+                    setPage(1);
+                  }}
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">To</label>
-                <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setPage(1); }} />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  To
+                </label>
+                <Input
+                  type="date"
+                  value={customTo}
+                  onChange={(e) => {
+                    setCustomTo(e.target.value);
+                    setPage(1);
+                  }}
+                />
               </div>
             </div>
           )}
 
           {/* Status Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Status
+            </label>
             <select
               value={statusFilter}
               onChange={handleStatusChange}
-              className="block w-full min-w-[140px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full min-w-[140px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             >
               {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
               ))}
             </select>
           </div>
@@ -468,12 +678,12 @@ export const HistoryTab: React.FC = () => {
             </p>
             <div className="flex items-center space-x-2 mt-1">
               {stats != null && stats.criticalCount > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200">
                   {stats.criticalCount} critical
                 </span>
               )}
               {stats != null && stats.warningCount > 0 && (
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200">
                   {stats.warningCount} warning
                 </span>
               )}
@@ -485,7 +695,9 @@ export const HistoryTab: React.FC = () => {
       {/* Trend Chart */}
       {activeId && (
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Water Quality Trends</h3>
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+            Water Quality Trends
+          </h3>
           {chartQuery.isLoading ? (
             <div className="flex items-center justify-center h-64">
               <Spinner size="xl" />
@@ -501,13 +713,31 @@ export const HistoryTab: React.FC = () => {
                 <XAxis dataKey="date" tick={{ fontSize: 12 }} />
                 <YAxis
                   yAxisId="left"
-                  label={leftAxisLabel ? { value: leftAxisLabel, angle: -90, position: 'insideLeft', style: { fontSize: 11 } } : undefined}
+                  label={
+                    leftAxisLabel
+                      ? {
+                          value: leftAxisLabel,
+                          angle: -90,
+                          position: 'insideLeft',
+                          style: { fontSize: 11 },
+                        }
+                      : undefined
+                  }
                 />
                 {hasRightAxis && (
                   <YAxis
                     yAxisId="right"
                     orientation="right"
-                    label={rightAxisLabel ? { value: rightAxisLabel, angle: 90, position: 'insideRight', style: { fontSize: 11 } } : undefined}
+                    label={
+                      rightAxisLabel
+                        ? {
+                            value: rightAxisLabel,
+                            angle: 90,
+                            position: 'insideRight',
+                            style: { fontSize: 11 },
+                          }
+                        : undefined
+                    }
                   />
                 )}
                 <Tooltip />
@@ -538,8 +768,8 @@ export const HistoryTab: React.FC = () => {
             <Spinner size="xl" />
           </div>
         ) : listQuery.error ? (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 m-4">
-            <p className="text-red-800">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 m-4">
+            <p className="text-error-800 dark:text-error-200">
               Failed to load measurements: {(listQuery.error as Error).message}
             </p>
           </div>
@@ -562,8 +792,22 @@ export const HistoryTab: React.FC = () => {
                   Showing {currentPageStart} to {currentPageEnd} of {totalItems} records
                 </div>
                 <div className="flex space-x-2">
-                  <Button variant="secondary" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-                  <Button variant="secondary" size="sm" onClick={() => setPage((p) => p + 1)} disabled={!hasNextPage}>Next</Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setPage((p) => p + 1)}
+                    disabled={!hasNextPage}
+                  >
+                    Next
+                  </Button>
                 </div>
               </div>
             )}

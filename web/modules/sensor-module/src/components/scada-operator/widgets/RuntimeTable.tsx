@@ -17,13 +17,7 @@
  *   - React.memo — only re-renders when props or sort/page state changes
  */
 
-import React, {
-  memo,
-  useState,
-  useCallback,
-  useMemo,
-  useEffect,
-} from 'react';
+import React, { memo, useState, useCallback, useMemo, useEffect } from 'react';
 import {
   ChevronUp,
   ChevronDown,
@@ -42,6 +36,7 @@ import type {
 } from '../../../types/scada-runtime.types';
 import { useDataProvider } from '../../../providers';
 import { useOperatorStore } from '../../../store/scada/operatorStore';
+import { useAlarmRuntimeStore } from '../../../hooks/useAlarmRuntime';
 import { useTagWrite } from '../../../hooks/useTagWrite';
 import { QualityIndicator, Button, Input } from '@aquaculture/shared-ui';
 
@@ -72,17 +67,17 @@ interface DataRow {
 /* ------------------------------------------------------------------ */
 
 const ALARM_SEVERITY_BG: Record<AlarmSeverity, string> = {
-  critical: 'bg-red-100 text-red-800',
-  high:     'bg-orange-100 text-orange-800',
-  warning:  'bg-yellow-100 text-yellow-800',
-  info:     'bg-blue-100 text-blue-800',
+  critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  high: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  warning: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  info: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
 };
 
 const ALARM_SEVERITY_DOT: Record<AlarmSeverity, string> = {
-  critical: 'bg-red-500',
-  high:     'bg-orange-500',
-  warning:  'bg-yellow-500',
-  info:     'bg-blue-500',
+  critical: 'bg-error-500',
+  high: 'bg-accent-500',
+  warning: 'bg-warning-500',
+  info: 'bg-info-500',
 };
 
 function formatCellValue(
@@ -132,9 +127,11 @@ const SortIcon = memo<{ col: string; sortCol: string; sortDir: SortDir }>(
   ({ col, sortCol, sortDir }) => {
     if (col !== sortCol || sortDir === 'none')
       return <ChevronsUpDown className="w-3 h-3 opacity-40" />;
-    return sortDir === 'asc'
-      ? <ChevronUp className="w-3 h-3" />
-      : <ChevronDown className="w-3 h-3" />;
+    return sortDir === 'asc' ? (
+      <ChevronUp className="w-3 h-3" />
+    ) : (
+      <ChevronDown className="w-3 h-3" />
+    );
   },
 );
 SortIcon.displayName = 'SortIcon';
@@ -187,10 +184,7 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
     });
   }, [columns, tagValues]);
 
-  const sorted = useMemo(
-    () => sortRows(rows, sortCol, sortDir),
-    [rows, sortCol, sortDir],
-  );
+  const sorted = useMemo(() => sortRows(rows, sortCol, sortDir), [rows, sortCol, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize);
@@ -217,8 +211,8 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
                       ? sortDir === 'asc'
                         ? 'ascending'
                         : sortDir === 'desc'
-                        ? 'descending'
-                        : 'none'
+                          ? 'descending'
+                          : 'none'
                       : 'none'
                   }
                 >
@@ -241,7 +235,7 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
               pageRows.map((row) => (
                 <tr
                   key={row.id}
-                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-blue-50 transition-colors"
+                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-info-50 transition-colors"
                 >
                   <td className="px-2 py-1.5 font-medium text-gray-800 dark:text-gray-200 truncate max-w-[100px]">
                     {String(row.cells['label'] ?? '--')}
@@ -250,7 +244,11 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
                     {formatCellValue(row.cells['value'], 'number', 2)}
                   </td>
                   <td className="px-2 py-1.5">
-                    <QualityIndicator quality={String(row.cells['quality'] ?? 'good')} size="xs" tone="soft" />
+                    <QualityIndicator
+                      quality={String(row.cells['quality'] ?? 'good')}
+                      size="xs"
+                      tone="soft"
+                    />
                   </td>
                   <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {row.cells['timestamp']
@@ -264,9 +262,7 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
         </table>
       </div>
 
-      {totalPages > 1 && (
-        <Paginator page={page} totalPages={totalPages} onPageChange={setPage} />
-      )}
+      {totalPages > 1 && <Paginator page={page} totalPages={totalPages} onPageChange={setPage} />}
     </div>
   );
 });
@@ -287,9 +283,7 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
   const now = new Date();
   const defaultFrom = new Date(now.getTime() - 3_600_000); // 1 h ago
 
-  const [fromDate, setFromDate] = useState(
-    defaultFrom.toISOString().slice(0, 16),
-  );
+  const [fromDate, setFromDate] = useState(defaultFrom.toISOString().slice(0, 16));
   const [toDate, setToDate] = useState(now.toISOString().slice(0, 16));
   const [rows, setRows] = useState<DataRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -301,15 +295,11 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
     if (tagIds.length === 0) return;
     setLoading(true);
     try {
-      const result = await provider.queryHistory(
-        tagIds,
-        new Date(fromDate),
-        new Date(toDate),
-      );
+      const result = await provider.queryHistory(tagIds, new Date(fromDate), new Date(toDate));
       // Flatten: one row per (tagId, timestamp) pair
       const newRows: DataRow[] = [];
       for (const [tagId, points] of Object.entries(result.data)) {
-        for (const pt of (points as HistoricalDataPoint[])) {
+        for (const pt of points as HistoricalDataPoint[]) {
           newRows.push({
             id: `${tagId}_${pt.timestamp}`,
             cells: { tagId, timestamp: pt.timestamp, value: pt.value },
@@ -327,16 +317,16 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
 
   const handleHeaderClick = useCallback((key: string) => {
     setSortCol((prev) => {
-      if (prev !== key) { setSortDir('asc'); return key; }
-      setSortDir((d) => d === 'asc' ? 'desc' : d === 'desc' ? 'none' : 'asc');
+      if (prev !== key) {
+        setSortDir('asc');
+        return key;
+      }
+      setSortDir((d) => (d === 'asc' ? 'desc' : d === 'desc' ? 'none' : 'asc'));
       return key;
     });
   }, []);
 
-  const sorted = useMemo(
-    () => sortRows(rows, sortCol, sortDir),
-    [rows, sortCol, sortDir],
-  );
+  const sorted = useMemo(() => sortRows(rows, sortCol, sortDir), [rows, sortCol, sortDir]);
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const pageRows = sorted.slice(page * pageSize, (page + 1) * pageSize);
 
@@ -346,13 +336,24 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
       <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
         <label className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
           <span>From</span>
-          <Input type="datetime-local" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+          <Input
+            type="datetime-local"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+          />
         </label>
         <label className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
           <span>To</span>
           <Input type="datetime-local" value={toDate} onChange={(e) => setToDate(e.target.value)} />
         </label>
-        <Button variant="primary" type="button" onClick={() => void fetchHistory()} disabled={loading}>{loading ? 'Loading…' : 'Fetch'}</Button>
+        <Button
+          variant="primary"
+          type="button"
+          onClick={() => void fetchHistory()}
+          disabled={loading}
+        >
+          {loading ? 'Loading…' : 'Fetch'}
+        </Button>
       </div>
 
       {/* Table */}
@@ -368,7 +369,11 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
                   onClick={() => handleHeaderClick(key)}
                   aria-sort={
                     sortCol === key
-                      ? sortDir === 'asc' ? 'ascending' : sortDir === 'desc' ? 'descending' : 'none'
+                      ? sortDir === 'asc'
+                        ? 'ascending'
+                        : sortDir === 'desc'
+                          ? 'descending'
+                          : 'none'
                       : 'none'
                   }
                 >
@@ -395,7 +400,10 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
               </tr>
             ) : (
               pageRows.map((row) => (
-                <tr key={row.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-blue-50 transition-colors">
+                <tr
+                  key={row.id}
+                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-info-50 transition-colors"
+                >
                   <td className="px-2 py-1.5 text-gray-600 dark:text-gray-400 font-mono text-[10px] truncate max-w-[80px]">
                     {String(row.cells['tagId'] ?? '--')}
                   </td>
@@ -412,9 +420,7 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
         </table>
       </div>
 
-      {totalPages > 1 && (
-        <Paginator page={page} totalPages={totalPages} onPageChange={setPage} />
-      )}
+      {totalPages > 1 && <Paginator page={page} totalPages={totalPages} onPageChange={setPage} />}
     </div>
   );
 });
@@ -427,10 +433,8 @@ HistoryModeTable.displayName = 'HistoryModeTable';
 const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
   const { writeTag } = useTagWrite();
 
-  // Access the alarmRuntimeSlice merged into the operator store
-  const activeAlarms = useOperatorStore(
-    (s) => ((s as unknown as { activeAlarms: AlarmInstance[] }).activeAlarms ?? []),
-  );
+  // Live alarms come from the alarm runtime store, the store useAlarmRuntime reads.
+  const activeAlarms = useAlarmRuntimeStore((s) => s.activeAlarms);
 
   const [sortCol, setSortCol] = useState('onTime');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -439,8 +443,11 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
 
   const handleHeaderClick = useCallback((key: string) => {
     setSortCol((prev) => {
-      if (prev !== key) { setSortDir('asc'); return key; }
-      setSortDir((d) => d === 'asc' ? 'desc' : d === 'desc' ? 'none' : 'asc');
+      if (prev !== key) {
+        setSortDir('asc');
+        return key;
+      }
+      setSortDir((d) => (d === 'asc' ? 'desc' : d === 'desc' ? 'none' : 'asc'));
       return key;
     });
   }, []);
@@ -450,12 +457,12 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
       activeAlarms.map((a) => ({
         id: a.id,
         cells: {
-          severity:  a.severity,
-          ruleName:  a.ruleName,
-          message:   a.message,
-          status:    a.status,
-          value:     a.currentValue,
-          onTime:    a.onTime,
+          severity: a.severity,
+          ruleName: a.ruleName,
+          message: a.message,
+          status: a.status,
+          value: a.currentValue,
+          onTime: a.onTime,
         },
       })),
     [activeAlarms],
@@ -488,17 +495,17 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
   const headers: Array<{ key: string; label: string }> = [
     { key: 'severity', label: 'Severity' },
     { key: 'ruleName', label: 'Alarm' },
-    { key: 'message',  label: 'Message' },
-    { key: 'value',    label: 'Value' },
-    { key: 'status',   label: 'Status' },
-    { key: 'onTime',   label: 'Time' },
-    { key: '_ack',     label: 'ACK' },
+    { key: 'message', label: 'Message' },
+    { key: 'value', label: 'Value' },
+    { key: 'status', label: 'Status' },
+    { key: 'onTime', label: 'Time' },
+    { key: '_ack', label: 'ACK' },
   ];
 
   return (
     <div className="flex flex-col h-full gap-1">
       {activeAlarms.length === 0 && (
-        <div className="flex items-center justify-center gap-2 py-6 text-green-600">
+        <div className="flex items-center justify-center gap-2 py-6 text-success-600 dark:text-success-400">
           <CheckCircle2 className="w-4 h-4" aria-hidden="true" />
           <span className="text-xs">No active alarms</span>
         </div>
@@ -515,19 +522,23 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
                   onClick={() => key !== '_ack' && handleHeaderClick(key)}
                   className={[
                     'px-2 py-1.5 text-left font-semibold text-gray-600 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700 whitespace-nowrap',
-                    key !== '_ack' ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors' : '',
+                    key !== '_ack'
+                      ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors'
+                      : '',
                   ].join(' ')}
                   aria-sort={
                     key !== '_ack' && sortCol === key
-                      ? sortDir === 'asc' ? 'ascending' : sortDir === 'desc' ? 'descending' : 'none'
+                      ? sortDir === 'asc'
+                        ? 'ascending'
+                        : sortDir === 'desc'
+                          ? 'descending'
+                          : 'none'
                       : 'none'
                   }
                 >
                   <div className="flex items-center gap-1">
                     <span>{label}</span>
-                    {key !== '_ack' && (
-                      <SortIcon col={key} sortCol={sortCol} sortDir={sortDir} />
-                    )}
+                    {key !== '_ack' && <SortIcon col={key} sortCol={sortCol} sortDir={sortDir} />}
                   </div>
                 </th>
               ))}
@@ -537,16 +548,23 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
             {pageRows.map((row) => {
               const alarm = alarmForRow(row.id);
               const severity = row.cells['severity'] as AlarmSeverity;
-              const bgClass = ALARM_SEVERITY_BG[severity] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+              const bgClass =
+                ALARM_SEVERITY_BG[severity] ??
+                'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
               const dotClass = ALARM_SEVERITY_DOT[severity] ?? 'bg-gray-500';
               return (
                 <tr
                   key={row.id}
-                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-orange-50 transition-colors"
+                  className="border-b border-gray-100 dark:border-gray-700 hover:bg-accent-50 transition-colors"
                 >
                   <td className="px-2 py-1.5">
-                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${bgClass}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`} aria-hidden="true" />
+                    <span
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${bgClass}`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass}`}
+                        aria-hidden="true"
+                      />
                       {severity}
                     </span>
                   </td>
@@ -560,10 +578,15 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
                     {formatCellValue(row.cells['value'], 'number', 2)}
                   </td>
                   <td className="px-2 py-1.5">
-                    <span className={`text-[10px] uppercase font-medium ${
-                      row.cells['status'] === 'active' ? 'text-red-600' :
-                      row.cells['status'] === 'acknowledged' ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'
-                    }`}>
+                    <span
+                      className={`text-[10px] uppercase font-medium ${
+                        row.cells['status'] === 'active'
+                          ? 'text-error-600 dark:text-error-400'
+                          : row.cells['status'] === 'acknowledged'
+                            ? 'text-success-600 dark:text-success-400'
+                            : 'text-gray-500 dark:text-gray-400'
+                      }`}
+                    >
                       {String(row.cells['status'] ?? '--')}
                     </span>
                   </td>
@@ -574,7 +597,16 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
                   </td>
                   <td className="px-2 py-1.5">
                     {alarm && alarm.status !== 'acknowledged' && (
-                      <Button variant="primary" leftIcon={<CheckCircle2 className="w-3 h-3" aria-hidden="true" />} type="button" disabled={ackingId === row.id} onClick={() => void handleAck(row.id, alarm.ruleId)} aria-label={`Acknowledge alarm ${alarm.ruleName}`}>ACK</Button>
+                      <Button
+                        variant="primary"
+                        leftIcon={<CheckCircle2 className="w-3 h-3" aria-hidden="true" />}
+                        type="button"
+                        disabled={ackingId === row.id}
+                        onClick={() => void handleAck(row.id, alarm.ruleId)}
+                        aria-label={`Acknowledge alarm ${alarm.ruleName}`}
+                      >
+                        ACK
+                      </Button>
                     )}
                   </td>
                 </tr>
@@ -584,9 +616,7 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
         </table>
       </div>
 
-      {totalPages > 1 && (
-        <Paginator page={page} totalPages={totalPages} onPageChange={setPage} />
-      )}
+      {totalPages > 1 && <Paginator page={page} totalPages={totalPages} onPageChange={setPage} />}
     </div>
   );
 });
@@ -606,11 +636,31 @@ const Paginator = memo<{
     role="navigation"
     aria-label="Table pagination"
   >
-    <Button variant="ghost" size="sm" iconOnly type="button" disabled={page === 0} onClick={() => onPageChange(page - 1)} aria-label="Previous page"><ChevronLeft className="w-3 h-3" /></Button>
+    <Button
+      variant="ghost"
+      size="sm"
+      iconOnly
+      type="button"
+      disabled={page === 0}
+      onClick={() => onPageChange(page - 1)}
+      aria-label="Previous page"
+    >
+      <ChevronLeft className="w-3 h-3" />
+    </Button>
     <span className="text-xs text-gray-600 dark:text-gray-400">
       {page + 1} / {totalPages}
     </span>
-    <Button variant="ghost" size="sm" iconOnly type="button" disabled={page >= totalPages - 1} onClick={() => onPageChange(page + 1)} aria-label="Next page"><ChevronRight className="w-3 h-3" /></Button>
+    <Button
+      variant="ghost"
+      size="sm"
+      iconOnly
+      type="button"
+      disabled={page >= totalPages - 1}
+      onClick={() => onPageChange(page + 1)}
+      aria-label="Next page"
+    >
+      <ChevronRight className="w-3 h-3" />
+    </Button>
   </div>
 ));
 Paginator.displayName = 'Paginator';
@@ -650,7 +700,9 @@ const RuntimeTable: React.FC<RuntimeTableProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 gap-2 flex-shrink-0">
         {title && (
-          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{title}</span>
+          <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
+            {title}
+          </span>
         )}
         <div className="flex items-center gap-0.5 ml-auto" role="tablist" aria-label="Table mode">
           {modes.map((m) => (
@@ -663,7 +715,7 @@ const RuntimeTable: React.FC<RuntimeTableProps> = ({
               className={[
                 'px-2 py-0.5 text-[10px] font-medium rounded capitalize transition-colors',
                 activeMode === m
-                  ? 'bg-blue-500 text-white'
+                  ? 'bg-info-500 text-white'
                   : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600',
               ].join(' ')}
             >
@@ -672,7 +724,9 @@ const RuntimeTable: React.FC<RuntimeTableProps> = ({
                   <AlertTriangle className="w-2.5 h-2.5" aria-hidden="true" />
                   {m}
                 </span>
-              ) : m}
+              ) : (
+                m
+              )}
             </button>
           ))}
         </div>
@@ -681,21 +735,10 @@ const RuntimeTable: React.FC<RuntimeTableProps> = ({
       {/* Content */}
       <div className="flex-1 overflow-hidden p-1">
         {activeMode === 'data' && (
-          <DataModeTable
-            columns={columns}
-            tagValues={tagValues}
-            pageSize={pageSize}
-          />
+          <DataModeTable columns={columns} tagValues={tagValues} pageSize={pageSize} />
         )}
-        {activeMode === 'history' && (
-          <HistoryModeTable
-            tagIds={tagIds ?? []}
-            pageSize={pageSize}
-          />
-        )}
-        {activeMode === 'alarms' && (
-          <AlarmsModeTable pageSize={pageSize} />
-        )}
+        {activeMode === 'history' && <HistoryModeTable tagIds={tagIds ?? []} pageSize={pageSize} />}
+        {activeMode === 'alarms' && <AlarmsModeTable pageSize={pageSize} />}
       </div>
     </div>
   );

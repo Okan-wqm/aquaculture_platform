@@ -49,10 +49,7 @@ const DEFAULT_COLORS = [
 /**
  * Compute a single aggregate value from a series of data points.
  */
-function aggregatePoints(
-  points: HistoricalDataPoint[],
-  fn: DaqAggregation['function'],
-): number {
+function aggregatePoints(points: HistoricalDataPoint[], fn: DaqAggregation['function']): number {
   const nums = points
     .map((p) => (typeof p.value === 'number' ? p.value : parseFloat(String(p.value))))
     .filter((v) => !isNaN(v));
@@ -166,10 +163,7 @@ export const BarChart: React.FC<BarChartProps> = ({
 
   /** Resolve bar colors, falling back to defaults. */
   const resolvedColors = useMemo<string[]>(
-    () =>
-      series.map(
-        (s, i) => s.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length],
-      ),
+    () => series.map((s, i) => s.color ?? DEFAULT_COLORS[i % DEFAULT_COLORS.length]),
     [series],
   );
 
@@ -195,7 +189,7 @@ export const BarChart: React.FC<BarChartProps> = ({
         </div>
       )}
       {error && (
-        <div className="px-3 py-1 text-xs text-red-600 bg-red-50 border-b border-red-200">
+        <div className="px-3 py-1 text-xs text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-b border-error-200 dark:border-error-800">
           {error}
         </div>
       )}
@@ -258,11 +252,7 @@ export const BarChart: React.FC<BarChartProps> = ({
               cursor={{ fill: 'rgba(14, 165, 233, 0.08)' }}
             />
             {showLegend && series.length > 1 && (
-              <Legend
-                wrapperStyle={{ fontSize: '11px' }}
-                iconType="rect"
-                iconSize={10}
-              />
+              <Legend wrapperStyle={{ fontSize: '11px' }} iconType="rect" iconSize={10} />
             )}
             {series.map((s, i) => (
               <Bar

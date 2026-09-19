@@ -19,7 +19,14 @@ interface CrewSectionProps {
   title: string;
   icon: React.ReactNode;
   count: number;
-  employees?: { id: string; firstName: string; lastName: string; avatarUrl?: string; currentWorkArea?: string; destination?: string }[];
+  employees?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    avatarUrl?: string;
+    currentWorkArea?: string;
+    destination?: string;
+  }[];
   color: string;
   bgColor: string;
   maxDisplay?: number;
@@ -64,10 +71,14 @@ function CrewSection({
                   {emp.firstName} {emp.lastName}
                 </p>
                 {emp.currentWorkArea && (
-                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">{emp.currentWorkArea}</p>
+                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                    {emp.currentWorkArea}
+                  </p>
                 )}
                 {emp.destination && (
-                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">To: {emp.destination}</p>
+                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                    To: {emp.destination}
+                  </p>
                 )}
               </div>
             </div>
@@ -84,7 +95,8 @@ function CrewSection({
 function SummaryView({ data }: { data: ReturnType<typeof useSeaLandSplit>['data'] }) {
   if (!data) return null;
 
-  const total = data.offshore.count + data.onshore.count + data.inTransit.count + data.onLeave.count;
+  const total =
+    data.offshore.count + data.onshore.count + data.inTransit.count + data.onLeave.count;
   const offshorePercent = total > 0 ? (data.offshore.count / total) * 100 : 0;
   const onshorePercent = total > 0 ? (data.onshore.count / total) * 100 : 0;
   const transitPercent = total > 0 ? (data.inTransit.count / total) * 100 : 0;
@@ -95,21 +107,21 @@ function SummaryView({ data }: { data: ReturnType<typeof useSeaLandSplit>['data'
       <div className="flex h-4 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
         {offshorePercent > 0 && (
           <div
-            className="bg-blue-500 transition-all"
+            className="bg-info-500 transition-all"
             style={{ width: `${offshorePercent}%` }}
             title={`Offshore: ${data.offshore.count}`}
           />
         )}
         {onshorePercent > 0 && (
           <div
-            className="bg-green-500 transition-all"
+            className="bg-success-500 transition-all"
             style={{ width: `${onshorePercent}%` }}
             title={`Onshore: ${data.onshore.count}`}
           />
         )}
         {transitPercent > 0 && (
           <div
-            className="bg-yellow-500 transition-all"
+            className="bg-warning-500 transition-all"
             style={{ width: `${transitPercent}%` }}
             title={`In Transit: ${data.inTransit.count}`}
           />
@@ -125,16 +137,18 @@ function SummaryView({ data }: { data: ReturnType<typeof useSeaLandSplit>['data'
 
       <div className="flex flex-wrap gap-4 text-sm">
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-blue-500" />
+          <div className="h-3 w-3 rounded-full bg-info-500" />
           <span className="text-gray-600 dark:text-gray-400">Offshore: {data.offshore.count}</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-green-500" />
+          <div className="h-3 w-3 rounded-full bg-success-500" />
           <span className="text-gray-600 dark:text-gray-400">Onshore: {data.onshore.count}</span>
         </div>
         <div className="flex items-center gap-2">
-          <div className="h-3 w-3 rounded-full bg-yellow-500" />
-          <span className="text-gray-600 dark:text-gray-400">In Transit: {data.inTransit.count}</span>
+          <div className="h-3 w-3 rounded-full bg-warning-500" />
+          <span className="text-gray-600 dark:text-gray-400">
+            In Transit: {data.inTransit.count}
+          </span>
         </div>
         <div className="flex items-center gap-2">
           <div className="h-3 w-3 rounded-full bg-gray-400" />
@@ -155,7 +169,12 @@ export function SeaLandSplitView({
 
   if (isLoading) {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
         <div className="flex items-center justify-center py-8">
           <Spinner size="md" />
         </div>
@@ -165,20 +184,33 @@ export function SeaLandSplitView({
 
   if (error || !data) {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
-        <p className="text-center text-sm text-gray-500 dark:text-gray-400">Failed to load crew data</p>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
+        <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+          Failed to load crew data
+        </p>
       </div>
     );
   }
 
-  const total = data.offshore.count + data.onshore.count + data.inTransit.count + data.onLeave.count;
+  const total =
+    data.offshore.count + data.onshore.count + data.inTransit.count + data.onLeave.count;
 
   return (
-    <div className={cn('rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800', className)}>
+    <div
+      className={cn(
+        'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800',
+        className,
+      )}
+    >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="flex items-center gap-2">
-          <Users className="h-5 w-5 text-indigo-600" />
+          <Users className="h-5 w-5 text-primary-600 dark:text-primary-400" />
           <h3 className="font-semibold text-gray-900 dark:text-white">Crew Distribution</h3>
         </div>
         <span className="text-sm text-gray-500 dark:text-gray-400">{total} total personnel</span>
@@ -191,7 +223,7 @@ export function SeaLandSplitView({
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="text-center">
               <div className="flex items-center justify-center">
-                <Ship className="h-5 w-5 text-blue-500" />
+                <Ship className="h-5 w-5 text-info-500" />
               </div>
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.offshore.count}
@@ -200,7 +232,7 @@ export function SeaLandSplitView({
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center">
-                <Building2 className="h-5 w-5 text-green-500" />
+                <Building2 className="h-5 w-5 text-success-500" />
               </div>
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.onshore.count}
@@ -209,7 +241,7 @@ export function SeaLandSplitView({
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center">
-                <Plane className="h-5 w-5 text-yellow-500" />
+                <Plane className="h-5 w-5 text-warning-500" />
               </div>
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.inTransit.count}
@@ -233,24 +265,24 @@ export function SeaLandSplitView({
               icon={<Ship className="h-4 w-4 text-white" />}
               count={data.offshore.count}
               employees={data.offshore.employees}
-              color="bg-blue-500"
-              bgColor="bg-blue-50 dark:bg-blue-900/20"
+              color="bg-info-500"
+              bgColor="bg-info-50 dark:bg-info-900/20"
             />
             <CrewSection
               title="Onshore"
               icon={<Building2 className="h-4 w-4 text-white" />}
               count={data.onshore.count}
               employees={data.onshore.employees}
-              color="bg-green-500"
-              bgColor="bg-green-50 dark:bg-green-900/20"
+              color="bg-success-500"
+              bgColor="bg-success-50 dark:bg-success-900/20"
             />
             <CrewSection
               title="In Transit"
               icon={<Plane className="h-4 w-4 text-white" />}
               count={data.inTransit.count}
               employees={data.inTransit.employees}
-              color="bg-yellow-500"
-              bgColor="bg-yellow-50 dark:bg-yellow-900/20"
+              color="bg-warning-500"
+              bgColor="bg-warning-50 dark:bg-warning-900/20"
             />
             <CrewSection
               title="On Leave"
@@ -271,9 +303,8 @@ export function SeaLandSplitView({
             </h4>
             <div className="space-y-2">
               {headcount.byWorkArea.map((area) => {
-                const occupancyPercent = area.maxCapacity > 0
-                  ? (area.count / area.maxCapacity) * 100
-                  : 0;
+                const occupancyPercent =
+                  area.maxCapacity > 0 ? (area.count / area.maxCapacity) * 100 : 0;
                 return (
                   <div key={area.workAreaId} className="flex items-center gap-3">
                     <span className="min-w-0 flex-1 truncate text-sm text-gray-600 dark:text-gray-400">
@@ -283,8 +314,11 @@ export function SeaLandSplitView({
                       <div
                         className={cn(
                           'h-full transition-all',
-                          occupancyPercent > 90 ? 'bg-red-500' :
-                          occupancyPercent > 70 ? 'bg-yellow-500' : 'bg-blue-500'
+                          occupancyPercent > 90
+                            ? 'bg-error-500'
+                            : occupancyPercent > 70
+                              ? 'bg-warning-500'
+                              : 'bg-info-500',
                         )}
                         style={{ width: `${Math.min(occupancyPercent, 100)}%` }}
                       />

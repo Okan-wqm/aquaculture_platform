@@ -57,14 +57,13 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
     setResults([]);
     setRunning(true);
 
-    const settled = await Promise.allSettled(
-      selectedUsers.map((userId) => onDeactivate(userId))
-    );
+    const settled = await Promise.allSettled(selectedUsers.map((userId) => onDeactivate(userId)));
 
     const itemResults: BulkDeactivateResult[] = settled.map((result, idx) => ({
       userId: selectedUsers[idx],
       status: result.status,
-      reason: result.status === 'rejected' ? String((result as PromiseRejectedResult).reason) : undefined,
+      reason:
+        result.status === 'rejected' ? String((result as PromiseRejectedResult).reason) : undefined,
     }));
 
     setResults(itemResults);
@@ -101,9 +100,11 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
   const selectedRole = roles.find((role) => role.id === selectedRoleId);
 
   return (
-    <div className="bg-green-50 rounded-xl p-4 space-y-2">
+    <div className="bg-success-50 dark:bg-success-900/20 rounded-xl p-4 space-y-2">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <span className="text-sm text-green-700">{selectedUsers.length} user(s) selected</span>
+        <span className="text-sm text-success-700 dark:text-success-300">
+          {selectedUsers.length} user(s) selected
+        </span>
         <div className="flex items-center gap-2 flex-wrap">
           {canAssignRoles && (
             <>
@@ -112,7 +113,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
                 value={selectedRoleId}
                 onChange={(e) => setSelectedRoleId(e.target.value)}
                 disabled={isAssigningRole}
-                className="px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:ring-2 focus:ring-green-500 disabled:opacity-50"
+                className="px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:ring-2 focus:ring-success-500 disabled:opacity-50"
               >
                 <option value="">Select role...</option>
                 {roles.map((role) => (
@@ -124,7 +125,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
               <button
                 onClick={() => setIsAssignConfirmOpen(true)}
                 disabled={!selectedRoleId || isAssigningRole}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-100 rounded-lg hover:bg-green-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-success-700 dark:text-success-300 bg-success-100 dark:bg-success-900/40 rounded-lg hover:bg-success-200 dark:hover:bg-success-800/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isAssigningRole ? (
                   <>
@@ -141,35 +142,41 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
             </>
           )}
           {canDeactivateUsers && (
-          <button
-            onClick={handleBulkDeactivate}
-            disabled={isDeactivating || running}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-100 rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isDeactivating || running ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                Deactivating...
-              </>
-            ) : (
-              <>
-                <UserMinus className="w-3.5 h-3.5" />
-                Deactivate
-              </>
-            )}
-          </button>
+            <button
+              onClick={handleBulkDeactivate}
+              disabled={isDeactivating || running}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-error-700 dark:text-error-300 bg-error-100 dark:bg-error-900/40 rounded-lg hover:bg-error-200 dark:hover:bg-error-800/60 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isDeactivating || running ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  Deactivating...
+                </>
+              ) : (
+                <>
+                  <UserMinus className="w-3.5 h-3.5" />
+                  Deactivate
+                </>
+              )}
+            </button>
           )}
         </div>
       </div>
       {results.length > 0 && failedCount > 0 && (
         <div className="text-sm space-y-1">
-          <p className="text-green-700">{successCount} user(s) deactivated successfully.</p>
-          <p className="text-red-600">{failedCount} user(s) failed to deactivate:</p>
-          <ul className="list-disc list-inside text-red-600 text-xs">
+          <p className="text-success-700 dark:text-success-300">
+            {successCount} user(s) deactivated successfully.
+          </p>
+          <p className="text-error-600 dark:text-error-400">
+            {failedCount} user(s) failed to deactivate:
+          </p>
+          <ul className="list-disc list-inside text-error-600 dark:text-error-400 text-xs">
             {results
               .filter((r) => r.status === 'rejected')
               .map((r) => (
-                <li key={r.userId}>{r.userId}: {r.reason}</li>
+                <li key={r.userId}>
+                  {r.userId}: {r.reason}
+                </li>
               ))}
           </ul>
         </div>

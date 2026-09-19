@@ -6,7 +6,11 @@
 
 import React, { useState } from 'react';
 import { Search, ChevronDown, ChevronRight, Link2, Check, Package, RefreshCw } from 'lucide-react';
-import { useAttachableEquipment, AttachableEquipment, CATEGORY_LABELS } from '../../../hooks/useAttachableEquipment';
+import {
+  useAttachableEquipment,
+  AttachableEquipment,
+  CATEGORY_LABELS,
+} from '../../../hooks/useAttachableEquipment';
 import { useProcessStore } from '../../../store/processStore';
 import { getEquipmentIcon } from '../../equipment-icons';
 import { Spinner, Button } from '@aquaculture/shared-ui';
@@ -14,7 +18,6 @@ import { Spinner, Button } from '@aquaculture/shared-ui';
 interface AttachmentsPanelProps {
   className?: string;
 }
-
 
 export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = '' }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -81,9 +84,18 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
   if (error) {
     return (
       <div className={`flex flex-col items-center justify-center h-full p-4 ${className}`}>
-        <Package className="w-12 h-12 text-red-300 mb-3" />
-        <p className="text-sm text-red-600 text-center mb-3">Error loading equipment</p>
-        <Button variant="ghost" size="sm" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={() => refetch()}>Retry</Button>
+        <Package className="w-12 h-12 text-error-300 mb-3" />
+        <p className="text-sm text-error-600 dark:text-error-400 text-center mb-3">
+          Error loading equipment
+        </p>
+        <Button
+          variant="ghost"
+          size="sm"
+          leftIcon={<RefreshCw className="w-4 h-4" />}
+          onClick={() => refetch()}
+        >
+          Retry
+        </Button>
       </div>
     );
   }
@@ -97,7 +109,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-gray-900 dark:text-gray-100">Equipment</h3>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-cyan-600 bg-cyan-50 px-2 py-1 rounded-full">
+            <span className="text-xs text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20 px-2 py-1 rounded-full">
               {linkedCount} linked
             </span>
             <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded-full">
@@ -114,16 +126,20 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Search equipment..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500 transition-colors"
           />
         </div>
 
         {/* Expand/Collapse buttons */}
         {categoryEntries.length > 0 && (
           <div className="flex gap-2 mt-2">
-            <Button variant="ghost" size="xs" onClick={expandAll}>Expand All</Button>
+            <Button variant="ghost" size="xs" onClick={expandAll}>
+              Expand All
+            </Button>
             <span className="text-gray-500 dark:text-gray-400">|</span>
-            <Button variant="ghost" size="xs" onClick={collapseAll}>Collapse All</Button>
+            <Button variant="ghost" size="xs" onClick={collapseAll}>
+              Collapse All
+            </Button>
           </div>
         )}
       </div>
@@ -148,18 +164,22 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
             return (
               <div key={category} className="mb-1">
                 {/* Category Header */}
-                <Button variant="ghost" onClick={() => toggleCategory(category)}>{isExpanded ? (
+                <Button variant="ghost" onClick={() => toggleCategory(category)}>
+                  {isExpanded ? (
                     <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                   ) : (
                     <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                   )}
                   <span className="flex-1 text-left">{getCategoryLabel(category)}</span>
                   {linkedInCategory > 0 && (
-                    <span className="text-xs text-cyan-600 bg-cyan-50 px-1.5 py-0.5 rounded">
+                    <span className="text-xs text-info-600 dark:text-info-400 bg-info-50 dark:bg-info-900/20 px-1.5 py-0.5 rounded">
                       {linkedInCategory}
                     </span>
                   )}
-                  <span className="text-xs text-gray-500 dark:text-gray-400">{equipmentList.length}</span></Button>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    {equipmentList.length}
+                  </span>
+                </Button>
 
                 {/* Equipment Items */}
                 {isExpanded && (
@@ -174,7 +194,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                           disabled={!equipment.isLinked}
                           className={`w-full flex items-center gap-2 px-2 py-2 text-sm rounded-lg transition-colors ${
                             equipment.isLinked
-                              ? 'bg-cyan-50 border border-cyan-200 hover:bg-cyan-100 cursor-pointer'
+                              ? 'bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 hover:bg-info-100 dark:hover:bg-info-900/50 cursor-pointer'
                               : 'hover:bg-gray-50 dark:hover:bg-gray-800 border border-transparent cursor-default opacity-75'
                           }`}
                           title={
@@ -183,13 +203,20 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
                               : 'Select a node and link equipment via Properties panel'
                           }
                         >
-                          <Icon size={20} className="text-gray-600 dark:text-gray-400 flex-shrink-0" />
+                          <Icon
+                            size={20}
+                            className="text-gray-600 dark:text-gray-400 flex-shrink-0"
+                          />
                           <div className="flex-1 min-w-0 text-left">
-                            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{equipment.name}</p>
-                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{equipment.code}</p>
+                            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                              {equipment.name}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                              {equipment.code}
+                            </p>
                           </div>
                           {equipment.isLinked ? (
-                            <Check className="w-4 h-4 text-cyan-600 flex-shrink-0" />
+                            <Check className="w-4 h-4 text-info-600 dark:text-info-400 flex-shrink-0" />
                           ) : (
                             <Link2 className="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
                           )}

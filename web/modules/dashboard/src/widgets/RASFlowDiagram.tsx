@@ -9,6 +9,7 @@ import React, { useMemo } from 'react';
 import { Card } from '@aquaculture/shared-ui';
 import { useSensorsList, useLatestSensorReadings } from '../hooks/useDashboardData';
 import type { SensorSummary, SensorReadingData } from '../hooks/useDashboardData';
+import { ArrowRight, RefreshCw } from 'lucide-react';
 
 export interface RASFlowDiagramProps {
   farmId?: string;
@@ -20,22 +21,24 @@ export interface RASFlowDiagramProps {
 function getStatusColor(status: string): string {
   switch (status.toUpperCase()) {
     case 'ACTIVE':
-      return 'bg-green-500';
+      return 'bg-success-500';
     case 'INACTIVE':
     case 'OFFLINE':
       return 'bg-gray-400';
     case 'MAINTENANCE':
-      return 'bg-yellow-500';
+      return 'bg-warning-500';
     case 'ERROR':
     case 'FAULT':
-      return 'bg-red-500';
+      return 'bg-error-500';
     default:
       return 'bg-gray-300';
   }
 }
 
 /** Determine reading health based on value ranges */
-function getReadingHealth(readings: SensorReadingData['readings']): 'normal' | 'warning' | 'critical' {
+function getReadingHealth(
+  readings: SensorReadingData['readings'],
+): 'normal' | 'warning' | 'critical' {
   const { ph, dissolvedOxygen, temperature } = readings;
 
   if (ph !== undefined && ph !== null) {
@@ -57,9 +60,12 @@ function getReadingHealth(readings: SensorReadingData['readings']): 'normal' | '
 }
 
 const healthColorMap = {
-  normal: 'text-green-600 bg-green-50 border-green-200',
-  warning: 'text-yellow-600 bg-yellow-50 border-yellow-200',
-  critical: 'text-red-600 bg-red-50 border-red-200',
+  normal:
+    'text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800',
+  warning:
+    'text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800',
+  critical:
+    'text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800',
 };
 
 /** Sensor card within the RAS diagram */
@@ -156,9 +162,7 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="text-center py-6 text-gray-500 dark:text-gray-400">
-          <svg className="w-8 h-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
+          <RefreshCw className="w-8 h-8 mx-auto mb-2" aria-hidden="true" />
           <p className="text-sm font-medium">RAS Akis Diyagrami</p>
           {farmId && <p className="text-xs mt-1">Ciftlik: {farmId.slice(0, 8)}</p>}
           <p className="text-xs mt-2">Bu ciftlikte kayitli sensor bulunamadi</p>
@@ -176,8 +180,14 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
     <Card className={`p-4 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">RAS Akis Diyagrami</h3>
-          {farmId && <p className="text-xs text-gray-500 dark:text-gray-400">Ciftlik: {farmId.slice(0, 8)}</p>}
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+            RAS Akis Diyagrami
+          </h3>
+          {farmId && (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Ciftlik: {farmId.slice(0, 8)}
+            </p>
+          )}
         </div>
         <span className="text-xs text-gray-500 dark:text-gray-400">
           {activeSensors}/{farmSensors.length} aktif
@@ -187,11 +197,7 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
       {/* Sensor grid -- represents RAS flow components */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {farmSensors.map((sensor) => (
-          <SensorNode
-            key={sensor.id}
-            sensor={sensor}
-            reading={readingsMap.get(sensor.id)}
-          />
+          <SensorNode key={sensor.id} sensor={sensor} reading={readingsMap.get(sensor.id)} />
         ))}
       </div>
 
@@ -199,17 +205,11 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
       {farmSensors.length > 1 && (
         <div className="flex items-center justify-center mt-3 space-x-1 text-gray-400 dark:text-gray-500">
           <span className="text-xs">Tank</span>
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
+          <ArrowRight className="w-4 h-4" aria-hidden="true" />
           <span className="text-xs">Filtre</span>
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
+          <ArrowRight className="w-4 h-4" aria-hidden="true" />
           <span className="text-xs">Pompa</span>
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-          </svg>
+          <ArrowRight className="w-4 h-4" aria-hidden="true" />
           <span className="text-xs">Tank</span>
         </div>
       )}

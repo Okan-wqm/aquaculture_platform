@@ -9,6 +9,7 @@ import { Modal, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui'
 import { DiseaseOutbreakReport, AffectedBatch } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../../utils/thresholds';
 import { useTanksList, Tank } from '../../../../hooks/useTanks';
+import { ChevronDown, FlaskConical, Link as LinkIcon, Plus, X } from 'lucide-react';
 
 interface DiseaseOutbreakModalProps {
   isOpen: boolean;
@@ -90,17 +91,20 @@ const categoryDescriptions: Record<
   A: {
     label: 'Liste A - Exotic Diseases',
     urgency: 'IMMEDIATE REPORT REQUIRED',
-    color: 'bg-red-100 border-red-300 text-red-800',
+    color:
+      'bg-error-100 dark:bg-error-900/40 border-error-300 dark:border-error-700 text-error-800 dark:text-error-200',
   },
   C: {
     label: 'Liste C - Non-exotic Notifiable',
     urgency: 'IMMEDIATE REPORT REQUIRED',
-    color: 'bg-orange-100 border-orange-300 text-orange-800',
+    color:
+      'bg-accent-100 dark:bg-accent-900/40 border-accent-300 dark:border-accent-700 text-accent-800 dark:text-accent-200',
   },
   F: {
     label: 'Liste F - Other Notifiable',
     urgency: 'Report within 24 hours',
-    color: 'bg-yellow-100 border-yellow-300 text-yellow-800',
+    color:
+      'bg-warning-100 dark:bg-warning-900/40 border-warning-300 dark:border-warning-700 text-warning-800 dark:text-warning-200',
   },
 };
 
@@ -119,10 +123,30 @@ function getClinicalSignCategories(_category: 'A' | 'C' | 'F'): string[] {
 }
 
 const severityOptions: { value: FormData['severity']; label: string; color: string }[] = [
-  { value: 'minor', label: 'Minor', color: 'bg-blue-50 border-blue-300 text-blue-800' },
-  { value: 'moderate', label: 'Moderate', color: 'bg-yellow-50 border-yellow-300 text-yellow-800' },
-  { value: 'severe', label: 'Severe', color: 'bg-orange-50 border-orange-300 text-orange-800' },
-  { value: 'critical', label: 'Critical', color: 'bg-red-50 border-red-300 text-red-800' },
+  {
+    value: 'minor',
+    label: 'Minor',
+    color:
+      'bg-info-50 dark:bg-info-900/20 border-info-300 dark:border-info-700 text-info-800 dark:text-info-200',
+  },
+  {
+    value: 'moderate',
+    label: 'Moderate',
+    color:
+      'bg-warning-50 dark:bg-warning-900/20 border-warning-300 dark:border-warning-700 text-warning-800 dark:text-warning-200',
+  },
+  {
+    value: 'severe',
+    label: 'Severe',
+    color:
+      'bg-accent-50 dark:bg-accent-900/20 border-accent-300 dark:border-accent-700 text-accent-800 dark:text-accent-200',
+  },
+  {
+    value: 'critical',
+    label: 'Critical',
+    color:
+      'bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-700 text-error-800 dark:text-error-200',
+  },
 ];
 
 export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
@@ -393,7 +417,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
           <div
             role="alert"
             aria-live="assertive"
-            className="rounded-md bg-red-50 border border-red-300 p-3 text-sm text-red-800"
+            className="rounded-md bg-error-50 dark:bg-error-900/20 border border-error-300 dark:border-error-700 p-3 text-sm text-error-800 dark:text-error-200"
           >
             {submitError}
           </div>
@@ -401,41 +425,32 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
 
         {/* Link to Health Event (Optional) */}
         <div className="border border-gray-200 dark:border-gray-700 rounded-md">
-          <Button variant="ghost" type="button" onClick={() => setHealthEventExpanded(!healthEventExpanded)}><div className="flex items-center gap-2">
-              <svg
-                className="w-4 h-4 text-blue-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                />
-              </svg>
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() => setHealthEventExpanded(!healthEventExpanded)}
+          >
+            <div className="flex items-center gap-2">
+              <LinkIcon className="w-4 h-4 text-info-500" aria-hidden="true" />
               <span>Link to existing Health Event (optional)</span>
             </div>
-            <svg
+            <ChevronDown
               className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform ${healthEventExpanded ? 'rotate-180' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 9l-7 7-7-7"
-              />
-            </svg></Button>
+              aria-hidden="true"
+            />
+          </Button>
           {healthEventExpanded && (
             <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-700">
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 mb-2">
                 Linking to a health event will auto-populate disease details.
               </p>
-              <Input fullWidth type="text" value={formData.healthEventRef} onChange={(e) => handleChange('healthEventRef', e.target.value)} placeholder="Enter Health Event ID or reference..." />
+              <Input
+                fullWidth
+                type="text"
+                value={formData.healthEventRef}
+                onChange={(e) => handleChange('healthEventRef', e.target.value)}
+                placeholder="Enter Health Event ID or reference..."
+              />
             </div>
           )}
         </div>
@@ -444,13 +459,15 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         <div className="bg-gray-50 dark:bg-gray-800 rounded-md p-3">
           <span className="text-sm text-gray-500 dark:text-gray-400">Site: </span>
           <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{siteName}</span>
-          {siteCode && <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({siteCode})</span>}
+          {siteCode && (
+            <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({siteCode})</span>
+          )}
         </div>
 
         {/* Disease Category */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Disease Category <span className="text-red-500">*</span>
+            Disease Category <span className="text-error-500">*</span>
           </label>
           <div className="space-y-2">
             {(['A', 'C', 'F'] as const).map((cat) => {
@@ -476,7 +493,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                       handleChange('diseaseCategory', e.target.value as 'A' | 'C' | 'F');
                       handleChange('diseaseCode', '');
                     }}
-                    className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600"
+                    className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600"
                   />
                   <div className="ml-3">
                     <span className="block text-sm font-medium">{info.label}</span>
@@ -491,15 +508,15 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         {/* Disease Selection */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Disease <span className="text-red-500">*</span>
+            Disease <span className="text-error-500">*</span>
           </label>
           <select
             value={formData.diseaseCode}
             onChange={(e) => handleChange('diseaseCode', e.target.value)}
             className={`
                     block w-full rounded-md shadow-sm text-sm
-                    ${errors.diseaseCode ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
-                    focus:ring-blue-500 focus:border-blue-500
+                    ${errors.diseaseCode ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
+                    focus:ring-info-500 focus:border-info-500
                   `}
           >
             <option value="">Select disease...</option>
@@ -509,12 +526,16 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               </option>
             ))}
           </select>
-          {errors.diseaseCode && <p className="mt-1 text-sm text-red-600">{errors.diseaseCode}</p>}
+          {errors.diseaseCode && (
+            <p className="mt-1 text-sm text-error-600 dark:text-error-400">{errors.diseaseCode}</p>
+          )}
         </div>
 
         {/* Suspected/Confirmed */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Status</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Status
+          </label>
           <div className="flex gap-4">
             {[
               { value: 'suspected', label: 'Suspected' },
@@ -526,7 +547,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                         flex items-center px-4 py-2 rounded-md border cursor-pointer
                         ${
                           formData.suspectedOrConfirmed === option.value
-                            ? 'border-blue-500 bg-blue-50'
+                            ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                             : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                         }
                       `}
@@ -542,7 +563,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                       e.target.value as 'suspected' | 'lab_confirmed',
                     )
                   }
-                  className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600"
+                  className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600"
                 />
                 <span className="ml-2 text-sm">{option.label}</span>
               </label>
@@ -553,7 +574,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         {/* Severity */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Severity <span className="text-red-500">*</span>
+            Severity <span className="text-error-500">*</span>
           </label>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             {severityOptions.map((opt) => (
@@ -584,10 +605,14 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
 
         {/* Affected Tank(s) Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Affected Tank(s)</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Affected Tank(s)
+          </label>
           <div className="border border-gray-200 dark:border-gray-700 rounded-md max-h-40 overflow-y-auto">
             {tanks.length === 0 ? (
-              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">No tanks available</div>
+              <div className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                No tanks available
+              </div>
             ) : (
               tanks.map((tank: Tank) => {
                 const isSelected = formData.selectedTankIds.includes(tank.id);
@@ -595,18 +620,24 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                   <label
                     key={tank.id}
                     className={`flex items-center px-3 py-2 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-b-0 ${
-                      isSelected ? 'bg-blue-50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+                      isSelected
+                        ? 'bg-info-50 dark:bg-info-900/20'
+                        : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                     }`}
                   >
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleTank(tank.id)}
-                      className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
+                      className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600 rounded"
                     />
                     <div className="ml-3 flex-1">
-                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{tank.name}</span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({tank.code})</span>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {tank.name}
+                      </span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                        ({tank.code})
+                      </span>
                       {tank.batchMetrics?.batchNumber && (
                         <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
                           - Batch: {tank.batchMetrics.batchNumber}
@@ -632,7 +663,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               {selectedTanks.map((tank: Tank) => (
                 <div
                   key={tank.id}
-                  className="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded text-xs"
+                  className="flex items-center gap-2 bg-info-50 dark:bg-info-900/20 px-3 py-1.5 rounded text-xs"
                 >
                   <span className="font-medium text-gray-700 dark:text-gray-300">{tank.name}</span>
                   {tank.batchMetrics ? (
@@ -671,7 +702,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Estimated Affected <span className="text-red-500">*</span>
+              Estimated Affected <span className="text-error-500">*</span>
             </label>
             <input
               type="number"
@@ -679,32 +710,45 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
               onChange={(e) => handleChange('estimatedAffected', e.target.value)}
               className={`
                       block w-full rounded-md shadow-sm text-sm
-                      ${errors.estimatedAffected ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
-                      focus:ring-blue-500 focus:border-blue-500
+                      ${errors.estimatedAffected ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
+                      focus:ring-info-500 focus:border-info-500
                     `}
               placeholder="Number of fish"
             />
             {errors.estimatedAffected && (
-              <p className="mt-1 text-xs text-red-600">{errors.estimatedAffected}</p>
+              <p className="mt-1 text-xs text-error-600 dark:text-error-400">
+                {errors.estimatedAffected}
+              </p>
             )}
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Percentage (%)</label>
-            <Input fullWidth type="number" step="0.1" value={formData.affectedPercentage} onChange={(e) => handleChange('affectedPercentage', e.target.value)} placeholder="e.g., 5" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Percentage (%)
+            </label>
+            <Input
+              fullWidth
+              type="number"
+              step="0.1"
+              value={formData.affectedPercentage}
+              onChange={(e) => handleChange('affectedPercentage', e.target.value)}
+              placeholder="e.g., 5"
+            />
           </div>
         </div>
 
         {/* Clinical Signs */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Clinical Signs <span className="text-red-500">*</span>
+            Clinical Signs <span className="text-error-500">*</span>
           </label>
 
           {/* Predefined symptom suggestions */}
           <div className="mb-3">
             {signCategories.map((cat) => (
               <div key={cat} className="mb-2">
-                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">{cat}:</div>
+                <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                  {cat}:
+                </div>
                 <div className="flex flex-wrap gap-1">
                   {CLINICAL_SIGN_SUGGESTIONS[cat].map((sign) => {
                     const isAdded = formData.clinicalSigns.includes(sign);
@@ -716,7 +760,7 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                         disabled={isAdded}
                         className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
                           isAdded
-                            ? 'bg-blue-100 border-blue-300 text-blue-700 cursor-default'
+                            ? 'bg-info-100 dark:bg-info-900/40 border-info-300 dark:border-info-700 text-info-700 dark:text-info-300 cursor-default'
                             : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:border-gray-400 dark:hover:border-gray-500 cursor-pointer'
                         }`}
                       >
@@ -733,26 +777,34 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
           {/* Selected signs */}
           <div className="space-y-2">
             {formData.clinicalSigns.map((sign, index) => (
-              <div key={index} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md">
+              <div
+                key={index}
+                className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md"
+              >
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{sign}</span>
-                <Button variant="ghost" type="button" onClick={() => removeItem('clinicalSigns', index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg></Button>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => removeItem('clinicalSigns', index)}
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </Button>
               </div>
             ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <Input type="text" value={formData.newSign} onChange={(e) => handleChange('newSign', e.target.value)} onKeyPress={(e) => {
-        if (e.key === 'Enter') {
-         e.preventDefault();
-         addItem('clinicalSigns', 'newSign');
-        }
-       }} placeholder="Add custom clinical sign..." />
+            <Input
+              type="text"
+              value={formData.newSign}
+              onChange={(e) => handleChange('newSign', e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addItem('clinicalSigns', 'newSign');
+                }
+              }}
+              placeholder="Add custom clinical sign..."
+            />
             <button
               type="button"
               onClick={() => addItem('clinicalSigns', 'newSign')}
@@ -762,37 +814,47 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             </button>
           </div>
           {errors.clinicalSigns && (
-            <p className="mt-1 text-sm text-red-600">{errors.clinicalSigns}</p>
+            <p className="mt-1 text-sm text-error-600 dark:text-error-400">
+              {errors.clinicalSigns}
+            </p>
           )}
         </div>
 
         {/* Immediate Actions */}
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Immediate Actions <span className="text-red-500">*</span>
+            Immediate Actions <span className="text-error-500">*</span>
           </label>
           <div className="space-y-2">
             {formData.immediateActions.map((action, index) => (
-              <div key={index} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md">
+              <div
+                key={index}
+                className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md"
+              >
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{action}</span>
-                <Button variant="ghost" type="button" onClick={() => removeItem('immediateActions', index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg></Button>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => removeItem('immediateActions', index)}
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </Button>
               </div>
             ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <Input type="text" value={formData.newAction} onChange={(e) => handleChange('newAction', e.target.value)} onKeyPress={(e) => {
-        if (e.key === 'Enter') {
-         e.preventDefault();
-         addItem('immediateActions', 'newAction');
-        }
-       }} placeholder="e.g., Isolated affected cages..." />
+            <Input
+              type="text"
+              value={formData.newAction}
+              onChange={(e) => handleChange('newAction', e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addItem('immediateActions', 'newAction');
+                }
+              }}
+              placeholder="e.g., Isolated affected cages..."
+            />
             <button
               type="button"
               onClick={() => addItem('immediateActions', 'newAction')}
@@ -802,7 +864,9 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             </button>
           </div>
           {errors.immediateActions && (
-            <p className="mt-1 text-sm text-red-600">{errors.immediateActions}</p>
+            <p className="mt-1 text-sm text-error-600 dark:text-error-400">
+              {errors.immediateActions}
+            </p>
           )}
         </div>
 
@@ -815,27 +879,32 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
             {formData.quarantineMeasures.map((measure, index) => (
               <div
                 key={index}
-                className="flex items-center gap-2 bg-yellow-50 px-3 py-2 rounded-md border border-yellow-200"
+                className="flex items-center gap-2 bg-warning-50 dark:bg-warning-900/20 px-3 py-2 rounded-md border border-warning-200 dark:border-warning-800"
               >
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{measure}</span>
-                <Button variant="ghost" type="button" onClick={() => removeItem('quarantineMeasures', index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg></Button>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => removeItem('quarantineMeasures', index)}
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </Button>
               </div>
             ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <Input type="text" value={formData.newQuarantine} onChange={(e) => handleChange('newQuarantine', e.target.value)} onKeyPress={(e) => {
-        if (e.key === 'Enter') {
-         e.preventDefault();
-         addItem('quarantineMeasures', 'newQuarantine');
-        }
-       }} placeholder="e.g., Movement restrictions..." />
+            <Input
+              type="text"
+              value={formData.newQuarantine}
+              onChange={(e) => handleChange('newQuarantine', e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addItem('quarantineMeasures', 'newQuarantine');
+                }
+              }}
+              placeholder="e.g., Movement restrictions..."
+            />
             <button
               type="button"
               onClick={() => addItem('quarantineMeasures', 'newQuarantine')}
@@ -848,46 +917,31 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
 
         {/* Lab Results (Optional) */}
         <div className="border border-gray-200 dark:border-gray-700 rounded-md">
-          <Button variant="ghost" type="button" onClick={() => {
+          <Button
+            variant="ghost"
+            type="button"
+            onClick={() => {
               if (!formData.showLabSection) {
                 addLabResult();
               } else {
                 handleChange('showLabSection', false);
               }
-            }}><div className="flex items-center gap-2">
-              <svg
-                className="w-4 h-4 text-purple-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
-                />
-              </svg>
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <FlaskConical className="w-4 h-4 text-accent-500" aria-hidden="true" />
               <span>Lab Results (Optional)</span>
               {formData.labResults.length > 0 && (
-                <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+                <span className="px-1.5 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
                   {formData.labResults.length}
                 </span>
               )}
             </div>
-            <svg
+            <ChevronDown
               className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform ${formData.showLabSection ? 'rotate-180' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 9l-7 7-7-7"
-              />
-            </svg></Button>
+              aria-hidden="true"
+            />
+          </Button>
           {formData.showLabSection && (
             <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-700 space-y-4">
               {formData.labResults.map((lr, idx) => (
@@ -899,15 +953,24 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                     <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                       Lab Result #{idx + 1}
                     </span>
-                    <Button variant="ghost" size="xs" type="button" onClick={() => removeLabResult(idx)}>Remove</Button>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      type="button"
+                      onClick={() => removeLabResult(idx)}
+                    >
+                      Remove
+                    </Button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Sample Type</label>
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        Sample Type
+                      </label>
                       <select
                         value={lr.sampleType}
                         onChange={(e) => updateLabResult(idx, 'sampleType', e.target.value)}
-                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                        className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-info-500 focus:border-info-500"
                       >
                         {['Tissue', 'Water', 'Mucus', 'Blood', 'Other'].map((t) => (
                           <option key={t} value={t}>
@@ -917,41 +980,73 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Sample Date</label>
-                      <Input fullWidth type="date" value={lr.sampleDate} onChange={(e) => updateLabResult(idx, 'sampleDate', e.target.value)} />
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        Sample Date
+                      </label>
+                      <Input
+                        fullWidth
+                        type="date"
+                        value={lr.sampleDate}
+                        onChange={(e) => updateLabResult(idx, 'sampleDate', e.target.value)}
+                      />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Lab Name</label>
-                      <Input fullWidth type="text" value={lr.labName} onChange={(e) => updateLabResult(idx, 'labName', e.target.value)} placeholder="e.g., PatoGen AS" />
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        Lab Name
+                      </label>
+                      <Input
+                        fullWidth
+                        type="text"
+                        value={lr.labName}
+                        onChange={(e) => updateLabResult(idx, 'labName', e.target.value)}
+                        placeholder="e.g., PatoGen AS"
+                      />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Test Type</label>
-                      <Input fullWidth type="text" value={lr.testType} onChange={(e) => updateLabResult(idx, 'testType', e.target.value)} placeholder="e.g., PCR, Histopathology" />
+                      <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                        Test Type
+                      </label>
+                      <Input
+                        fullWidth
+                        type="text"
+                        value={lr.testType}
+                        onChange={(e) => updateLabResult(idx, 'testType', e.target.value)}
+                        placeholder="e.g., PCR, Histopathology"
+                      />
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Result</label>
-                    <Input fullWidth type="text" value={lr.result} onChange={(e) => updateLabResult(idx, 'result', e.target.value)} placeholder="e.g., Positive for ISA virus" />
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                      Result
+                    </label>
+                    <Input
+                      fullWidth
+                      type="text"
+                      value={lr.result}
+                      onChange={(e) => updateLabResult(idx, 'result', e.target.value)}
+                      placeholder="e.g., Positive for ISA virus"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Conclusion</label>
-                    <Textarea fullWidth value={lr.conclusion} onChange={(e) => updateLabResult(idx, 'conclusion', e.target.value)} rows={2} placeholder="Lab conclusion or interpretation..." />
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                      Conclusion
+                    </label>
+                    <Textarea
+                      fullWidth
+                      value={lr.conclusion}
+                      onChange={(e) => updateLabResult(idx, 'conclusion', e.target.value)}
+                      rows={2}
+                      placeholder="Lab conclusion or interpretation..."
+                    />
                   </div>
                 </div>
               ))}
               <button
                 type="button"
                 onClick={addLabResult}
-                className="mt-2 inline-flex items-center px-3 py-1.5 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-md hover:bg-purple-100"
+                className="mt-2 inline-flex items-center px-3 py-1.5 text-xs font-medium text-accent-700 dark:text-accent-300 bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-md hover:bg-accent-100 dark:hover:bg-accent-900/50"
               >
-                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                  />
-                </svg>
+                <Plus className="w-3 h-3 mr-1" aria-hidden="true" />
                 Add Lab Result
               </button>
             </div>
@@ -959,21 +1054,23 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
         </div>
 
         {/* Veterinarian */}
-        <div className="space-y-3 p-4 bg-blue-50 rounded-md border border-blue-200">
+        <div className="space-y-3 p-4 bg-info-50 dark:bg-info-900/20 rounded-md border border-info-200 dark:border-info-800">
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
               checked={formData.veterinarianNotified}
               onChange={(e) => handleChange('veterinarianNotified', e.target.checked)}
-              className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
+              className="h-4 w-4 text-info-600 border-gray-300 dark:border-gray-600 rounded"
             />
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Veterinarian Notified</span>
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              Veterinarian Notified
+            </span>
           </label>
           {formData.veterinarianNotified && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
-                  Veterinarian Name <span className="text-red-500">*</span>
+                  Veterinarian Name <span className="text-error-500">*</span>
                 </label>
                 <input
                   type="text"
@@ -981,18 +1078,28 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
                   onChange={(e) => handleChange('veterinarianName', e.target.value)}
                   className={`
                           block w-full rounded-md shadow-sm text-sm
-                          ${errors.veterinarianName ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
-                          focus:ring-blue-500 focus:border-blue-500
+                          ${errors.veterinarianName ? 'border-error-300 dark:border-error-700' : 'border-gray-300 dark:border-gray-600'}
+                          focus:ring-info-500 focus:border-info-500
                         `}
                   placeholder="Dr. Name"
                 />
                 {errors.veterinarianName && (
-                  <p className="mt-1 text-xs text-red-600">{errors.veterinarianName}</p>
+                  <p className="mt-1 text-xs text-error-600 dark:text-error-400">
+                    {errors.veterinarianName}
+                  </p>
                 )}
               </div>
               <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Contact</label>
-                <Input fullWidth type="text" value={formData.veterinarianContact} onChange={(e) => handleChange('veterinarianContact', e.target.value)} placeholder="+47 XXX XX XXX" />
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                  Contact
+                </label>
+                <Input
+                  fullWidth
+                  type="text"
+                  value={formData.veterinarianContact}
+                  onChange={(e) => handleChange('veterinarianContact', e.target.value)}
+                  placeholder="+47 XXX XX XXX"
+                />
               </div>
             </div>
           )}
@@ -1004,15 +1111,19 @@ export const DiseaseOutbreakModal: React.FC<DiseaseOutbreakModalProps> = ({
           This report will be sent to Mattilsynet immediately upon submission.
         </p>
         <div className="flex gap-3">
-          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-          <Button variant="danger" type="button" onClick={handleSubmit} disabled={isSubmitting}>{isSubmitting ? (
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button variant="danger" type="button" onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? (
               <>
                 <Spinner size="sm" color="inherit" />
                 Submitting...
               </>
             ) : (
               'Submit Report'
-            )}</Button>
+            )}
+          </Button>
         </div>
       </div>
     </Modal>

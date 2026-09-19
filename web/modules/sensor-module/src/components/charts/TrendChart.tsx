@@ -18,17 +18,12 @@
  *   - Max 10 000 points per series in realtime mode
  */
 
-import React, {
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  useMemo,
-} from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useRealtimeData } from '../../hooks/useRealtimeData';
 import { useTrendData, type TrendTimeRange } from '../../hooks/useTrendData';
+import { colors } from '@aquaculture/shared-ui';
 import { ChartToolbar } from './ChartToolbar';
 import type {
   ChartViewMode,
@@ -84,7 +79,10 @@ function buildSeries(line: ChartLine, zones: ChartLineZone[] | undefined): uPlot
     fill: fillFn ?? (line.fill ? line.fill : undefined),
     spanGaps: line.spanGaps ?? false,
     paths: line.interpolation === 'scatter' ? drawScatterPaths : pathBuilder,
-    points: line.interpolation === 'scatter' ? { show: true, size: 6, fill: line.color } : { show: false },
+    points:
+      line.interpolation === 'scatter'
+        ? { show: true, size: 6, fill: line.color }
+        : { show: false },
   };
 }
 
@@ -172,11 +170,8 @@ function buildScales(opts: Partial<ChartOptions>): Record<string, uPlot.Scale> {
 /**
  * Build uPlot axis configs for all active Y axes.
  */
-function buildAxes(
-  lines: ChartLine[],
-  opts: Partial<ChartOptions>,
-): uPlot.Axis[] {
-  const axisColor = opts.axisLabelColor ?? '#666';
+function buildAxes(lines: ChartLine[], opts: Partial<ChartOptions>): uPlot.Axis[] {
+  const axisColor = opts.axisLabelColor ?? colors.neutral[500];
   const gridColor = opts.gridLineColor ?? 'rgba(0,0,0,0.1)';
   const font = opts.fontFamily ? `12px ${opts.fontFamily}` : '12px system-ui';
 
@@ -279,8 +274,7 @@ function buildTooltipPlugin(
 
         const values: TooltipState['values'] = lines.map((line, i) => {
           const raw = u.data[i + 1]?.[idx];
-          const formatted =
-            raw == null ? '—' : raw.toFixed(decimalsPrecision);
+          const formatted = raw == null ? '—' : raw.toFixed(decimalsPrecision);
           return { label: line.label, color: line.color, value: formatted };
         });
 
@@ -294,36 +288,37 @@ function buildTooltipPlugin(
 /*  Wheel plugin (pan + zoom)                                           */
 /* ------------------------------------------------------------------ */
 
-function buildWheelPlugin(
-  enableScroll: boolean,
-  enableZoom: boolean,
-): uPlot.Plugin {
+function buildWheelPlugin(enableScroll: boolean, enableZoom: boolean): uPlot.Plugin {
   return {
     hooks: {
       ready: (u: uPlot) => {
         const el = u.over;
         if (!el) return;
 
-        el.addEventListener('wheel', (e: WheelEvent) => {
-          e.preventDefault();
-          const xScale = u.scales.x;
-          if (xScale.min == null || xScale.max == null) return;
-          const range = xScale.max - xScale.min;
+        el.addEventListener(
+          'wheel',
+          (e: WheelEvent) => {
+            e.preventDefault();
+            const xScale = u.scales.x;
+            if (xScale.min == null || xScale.max == null) return;
+            const range = xScale.max - xScale.min;
 
-          if (enableZoom && e.ctrlKey) {
-            const factor = e.deltaY > 0 ? 1.1 : 0.9;
-            const pivot = u.posToVal(e.offsetX, 'x');
-            const newMin = pivot - (pivot - xScale.min) * factor;
-            const newMax = pivot + (xScale.max - pivot) * factor;
-            u.setScale('x', { min: newMin, max: newMax });
-          } else if (enableScroll) {
-            const delta = (e.deltaY / 200) * range;
-            u.setScale('x', {
-              min: xScale.min + delta,
-              max: xScale.max + delta,
-            });
-          }
-        }, { passive: false });
+            if (enableZoom && e.ctrlKey) {
+              const factor = e.deltaY > 0 ? 1.1 : 0.9;
+              const pivot = u.posToVal(e.offsetX, 'x');
+              const newMin = pivot - (pivot - xScale.min) * factor;
+              const newMax = pivot + (xScale.max - pivot) * factor;
+              u.setScale('x', { min: newMin, max: newMax });
+            } else if (enableScroll) {
+              const delta = (e.deltaY / 200) * range;
+              u.setScale('x', {
+                min: xScale.min + delta,
+                max: xScale.max + delta,
+              });
+            }
+          },
+          { passive: false },
+        );
       },
     },
   };
@@ -345,37 +340,48 @@ function buildTouchPlugin(): uPlot.Plugin {
         let initialRange = 0;
         let initialMid = 0;
 
-        const dist = (a: Touch, b: Touch) =>
-          Math.abs(a.clientX - b.clientX);
+        const dist = (a: Touch, b: Touch) => Math.abs(a.clientX - b.clientX);
 
-        el.addEventListener('touchstart', (e: TouchEvent) => {
-          if (e.touches.length !== 2) return;
-          touches = e.touches;
-          initialDist = dist(touches[0], touches[1]);
-          const xScale = u.scales.x;
-          if (xScale.min == null || xScale.max == null) return;
-          initialRange = xScale.max - xScale.min;
-          const midX = (touches[0].clientX + touches[1].clientX) / 2;
-          const rect = el.getBoundingClientRect();
-          initialMid = u.posToVal(midX - rect.left, 'x');
-        }, { passive: true });
+        el.addEventListener(
+          'touchstart',
+          (e: TouchEvent) => {
+            if (e.touches.length !== 2) return;
+            touches = e.touches;
+            initialDist = dist(touches[0], touches[1]);
+            const xScale = u.scales.x;
+            if (xScale.min == null || xScale.max == null) return;
+            initialRange = xScale.max - xScale.min;
+            const midX = (touches[0].clientX + touches[1].clientX) / 2;
+            const rect = el.getBoundingClientRect();
+            initialMid = u.posToVal(midX - rect.left, 'x');
+          },
+          { passive: true },
+        );
 
-        el.addEventListener('touchmove', (e: TouchEvent) => {
-          if (e.touches.length !== 2 || !touches || initialDist === 0) return;
-          e.preventDefault();
-          const newDist = dist(e.touches[0], e.touches[1]);
-          const scale = initialDist / newDist;
-          const newRange = initialRange * scale;
-          u.setScale('x', {
-            min: initialMid - newRange * 0.5,
-            max: initialMid + newRange * 0.5,
-          });
-        }, { passive: false });
+        el.addEventListener(
+          'touchmove',
+          (e: TouchEvent) => {
+            if (e.touches.length !== 2 || !touches || initialDist === 0) return;
+            e.preventDefault();
+            const newDist = dist(e.touches[0], e.touches[1]);
+            const scale = initialDist / newDist;
+            const newRange = initialRange * scale;
+            u.setScale('x', {
+              min: initialMid - newRange * 0.5,
+              max: initialMid + newRange * 0.5,
+            });
+          },
+          { passive: false },
+        );
 
-        el.addEventListener('touchend', () => {
-          touches = null;
-          initialDist = 0;
-        }, { passive: true });
+        el.addEventListener(
+          'touchend',
+          () => {
+            touches = null;
+            initialDist = 0;
+          },
+          { passive: true },
+        );
       },
     },
   };
@@ -423,13 +429,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 
   const realtimeResult = useRealtimeData(mode === 'realtime' ? tagIds : []);
 
-  const historyResult = useTrendData(
-    mode === 'history' ? tagIds : [],
-    historyRange,
-    {
-      refreshIntervalMs: autoRefreshMs,
-    },
-  );
+  const historyResult = useTrendData(mode === 'history' ? tagIds : [], historyRange, {
+    refreshIntervalMs: autoRefreshMs,
+  });
 
   /* ---- uPlot instance construction ---- */
 
@@ -444,10 +446,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 
       if (options.mouseWheelScroll !== false || options.mouseWheelZoom) {
         plugins.push(
-          buildWheelPlugin(
-            options.mouseWheelScroll !== false,
-            options.mouseWheelZoom === true,
-          ),
+          buildWheelPlugin(options.mouseWheelScroll !== false, options.mouseWheelZoom === true),
         );
       }
 
@@ -482,7 +481,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         ],
       };
     },
-     
+
     [lines, options],
   );
 
@@ -496,10 +495,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     const height = options.panelHeight ?? (container.clientHeight || 300);
 
     const uplotOpts = buildUPlotOptions(width, height);
-    const emptyData: uPlot.AlignedData = [
-      [],
-      ...lines.map(() => []),
-    ] as uPlot.AlignedData;
+    const emptyData: uPlot.AlignedData = [[], ...lines.map(() => [])] as uPlot.AlignedData;
 
     const instance = new uPlot(uplotOpts, emptyData, container);
     uplotRef.current = instance;
@@ -510,7 +506,6 @@ export const TrendChart: React.FC<TrendChartProps> = ({
       realtimeBufferRef.current.clear();
     };
     // Recreate on lines or options change
-     
   }, [lines, options, buildUPlotOptions]);
 
   /* ---- ResizeObserver ---- */
@@ -543,12 +538,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     const source = mode === 'custom' ? (customData ?? {}) : historyResult.data;
     const uData = toUPlotData(lines, source);
     u.setData(uData);
-  }, [
-    mode,
-    historyResult.data,
-    customData,
-    lines,
-  ]);
+  }, [mode, historyResult.data, customData, lines]);
 
   /* ---- Realtime buffer management ---- */
 
@@ -603,9 +593,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 
       const tsSec = change.timestamp / 1000;
       const numVal =
-        typeof change.value === 'number'
-          ? change.value
-          : parseFloat(String(change.value));
+        typeof change.value === 'number' ? change.value : parseFloat(String(change.value));
       if (isNaN(numVal)) continue;
 
       if (!realtimeBufferRef.current.has(line.tagId)) {
@@ -673,12 +661,12 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         />
       )}
       {mode === 'realtime' && !realtimeResult.isConnected && (
-        <div className="px-3 py-1 text-xs text-amber-600 bg-amber-50 border-b border-amber-200">
+        <div className="px-3 py-1 text-xs text-warning-600 dark:text-warning-400 bg-warning-50 dark:bg-warning-900/20 border-b border-warning-200 dark:border-warning-800">
           Data source disconnected — showing last known values
         </div>
       )}
       {historyResult.error && (
-        <div className="px-3 py-1 text-xs text-red-600 bg-red-50 border-b border-red-200">
+        <div className="px-3 py-1 text-xs text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20 border-b border-error-200 dark:border-error-800">
           {historyResult.error}
         </div>
       )}
@@ -702,7 +690,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                   style={{ background: v.color }}
                 />
                 <span className="text-gray-600 dark:text-gray-400">{v.label}:</span>
-                <span className="font-mono font-medium text-gray-900 dark:text-gray-100">{v.value}</span>
+                <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
+                  {v.value}
+                </span>
               </div>
             ))}
           </div>

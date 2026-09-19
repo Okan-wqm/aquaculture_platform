@@ -14,9 +14,7 @@ interface TableWidgetContentProps {
   config: WidgetConfig;
 }
 
-export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
-  config,
-}) => {
+export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({ config }) => {
   const { data, loading, error } = useWidgetData(config);
 
   if (loading) {
@@ -45,9 +43,9 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
 
   // Status colors and labels
   const statusConfig = {
-    normal: { color: 'bg-green-500', label: 'Normal' },
-    warning: { color: 'bg-yellow-500', label: 'Warning' },
-    critical: { color: 'bg-red-500', label: 'Critical' },
+    normal: { color: 'bg-success-500', label: 'Normal' },
+    warning: { color: 'bg-warning-500', label: 'Warning' },
+    critical: { color: 'bg-error-500', label: 'Critical' },
     offline: { color: 'bg-gray-400', label: 'Offline' },
   };
 
@@ -60,11 +58,7 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
         const status = statusConfig[reading.status] || statusConfig.normal;
         return (
           <div className="flex items-center">
-            <Circle
-              size={8}
-              className={`${status.color} rounded-full mr-2`}
-              fill="currentColor"
-            />
+            <Circle size={8} className={`${status.color} rounded-full mr-2`} fill="currentColor" />
             <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
               {reading.sensorName}
             </span>
@@ -81,9 +75,7 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
           <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
             {reading.value.toFixed(config.settings?.decimalPlaces ?? 1)}
           </span>
-          <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
-            {reading.unit}
-          </span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">{reading.unit}</span>
         </>
       ),
     },
@@ -97,7 +89,7 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
           <>
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusBgClass(
-                reading.status
+                reading.status,
               )}`}
             >
               {status.label}
@@ -112,13 +104,9 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
       align: 'right',
       render: (_value, reading) => {
         const timeSince = formatTimeSince(reading.timestamp);
-        return (
-          <>
-            {timeSince}
-          </>
-        );
+        return <>{timeSince}</>;
       },
-    }
+    },
   ];
 
   return (
@@ -141,11 +129,11 @@ export const TableWidgetContent: React.FC<TableWidgetContentProps> = ({
 function getStatusBgClass(status: string): string {
   switch (status) {
     case 'normal':
-      return 'bg-green-100 text-green-800';
+      return 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200';
     case 'warning':
-      return 'bg-yellow-100 text-yellow-800';
+      return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
     case 'critical':
-      return 'bg-red-100 text-red-800';
+      return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200';
     case 'offline':
       return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
     default:

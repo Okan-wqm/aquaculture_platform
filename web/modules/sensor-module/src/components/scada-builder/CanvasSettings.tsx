@@ -27,7 +27,7 @@ const Toggle: React.FC<{
     onClick={() => onToggle(!enabled)}
     className={`flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors ${
       enabled
-        ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
+        ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 border-info-300 dark:border-info-700'
         : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-200'
     }`}
     aria-label={label}
@@ -127,16 +127,51 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
       {/* Zoom Controls */}
       <span className="text-gray-600 dark:text-gray-400 flex items-center gap-0.5">
         {/* Zoom Out */}
-        <Button variant="ghost" iconOnly className="w-6 h-6 justify-center" onClick={() => onZoomChange(Math.max(0.2, zoom - 0.1))} aria-label="Zoom Out" title="Zoom Out"><ZoomOut className="w-3.5 h-3.5" /></Button>
+        <Button
+          variant="ghost"
+          iconOnly
+          className="w-6 h-6 justify-center"
+          onClick={() => onZoomChange(Math.max(0.2, zoom - 0.1))}
+          aria-label="Zoom Out"
+          title="Zoom Out"
+        >
+          <ZoomOut className="w-3.5 h-3.5" />
+        </Button>
 
         {/* Zoom Percentage (click to reset to 100%) */}
-        <Button variant="ghost" className="w-12" onClick={() => onZoomChange(1)} aria-label="Reset Zoom" title="Reset Zoom">{Math.round(zoom * 100)}%</Button>
+        <Button
+          variant="ghost"
+          className="w-12"
+          onClick={() => onZoomChange(1)}
+          aria-label="Reset Zoom"
+          title="Reset Zoom"
+        >
+          {Math.round(zoom * 100)}%
+        </Button>
 
         {/* Zoom In */}
-        <Button variant="ghost" iconOnly className="w-6 h-6 justify-center" onClick={() => onZoomChange(Math.min(2, zoom + 0.1))} aria-label="Zoom In" title="Zoom In"><ZoomIn className="w-3.5 h-3.5" /></Button>
+        <Button
+          variant="ghost"
+          iconOnly
+          className="w-6 h-6 justify-center"
+          onClick={() => onZoomChange(Math.min(2, zoom + 0.1))}
+          aria-label="Zoom In"
+          title="Zoom In"
+        >
+          <ZoomIn className="w-3.5 h-3.5" />
+        </Button>
 
         {/* Fit View */}
-        <Button variant="ghost" iconOnly className="w-6 h-6 justify-center" onClick={onFitView} aria-label="Fit View" title="Fit View"><Maximize2 className="w-3.5 h-3.5" /></Button>
+        <Button
+          variant="ghost"
+          iconOnly
+          className="w-6 h-6 justify-center"
+          onClick={onFitView}
+          aria-label="Fit View"
+          title="Fit View"
+        >
+          <Maximize2 className="w-3.5 h-3.5" />
+        </Button>
       </span>
 
       {/* Theme Toggle */}
@@ -147,9 +182,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         aria-label={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
       >
-        {isDark
-          ? <Sun className="w-3.5 h-3.5" />
-          : <Moon className="w-3.5 h-3.5" />}
+        {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
       </button>
 
       {/* Background Image Controls */}
@@ -167,7 +200,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
             onClick={() => fileInputRef.current?.click()}
             className={`flex items-center gap-1 px-2 py-1 rounded border text-xs transition-colors ${
               backgroundImage
-                ? 'bg-cyan-100 text-cyan-700 border-cyan-300'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 border-info-300 dark:border-info-700'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-200'
             }`}
             aria-label="Background Image"
@@ -186,15 +219,24 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 step={0.1}
                 value={backgroundOpacity ?? 0.3}
                 onChange={(e) => onBackgroundOpacityChange?.(Number(e.target.value))}
-                className="w-16 h-4 accent-cyan-600"
+                className="w-16 h-4 accent-info-600"
                 title={`Opacity: ${Math.round((backgroundOpacity ?? 0.3) * 100)}%`}
               />
-              <Button variant="ghost" iconOnly className="w-6 h-6 justify-center" onClick={() => onBackgroundImageChange(null)} aria-label="Remove Background" title="Remove Background"><X className="w-3.5 h-3.5" /></Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                className="w-6 h-6 justify-center"
+                onClick={() => onBackgroundImageChange(null)}
+                aria-label="Remove Background"
+                title="Remove Background"
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
             </>
           )}
           {/* Arkaplan gorseli hata mesaji -- dosya boyutu asiminda gosterilir */}
           {bgError && (
-            <span className="text-red-500 text-[11px] ml-1" role="alert" title={bgError}>
+            <span className="text-error-500 text-[11px] ml-1" role="alert" title={bgError}>
               {bgError}
             </span>
           )}

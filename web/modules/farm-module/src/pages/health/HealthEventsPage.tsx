@@ -3,7 +3,18 @@
  * Displays and manages fish health events with full CRUD, treatment, and quarantine operations
  */
 import React, { useState, useMemo } from 'react';
-import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, useConfirm, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Modal,
+  Input,
+  Select,
+  Badge,
+  Spinner,
+  Alert,
+  useConfirm,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   Activity,
   AlertTriangle,
@@ -48,10 +59,10 @@ import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 // ============================================================================
 
 const statusColors: Record<HealthEventStatus, string> = {
-  active: 'bg-red-100 text-red-800',
-  monitoring: 'bg-yellow-100 text-yellow-800',
-  resolved: 'bg-green-100 text-green-800',
-  chronic: 'bg-purple-100 text-purple-800',
+  active: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  monitoring: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  resolved: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  chronic: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
   cancelled: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -64,10 +75,10 @@ const statusLabels: Record<HealthEventStatus, string> = {
 };
 
 const severityColors: Record<HealthSeverity, string> = {
-  minor: 'bg-blue-100 text-blue-800',
-  moderate: 'bg-yellow-100 text-yellow-800',
-  severe: 'bg-orange-100 text-orange-800',
-  critical: 'bg-red-100 text-red-800',
+  minor: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  moderate: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  severe: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  critical: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 const severityLabels: Record<HealthSeverity, string> = {
@@ -202,12 +213,16 @@ export const HealthEventsPage: React.FC = () => {
   // Treatment modal state
   const [isTreatmentModalOpen, setIsTreatmentModalOpen] = useState(false);
   const [treatmentData, setTreatmentData] = useState<TreatmentFormData>(defaultTreatmentData);
-  const [selectedEventForTreatment, setSelectedEventForTreatment] = useState<HealthEvent | null>(null);
+  const [selectedEventForTreatment, setSelectedEventForTreatment] = useState<HealthEvent | null>(
+    null,
+  );
 
   // Quarantine modal state
   const [isQuarantineModalOpen, setIsQuarantineModalOpen] = useState(false);
   const [quarantineTankId, setQuarantineTankId] = useState('');
-  const [selectedEventForQuarantine, setSelectedEventForQuarantine] = useState<HealthEvent | null>(null);
+  const [selectedEventForQuarantine, setSelectedEventForQuarantine] = useState<HealthEvent | null>(
+    null,
+  );
 
   // Resolution modal state
   const [isResolveModalOpen, setIsResolveModalOpen] = useState(false);
@@ -239,7 +254,7 @@ export const HealthEventsPage: React.FC = () => {
         item.title.toLowerCase().includes(term) ||
         item.description?.toLowerCase().includes(term) ||
         item.diseaseName?.toLowerCase().includes(term) ||
-        item.notes?.toLowerCase().includes(term)
+        item.notes?.toLowerCase().includes(term),
     );
   }, [data?.items, searchTerm]);
 
@@ -326,7 +341,14 @@ export const HealthEventsPage: React.FC = () => {
 
   const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this health event?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this health event?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -380,7 +402,14 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndTreatment = async (event: HealthEvent) => {
-    if (await confirm({ title: 'End the treatment?', confirmText: 'End treatment', cancelText: 'Cancel', variant: 'warning' })) {
+    if (
+      await confirm({
+        title: 'End the treatment?',
+        confirmText: 'End treatment',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      })
+    ) {
       try {
         await endTreatmentMutation.mutateAsync({ id: event.id });
         refetch();
@@ -417,7 +446,14 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndQuarantine = async (event: HealthEvent) => {
-    if (await confirm({ title: 'End the quarantine?', confirmText: 'End quarantine', cancelText: 'Cancel', variant: 'warning' })) {
+    if (
+      await confirm({
+        title: 'End the quarantine?',
+        confirmText: 'End quarantine',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      })
+    ) {
       try {
         await endQuarantineMutation.mutateAsync(event.id);
         refetch();
@@ -547,18 +583,14 @@ export const HealthEventsPage: React.FC = () => {
       key: 'status',
       header: 'Status',
       render: (_value, item) => (
-        <Badge className={statusColors[item.status]}>
-          {statusLabels[item.status]}
-        </Badge>
+        <Badge className={statusColors[item.status]}>{statusLabels[item.status]}</Badge>
       ),
     },
     {
       key: 'severity',
       header: 'Severity',
       render: (_value, item) => (
-        <Badge className={severityColors[item.severity]}>
-          {severityLabels[item.severity]}
-        </Badge>
+        <Badge className={severityColors[item.severity]}>{severityLabels[item.severity]}</Badge>
       ),
     },
     {
@@ -573,7 +605,7 @@ export const HealthEventsPage: React.FC = () => {
         <div className="flex items-center gap-2">
           {item.isUnderTreatment && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800"
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200"
               title="Under Treatment"
             >
               <Pill className="w-3 h-3 mr-1" />
@@ -582,16 +614,15 @@ export const HealthEventsPage: React.FC = () => {
           )}
           {item.isQuarantined && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800"
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200"
               title="Quarantined"
             >
-              <Shield className="w-3 h-3 mr-1" />
-              Q
+              <Shield className="w-3 h-3 mr-1" />Q
             </span>
           )}
           {item.labConfirmed && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
               title="Lab Confirmed"
             >
               Lab
@@ -599,7 +630,7 @@ export const HealthEventsPage: React.FC = () => {
           )}
           {item.followUpRequired && (
             <span
-              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800"
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200"
               title="Follow-up Required"
             >
               F/U
@@ -618,41 +649,94 @@ export const HealthEventsPage: React.FC = () => {
           {item.status !== 'resolved' && item.status !== 'cancelled' && (
             <>
               {!item.isUnderTreatment ? (
-                <Button variant="ghost" iconOnly aria-label="Start Treatment" onClick={() => handleOpenStartTreatment(item)} title="Start Treatment"><Play className="w-4 h-4" /></Button>
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="Start Treatment"
+                  onClick={() => handleOpenStartTreatment(item)}
+                  title="Start Treatment"
+                >
+                  <Play className="w-4 h-4" />
+                </Button>
               ) : (
-                <Button variant="ghost" iconOnly aria-label="End Treatment" onClick={() => handleEndTreatment(item)} title="End Treatment"><Square className="w-4 h-4" /></Button>
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="End Treatment"
+                  onClick={() => handleEndTreatment(item)}
+                  title="End Treatment"
+                >
+                  <Square className="w-4 h-4" />
+                </Button>
               )}
 
               {/* Quarantine actions */}
               {!item.isQuarantined ? (
-                <Button variant="ghost" iconOnly aria-label="Start Quarantine" onClick={() => handleOpenStartQuarantine(item)} title="Start Quarantine"><Shield className="w-4 h-4" /></Button>
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="Start Quarantine"
+                  onClick={() => handleOpenStartQuarantine(item)}
+                  title="Start Quarantine"
+                >
+                  <Shield className="w-4 h-4" />
+                </Button>
               ) : (
-                <Button variant="ghost" iconOnly aria-label="End Quarantine" onClick={() => handleEndQuarantine(item)} title="End Quarantine"><Shield className="w-4 h-4 fill-current" /></Button>
+                <Button
+                  variant="ghost"
+                  iconOnly
+                  aria-label="End Quarantine"
+                  onClick={() => handleEndQuarantine(item)}
+                  title="End Quarantine"
+                >
+                  <Shield className="w-4 h-4 fill-current" />
+                </Button>
               )}
 
               {/* Resolve */}
-              <Button variant="ghost" iconOnly aria-label="Resolve Event" onClick={() => handleOpenResolve(item)} title="Resolve Event"><CheckCircle className="w-4 h-4" /></Button>
+              <Button
+                variant="ghost"
+                iconOnly
+                aria-label="Resolve Event"
+                onClick={() => handleOpenResolve(item)}
+                title="Resolve Event"
+              >
+                <CheckCircle className="w-4 h-4" />
+              </Button>
             </>
           )}
 
           {/* Edit */}
-          <Button variant="ghost" iconOnly aria-label="Edit" onClick={() => handleOpenEdit(item)} title="Edit"><Edit className="w-4 h-4" /></Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Edit"
+            onClick={() => handleOpenEdit(item)}
+            title="Edit"
+          >
+            <Edit className="w-4 h-4" />
+          </Button>
 
           {/* Delete */}
-          <Button variant="ghost" iconOnly aria-label="Delete" onClick={() => handleDelete(item.id)} title="Delete"><Trash2 className="w-4 h-4" /></Button>
+          <Button
+            variant="ghost"
+            iconOnly
+            aria-label="Delete"
+            onClick={() => handleDelete(item.id)}
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </Button>
         </div>
       ),
-    }
+    },
   ];
 
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
       {error && (
-        <Alert
-          type="warning"
-          action={{ label: 'Retry', onClick: () => refetch() }}
-        >
+        <Alert type="warning" action={{ label: 'Retry', onClick: () => refetch() }}>
           Couldn&apos;t refresh health events — showing the last loaded data.
         </Alert>
       )}
@@ -674,56 +758,66 @@ export const HealthEventsPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-100 rounded-lg">
-                <Activity className="w-5 h-5 text-blue-600" />
+              <div className="p-2 bg-info-100 dark:bg-info-900/40 rounded-lg">
+                <Activity className="w-5 h-5 text-info-600 dark:text-info-400" />
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Total Events</div>
-                <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
+                <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats.total}
+                </div>
               </div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-red-100 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
+              <div className="p-2 bg-error-100 dark:bg-error-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-error-600 dark:text-error-400" />
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
-                <div className="text-2xl font-bold text-red-600">{stats.active}</div>
+                <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+                  {stats.active}
+                </div>
               </div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-orange-100 rounded-lg">
-                <AlertTriangle className="w-5 h-5 text-orange-600" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <AlertTriangle className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Critical</div>
-                <div className="text-2xl font-bold text-orange-600">{stats.critical}</div>
+                <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
+                  {stats.critical}
+                </div>
               </div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <Pill className="w-5 h-5 text-purple-600" />
+              <div className="p-2 bg-accent-100 dark:bg-accent-900/40 rounded-lg">
+                <Pill className="w-5 h-5 text-accent-600 dark:text-accent-400" />
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Under Treatment</div>
-                <div className="text-2xl font-bold text-purple-600">{stats.underTreatment}</div>
+                <div className="text-2xl font-bold text-accent-600 dark:text-accent-400">
+                  {stats.underTreatment}
+                </div>
               </div>
             </div>
           </Card>
           <Card className="p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-yellow-100 rounded-lg">
-                <Shield className="w-5 h-5 text-yellow-600" />
+              <div className="p-2 bg-warning-100 dark:bg-warning-900/40 rounded-lg">
+                <Shield className="w-5 h-5 text-warning-600 dark:text-warning-400" />
               </div>
               <div>
                 <div className="text-sm text-gray-500 dark:text-gray-400">Quarantined</div>
-                <div className="text-2xl font-bold text-yellow-600">{stats.quarantined}</div>
+                <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+                  {stats.quarantined}
+                </div>
               </div>
             </div>
           </Card>
@@ -752,8 +846,16 @@ export const HealthEventsPage: React.FC = () => {
               <Filter className="w-4 h-4" />
               Filters
             </Button>
-            {(filter.status || filter.severity || filter.eventType || filter.fromDate || filter.toDate) && (
-              <Button variant="secondary" onClick={clearFilters} className="flex items-center gap-2">
+            {(filter.status ||
+              filter.severity ||
+              filter.eventType ||
+              filter.fromDate ||
+              filter.toDate) && (
+              <Button
+                variant="secondary"
+                onClick={clearFilters}
+                className="flex items-center gap-2"
+              >
                 <X className="w-4 h-4" />
                 Clear
               </Button>
@@ -847,9 +949,7 @@ export const HealthEventsPage: React.FC = () => {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() =>
-                  setFilter({ ...filter, limit: (filter.limit || 50) + 50 })
-                }
+                onClick={() => setFilter({ ...filter, limit: (filter.limit || 50) + 50 })}
               >
                 Load More
               </Button>
@@ -978,12 +1078,13 @@ export const HealthEventsPage: React.FC = () => {
                 type="checkbox"
                 id="followUpRequired"
                 checked={formData.followUpRequired}
-                onChange={(e) =>
-                  setFormData({ ...formData, followUpRequired: e.target.checked })
-                }
+                onChange={(e) => setFormData({ ...formData, followUpRequired: e.target.checked })}
                 className="rounded border-gray-300 dark:border-gray-600"
               />
-              <label htmlFor="followUpRequired" className="text-sm text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="followUpRequired"
+                className="text-sm text-gray-700 dark:text-gray-300"
+              >
                 Follow-up Required
               </label>
             </div>
@@ -1000,13 +1101,8 @@ export const HealthEventsPage: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? 'Saving...'
-                : 'Save'}
+            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 'Save'}
             </Button>
           </div>
         </form>
@@ -1059,9 +1155,7 @@ export const HealthEventsPage: React.FC = () => {
             <Input
               label="Dosage Unit"
               value={treatmentData.dosageUnit}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, dosageUnit: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, dosageUnit: e.target.value })}
               placeholder="mg/L, mg/kg, etc."
             />
           </div>
@@ -1070,27 +1164,21 @@ export const HealthEventsPage: React.FC = () => {
               label="Start Date"
               type="date"
               value={treatmentData.startDate}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, startDate: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, startDate: e.target.value })}
               required
             />
             <Input
               label="End Date (optional)"
               type="date"
               value={treatmentData.endDate}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, endDate: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, endDate: e.target.value })}
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="Frequency"
               value={treatmentData.frequency}
-              onChange={(e) =>
-                setTreatmentData({ ...treatmentData, frequency: e.target.value })
-              }
+              onChange={(e) => setTreatmentData({ ...treatmentData, frequency: e.target.value })}
               placeholder="1x daily, every 12h, etc."
             />
             <Input
@@ -1109,9 +1197,7 @@ export const HealthEventsPage: React.FC = () => {
           <Input
             label="Instructions"
             value={treatmentData.instructions}
-            onChange={(e) =>
-              setTreatmentData({ ...treatmentData, instructions: e.target.value })
-            }
+            onChange={(e) => setTreatmentData({ ...treatmentData, instructions: e.target.value })}
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsTreatmentModalOpen(false)}>

@@ -26,61 +26,21 @@ import type { MfaChallengeResult, MfaSetupRequiredResult } from '@aquaculture/sh
 
 import { AuthFormShell } from './AuthFormShell';
 import MfaSetupScreen from './MfaSetupScreen';
+import { ArrowRight, ExternalLink, Lock, Mail, ShieldCheck, Smartphone } from 'lucide-react';
 
 const LockIcon: React.FC = () => (
-  <svg
-    className="w-6 h-6"
-    fill="none"
-    viewBox="0 0 24 24"
-    stroke="currentColor"
-    strokeWidth={1.7}
-    aria-hidden="true"
-  >
-    <path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.5-2 8-6 8-11V5l-8-3Z" />
-    <path d="m9 12 2 2 4-4" />
-  </svg>
+  <ShieldCheck className="w-6 h-6" strokeWidth={1.7} aria-hidden="true" />
 );
 
 const EmailIcon: React.FC = () => (
-  <svg
-    className="w-full h-full"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.7}
-    aria-hidden="true"
-  >
-    <rect x="3" y="5" width="18" height="14" rx="2" />
-    <path d="m3 7 9 6 9-6" />
-  </svg>
+  <Mail className="w-full h-full" strokeWidth={1.7} aria-hidden="true" />
 );
 
 const PasswordIcon: React.FC = () => (
-  <svg
-    className="w-full h-full"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={1.7}
-    aria-hidden="true"
-  >
-    <rect x="4" y="10" width="16" height="11" rx="2" />
-    <path d="M8 10V7a4 4 0 018 0v3" />
-  </svg>
+  <Lock className="w-full h-full" strokeWidth={1.7} aria-hidden="true" />
 );
 
-const ArrowRightIcon: React.FC = () => (
-  <svg
-    className="w-4 h-4"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    aria-hidden="true"
-  >
-    <path d="M5 12h14M13 5l7 7-7 7" />
-  </svg>
-);
+const ArrowRightIcon: React.FC = () => <ArrowRight className="w-4 h-4" aria-hidden="true" />;
 
 const LoginForm: React.FC = () => {
   const navigate = useNavigate();
@@ -415,37 +375,14 @@ const LoginForm: React.FC = () => {
             className="industrial-mobile-link group"
           >
             <div className="industrial-mobile-icon">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.8}
-                aria-hidden="true"
-              >
-                <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
-                <line x1="12" y1="18" x2="12.01" y2="18" />
-              </svg>
+              <Smartphone className="w-4 h-4" strokeWidth={1.8} aria-hidden="true" />
             </div>
             <div className="industrial-mobile-copy">
               <span>{t('login.mobile.title')}</span>
               <small>{t('login.mobile.subtitle')}</small>
             </div>
             <div className="industrial-mobile-arrow">
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.8}
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"
-                />
-              </svg>
+              <ExternalLink className="w-4 h-4" strokeWidth={1.8} aria-hidden="true" />
             </div>
           </a>
         </div>

@@ -115,20 +115,14 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
 
   const isValid = errors.length === 0;
 
-  const setField = <K extends keyof FormEntry>(
-    idx: number,
-    field: K,
-    value: FormEntry[K],
-  ) => {
+  const setField = <K extends keyof FormEntry>(idx: number, field: K, value: FormEntry[K]) => {
     setEntries((prev) =>
       prev.map((entry, i) => (i === idx ? { ...entry, [field]: value } : entry)),
     );
   };
 
   const addRow = () => {
-    const lastMax = entries.length
-      ? entries[entries.length - 1].maxWeightG
-      : 0;
+    const lastMax = entries.length ? entries[entries.length - 1].maxWeightG : 0;
     setEntries((prev) => [
       ...prev,
       {
@@ -172,8 +166,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
       onSuccess?.();
       onClose();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to assign feeds to batch.';
+      const message = error instanceof Error ? error.message : 'Failed to assign feeds to batch.';
       toast({ title: 'Error', description: message, variant: 'error' });
     }
   };
@@ -185,21 +178,15 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
-      title="Assign Feeds to Batch"
-      size="lg"
-    >
+    <Modal isOpen={isOpen} onClose={handleClose} title="Assign Feeds to Batch" size="lg">
       <div className="space-y-6">
         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Batch</p>
           <p className="font-medium text-gray-900 dark:text-gray-100">{batchNumber}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Every row maps a fish weight range (min–max g) to a feed product.
-            The active feed for a given fish is the row whose range covers the
-            current average weight; overlapping ranges are disambiguated by
-            priority (1 = highest).
+            Every row maps a fish weight range (min–max g) to a feed product. The active feed for a
+            given fish is the row whose range covers the current average weight; overlapping ranges
+            are disambiguated by priority (1 = highest).
           </p>
         </div>
 
@@ -220,7 +207,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                   id={`feed-${entry.key}`}
                   value={entry.feedId}
                   onChange={(e) => setField(idx, 'feedId', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
                 >
                   <option value="">— Choose a feed —</option>
                   {feedList.data?.items.map((feed) => (
@@ -238,9 +225,15 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                 >
                   Min (g)
                 </label>
-                <Input fullWidth id={`min-${entry.key}`} type="number" min={0} step="0.1" value={entry.minWeightG || ''} onChange={(e) =>
-          setField(idx, 'minWeightG', parseFloat(e.target.value) || 0)
-         } />
+                <Input
+                  fullWidth
+                  id={`min-${entry.key}`}
+                  type="number"
+                  min={0}
+                  step="0.1"
+                  value={entry.minWeightG || ''}
+                  onChange={(e) => setField(idx, 'minWeightG', parseFloat(e.target.value) || 0)}
+                />
               </div>
 
               <div className="col-span-2">
@@ -250,9 +243,15 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                 >
                   Max (g)
                 </label>
-                <Input fullWidth id={`max-${entry.key}`} type="number" min={0} step="0.1" value={entry.maxWeightG || ''} onChange={(e) =>
-          setField(idx, 'maxWeightG', parseFloat(e.target.value) || 0)
-         } />
+                <Input
+                  fullWidth
+                  id={`max-${entry.key}`}
+                  type="number"
+                  min={0}
+                  step="0.1"
+                  value={entry.maxWeightG || ''}
+                  onChange={(e) => setField(idx, 'maxWeightG', parseFloat(e.target.value) || 0)}
+                />
               </div>
 
               <div className="col-span-2">
@@ -262,30 +261,56 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                 >
                   Priority
                 </label>
-                <Input fullWidth id={`prio-${entry.key}`} type="number" min={1} max={100} value={entry.priority || ''} onChange={(e) =>
-          setField(idx, 'priority', parseInt(e.target.value, 10) || 1)
-         } />
+                <Input
+                  fullWidth
+                  id={`prio-${entry.key}`}
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={entry.priority || ''}
+                  onChange={(e) => setField(idx, 'priority', parseInt(e.target.value, 10) || 1)}
+                />
               </div>
 
               <div className="col-span-1 flex justify-end">
-                <Button variant="ghost" type="button" onClick={() => removeRow(idx)} disabled={entries.length <= 1} aria-label={`Remove row ${idx + 1}`}>✕</Button>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => removeRow(idx)}
+                  disabled={entries.length <= 1}
+                  aria-label={`Remove row ${idx + 1}`}
+                >
+                  ✕
+                </Button>
               </div>
             </div>
           ))}
 
-          <Button variant="ghost" type="button" onClick={addRow}>+ Add another range</Button>
+          <Button variant="ghost" type="button" onClick={addRow}>
+            + Add another range
+          </Button>
         </div>
 
         <div>
-          <label htmlFor="feed-assign-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="feed-assign-notes"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Notes (optional)
           </label>
-          <Textarea fullWidth id="feed-assign-notes" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <Textarea
+            fullWidth
+            id="feed-assign-notes"
+            rows={2}
+            maxLength={2000}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
         </div>
 
         {errors.length > 0 && (
-          <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-            <ul className="list-disc list-inside text-sm text-orange-600 space-y-1">
+          <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+            <ul className="list-disc list-inside text-sm text-accent-600 dark:text-accent-400 space-y-1">
               {errors.map((err) => (
                 <li key={err}>{err}</li>
               ))}
@@ -301,7 +326,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
             variant="primary"
             onClick={handleSubmit}
             disabled={!isValid || assign.isPending}
-            className="bg-orange-600 hover:bg-orange-700"
+            className="bg-accent-600 hover:bg-accent-700"
           >
             {assign.isPending ? 'Saving…' : 'Save feed assignment'}
           </Button>

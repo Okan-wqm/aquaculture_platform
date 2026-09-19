@@ -55,59 +55,82 @@ export const EquipmentLinkDialog: React.FC<EquipmentLinkDialogProps> = ({
       bodyClassName=""
       title={
         <span className="flex items-center gap-2">
-          <Link2 className="w-5 h-5 text-cyan-600" />
+          <Link2 className="w-5 h-5 text-info-600 dark:text-info-400" />
           Link Equipment
         </span>
       }
     >
-
-        {/* Content */}
-        <div className="p-4 space-y-4">
-          {/* Equipment Preview */}
-          <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
-            <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
-              <Icon size={32} className="text-gray-700 dark:text-gray-300" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-gray-900 dark:text-gray-100 truncate">{equipment.name}</p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{equipment.code}</p>
-              {equipment.equipmentType && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 truncate capitalize">
-                  {equipment.equipmentType.name}
-                </p>
-              )}
-            </div>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-              equipment.status === 'operational' || equipment.status === 'active'
-                ? 'bg-green-100 text-green-700'
-                : equipment.status === 'maintenance'
-                ? 'bg-yellow-100 text-yellow-700'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
-            }`}>
-              {equipment.status}
-            </span>
+      {/* Content */}
+      <div className="p-4 space-y-4">
+        {/* Equipment Preview */}
+        <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+          <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
+            <Icon size={32} className="text-gray-700 dark:text-gray-300" />
           </div>
-
-          {/* Custom Name Input */}
-          <div>
-            <label
-              htmlFor="equipment-name"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-            >
-              Node Name
-            </label>
-            <Input fullWidth id="equipment-name" type="text" value={customName} onChange={(e) => setCustomName(e.target.value)} onKeyDown={handleKeyDown} placeholder="Edit equipment name..." autoFocus />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
-              This name will be displayed on the canvas. You can edit it later.
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 dark:text-gray-100 truncate">
+              {equipment.name}
             </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{equipment.code}</p>
+            {equipment.equipmentType && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 truncate capitalize">
+                {equipment.equipmentType.name}
+              </p>
+            )}
           </div>
+          <span
+            className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+              equipment.status === 'operational' || equipment.status === 'active'
+                ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
+                : equipment.status === 'maintenance'
+                  ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            {equipment.status}
+          </span>
         </div>
 
-        {/* Actions */}
-        <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
-          <Button variant="secondary" size="lg" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" size="lg" className="flex-1 justify-center" leftIcon={<CheckCircle className="w-4 h-4" />} onClick={handleConfirm} disabled={!customName.trim()}>Link</Button>
+        {/* Custom Name Input */}
+        <div>
+          <label
+            htmlFor="equipment-name"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+          >
+            Node Name
+          </label>
+          <Input
+            fullWidth
+            id="equipment-name"
+            type="text"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Edit equipment name..."
+            autoFocus
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+            This name will be displayed on the canvas. You can edit it later.
+          </p>
         </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
+        <Button variant="secondary" size="lg" className="flex-1" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          size="lg"
+          className="flex-1 justify-center"
+          leftIcon={<CheckCircle className="w-4 h-4" />}
+          onClick={handleConfirm}
+          disabled={!customName.trim()}
+        >
+          Link
+        </Button>
+      </div>
     </Modal>
   );
 };

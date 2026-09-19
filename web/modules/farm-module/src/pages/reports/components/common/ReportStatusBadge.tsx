@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { ReportStatus } from '../../types/reports.types';
+import { Check, CircleCheck, Clock, Pencil, TriangleAlert, X } from 'lucide-react';
 
 interface ReportStatusBadgeProps {
   status: ReportStatus;
@@ -26,66 +27,42 @@ const statusConfig: Record<
     bgColor: 'bg-gray-100 dark:bg-gray-800',
     textColor: 'text-gray-700 dark:text-gray-300',
     dotColor: 'bg-gray-400',
-    icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-      </svg>
-    ),
+    icon: <Pencil className="w-3.5 h-3.5" aria-hidden="true" />,
   },
   pending: {
     label: 'Pending',
-    bgColor: 'bg-yellow-100',
-    textColor: 'text-yellow-800',
-    dotColor: 'bg-yellow-400',
-    icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    bgColor: 'bg-warning-100 dark:bg-warning-900/40',
+    textColor: 'text-warning-800 dark:text-warning-200',
+    dotColor: 'bg-warning-400',
+    icon: <Clock className="w-3.5 h-3.5" aria-hidden="true" />,
   },
   submitted: {
     label: 'Submitted',
-    bgColor: 'bg-blue-100',
-    textColor: 'text-blue-800',
-    dotColor: 'bg-blue-400',
-    icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    bgColor: 'bg-info-100 dark:bg-info-900/40',
+    textColor: 'text-info-800 dark:text-info-200',
+    dotColor: 'bg-info-400',
+    icon: <CircleCheck className="w-3.5 h-3.5" aria-hidden="true" />,
   },
   approved: {
     label: 'Approved',
-    bgColor: 'bg-green-100',
-    textColor: 'text-green-800',
-    dotColor: 'bg-green-400',
-    icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-      </svg>
-    ),
+    bgColor: 'bg-success-100 dark:bg-success-900/40',
+    textColor: 'text-success-800 dark:text-success-200',
+    dotColor: 'bg-success-400',
+    icon: <Check className="w-3.5 h-3.5" aria-hidden="true" />,
   },
   rejected: {
     label: 'Rejected',
-    bgColor: 'bg-red-100',
-    textColor: 'text-red-800',
-    dotColor: 'bg-red-400',
-    icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    ),
+    bgColor: 'bg-error-100 dark:bg-error-900/40',
+    textColor: 'text-error-800 dark:text-error-200',
+    dotColor: 'bg-error-400',
+    icon: <X className="w-3.5 h-3.5" aria-hidden="true" />,
   },
   overdue: {
     label: 'Overdue',
-    bgColor: 'bg-red-100',
-    textColor: 'text-red-800',
-    dotColor: 'bg-red-500',
-    icon: (
-      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    ),
+    bgColor: 'bg-error-100 dark:bg-error-900/40',
+    textColor: 'text-error-800 dark:text-error-200',
+    dotColor: 'bg-error-500',
+    icon: <TriangleAlert className="w-3.5 h-3.5" aria-hidden="true" />,
   },
 };
 

@@ -35,7 +35,7 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
     e: React.MouseEvent,
     current: HandleType,
     setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
-    key: 'top' | 'bottom'
+    key: 'top' | 'bottom',
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -70,8 +70,8 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
           y={20}
           width={10}
           height={120}
-          fill="#888"
-          stroke="#333"
+          fill={themeColors.neutral[400]}
+          stroke={themeColors.neutral[700]}
           strokeWidth={1.5}
           rx={3}
         />
@@ -87,7 +87,7 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
           </g>
         ))}
         {/* Label */}
-        <text x={50} y={150} textAnchor="middle" fontSize={10} fill="#000">
+        <text x={50} y={150} textAnchor="middle" fontSize={10} fill={themeColors.black}>
           {data?.label || 'Tank Inlet'}
         </text>
       </svg>

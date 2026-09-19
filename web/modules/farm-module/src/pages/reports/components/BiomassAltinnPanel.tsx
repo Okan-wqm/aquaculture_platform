@@ -63,16 +63,16 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
   // ── Terminal: submitted via Altinn ──────────────────────────────────────
   if (isTerminalBiomassStatus(report.status)) {
     return (
-      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-        <p className="text-sm font-medium text-green-800">
+      <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4">
+        <p className="text-sm font-medium text-success-800 dark:text-success-200">
           Submitted to Fiskeridirektoratet via Altinn
         </p>
         {report.altinnReference ? (
-          <p className="text-xs text-green-700 mt-1">
+          <p className="text-xs text-success-700 dark:text-success-300 mt-1">
             Altinn receipt reference: <span className="font-mono">{report.altinnReference}</span>
           </p>
         ) : (
-          <p className="text-xs text-green-700 mt-1">
+          <p className="text-xs text-success-700 dark:text-success-300 mt-1">
             Confirmed submitted (legacy record — no Altinn reference on file).
           </p>
         )}
@@ -85,14 +85,25 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
     return (
       <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
         <div>
-          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Manual Altinn submission (FD-0001)</p>
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            Manual Altinn submission (FD-0001)
+          </p>
           <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
             This biomass report is submitted to Fiskeridirektoratet manually via Altinn. Mark it
             ready to generate the FD-0001 export you transcribe into the Altinn form.
           </p>
         </div>
-        {mutationError && <p className="text-xs text-red-600">{mutationError}</p>}
-        <Button variant="primary" type="button" onClick={() => markReady.mutate(report.id)} disabled={markReady.isPending}>{markReady.isPending ? 'Marking ready…' : 'Mark ready for Altinn'}</Button>
+        {mutationError && (
+          <p className="text-xs text-error-600 dark:text-error-400">{mutationError}</p>
+        )}
+        <Button
+          variant="primary"
+          type="button"
+          onClick={() => markReady.mutate(report.id)}
+          disabled={markReady.isPending}
+        >
+          {markReady.isPending ? 'Marking ready…' : 'Mark ready for Altinn'}
+        </Button>
       </div>
     );
   }
@@ -100,25 +111,38 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
   // ── READY: export + confirm-with-receipt ─────────────────────────────────
   const trimmedReference = altinnReference.trim();
   return (
-    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-4">
+    <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4 space-y-4">
       <div>
-        <p className="text-sm font-medium text-blue-900">Ready for Altinn (FD-0001)</p>
-        <p className="text-xs text-blue-700 mt-1">
+        <p className="text-sm font-medium text-info-900 dark:text-info-100">
+          Ready for Altinn (FD-0001)
+        </p>
+        <p className="text-xs text-info-700 dark:text-info-300 mt-1">
           Download or print the FD-0001 export below, transcribe the values into the Altinn form,
           submit it there, then confirm the submission with the Altinn receipt reference.
         </p>
       </div>
 
-      {mutationError && <p className="text-xs text-red-600">{mutationError}</p>}
+      {mutationError && (
+        <p className="text-xs text-error-600 dark:text-error-400">{mutationError}</p>
+      )}
 
       {/* FD-0001 export */}
       {exportLoading ? (
-        <p className="text-xs text-blue-700">Generating export…</p>
+        <p className="text-xs text-info-700 dark:text-info-300">Generating export…</p>
       ) : exportData ? (
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <Button variant="secondary" size="xs" type="button" onClick={() => downloadCsv(exportData.filename, exportData.csv)}>Download CSV ({exportData.filename})</Button>
-            <span className="text-xs text-blue-600">Period {exportData.periodLabel}</span>
+            <Button
+              variant="secondary"
+              size="xs"
+              type="button"
+              onClick={() => downloadCsv(exportData.filename, exportData.csv)}
+            >
+              Download CSV ({exportData.filename})
+            </Button>
+            <span className="text-xs text-info-600 dark:text-info-400">
+              Period {exportData.periodLabel}
+            </span>
           </div>
           <pre className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3 text-xs text-gray-800 dark:text-gray-200 overflow-x-auto whitespace-pre-wrap">
             {exportData.printable}
@@ -127,17 +151,41 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
       ) : null}
 
       {/* Confirm-with-receipt */}
-      <div className="border-t border-blue-200 pt-3 space-y-2">
-        <label htmlFor="altinn-reference" className="block text-xs font-medium text-blue-900">
+      <div className="border-t border-info-200 dark:border-info-800 pt-3 space-y-2">
+        <label
+          htmlFor="altinn-reference"
+          className="block text-xs font-medium text-info-900 dark:text-info-100"
+        >
           Altinn receipt reference
         </label>
         <div className="flex items-center gap-3">
-          <Input id="altinn-reference" type="text" value={altinnReference} onChange={(e) => setAltinnReference(e.target.value)} placeholder="e.g. AR123456789" />
-          <Button variant="primary" type="button" onClick={() =>
+          <Input
+            id="altinn-reference"
+            type="text"
+            value={altinnReference}
+            onChange={(e) => setAltinnReference(e.target.value)}
+            placeholder="e.g. AR123456789"
+          />
+          <Button
+            variant="primary"
+            type="button"
+            onClick={() =>
               confirmSubmitted.mutate({ id: report.id, altinnReference: trimmedReference })
-            } disabled={trimmedReference === '' || confirmSubmitted.isPending}>{confirmSubmitted.isPending ? 'Confirming…' : 'Confirm submitted'}</Button>
+            }
+            disabled={trimmedReference === '' || confirmSubmitted.isPending}
+          >
+            {confirmSubmitted.isPending ? 'Confirming…' : 'Confirm submitted'}
+          </Button>
         </div>
-        <Button variant="ghost" size="xs" type="button" onClick={() => revertToDraft.mutate(report.id)} disabled={revertToDraft.isPending}>Reopen to draft</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          type="button"
+          onClick={() => revertToDraft.mutate(report.id)}
+          disabled={revertToDraft.isPending}
+        >
+          Reopen to draft
+        </Button>
       </div>
     </div>
   );

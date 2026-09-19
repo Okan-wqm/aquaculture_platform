@@ -6,25 +6,19 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import {
-  ChevronDown,
-  AlertTriangle,
-  History,
-  Filter,
-} from 'lucide-react';
+import { ChevronDown, AlertTriangle, History, Filter } from 'lucide-react';
 import { VfdParameterAuditLog, VfdRiskLevel } from '../../types/vfd.types';
-import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  SeverityBadge,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
 // ============================================================================
-
-const RISK_COLORS: Record<string, string> = {
-  [VfdRiskLevel.LOW]: 'bg-green-100 text-green-700',
-  [VfdRiskLevel.MEDIUM]: 'bg-yellow-100 text-yellow-700',
-  [VfdRiskLevel.HIGH]: 'bg-orange-100 text-orange-700',
-  [VfdRiskLevel.CRITICAL]: 'bg-red-100 text-red-700',
-};
 
 // ============================================================================
 // Props
@@ -63,8 +57,8 @@ export function VfdAuditLogViewer({
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center py-12" role="alert">
-        <AlertTriangle className="mb-2 h-8 w-8 text-red-500" />
-        <p className="text-sm text-red-600">{error}</p>
+        <AlertTriangle className="mb-2 h-8 w-8 text-error-500" />
+        <p className="text-sm text-error-600 dark:text-error-400">{error}</p>
       </div>
     );
   }
@@ -83,7 +77,7 @@ export function VfdAuditLogViewer({
     {
       key: 'oldValue',
       header: 'Old Value',
-      render: (_value, log) => log.previousValue !== null ? log.previousValue : '-',
+      render: (_value, log) => (log.previousValue !== null ? log.previousValue : '-'),
     },
     {
       key: 'newValue',
@@ -105,19 +99,9 @@ export function VfdAuditLogViewer({
       header: 'Risk',
       render: (_value, log) => {
         const risk = (log.metadata?.riskLevel as string) ?? VfdRiskLevel.LOW;
-        const riskClass = RISK_COLORS[risk] ?? RISK_COLORS[VfdRiskLevel.LOW];
-        return (
-          <>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}
-              data-testid={`risk-${log.id}`}
-            >
-              {risk}
-            </span>
-          </>
-        );
+        return <SeverityBadge severity={risk} label={risk} data-testid={`risk-${log.id}`} />;
       },
-    }
+    },
   ];
 
   return (
@@ -169,8 +153,10 @@ export function VfdAuditLogViewer({
       {/* Load more */}
       {hasMore && (
         <div className="mt-4 text-center">
-          <Button variant="secondary" type="button" onClick={onLoadMore} disabled={loading}>{loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
-            Load More</Button>
+          <Button variant="secondary" type="button" onClick={onLoadMore} disabled={loading}>
+            {loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
+            Load More
+          </Button>
         </div>
       )}
     </div>
@@ -185,8 +171,11 @@ function formatTimestamp(iso: string): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString('en-GB', {
-      day: '2-digit', month: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
     });
   } catch {
     return iso;

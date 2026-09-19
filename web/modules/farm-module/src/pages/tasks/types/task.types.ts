@@ -115,48 +115,176 @@ export interface TaskStats {
 
 // Category display config
 export const CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: string; bg: string }> = {
-  FEEDING: { label: 'Yemleme', color: 'text-orange-800', bg: 'bg-orange-100' },
-  WATER_QUALITY: { label: 'Su Kalitesi', color: 'text-blue-800', bg: 'bg-blue-100' },
-  HEALTH_CHECK: { label: 'Sağlık', color: 'text-red-800', bg: 'bg-red-100' },
-  EQUIPMENT_MAINTENANCE: { label: 'Ekipman Bakım', color: 'text-gray-800 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-800' },
-  STOCK_MANAGEMENT: { label: 'Stok', color: 'text-purple-800', bg: 'bg-purple-100' },
-  CLEANING: { label: 'Temizlik', color: 'text-cyan-800', bg: 'bg-cyan-100' },
-  REGULATORY: { label: 'Mevzuat', color: 'text-indigo-800', bg: 'bg-indigo-100' },
-  HARVEST: { label: 'Hasat', color: 'text-green-800', bg: 'bg-green-100' },
-  ENVIRONMENTAL: { label: 'Çevre', color: 'text-emerald-800', bg: 'bg-emerald-100' },
-  SAFETY: { label: 'Güvenlik', color: 'text-yellow-800', bg: 'bg-yellow-100' },
+  FEEDING: {
+    label: 'Yemleme',
+    color: 'text-accent-800 dark:text-accent-200',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+  },
+  WATER_QUALITY: {
+    label: 'Su Kalitesi',
+    color: 'text-info-800 dark:text-info-200',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+  },
+  HEALTH_CHECK: {
+    label: 'Sağlık',
+    color: 'text-error-800 dark:text-error-200',
+    bg: 'bg-error-100 dark:bg-error-900/40',
+  },
+  EQUIPMENT_MAINTENANCE: {
+    label: 'Ekipman Bakım',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
+  },
+  STOCK_MANAGEMENT: {
+    label: 'Stok',
+    color: 'text-accent-800 dark:text-accent-200',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+  },
+  CLEANING: {
+    label: 'Temizlik',
+    color: 'text-info-800 dark:text-info-200',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+  },
+  REGULATORY: {
+    label: 'Mevzuat',
+    color: 'text-primary-800 dark:text-primary-200',
+    bg: 'bg-primary-100 dark:bg-primary-900/40',
+  },
+  HARVEST: {
+    label: 'Hasat',
+    color: 'text-success-800 dark:text-success-200',
+    bg: 'bg-success-100 dark:bg-success-900/40',
+  },
+  ENVIRONMENTAL: {
+    label: 'Çevre',
+    color: 'text-success-800 dark:text-success-200',
+    bg: 'bg-success-100 dark:bg-success-900/40',
+  },
+  SAFETY: {
+    label: 'Güvenlik',
+    color: 'text-warning-800 dark:text-warning-200',
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
+  },
   GENERAL: { label: 'Genel', color: 'text-slate-800', bg: 'bg-slate-100' },
 };
 
 export const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: string; bg: string }> = {
-  URGENT: { label: 'Acil', color: 'text-red-800', bg: 'bg-red-100' },
-  HIGH: { label: 'Yüksek', color: 'text-orange-800', bg: 'bg-orange-100' },
-  MEDIUM: { label: 'Orta', color: 'text-blue-800', bg: 'bg-blue-100' },
-  LOW: { label: 'Düşük', color: 'text-gray-800 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-800' },
+  URGENT: {
+    label: 'Acil',
+    color: 'text-error-800 dark:text-error-200',
+    bg: 'bg-error-100 dark:bg-error-900/40',
+  },
+  HIGH: {
+    label: 'Yüksek',
+    color: 'text-accent-800 dark:text-accent-200',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+  },
+  MEDIUM: {
+    label: 'Orta',
+    color: 'text-info-800 dark:text-info-200',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+  },
+  LOW: {
+    label: 'Düşük',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
+  },
 };
 
 export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; bg: string }> = {
-  PENDING: { label: 'Bekliyor', color: 'text-yellow-800', bg: 'bg-yellow-100' },
-  IN_PROGRESS: { label: 'Devam Ediyor', color: 'text-blue-800', bg: 'bg-blue-100' },
-  COMPLETED: { label: 'Tamamlandı', color: 'text-green-800', bg: 'bg-green-100' },
-  OVERDUE: { label: 'Gecikmiş', color: 'text-red-800', bg: 'bg-red-100' },
-  CANCELLED: { label: 'İptal', color: 'text-gray-800 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-800' },
+  PENDING: {
+    label: 'Bekliyor',
+    color: 'text-warning-800 dark:text-warning-200',
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
+  },
+  IN_PROGRESS: {
+    label: 'Devam Ediyor',
+    color: 'text-info-800 dark:text-info-200',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+  },
+  COMPLETED: {
+    label: 'Tamamlandı',
+    color: 'text-success-800 dark:text-success-200',
+    bg: 'bg-success-100 dark:bg-success-900/40',
+  },
+  OVERDUE: {
+    label: 'Gecikmiş',
+    color: 'text-error-800 dark:text-error-200',
+    bg: 'bg-error-100 dark:bg-error-900/40',
+  },
+  CANCELLED: {
+    label: 'İptal',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
+  },
 };
 
-export const FREQUENCY_CONFIG: Record<RecurrenceFrequency, { label: string; color: string; bg: string }> = {
-  HOURLY: { label: 'Saatlik', color: 'text-purple-800', bg: 'bg-purple-100' },
-  DAILY: { label: 'Günlük', color: 'text-blue-800', bg: 'bg-blue-100' },
-  WEEKLY: { label: 'Haftalık', color: 'text-green-800', bg: 'bg-green-100' },
-  BIWEEKLY: { label: '2 Haftada Bir', color: 'text-teal-800', bg: 'bg-teal-100' },
-  MONTHLY: { label: 'Aylık', color: 'text-orange-800', bg: 'bg-orange-100' },
-  CUSTOM: { label: 'Özel', color: 'text-gray-800 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-800' },
+export const FREQUENCY_CONFIG: Record<
+  RecurrenceFrequency,
+  { label: string; color: string; bg: string }
+> = {
+  HOURLY: {
+    label: 'Saatlik',
+    color: 'text-accent-800 dark:text-accent-200',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+  },
+  DAILY: {
+    label: 'Günlük',
+    color: 'text-info-800 dark:text-info-200',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+  },
+  WEEKLY: {
+    label: 'Haftalık',
+    color: 'text-success-800 dark:text-success-200',
+    bg: 'bg-success-100 dark:bg-success-900/40',
+  },
+  BIWEEKLY: {
+    label: '2 Haftada Bir',
+    color: 'text-info-800 dark:text-info-200',
+    bg: 'bg-info-100 dark:bg-info-900/40',
+  },
+  MONTHLY: {
+    label: 'Aylık',
+    color: 'text-accent-800 dark:text-accent-200',
+    bg: 'bg-accent-100 dark:bg-accent-900/40',
+  },
+  CUSTOM: {
+    label: 'Özel',
+    color: 'text-gray-800 dark:text-gray-200',
+    bg: 'bg-gray-100 dark:bg-gray-800',
+  },
 };
 
-export const TRIGGER_CONFIG: Record<AutoRuleTrigger, { label: string; color: string; bg: string }> = {
-  STOCK_LOW: { label: 'Stok Düşük', color: 'text-red-800', bg: 'bg-red-100' },
-  EXPIRY_NEAR: { label: 'Son Kullanma Yakın', color: 'text-orange-800', bg: 'bg-orange-100' },
-  MAINTENANCE_DUE: { label: 'Bakım Zamanı', color: 'text-blue-800', bg: 'bg-blue-100' },
-  SCHEDULE: { label: 'Zamanlama', color: 'text-green-800', bg: 'bg-green-100' },
-  LICENSE_EXPIRY: { label: 'Lisans Süresi', color: 'text-purple-800', bg: 'bg-purple-100' },
-  WATER_PARAM_ALERT: { label: 'Su Parametre Uyarısı', color: 'text-cyan-800', bg: 'bg-cyan-100' },
-};
+export const TRIGGER_CONFIG: Record<AutoRuleTrigger, { label: string; color: string; bg: string }> =
+  {
+    STOCK_LOW: {
+      label: 'Stok Düşük',
+      color: 'text-error-800 dark:text-error-200',
+      bg: 'bg-error-100 dark:bg-error-900/40',
+    },
+    EXPIRY_NEAR: {
+      label: 'Son Kullanma Yakın',
+      color: 'text-accent-800 dark:text-accent-200',
+      bg: 'bg-accent-100 dark:bg-accent-900/40',
+    },
+    MAINTENANCE_DUE: {
+      label: 'Bakım Zamanı',
+      color: 'text-info-800 dark:text-info-200',
+      bg: 'bg-info-100 dark:bg-info-900/40',
+    },
+    SCHEDULE: {
+      label: 'Zamanlama',
+      color: 'text-success-800 dark:text-success-200',
+      bg: 'bg-success-100 dark:bg-success-900/40',
+    },
+    LICENSE_EXPIRY: {
+      label: 'Lisans Süresi',
+      color: 'text-accent-800 dark:text-accent-200',
+      bg: 'bg-accent-100 dark:bg-accent-900/40',
+    },
+    WATER_PARAM_ALERT: {
+      label: 'Su Parametre Uyarısı',
+      color: 'text-info-800 dark:text-info-200',
+      bg: 'bg-info-100 dark:bg-info-900/40',
+    },
+  };

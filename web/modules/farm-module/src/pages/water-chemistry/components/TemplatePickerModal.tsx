@@ -8,6 +8,7 @@
 import React, { useState } from 'react';
 import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { useParameterTemplates, ParameterTemplate } from '../../../hooks/useParameterConfigs';
+import { CircleCheck, TriangleAlert } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -40,22 +41,13 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
   return (
     <Modal isOpen onClose={onClose} title="Apply Parameter Template" size="lg">
       {/* Warning Banner */}
-      <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3">
+      <div className="mb-4 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-3">
         <div className="flex">
-          <svg
-            className="h-5 w-5 text-amber-400 mr-2 flex-shrink-0 mt-0.5"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
-          <p className="text-sm text-amber-800">
+          <TriangleAlert
+            className="h-5 w-5 text-warning-400 mr-2 flex-shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
+          <p className="text-sm text-warning-800 dark:text-warning-200">
             This will configure your water quality parameters. Existing parameters can be kept or
             replaced.
           </p>
@@ -70,13 +62,15 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
       )}
 
       {error && (
-        <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+        <div className="mb-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3 text-sm text-error-800 dark:text-error-200">
           Failed to load templates: {(error as Error).message}
         </div>
       )}
 
       {!isLoading && !error && templates && templates.length === 0 && (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">No templates available.</div>
+        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+          No templates available.
+        </div>
       )}
 
       {!isLoading && !error && templates && templates.length > 0 && (
@@ -90,27 +84,24 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                 onClick={() => setSelectedId(tpl.templateId)}
                 className={`text-left border-2 rounded-lg p-4 transition-colors ${
                   isSelected
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                     : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 bg-white dark:bg-gray-900'
                 }`}
               >
                 <div className="flex items-start justify-between mb-2">
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{tpl.name}</h4>
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {tpl.name}
+                  </h4>
                   {isSelected && (
-                    <svg
-                      className="w-5 h-5 text-blue-600 flex-shrink-0"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
+                    <CircleCheck
+                      className="w-5 h-5 text-info-600 dark:text-info-400 flex-shrink-0"
+                      aria-hidden="true"
+                    />
                   )}
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 line-clamp-2">{tpl.description}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 line-clamp-2">
+                  {tpl.description}
+                </p>
 
                 {/* Species Badges */}
                 {tpl.species && tpl.species.length > 0 && (
@@ -118,7 +109,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                     {tpl.species.map((sp: string) => (
                       <span
                         key={sp}
-                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-800"
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
                       >
                         {sp}
                       </span>
@@ -143,16 +134,27 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
             type="checkbox"
             checked={overwrite}
             onChange={(e) => setOverwrite(e.target.checked)}
-            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
           />
-          <span className="text-sm text-gray-700 dark:text-gray-300">Replace existing parameters</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            Replace existing parameters
+          </span>
         </label>
       </div>
 
       {/* Footer */}
       <div className="flex justify-end space-x-3 pt-4 border-t">
-        <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" type="button" onClick={handleApply} disabled={!selectedId || isSubmitting}>{isSubmitting ? 'Applying...' : 'Apply Template'}</Button>
+        <Button variant="secondary" type="button" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          type="button"
+          onClick={handleApply}
+          disabled={!selectedId || isSubmitting}
+        >
+          {isSubmitting ? 'Applying...' : 'Apply Template'}
+        </Button>
       </div>
     </Modal>
   );

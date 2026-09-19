@@ -7,20 +7,8 @@
 
 import React, { useState } from 'react';
 import { Drawer, DataTable, type DataTableColumn, Button, Textarea } from '@aquaculture/shared-ui';
-import {
-  X,
-  Check,
-  Clock,
-  RotateCcw,
-  Play,
-  AlertTriangle,
-  Ban,
-} from 'lucide-react';
-import {
-  VfdChangeSet,
-  VfdChangeSetStatus,
-  VfdChangeSetItem,
-} from '../../types/vfd.types';
+import { X, Check, Clock, RotateCcw, Play, AlertTriangle, Ban } from 'lucide-react';
+import { VfdChangeSet, VfdChangeSetStatus, VfdChangeSetItem } from '../../types/vfd.types';
 
 // ============================================================================
 // Props
@@ -85,13 +73,15 @@ export function VfdChangeSetDetail({
       render: (_value, item) => (
         <>
           {item.errorMessage ? (
-            <span className="text-red-600" title={item.errorMessage}>Error</span>
+            <span className="text-error-600 dark:text-error-400" title={item.errorMessage}>
+              Error
+            </span>
           ) : (
             item.status || '-'
           )}
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -106,7 +96,9 @@ export function VfdChangeSetDetail({
     >
       {/* Summary */}
       <div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">{cs.description || 'No description'}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          {cs.description || 'No description'}
+        </p>
         <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Status:</span>{' '}
@@ -151,7 +143,7 @@ export function VfdChangeSetDetail({
           )}
         </div>
         {cs.rejectionReason && (
-          <div className="mt-3 rounded-md bg-red-50 p-3 text-xs text-red-700">
+          <div className="mt-3 rounded-md bg-error-50 dark:bg-error-900/20 p-3 text-xs text-error-700 dark:text-error-300">
             <strong>Rejection reason:</strong> {cs.rejectionReason}
           </div>
         )}
@@ -159,7 +151,9 @@ export function VfdChangeSetDetail({
 
       {/* Items table */}
       <div>
-        <h3 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">Parameter Changes</h3>
+        <h3 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+          Parameter Changes
+        </h3>
         <DataTable<VfdChangeSetItem>
           data={cs.items}
           columns={vfdChangeSetItemColumns}
@@ -174,36 +168,84 @@ export function VfdChangeSetDetail({
 
       {/* Rejection form */}
       {showRejectForm && (
-        <div className="rounded-md border border-red-200 bg-red-50 p-4 space-y-3">
-          <h4 className="text-sm font-medium text-red-800">Reject Change Set</h4>
-          <Textarea fullWidth value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Enter rejection reason..." rows={3} aria-label="Rejection reason" />
+        <div className="rounded-md border border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20 p-4 space-y-3">
+          <h4 className="text-sm font-medium text-error-800 dark:text-error-200">
+            Reject Change Set
+          </h4>
+          <Textarea
+            fullWidth
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Enter rejection reason..."
+            rows={3}
+            aria-label="Rejection reason"
+          />
           <div className="flex gap-2">
-            <Button variant="danger" size="xs" type="button" onClick={async () => {
+            <Button
+              variant="danger"
+              size="xs"
+              type="button"
+              onClick={async () => {
                 if (rejectReason.trim()) {
                   await onReject(cs.id, rejectReason.trim());
                   setShowRejectForm(false);
                   setRejectReason('');
                 }
-              }} disabled={!rejectReason.trim()}>Confirm Rejection</Button>
-            <Button variant="secondary" size="xs" type="button" onClick={() => setShowRejectForm(false)}>Cancel</Button>
+              }}
+              disabled={!rejectReason.trim()}
+            >
+              Confirm Rejection
+            </Button>
+            <Button
+              variant="secondary"
+              size="xs"
+              type="button"
+              onClick={() => setShowRejectForm(false)}
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       )}
 
       {/* Rollback form */}
       {showRollbackForm && (
-        <div className="rounded-md border border-purple-200 bg-purple-50 p-4 space-y-3">
-          <h4 className="text-sm font-medium text-purple-800">Rollback Change Set</h4>
-          <Textarea fullWidth value={rollbackReason} onChange={(e) => setRollbackReason(e.target.value)} placeholder="Enter rollback reason..." rows={3} aria-label="Rollback reason" />
+        <div className="rounded-md border border-accent-200 dark:border-accent-800 bg-accent-50 dark:bg-accent-900/20 p-4 space-y-3">
+          <h4 className="text-sm font-medium text-accent-800 dark:text-accent-200">
+            Rollback Change Set
+          </h4>
+          <Textarea
+            fullWidth
+            value={rollbackReason}
+            onChange={(e) => setRollbackReason(e.target.value)}
+            placeholder="Enter rollback reason..."
+            rows={3}
+            aria-label="Rollback reason"
+          />
           <div className="flex gap-2">
-            <Button variant="primary" size="xs" type="button" onClick={async () => {
+            <Button
+              variant="primary"
+              size="xs"
+              type="button"
+              onClick={async () => {
                 if (rollbackReason.trim()) {
                   await onRollback(cs.id, rollbackReason.trim());
                   setShowRollbackForm(false);
                   setRollbackReason('');
                 }
-              }} disabled={!rollbackReason.trim()}>Confirm Rollback</Button>
-            <Button variant="secondary" size="xs" type="button" onClick={() => setShowRollbackForm(false)}>Cancel</Button>
+              }}
+              disabled={!rollbackReason.trim()}
+            >
+              Confirm Rollback
+            </Button>
+            <Button
+              variant="secondary"
+              size="xs"
+              type="button"
+              onClick={() => setShowRollbackForm(false)}
+            >
+              Cancel
+            </Button>
           </div>
         </div>
       )}
@@ -212,15 +254,38 @@ export function VfdChangeSetDetail({
       <div className="flex flex-wrap gap-2 border-t pt-4">
         {cs.status === VfdChangeSetStatus.DRAFT && (
           <>
-            <Button variant="primary" leftIcon={<Play className="h-4 w-4" />} type="button" onClick={() => onSubmitForApproval(cs.id)}>Submit for Approval</Button>
-            <Button variant="secondary" type="button" onClick={() => onCancel(cs.id)}>Cancel</Button>
+            <Button
+              variant="primary"
+              leftIcon={<Play className="h-4 w-4" />}
+              type="button"
+              onClick={() => onSubmitForApproval(cs.id)}
+            >
+              Submit for Approval
+            </Button>
+            <Button variant="secondary" type="button" onClick={() => onCancel(cs.id)}>
+              Cancel
+            </Button>
           </>
         )}
 
         {cs.status === VfdChangeSetStatus.PENDING_APPROVAL && (
           <>
-            <Button variant="primary" leftIcon={<Check className="h-4 w-4" />} type="button" onClick={() => onApprove(cs.id)}>Approve</Button>
-            <Button variant="secondary" leftIcon={<X className="h-4 w-4" />} type="button" onClick={() => setShowRejectForm(true)}>Reject</Button>
+            <Button
+              variant="primary"
+              leftIcon={<Check className="h-4 w-4" />}
+              type="button"
+              onClick={() => onApprove(cs.id)}
+            >
+              Approve
+            </Button>
+            <Button
+              variant="secondary"
+              leftIcon={<X className="h-4 w-4" />}
+              type="button"
+              onClick={() => setShowRejectForm(true)}
+            >
+              Reject
+            </Button>
           </>
         )}
 
@@ -234,19 +299,28 @@ export function VfdChangeSetDetail({
             */}
             <span
               data-testid="changeset-auto-apply"
-              className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-4 py-2 text-sm font-medium text-indigo-700"
+              className="inline-flex items-center gap-1 rounded-md bg-primary-50 dark:bg-primary-900/20 px-4 py-2 text-sm font-medium text-primary-700 dark:text-primary-300"
             >
               <Play className="h-4 w-4" />
               {cs.scheduledAt
                 ? `Scheduled for ${new Date(cs.scheduledAt).toLocaleString()}`
                 : 'Applying automatically'}
             </span>
-            <Button variant="secondary" type="button" onClick={() => onCancel(cs.id)}>Cancel</Button>
+            <Button variant="secondary" type="button" onClick={() => onCancel(cs.id)}>
+              Cancel
+            </Button>
           </>
         )}
 
         {cs.status === VfdChangeSetStatus.APPLIED && (
-          <Button variant="secondary" leftIcon={<RotateCcw className="h-4 w-4" />} type="button" onClick={() => setShowRollbackForm(true)}>Rollback</Button>
+          <Button
+            variant="secondary"
+            leftIcon={<RotateCcw className="h-4 w-4" />}
+            type="button"
+            onClick={() => setShowRollbackForm(true)}
+          >
+            Rollback
+          </Button>
         )}
       </div>
     </Drawer>
@@ -265,8 +339,11 @@ function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
     return d.toLocaleString('en-GB', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-      hour: '2-digit', minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
   } catch {
     return iso;

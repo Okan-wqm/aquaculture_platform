@@ -20,24 +20,37 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
-import { FormField, Modal, useToast, useConfirm, DataTable, type DataTableColumn, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useToast,
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
+import { ChevronDown, FileText, FlaskConical, Plus, Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const categoryColors: Record<string, string> = {
-  TREATMENT: 'bg-blue-100 text-blue-800',
-  DISINFECTANT: 'bg-green-100 text-green-800',
-  ANTIBIOTIC: 'bg-red-100 text-red-800',
-  VITAMIN: 'bg-yellow-100 text-yellow-800',
-  MINERAL: 'bg-purple-100 text-purple-800',
-  WATER_CONDITIONER: 'bg-cyan-100 text-cyan-800',
-  PROBIOTIC: 'bg-indigo-100 text-indigo-800',
-  ANTIPARASITIC: 'bg-orange-100 text-orange-800',
-  ANESTHETIC: 'bg-pink-100 text-pink-800',
-  pH_ADJUSTER: 'bg-teal-100 text-teal-800',
-  ALGAECIDE: 'bg-lime-100 text-lime-800',
+  TREATMENT: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  DISINFECTANT: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  ANTIBIOTIC: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  VITAMIN: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  MINERAL: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  WATER_CONDITIONER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  PROBIOTIC: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  ANTIPARASITIC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  ANESTHETIC: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  pH_ADJUSTER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  ALGAECIDE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -57,9 +70,9 @@ const categoryLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-  AVAILABLE: 'bg-green-100 text-green-800',
-  LOW_STOCK: 'bg-yellow-100 text-yellow-800',
-  OUT_OF_STOCK: 'bg-red-100 text-red-800',
+  AVAILABLE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  LOW_STOCK: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OUT_OF_STOCK: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   EXPIRED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
@@ -187,16 +200,14 @@ const CollapsibleSection: React.FC<{
     >
       <span className="font-medium text-gray-700 dark:text-gray-300">
         {title}
-        {optional && <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">(Optional)</span>}
+        {optional && (
+          <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">(Optional)</span>
+        )}
       </span>
-      <svg
+      <ChevronDown
         className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-      </svg>
+        aria-hidden="true"
+      />
     </button>
     {isOpen && <div className="p-4 border-t border-gray-200 dark:border-gray-700">{children}</div>}
   </div>
@@ -234,7 +245,7 @@ const SiteMultiSelect: React.FC<{
                 type="checkbox"
                 checked={selectedIds.includes(site.id)}
                 onChange={() => toggleSite(site.id)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
+                className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
               />
               <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{site.name}</span>
             </label>
@@ -248,10 +259,17 @@ const SiteMultiSelect: React.FC<{
             return site ? (
               <span
                 key={id}
-                className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-blue-100 text-blue-800"
+                className="inline-flex items-center px-2 py-1 rounded-full text-xs bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200"
               >
                 {site.name}
-                <Button variant="ghost" className="ml-1" type="button" onClick={() => toggleSite(id)}>&times;</Button>
+                <Button
+                  variant="ghost"
+                  className="ml-1"
+                  type="button"
+                  onClick={() => toggleSite(id)}
+                >
+                  &times;
+                </Button>
               </span>
             ) : null;
           })}
@@ -300,7 +318,9 @@ const DocumentsSection: React.FC<{
 
   if (!chemicalId) {
     return (
-      <p className="text-sm text-gray-500 dark:text-gray-400 italic">Save the chemical first to upload documents</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+        Save the chemical first to upload documents
+      </p>
     );
   }
 
@@ -314,17 +334,27 @@ const DocumentsSection: React.FC<{
             type="file"
             accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
             onChange={handleFileSelect}
-            className="flex-1 text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            className="flex-1 text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-info-50 file:text-info-700 hover:file:bg-info-100"
           />
         </div>
         {selectedFile && (
           <div className="flex gap-3 items-end">
             <div className="flex-1">
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Document Name</label>
-              <Input fullWidth type="text" value={uploadName} onChange={(e) => setUploadName(e.target.value)} placeholder="Enter document name" />
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Document Name
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                value={uploadName}
+                onChange={(e) => setUploadName(e.target.value)}
+                placeholder="Enter document name"
+              />
             </div>
             <div className="w-40">
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Type</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Type
+              </label>
               <select
                 value={uploadType}
                 onChange={(e) => setUploadType(e.target.value as ChemicalDocumentType)}
@@ -337,7 +367,15 @@ const DocumentsSection: React.FC<{
                 ))}
               </select>
             </div>
-            <Button variant="primary" size="sm" type="button" onClick={handleUpload} disabled={isUploading || !uploadName}>{isUploading ? 'Uploading...' : 'Upload'}</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              onClick={handleUpload}
+              disabled={isUploading || !uploadName}
+            >
+              {isUploading ? 'Uploading...' : 'Upload'}
+            </Button>
           </div>
         )}
       </div>
@@ -348,19 +386,7 @@ const DocumentsSection: React.FC<{
           {documents.map((doc) => (
             <div key={doc.id} className="flex items-center justify-between p-3">
               <div className="flex items-center gap-3">
-                <svg
-                  className="w-8 h-8 text-gray-400 dark:text-gray-500"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
+                <FileText className="w-8 h-8 text-gray-400 dark:text-gray-500" aria-hidden="true" />
                 <div>
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{doc.name}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
@@ -373,17 +399,21 @@ const DocumentsSection: React.FC<{
                   href={doc.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 text-sm"
+                  className="text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 text-sm"
                 >
                   Download
                 </a>
-                <Button variant="ghost" type="button" onClick={() => onDelete(doc)}>Delete</Button>
+                <Button variant="ghost" type="button" onClick={() => onDelete(doc)}>
+                  Delete
+                </Button>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">No documents uploaded yet</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
+          No documents uploaded yet
+        </p>
       )}
     </div>
   );
@@ -575,7 +605,14 @@ export const ChemicalsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this chemical?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this chemical?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteChemicalMutation.mutateAsync(id);
       } catch (err) {
@@ -603,7 +640,14 @@ export const ChemicalsTab: React.FC = () => {
 
   const handleDocumentDelete = async (doc: ChemicalDocument) => {
     if (!editingId) return;
-    if (await confirm({ title: `Delete document "${doc.name}"?`, confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: `Delete document "${doc.name}"?`,
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         const filename = doc.url.split('/').pop() || doc.name;
         await removeDocument.mutateAsync({
@@ -632,7 +676,9 @@ export const ChemicalsTab: React.FC = () => {
       header: 'Chemical',
       render: (_value, chemical) => (
         <>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{chemical.name}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {chemical.name}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">{chemical.code}</div>
         </>
       ),
@@ -676,11 +722,7 @@ export const ChemicalsTab: React.FC = () => {
     {
       key: 'documents',
       header: 'Documents',
-      render: (_value, chemical) => (
-        <>
-          {chemical.documents?.length || 0} docs
-        </>
-      ),
+      render: (_value, chemical) => <>{chemical.documents?.length || 0} docs</>,
     },
     {
       key: 'actions',
@@ -688,11 +730,15 @@ export const ChemicalsTab: React.FC = () => {
       align: 'right',
       render: (_value, chemical) => (
         <>
-          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(chemical)}>Edit</Button>
-          <Button variant="ghost" onClick={() => handleDelete(chemical.id)}>Delete</Button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(chemical)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => handleDelete(chemical.id)}>
+            Delete
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -706,26 +752,17 @@ export const ChemicalsTab: React.FC = () => {
               placeholder="Search chemicals..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
-            <svg
+            <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
           </div>
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {chemicalTypes.map((type) => (
@@ -735,7 +772,9 @@ export const ChemicalsTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <Button variant="primary" onClick={() => {
+        <Button
+          variant="primary"
+          onClick={() => {
             setEditingId(null);
             setEditingChemical(null);
             setFormData(initialFormData);
@@ -750,15 +789,11 @@ export const ChemicalsTab: React.FC = () => {
               notes: false,
             });
             setIsModalOpen(true);
-          }}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-          Add Chemical</Button>
+          }}
+        >
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Add Chemical
+        </Button>
       </div>
 
       {/* Loading State */}
@@ -770,9 +805,13 @@ export const ChemicalsTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load chemicals. Please try again.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load chemicals. Please try again.
+          </p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -792,20 +831,13 @@ export const ChemicalsTab: React.FC = () => {
           {/* Empty State */}
           {filteredChemicals.length === 0 && (
             <div className="text-center py-12">
-              <svg
+              <FlaskConical
                 className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
-                />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No chemicals found</h3>
+                aria-hidden="true"
+              />
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No chemicals found
+              </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Add chemicals to manage treatments and protocols.
               </p>
@@ -832,55 +864,89 @@ export const ChemicalsTab: React.FC = () => {
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
-                    <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
-                    <Input fullWidth type="text" required value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Name *
+                    </label>
+                    <FormField
+                      error={formData.name ? undefined : fieldErrors.name}
+                      className="mb-0"
+                    >
+                      <Input
+                        fullWidth
+                        type="text"
+                        required
+                        value={formData.name}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                      />
                     </FormField>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
-                    <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
-                    <Input fullWidth type="text" required value={formData.code} onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))} />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Code *
+                    </label>
+                    <FormField
+                      error={formData.code ? undefined : fieldErrors.code}
+                      className="mb-0"
+                    >
+                      <Input
+                        fullWidth
+                        type="text"
+                        required
+                        value={formData.code}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                      />
                     </FormField>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
-                    <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
-                    <select
-                      required
-                      value={formData.type}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, type: e.target.value as ChemicalType }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Category *
+                    </label>
+                    <FormField
+                      error={formData.type ? undefined : fieldErrors.type}
+                      className="mb-0"
                     >
-                      <option value="">Select Category</option>
-                      {chemicalTypes.map((type) => (
-                        <option key={type.id} value={type.code}>
-                          {type.name}
-                        </option>
-                      ))}
-                    </select>
+                      <select
+                        required
+                        value={formData.type}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, type: e.target.value as ChemicalType }))
+                        }
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
+                      >
+                        <option value="">Select Category</option>
+                        {chemicalTypes.map((type) => (
+                          <option key={type.id} value={type.code}>
+                            {type.name}
+                          </option>
+                        ))}
+                      </select>
                     </FormField>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site *</label>
-                    <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
-                    <select
-                      required
-                      value={formData.siteId}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Site *
+                    </label>
+                    <FormField
+                      error={formData.siteId ? undefined : fieldErrors.siteId}
+                      className="mb-0"
                     >
-                      <option value="">Select Site</option>
-                      {sites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </select>
+                      <select
+                        required
+                        value={formData.siteId}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, siteId: e.target.value }))
+                        }
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
+                      >
+                        <option value="">Select Site</option>
+                        {sites.map((site) => (
+                          <option key={site.id} value={site.id}>
+                            {site.name}
+                          </option>
+                        ))}
+                      </select>
                     </FormField>
                   </div>
                 </div>
@@ -894,7 +960,7 @@ export const ChemicalsTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select Supplier</option>
                       {suppliers.map((supplier) => (
@@ -905,24 +971,47 @@ export const ChemicalsTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit *</label>
-                    <Select fullWidth options={[{ value: 'liter', label: 'Liter' }, { value: 'ml', label: 'Milliliter' }, { value: 'kg', label: 'Kilogram' }, { value: 'gram', label: 'Gram' }, { value: 'piece', label: 'Piece' }]} required value={formData.unit} onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))} />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Unit *
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'liter', label: 'Liter' },
+                        { value: 'ml', label: 'Milliliter' },
+                        { value: 'kg', label: 'Kilogram' },
+                        { value: 'gram', label: 'Gram' },
+                        { value: 'piece', label: 'Piece' },
+                      ]}
+                      required
+                      value={formData.unit}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
+                    />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                  <Textarea fullWidth value={formData.description} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, description: e.target.value }))
-          } rows={2} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Description
+                  </label>
+                  <Textarea
+                    fullWidth
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, description: e.target.value }))
+                    }
+                    rows={2}
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Status
+                  </label>
                   <select
                     value={formData.status}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, status: e.target.value as ChemicalStatus }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                   >
                     {Object.entries(statusLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -946,21 +1035,49 @@ export const ChemicalsTab: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Active Ingredient
                   </label>
-                  <Input fullWidth type="text" value={formData.activeIngredient} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, activeIngredient: e.target.value }))
-          } />
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.activeIngredient}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, activeIngredient: e.target.value }))
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Concentration</label>
-                  <Input fullWidth type="text" value={formData.concentration} placeholder="e.g., 10%, 50mg/L" onChange={(e) =>
-           setFormData((prev) => ({ ...prev, concentration: e.target.value }))
-          } />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Concentration
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.concentration}
+                    placeholder="e.g., 10%, 50mg/L"
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, concentration: e.target.value }))
+                    }
+                  />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Formulation</label>
-                  <Select fullWidth options={[{ value: '', label: 'Select Formulation' }, { value: 'liquid', label: 'Liquid' }, { value: 'powder', label: 'Powder' }, { value: 'granule', label: 'Granule' }, { value: 'tablet', label: 'Tablet' }, { value: 'gel', label: 'Gel' }, { value: 'emulsion', label: 'Emulsion' }]} value={formData.formulation} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, formulation: e.target.value }))
-          } />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Formulation
+                  </label>
+                  <Select
+                    fullWidth
+                    options={[
+                      { value: '', label: 'Select Formulation' },
+                      { value: 'liquid', label: 'Liquid' },
+                      { value: 'powder', label: 'Powder' },
+                      { value: 'granule', label: 'Granule' },
+                      { value: 'tablet', label: 'Tablet' },
+                      { value: 'gel', label: 'Gel' },
+                      { value: 'emulsion', label: 'Emulsion' },
+                    ]}
+                    value={formData.formulation}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, formulation: e.target.value }))
+                    }
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -983,7 +1100,7 @@ export const ChemicalsTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
                     >
                       {storageOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -993,66 +1110,124 @@ export const ChemicalsTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Hazard Class</label>
-                    <Input fullWidth type="text" value={formData.hazardClass} onChange={(e) =>
-            setFormData((prev) => ({ ...prev, hazardClass: e.target.value }))
-           } />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Hazard Class
+                    </label>
+                    <Input
+                      fullWidth
+                      type="text"
+                      value={formData.hazardClass}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, hazardClass: e.target.value }))
+                      }
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Min Temp (°C)</label>
-                    <Input fullWidth type="number" step="0.1" value={formData.storageTempMin} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
-            }))
-           } />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Min Temp (°C)
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={formData.storageTempMin}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
+                        }))
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Temp (°C)</label>
-                    <Input fullWidth type="number" step="0.1" value={formData.storageTempMax} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
-            }))
-           } />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Max Temp (°C)
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={formData.storageTempMax}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
+                        }))
+                      }
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Min Humidity (%)
                     </label>
-                    <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.storageHumidityMin} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
-            }))
-           } />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      value={formData.storageHumidityMin}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
+                        }))
+                      }
+                    />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Max Humidity (%)
                     </label>
-                    <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.storageHumidityMax} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
-            }))
-           } />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      value={formData.storageHumidityMax}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
+                        }))
+                      }
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Signal Word</label>
-                    <Select fullWidth options={[{ value: '', label: 'None' }, { value: 'warning', label: 'Warning' }, { value: 'danger', label: 'Danger' }]} value={formData.signalWord} onChange={(e) =>
-            setFormData((prev) => ({ ...prev, signalWord: e.target.value }))
-           } />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Signal Word
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: '', label: 'None' },
+                        { value: 'warning', label: 'Warning' },
+                        { value: 'danger', label: 'Danger' },
+                      ]}
+                      value={formData.signalWord}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, signalWord: e.target.value }))
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">MSDS URL</label>
-                    <Input fullWidth type="url" value={formData.msdsUrl} placeholder="https://..." onChange={(e) =>
-            setFormData((prev) => ({ ...prev, msdsUrl: e.target.value }))
-           } />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      MSDS URL
+                    </label>
+                    <Input
+                      fullWidth
+                      type="url"
+                      value={formData.msdsUrl}
+                      placeholder="https://..."
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, msdsUrl: e.target.value }))
+                      }
+                    />
                   </div>
                 </div>
               </div>
@@ -1070,18 +1245,32 @@ export const ChemicalsTab: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Withdrawal Period (days)
                   </label>
-                  <Input fullWidth type="number" min="0" value={formData.withdrawalPeriodDays} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            withdrawalPeriodDays: parseInt(e.target.value) || 0,
-           }))
-          } />
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={formData.withdrawalPeriodDays}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        withdrawalPeriodDays: parseInt(e.target.value) || 0,
+                      }))
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Usage Guide URL</label>
-                  <Input fullWidth type="url" value={formData.usageGuideUrl} placeholder="https://..." onChange={(e) =>
-           setFormData((prev) => ({ ...prev, usageGuideUrl: e.target.value }))
-          } />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Usage Guide URL
+                  </label>
+                  <Input
+                    fullWidth
+                    type="url"
+                    value={formData.usageGuideUrl}
+                    placeholder="https://..."
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, usageGuideUrl: e.target.value }))
+                    }
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -1125,13 +1314,35 @@ export const ChemicalsTab: React.FC = () => {
               onToggle={() => toggleSection('notes')}
               optional
             >
-              <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={3} placeholder="Additional notes about this chemical..." />
+              <Textarea
+                fullWidth
+                value={formData.notes}
+                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+                placeholder="Additional notes about this chemical..."
+              />
             </CollapsibleSection>
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}</Button>
-            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              size="lg"
+              className="justify-center sm:ml-3 sm:w-auto sm:text-sm"
+              type="submit"
+              disabled={isSaving}
+            >
+              {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </Button>
           </div>
         </form>
       </Modal>

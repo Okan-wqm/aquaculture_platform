@@ -344,15 +344,15 @@ export const RecordStockMovementModal: React.FC<Props> = ({
         <div className="space-y-4">
           {/* Inline error banner — shown when the GraphQL mutation fails */}
           {submitError && (
-            <div className="rounded-md bg-red-50 border border-red-200 p-3">
-              <p className="text-sm text-red-700">{submitError}</p>
+            <div className="rounded-md bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 p-3">
+              <p className="text-sm text-error-700 dark:text-error-300">{submitError}</p>
             </div>
           )}
 
           {/* Pre-filled item context banner — confirms which item the user is acting on */}
           {defaultItemName && (
-            <div className="rounded-md bg-blue-50 border border-blue-200 p-3">
-              <p className="text-sm text-blue-700">
+            <div className="rounded-md bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 p-3">
+              <p className="text-sm text-info-700 dark:text-info-300">
                 Recording movement for: <span className="font-medium">{defaultItemName}</span>
               </p>
             </div>
@@ -360,12 +360,14 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Movement Type — determines which fields are visible and required */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Movement Type *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Movement Type *
+            </label>
             <select
               value={movementType}
               onChange={(e) => handleMovementTypeChange(e.target.value as MovementType)}
               disabled={!!defaultMovementType}
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
             >
               {MOVEMENT_TYPE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -377,7 +379,9 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Item Type — determines which item list is loaded */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item Type *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Item Type *
+            </label>
             <div className="mt-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
                 <button
@@ -387,7 +391,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
                   disabled={!!defaultItemType}
                   className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                     itemType === opt.value
-                      ? 'bg-blue-50 border-blue-500 text-blue-700'
+                      ? 'bg-info-50 dark:bg-info-900/20 border-info-500 text-info-700 dark:text-info-300'
                       : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   } disabled:opacity-60 disabled:cursor-not-allowed`}
                 >
@@ -399,12 +403,14 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Item selection — populated from the appropriate list hook based on item type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Item *
+            </label>
             <select
               value={selectedItemId}
               onChange={(e) => setSelectedItemId(e.target.value)}
               disabled={!!defaultItemId}
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
             >
               <option value="">Select item...</option>
               {itemOptions.map((opt) => (
@@ -417,19 +423,31 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Quantity — minimum 0.01 enforced client-side; backend also validates */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity *</label>
-            <Input fullWidth type="number" min="0.01" step="0.01" value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="0.00" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Quantity *
+            </label>
+            <Input
+              fullWidth
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={quantity}
+              onChange={(e) => setQuantity(e.target.value)}
+              placeholder="0.00"
+            />
           </div>
 
           {/* Location fields — shown/hidden based on movement type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {showFromLocation && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From Location *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  From Location *
+                </label>
                 <select
                   value={fromLocationId}
                   onChange={(e) => setFromLocationId(e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm"
                 >
                   <option value="">Select location...</option>
                   {locations.map((loc) => (
@@ -442,11 +460,13 @@ export const RecordStockMovementModal: React.FC<Props> = ({
             )}
             {showToLocation && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">To Location *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  To Location *
+                </label>
                 <select
                   value={toLocationId}
                   onChange={(e) => setToLocationId(e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm"
                 >
                   <option value="">Select location...</option>
                   {locations.map((loc) => (
@@ -464,9 +484,15 @@ export const RecordStockMovementModal: React.FC<Props> = ({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Lot Number {isLotNumberRequired ? '*' : ''}
             </label>
-            <Input fullWidth type="text" value={lotNumber} onChange={(e) => setLotNumber(e.target.value)} placeholder={
-        isLotNumberRequired ? 'Required for traceability (EU 178/2002)' : 'Optional'
-       } />
+            <Input
+              fullWidth
+              type="text"
+              value={lotNumber}
+              onChange={(e) => setLotNumber(e.target.value)}
+              placeholder={
+                isLotNumberRequired ? 'Required for traceability (EU 178/2002)' : 'Optional'
+              }
+            />
           </div>
 
           {/* Expiry Date — required for FEED and HEALTHCARE per HACCP food safety */}
@@ -474,28 +500,57 @@ export const RecordStockMovementModal: React.FC<Props> = ({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Expiry Date {isExpiryDateRequired ? '*' : ''}
             </label>
-            <Input fullWidth type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
+            <Input
+              fullWidth
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+            />
           </div>
 
           {/* Reason — required for WASTE and ADJUSTMENT for ISO 22000 audit trail */}
           {isReasonRequired && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reason *</label>
-              <Textarea fullWidth rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Document the reason for this movement (audit trail)" />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Reason *
+              </label>
+              <Textarea
+                fullWidth
+                rows={2}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Document the reason for this movement (audit trail)"
+              />
             </div>
           )}
 
           {/* Reference — optional link to external documents (delivery note, PO number) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reference</label>
-            <Input fullWidth type="text" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="PO number, delivery note, etc. (optional)" />
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Reference
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              placeholder="PO number, delivery note, etc. (optional)"
+            />
           </div>
         </div>
 
         {/* Footer with cancel/submit actions */}
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={!isFormValid || recordMovement.isPending}>{recordMovement.isPending ? 'Recording...' : 'Record Movement'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={!isFormValid || recordMovement.isPending}
+          >
+            {recordMovement.isPending ? 'Recording...' : 'Record Movement'}
+          </Button>
         </div>
       </form>
     </Modal>

@@ -59,7 +59,7 @@ const ModeTabBar: React.FC = () => {
             onClick={() => setMode(tab.mode)}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
               isActive
-                ? 'bg-white dark:bg-gray-900 text-cyan-700 shadow-sm'
+                ? 'bg-white dark:bg-gray-900 text-info-700 shadow-sm'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
             title={`${tab.label} (Ctrl+${tab.shortcutKey})`}

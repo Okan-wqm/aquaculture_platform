@@ -133,6 +133,8 @@ export interface SeverityBadgeProps {
   tone?: 'solid' | 'soft';
   size?: 'xs' | 'sm' | 'md';
   className?: string;
+  /** Test hook for a pill a suite must pick out of a list (the VFD risk ladders). */
+  'data-testid'?: string;
 }
 
 const SIZES = {
@@ -149,11 +151,13 @@ export const SeverityBadge: React.FC<SeverityBadgeProps> = ({
   tone = 'soft',
   size = 'sm',
   className = '',
+  'data-testid': testId,
 }) => {
   const level = normalizeSeverity(severity);
   return (
     <span
       data-severity={level}
+      data-testid={testId}
       className={`inline-flex items-center gap-1 rounded-full font-medium whitespace-nowrap ${tone === 'soft' ? 'border' : ''} ${severityClasses(level, tone)} ${SIZES[size]} ${className}`}
     >
       {icon}

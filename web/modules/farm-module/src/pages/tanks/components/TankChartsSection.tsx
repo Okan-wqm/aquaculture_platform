@@ -4,9 +4,17 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { PieChart, LineChart, getTenantId, tenantScopedStorageKey, colors, Button } from '@aquaculture/shared-ui';
+import {
+  PieChart,
+  LineChart,
+  getTenantId,
+  tenantScopedStorageKey,
+  colors,
+  Button,
+} from '@aquaculture/shared-ui';
 import type { PieDataItem, LineDataset } from '@aquaculture/shared-ui';
 import type { TankWithBatch } from '../types';
+import { ChevronDown, Settings as SettingsIcon } from 'lucide-react';
 
 // Chart visibility configuration
 export interface ChartVisibility {
@@ -81,14 +89,14 @@ interface TankAnalyticsData {
 // Default colors for charts
 const CHART_COLORS = {
   category: {
-    TANK: colors.primary[400],   // cyan
-    POND: colors.info[500],   // blue
-    CAGE: colors.primary[700],   // purple
+    TANK: colors.primary[400], // cyan
+    POND: colors.info[500], // blue
+    CAGE: colors.primary[700], // purple
   },
   density: {
-    low: colors.success[500],    // green (< 50%)
+    low: colors.success[500], // green (< 50%)
     medium: colors.warning[500], // yellow (50-80%)
-    high: colors.error[500],   // red (> 80%)
+    high: colors.error[500], // red (> 80%)
   },
 };
 
@@ -120,7 +128,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   // Filter data by selected tank IDs
   const filteredData = useMemo(() => {
     if (selectedTankIds.length === 0) return data;
-    return data.filter(t => selectedTankIds.includes(t.id));
+    return data.filter((t) => selectedTankIds.includes(t.id));
   }, [data, selectedTankIds]);
 
   // ============================================================================
@@ -129,22 +137,22 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
 
   // 1. Category Distribution (Tank/Pond/Cage count)
   const categoryData = useMemo((): PieDataItem[] => {
-    const tanks = filteredData.filter(t => t.category.toUpperCase() === 'TANK').length;
-    const ponds = filteredData.filter(t => t.category.toUpperCase() === 'POND').length;
-    const cages = filteredData.filter(t => t.category.toUpperCase() === 'CAGE').length;
+    const tanks = filteredData.filter((t) => t.category.toUpperCase() === 'TANK').length;
+    const ponds = filteredData.filter((t) => t.category.toUpperCase() === 'POND').length;
+    const cages = filteredData.filter((t) => t.category.toUpperCase() === 'CAGE').length;
 
     return [
       { label: 'Tanks', value: tanks, color: CHART_COLORS.category.TANK },
       { label: 'Ponds', value: ponds, color: CHART_COLORS.category.POND },
       { label: 'Cages', value: cages, color: CHART_COLORS.category.CAGE },
-    ].filter(item => item.value > 0);
+    ].filter((item) => item.value > 0);
   }, [filteredData]);
 
   // 2. Biomass by Tank
   const biomassByTankData = useMemo((): PieDataItem[] => {
     return filteredData
-      .filter(t => (t.biomass || 0) > 0)
-      .map(t => ({
+      .filter((t) => (t.biomass || 0) > 0)
+      .map((t) => ({
         label: t.code || t.name,
         value: t.biomass || 0,
       }))
@@ -155,8 +163,8 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   // 3. Fish Count by Tank
   const fishCountByTankData = useMemo((): PieDataItem[] => {
     return filteredData
-      .filter(t => (t.pieces || 0) > 0)
-      .map(t => ({
+      .filter((t) => (t.pieces || 0) > 0)
+      .map((t) => ({
         label: t.code || t.name,
         value: t.pieces || 0,
       }))
@@ -166,18 +174,18 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
 
   // 4. Density Usage Distribution
   const densityUsageData = useMemo((): PieDataItem[] => {
-    const low = filteredData.filter(t => (t.capacityUsedPercent || 0) < 50).length;
-    const medium = filteredData.filter(t => {
+    const low = filteredData.filter((t) => (t.capacityUsedPercent || 0) < 50).length;
+    const medium = filteredData.filter((t) => {
       const cap = t.capacityUsedPercent || 0;
       return cap >= 50 && cap < 80;
     }).length;
-    const high = filteredData.filter(t => (t.capacityUsedPercent || 0) >= 80).length;
+    const high = filteredData.filter((t) => (t.capacityUsedPercent || 0) >= 80).length;
 
     return [
       { label: '< 50%', value: low, color: CHART_COLORS.density.low },
       { label: '50-80%', value: medium, color: CHART_COLORS.density.medium },
       { label: '> 80%', value: high, color: CHART_COLORS.density.high },
-    ].filter(item => item.value > 0);
+    ].filter((item) => item.value > 0);
   }, [filteredData]);
 
   // 5. Species Biomass % (requires batch info with species)
@@ -185,7 +193,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
     // Group by batch species (batchNumber is the current species proxy)
     const speciesMap = new Map<string, number>();
 
-    filteredData.forEach(t => {
+    filteredData.forEach((t) => {
       if (t.batchNumber && t.biomass) {
         // Extract species hint from batch number or use generic
         const speciesKey = t.batchNumber.split('-')[0] || 'Other';
@@ -201,8 +209,8 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   // 6. Mortality by Tank (using totalMortality field from Batch)
   const mortalityByTankData = useMemo((): PieDataItem[] => {
     return filteredData
-      .filter(t => (t.totalMortality || 0) > 0)
-      .map(t => ({
+      .filter((t) => (t.totalMortality || 0) > 0)
+      .map((t) => ({
         label: t.code || t.name,
         value: t.totalMortality || 0,
         color: colors.error[500], // red
@@ -214,8 +222,8 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   // 7. Cull by Tank (using totalCull field from Batch)
   const cullByTankData = useMemo((): PieDataItem[] => {
     return filteredData
-      .filter(t => (t.totalCull || 0) > 0)
-      .map(t => ({
+      .filter((t) => (t.totalCull || 0) > 0)
+      .map((t) => ({
         label: t.code || t.name,
         value: t.totalCull || 0,
         color: colors.accent[600], // orange
@@ -251,133 +259,197 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   const mortalityLineData = useMemo((): LineDataset[] => {
     if (!analyticsData || analyticsData.length === 0) {
       // Placeholder data
-      return [{
-        label: 'No data',
-        data: new Array(timeLabels.length).fill(0),
-        color: colors.neutral[400],
-      }];
+      return [
+        {
+          label: 'No data',
+          data: new Array(timeLabels.length).fill(0),
+          color: colors.neutral[400],
+        },
+      ];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
-      data: tank.dailySummaries.map(d => d.mortalityCount || 0),
-      color: [colors.error[500], colors.accent[600], colors.warning[500], colors.secondary[500], colors.success[500]][idx % 5],
+      data: tank.dailySummaries.map((d) => d.mortalityCount || 0),
+      color: [
+        colors.error[500],
+        colors.accent[600],
+        colors.warning[500],
+        colors.secondary[500],
+        colors.success[500],
+      ][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
   const growthLineData = useMemo((): LineDataset[] => {
     if (!analyticsData || analyticsData.length === 0) {
-      return [{
-        label: 'No data',
-        data: new Array(timeLabels.length).fill(0),
-        color: colors.neutral[400],
-      }];
+      return [
+        {
+          label: 'No data',
+          data: new Array(timeLabels.length).fill(0),
+          color: colors.neutral[400],
+        },
+      ];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
-      data: tank.dailySummaries.map(d => d.avgWeightG || 0),
-      color: [colors.info[500], colors.primary[700], colors.accent[500], colors.primary[400], colors.success[500]][idx % 5],
+      data: tank.dailySummaries.map((d) => d.avgWeightG || 0),
+      color: [
+        colors.info[500],
+        colors.primary[700],
+        colors.accent[500],
+        colors.primary[400],
+        colors.success[500],
+      ][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
   const biomassLineData = useMemo((): LineDataset[] => {
     if (!analyticsData || analyticsData.length === 0) {
-      return [{
-        label: 'No data',
-        data: new Array(timeLabels.length).fill(0),
-        color: colors.neutral[400],
-      }];
+      return [
+        {
+          label: 'No data',
+          data: new Array(timeLabels.length).fill(0),
+          color: colors.neutral[400],
+        },
+      ];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
-      data: tank.dailySummaries.map(d => d.biomassKg || 0),
-      color: [colors.success[500], colors.info[500], colors.primary[700], colors.warning[500], colors.error[500]][idx % 5],
+      data: tank.dailySummaries.map((d) => d.biomassKg || 0),
+      color: [
+        colors.success[500],
+        colors.info[500],
+        colors.primary[700],
+        colors.warning[500],
+        colors.error[500],
+      ][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
   const fcrLineData = useMemo((): LineDataset[] => {
     if (!analyticsData || analyticsData.length === 0) {
-      return [{
-        label: 'No data',
-        data: new Array(timeLabels.length).fill(0),
-        color: colors.neutral[400],
-      }];
+      return [
+        {
+          label: 'No data',
+          data: new Array(timeLabels.length).fill(0),
+          color: colors.neutral[400],
+        },
+      ];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
-      data: tank.dailySummaries.map(d => d.fcr || 0),
-      color: [colors.warning[500], colors.error[500], colors.info[500], colors.success[500], colors.primary[700]][idx % 5],
+      data: tank.dailySummaries.map((d) => d.fcr || 0),
+      color: [
+        colors.warning[500],
+        colors.error[500],
+        colors.info[500],
+        colors.success[500],
+        colors.primary[700],
+      ][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
   // 5. Feed Trend
   const feedLineData = useMemo((): LineDataset[] => {
     if (!analyticsData || analyticsData.length === 0) {
-      return [{
-        label: 'No data',
-        data: new Array(timeLabels.length).fill(0),
-        color: colors.neutral[400],
-      }];
+      return [
+        {
+          label: 'No data',
+          data: new Array(timeLabels.length).fill(0),
+          color: colors.neutral[400],
+        },
+      ];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
-      data: tank.dailySummaries.map(d => d.feedAmountKg || 0),
-      color: [colors.primary[700], colors.accent[500], colors.primary[400], colors.warning[500], colors.success[500]][idx % 5],
+      data: tank.dailySummaries.map((d) => d.feedAmountKg || 0),
+      color: [
+        colors.primary[700],
+        colors.accent[500],
+        colors.primary[400],
+        colors.warning[500],
+        colors.success[500],
+      ][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
   // 6. Density Trend
   const densityLineData = useMemo((): LineDataset[] => {
     if (!analyticsData || analyticsData.length === 0) {
-      return [{
-        label: 'No data',
-        data: new Array(timeLabels.length).fill(0),
-        color: colors.neutral[400],
-      }];
+      return [
+        {
+          label: 'No data',
+          data: new Array(timeLabels.length).fill(0),
+          color: colors.neutral[400],
+        },
+      ];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
-      data: tank.dailySummaries.map(d => d.densityKgM3 || 0),
-      color: [colors.primary[400], colors.info[500], colors.success[500], colors.warning[500], colors.error[500]][idx % 5],
+      data: tank.dailySummaries.map((d) => d.densityKgM3 || 0),
+      color: [
+        colors.primary[400],
+        colors.info[500],
+        colors.success[500],
+        colors.warning[500],
+        colors.error[500],
+      ][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
   // 7. Fish Count Trend
   const fishCountLineData = useMemo((): LineDataset[] => {
     if (!analyticsData || analyticsData.length === 0) {
-      return [{
-        label: 'No data',
-        data: new Array(timeLabels.length).fill(0),
-        color: colors.neutral[400],
-      }];
+      return [
+        {
+          label: 'No data',
+          data: new Array(timeLabels.length).fill(0),
+          color: colors.neutral[400],
+        },
+      ];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
-      data: tank.dailySummaries.map(d => d.fishCount || 0),
-      color: [colors.info[500], colors.primary[700], colors.success[500], colors.error[500], colors.warning[500]][idx % 5],
+      data: tank.dailySummaries.map((d) => d.fishCount || 0),
+      color: [
+        colors.info[500],
+        colors.primary[700],
+        colors.success[500],
+        colors.error[500],
+        colors.warning[500],
+      ][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
   // 8. SGR (Specific Growth Rate) Trend
   const sgrLineData = useMemo((): LineDataset[] => {
     if (!analyticsData || analyticsData.length === 0) {
-      return [{
-        label: 'No data',
-        data: new Array(timeLabels.length).fill(0),
-        color: colors.neutral[400],
-      }];
+      return [
+        {
+          label: 'No data',
+          data: new Array(timeLabels.length).fill(0),
+          color: colors.neutral[400],
+        },
+      ];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
-      data: tank.dailySummaries.map(d => d.sgr || 0),
-      color: [colors.success[500], colors.primary[400], colors.primary[700], colors.accent[500], colors.warning[500]][idx % 5],
+      data: tank.dailySummaries.map((d) => d.sgr || 0),
+      color: [
+        colors.success[500],
+        colors.primary[400],
+        colors.primary[700],
+        colors.accent[500],
+        colors.warning[500],
+      ][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -389,19 +461,16 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 mb-6">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-        <Button variant="ghost" onClick={() => setIsCollapsed(!isCollapsed)}><svg
+        <Button variant="ghost" onClick={() => setIsCollapsed(!isCollapsed)}>
+          <ChevronDown
             className={`w-4 h-4 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-          Analytics</Button>
-        <Button variant="ghost" onClick={onSettingsClick} title="Chart Settings"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg></Button>
+            aria-hidden="true"
+          />
+          Analytics
+        </Button>
+        <Button variant="ghost" onClick={onSettingsClick} title="Chart Settings">
+          <SettingsIcon className="w-5 h-5" aria-hidden="true" />
+        </Button>
       </div>
 
       {/* Content */}
@@ -426,11 +495,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
               {chartVisibility.biomassByTank && (
                 <ChartCard title="Biomass/Tank">
                   {biomassByTankData.length > 0 ? (
-                    <PieChart
-                      data={biomassByTankData}
-                      size={120}
-                      showPercentages
-                    />
+                    <PieChart data={biomassByTankData} size={120} showPercentages />
                   ) : (
                     <EmptyChart message="No data" />
                   )}
@@ -440,11 +505,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
               {chartVisibility.fishCountByTank && (
                 <ChartCard title="Fish Count">
                   {fishCountByTankData.length > 0 ? (
-                    <PieChart
-                      data={fishCountByTankData}
-                      size={120}
-                      showPercentages
-                    />
+                    <PieChart data={fishCountByTankData} size={120} showPercentages />
                   ) : (
                     <EmptyChart message="No data" />
                   )}
@@ -474,11 +535,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
               {chartVisibility.mortalityByTank && (
                 <ChartCard title="Mortality">
                   {mortalityByTankData.length > 0 ? (
-                    <PieChart
-                      data={mortalityByTankData}
-                      size={120}
-                      showPercentages
-                    />
+                    <PieChart data={mortalityByTankData} size={120} showPercentages />
                   ) : (
                     <EmptyChart message="No data" />
                   )}
@@ -498,11 +555,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
               {chartVisibility.biomassBySpecies && (
                 <ChartCard title="Species kg">
                   {totalBiomassBySpeciesData.length > 0 ? (
-                    <PieChart
-                      data={totalBiomassBySpeciesData}
-                      size={120}
-                      showPercentages
-                    />
+                    <PieChart data={totalBiomassBySpeciesData} size={120} showPercentages />
                   ) : (
                     <EmptyChart message="No data" />
                   )}
@@ -512,13 +565,18 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
           </div>
 
           {/* Line Charts - 2 rows of 4 */}
-          {(chartVisibility.mortalityTrend || chartVisibility.growthTrend ||
-            chartVisibility.biomassTrend || chartVisibility.fcrTrend ||
-            chartVisibility.feedTrend || chartVisibility.densityTrend ||
-            chartVisibility.fishCountTrend || chartVisibility.sgrTrend) && (
+          {(chartVisibility.mortalityTrend ||
+            chartVisibility.growthTrend ||
+            chartVisibility.biomassTrend ||
+            chartVisibility.fcrTrend ||
+            chartVisibility.feedTrend ||
+            chartVisibility.densityTrend ||
+            chartVisibility.fishCountTrend ||
+            chartVisibility.sgrTrend) && (
             <div>
               <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
-                Time Series (Last {timeRange === '7d' ? '7 days' : timeRange === '30d' ? '30 days' : '90 days'})
+                Time Series (Last{' '}
+                {timeRange === '7d' ? '7 days' : timeRange === '30d' ? '30 days' : '90 days'})
               </h4>
               {/* Row 1 - 4 charts */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
@@ -643,12 +701,17 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
 
 const ChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
-    <h5 className="text-[10px] font-medium text-gray-600 dark:text-gray-400 mb-1 text-center truncate">{title}</h5>
+    <h5 className="text-[10px] font-medium text-gray-600 dark:text-gray-400 mb-1 text-center truncate">
+      {title}
+    </h5>
     <div className="flex justify-center">{children}</div>
   </div>
 );
 
-const LineChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
+const LineChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({
+  title,
+  children,
+}) => (
   <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
     <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{title}</h5>
     {children}

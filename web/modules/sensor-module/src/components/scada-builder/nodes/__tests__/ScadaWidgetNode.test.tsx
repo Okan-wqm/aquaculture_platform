@@ -38,11 +38,6 @@ vi.mock('@xyflow/react', () => ({
   Position: { Top: 'top', Right: 'right', Bottom: 'bottom', Left: 'left' },
 }));
 
-// Mock lucide-react Lock icon
-vi.mock('lucide-react', () => ({
-  Lock: () => React.createElement('span', null, 'lock-icon'),
-}));
-
 // Mock WidgetRenderer — gercek renderer'lari yuklemeden test et
 // Mock WidgetRenderer — test without loading real renderers
 vi.mock('../../WidgetRenderer', () => ({

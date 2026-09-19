@@ -7,7 +7,15 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Modal, useConfirm, useClickOutside, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useConfirm,
+  useClickOutside,
+  Spinner,
+  Button,
+  Input,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 
@@ -39,7 +47,12 @@ import { ProcessViewWidgetContent } from './widgets/ProcessViewWidgetContent';
 import { ProcessBackgroundLayer } from './widgets/ProcessBackgroundLayer';
 import { AlertWidgetContent } from './widgets/AlertWidgetContent';
 import { HeatmapWidgetContent } from './widgets/HeatmapWidgetContent';
-import { useDashboardLayout, DashboardLayout, SaveLayoutInput, ProcessBackground } from '../../hooks/useDashboardLayout';
+import {
+  useDashboardLayout,
+  DashboardLayout,
+  SaveLayoutInput,
+  ProcessBackground,
+} from '../../hooks/useDashboardLayout';
 export type { DashboardLayout } from '../../hooks/useDashboardLayout';
 import { useActiveProcesses } from '../../hooks/useProcess';
 
@@ -140,15 +153,18 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
       bodyClassName="p-6"
       footer={
         <>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
           <button
             onClick={() => onSave(name, description, setAsDefault)}
             disabled={!name.trim() || saving}
             className={`
               flex items-center gap-2 px-4 py-2 rounded-lg transition-colors
-              ${name.trim() && !saving
-                ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-                : 'bg-gray-300 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+              ${
+                name.trim() && !saving
+                  ? 'bg-info-600 text-white hover:bg-info-700'
+                  : 'bg-gray-300 text-gray-500 dark:text-gray-400 cursor-not-allowed'
               }
             `}
           >
@@ -163,14 +179,26 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Layout Name
           </label>
-          <Input fullWidth type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter dashboard name" />
+          <Input
+            fullWidth
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Enter dashboard name"
+          />
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description (Optional)
           </label>
-          <Textarea fullWidth value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Layout description" rows={2} />
+          <Textarea
+            fullWidth
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Layout description"
+            rows={2}
+          />
         </div>
 
         <label className="flex items-center gap-2 cursor-pointer">
@@ -178,7 +206,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
             type="checkbox"
             checked={setAsDefault}
             onChange={(e) => setSetAsDefault(e.target.checked)}
-            className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 dark:border-gray-600 rounded"
+            className="h-4 w-4 text-info-600 focus:ring-info-500 border-gray-300 dark:border-gray-600 rounded"
           />
           <span className="text-sm text-gray-700 dark:text-gray-300">Set as default</span>
         </label>
@@ -191,9 +219,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
 // GridStack Dashboard Component
 // ============================================================================
 
-export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
-  className = '',
-}) => {
+export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({ className = '' }) => {
   const confirm = useConfirm();
   const gridRef = useRef<HTMLDivElement>(null);
   const gridInstanceRef = useRef<GridStack | null>(null);
@@ -297,7 +323,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         disableDrag: !isEditMode,
         disableResize: !isEditMode,
       },
-      gridRef.current
+      gridRef.current,
     );
 
     gridInstanceRef.current = grid;
@@ -332,7 +358,9 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         setLocalWidgets(updatedWidgets);
         setHasUnsavedChanges(true);
       } finally {
-        setTimeout(() => { isUpdatingRef.current = false; }, 0);
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 0);
       }
     };
 
@@ -343,7 +371,6 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       grid.destroy(false);
       gridInstanceRef.current = null;
     };
-   
   }, []); // PERF-002: run once on mount — add/remove is handled by makeWidget/removeWidget below
 
   // PERF-002: Register new DOM nodes with GridStack when localWidgets changes (instead of full re-init)
@@ -413,9 +440,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
 
   // Handle update widget (from edit)
   const handleUpdateWidget = useCallback((config: WidgetConfig) => {
-    setLocalWidgets((prev) =>
-      prev.map((w) => (w.id === config.id ? config : w))
-    );
+    setLocalWidgets((prev) => prev.map((w) => (w.id === config.id ? config : w)));
     setShowConfigModal(false);
     setEditingWidget(null);
     setHasUnsavedChanges(true);
@@ -459,21 +484,27 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         setIsEditMode(false);
       }
     },
-    [currentLayout, localWidgets, processBackground, saveLayout, saveAsNew]
+    [currentLayout, localWidgets, processBackground, saveLayout, saveAsNew],
   );
 
   // Handle layout selection
   const handleLayoutSelect = useCallback(
     async (layoutId: string) => {
       if (hasUnsavedChanges) {
-        const proceed = await confirm({ title: 'Discard unsaved changes?', message: 'Switching layouts drops the edits you have not saved.', confirmText: 'Discard and switch', cancelText: 'Stay', variant: 'warning' });
+        const proceed = await confirm({
+          title: 'Discard unsaved changes?',
+          message: 'Switching layouts drops the edits you have not saved.',
+          confirmText: 'Discard and switch',
+          cancelText: 'Stay',
+          variant: 'warning',
+        });
         if (!proceed) return;
       }
       await loadLayout(layoutId);
       setShowLayoutDropdown(false);
       setIsEditMode(false);
     },
-    [loadLayout, hasUnsavedChanges, confirm]
+    [loadLayout, hasUnsavedChanges, confirm],
   );
 
   // Handle set as default
@@ -482,18 +513,23 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       await setAsDefault(layoutId);
       setShowLayoutDropdown(false);
     },
-    [setAsDefault]
+    [setAsDefault],
   );
 
   // Handle delete layout
   const handleDeleteLayout = useCallback(
     async (layoutId: string) => {
-      const proceed = await confirm({ title: 'Delete this layout?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' });
+      const proceed = await confirm({
+        title: 'Delete this layout?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      });
       if (!proceed) return;
       await deleteLayout(layoutId);
       setShowLayoutDropdown(false);
     },
-    [deleteLayout, confirm]
+    [deleteLayout, confirm],
   );
 
   // Loading state
@@ -510,10 +546,12 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
     <div className={`flex flex-col h-full ${className}`}>
       {/* Error Banner */}
       {error && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border-b border-red-200 text-red-700">
+        <div className="flex items-center gap-2 px-4 py-2 bg-error-50 dark:bg-error-900/20 border-b border-error-200 dark:border-error-800 text-error-700 dark:text-error-300">
           <AlertCircle size={16} />
           <span className="text-sm">{error}</span>
-          <Button variant="ghost" onClick={clearError}>Close</Button>
+          <Button variant="ghost" onClick={clearError}>
+            Close
+          </Button>
         </div>
       )}
 
@@ -530,7 +568,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 {currentLayout?.name || 'Select Layout'}
               </span>
               {currentLayout?.isDefault && (
-                <Star size={14} className="text-yellow-500 fill-current" />
+                <Star size={14} className="text-warning-500 fill-current" />
               )}
               <ChevronDown size={16} className="text-gray-500 dark:text-gray-400" />
             </button>
@@ -554,29 +592,50 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                         key={layout.id}
                         className={`
                           flex items-center justify-between px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800
-                          ${currentLayout?.id === layout.id ? 'bg-cyan-50' : ''}
+                          ${currentLayout?.id === layout.id ? 'bg-info-50 dark:bg-info-900/20' : ''}
                         `}
                       >
-                        <Button variant="ghost" className="flex-1" onClick={() => handleLayoutSelect(layout.id)}><span className="font-medium text-gray-900 dark:text-gray-100">
+                        <Button
+                          variant="ghost"
+                          className="flex-1"
+                          onClick={() => handleLayoutSelect(layout.id)}
+                        >
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
                             {layout.name}
                           </span>
                           {layout.isDefault && (
-                            <Star
-                              size={12}
-                              className="inline ml-1 text-yellow-500 fill-current"
-                            />
+                            <Star size={12} className="inline ml-1 text-warning-500 fill-current" />
                           )}
                           {layout.isSystemDefault && (
                             <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
                               (System)
                             </span>
-                          )}</Button>
+                          )}
+                        </Button>
                         <div className="flex items-center gap-1">
                           {!layout.isDefault && !layout.isSystemDefault && (
-                            <Button variant="ghost" size="sm" iconOnly aria-label="Set as default" onClick={() => handleSetAsDefault(layout.id)} title="Set as default"><Star size={14} /></Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              iconOnly
+                              aria-label="Set as default"
+                              onClick={() => handleSetAsDefault(layout.id)}
+                              title="Set as default"
+                            >
+                              <Star size={14} />
+                            </Button>
                           )}
                           {!layout.isSystemDefault && (
-                            <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => handleDeleteLayout(layout.id)} title="Delete"><Trash2 size={14} /></Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              iconOnly
+                              aria-label="Delete"
+                              onClick={() => handleDeleteLayout(layout.id)}
+                              title="Delete"
+                            >
+                              <Trash2 size={14} />
+                            </Button>
                           )}
                         </div>
                       </div>
@@ -584,11 +643,19 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                   )}
                 </div>
                 <div className="p-2 border-t border-gray-100 dark:border-gray-700">
-                  <Button variant="ghost" size="sm" className="justify-center" leftIcon={<Plus size={16} />} onClick={() => {
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-center"
+                    leftIcon={<Plus size={16} />}
+                    onClick={() => {
                       setSaveAsNew(true);
                       setShowSaveModal(true);
                       setShowLayoutDropdown(false);
-                    }}>Create New Layout</Button>
+                    }}
+                  >
+                    Create New Layout
+                  </Button>
                 </div>
               </div>
             )}
@@ -597,7 +664,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
           <span className="text-sm text-gray-500 dark:text-gray-400">
             {localWidgets.length} widget
             {hasUnsavedChanges && (
-              <span className="text-amber-600 ml-2">(unsaved)</span>
+              <span className="text-warning-600 dark:text-warning-400 ml-2">(unsaved)</span>
             )}
           </span>
 
@@ -607,16 +674,16 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
               onClick={() => setShowProcessDropdown(!showProcessDropdown)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors ${
                 processBackground.processId
-                  ? 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200'
+                  ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 hover:bg-info-200 dark:hover:bg-info-800/60'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               <GitFork size={16} />
               <span className="text-sm">
                 {processBackground.processId
-                  ? activeProcesses.find(p => p.id === processBackground.processId)?.name || 'Process BG'
-                  : 'No Background'
-                }
+                  ? activeProcesses.find((p) => p.id === processBackground.processId)?.name ||
+                    'Process BG'
+                  : 'No Background'}
               </span>
               <ChevronDown size={16} />
             </button>
@@ -632,26 +699,30 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 <div className="max-h-48 overflow-y-auto">
                   <button
                     onClick={() => {
-                      setProcessBackground(prev => ({ ...prev, processId: null }));
+                      setProcessBackground((prev) => ({ ...prev, processId: null }));
                       setShowProcessDropdown(false);
                       setHasUnsavedChanges(true);
                     }}
                     className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                      !processBackground.processId ? 'bg-cyan-50 text-cyan-700' : ''
+                      !processBackground.processId
+                        ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                        : ''
                     }`}
                   >
                     None
                   </button>
-                  {activeProcesses.map(process => (
+                  {activeProcesses.map((process) => (
                     <button
                       key={process.id}
                       onClick={() => {
-                        setProcessBackground(prev => ({ ...prev, processId: process.id }));
+                        setProcessBackground((prev) => ({ ...prev, processId: process.id }));
                         setShowProcessDropdown(false);
                         setHasUnsavedChanges(true);
                       }}
                       className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                        processBackground.processId === process.id ? 'bg-cyan-50 text-cyan-700' : ''
+                        processBackground.processId === process.id
+                          ? 'bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300'
+                          : ''
                       }`}
                     >
                       {process.name}
@@ -678,9 +749,9 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 step="0.1"
                 value={processBackground.opacity}
                 onChange={(e) => {
-                  setProcessBackground(prev => ({
+                  setProcessBackground((prev) => ({
                     ...prev,
-                    opacity: parseFloat(e.target.value)
+                    opacity: parseFloat(e.target.value),
                   }));
                   setHasUnsavedChanges(true);
                 }}
@@ -694,27 +765,41 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
 
           {/* Reset Background Position (only in edit mode with background) */}
           {processBackground.processId && isEditMode && (
-            <Button variant="ghost" size="sm" iconOnly aria-label="Reset background position" onClick={() => {
-                setProcessBackground(prev => ({
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="Reset background position"
+              onClick={() => {
+                setProcessBackground((prev) => ({
                   ...prev,
                   position: { x: 0, y: 0 },
                   scale: 1,
                 }));
                 setHasUnsavedChanges(true);
-              }} title="Reset background position"><RotateCcw size={16} /></Button>
+              }}
+              title="Reset background position"
+            >
+              <RotateCcw size={16} />
+            </Button>
           )}
         </div>
 
         <div className="flex items-center gap-2">
           {isEditMode ? (
             <>
-              <Button variant="primary" size="sm" leftIcon={<Plus size={16} />} onClick={() => setShowConfigModal(true)}>Add Widget</Button>
-              <Button variant="primary" size="sm" onClick={handleQuickSave} disabled={saving}>{saving ? (
-                  <Spinner size="sm" color="inherit" />
-                ) : (
-                  <Save size={16} />
-                )}
-                Save</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={<Plus size={16} />}
+                onClick={() => setShowConfigModal(true)}
+              >
+                Add Widget
+              </Button>
+              <Button variant="primary" size="sm" onClick={handleQuickSave} disabled={saving}>
+                {saving ? <Spinner size="sm" color="inherit" /> : <Save size={16} />}
+                Save
+              </Button>
               <button
                 onClick={() => {
                   setSaveAsNew(true);
@@ -756,20 +841,18 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
       <div className="flex-1 overflow-hidden relative bg-gray-50 dark:bg-gray-800">
         {/* Process Background Layer */}
         {processBackground.processId && (
-          <div
-            className="absolute inset-0 overflow-hidden z-0"
-          >
+          <div className="absolute inset-0 overflow-hidden z-0">
             <ProcessBackgroundLayer
               processId={processBackground.processId}
               position={processBackground.position}
               scale={processBackground.scale}
               opacity={processBackground.opacity}
               onPositionChange={(pos) => {
-                setProcessBackground(prev => ({ ...prev, position: pos }));
+                setProcessBackground((prev) => ({ ...prev, position: pos }));
                 setHasUnsavedChanges(true);
               }}
               onScaleChange={(scale) => {
-                setProcessBackground(prev => ({ ...prev, scale }));
+                setProcessBackground((prev) => ({ ...prev, scale }));
                 setHasUnsavedChanges(true);
               }}
               isEditMode={isEditMode}
@@ -784,47 +867,69 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
               <div className="text-center">
                 <Settings size={48} className="mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-medium mb-2">Dashboard Empty</p>
-                <p className="text-sm mb-4">
-                  Click the "Edit" button to add widgets
-                </p>
-                <Button variant="primary" leftIcon={<Plus size={16} />} onClick={() => {
+                <p className="text-sm mb-4">Click the "Edit" button to add widgets</p>
+                <Button
+                  variant="primary"
+                  leftIcon={<Plus size={16} />}
+                  onClick={() => {
                     setIsEditMode(true);
                     setShowConfigModal(true);
-                  }}>Add First Widget</Button>
+                  }}
+                >
+                  Add First Widget
+                </Button>
               </div>
             </div>
           ) : (
             <div ref={gridRef} className="grid-stack">
               {localWidgets.map((widget) => (
-              <div
-                key={widget.id}
-                className="grid-stack-item"
-                data-widget-id={widget.id}
-                gs-x={widget.gridPosition.x}
-                gs-y={widget.gridPosition.y}
-                gs-w={widget.gridPosition.w}
-                gs-h={widget.gridPosition.h}
-              >
-                <div className="grid-stack-item-content bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
-                  {/* Widget Header */}
-                  <div className="widget-drag-handle flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 cursor-move">
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
-                      {widget.title}
-                    </span>
-                    {isEditMode && (
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="sm" iconOnly aria-label="Edit" onClick={() => handleEditWidget(widget)} title="Edit"><Settings size={14} /></Button>
-                        <Button variant="ghost" size="sm" iconOnly aria-label="Remove" onClick={() => handleRemoveWidget(widget.id)} title="Remove"><Trash2 size={14} /></Button>
-                      </div>
-                    )}
-                  </div>
+                <div
+                  key={widget.id}
+                  className="grid-stack-item"
+                  data-widget-id={widget.id}
+                  gs-x={widget.gridPosition.x}
+                  gs-y={widget.gridPosition.y}
+                  gs-w={widget.gridPosition.w}
+                  gs-h={widget.gridPosition.h}
+                >
+                  <div className="grid-stack-item-content bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+                    {/* Widget Header */}
+                    <div className="widget-drag-handle flex items-center justify-between px-3 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 cursor-move">
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
+                        {widget.title}
+                      </span>
+                      {isEditMode && (
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            iconOnly
+                            aria-label="Edit"
+                            onClick={() => handleEditWidget(widget)}
+                            title="Edit"
+                          >
+                            <Settings size={14} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            iconOnly
+                            aria-label="Remove"
+                            onClick={() => handleRemoveWidget(widget.id)}
+                            title="Remove"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Widget Content */}
-                  <div className="p-3 h-[calc(100%-40px)]">
-                    <WidgetContent config={widget} />
+                    {/* Widget Content */}
+                    <div className="p-3 h-[calc(100%-40px)]">
+                      <WidgetContent config={widget} />
+                    </div>
                   </div>
                 </div>
-              </div>
               ))}
             </div>
           )}

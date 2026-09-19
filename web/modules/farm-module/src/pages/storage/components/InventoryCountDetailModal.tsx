@@ -18,7 +18,16 @@
  *    variance details for compliance record-keeping.
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Modal, useToast, useAuth, DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useToast,
+  useAuth,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 import {
   useInventoryCount,
   useUpdateInventoryCountItems,
@@ -58,12 +67,15 @@ interface EditableItem {
  * Green = no variance, amber = within threshold, red = exceeds threshold.
  */
 function getVarianceBadgeClass(variance: number, expectedQuantity: number): string {
-  if (variance === 0) return 'bg-green-100 text-green-800';
+  if (variance === 0)
+    return 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200';
   /* Avoid division by zero for items with zero expected quantity */
-  if (expectedQuantity === 0) return 'bg-red-100 text-red-800';
+  if (expectedQuantity === 0)
+    return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200';
   const pct = Math.abs(variance / expectedQuantity) * 100;
-  if (pct <= VARIANCE_THRESHOLD_PERCENT) return 'bg-amber-100 text-amber-800';
-  return 'bg-red-100 text-red-800';
+  if (pct <= VARIANCE_THRESHOLD_PERCENT)
+    return 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200';
+  return 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200';
 }
 
 export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, countId }) => {
@@ -287,12 +299,18 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
       render: (_value, item) => (
         <>
           {isCountingMode ? (
-            <Input className="text-right" type="number" min="0" step="0.01" value={item.actualQuantity ?? ''} onChange={(e) => handleQuantityChange(item.itemId, e.target.value)} placeholder="0" />
+            <Input
+              className="text-right"
+              type="number"
+              min="0"
+              step="0.01"
+              value={item.actualQuantity ?? ''}
+              onChange={(e) => handleQuantityChange(item.itemId, e.target.value)}
+              placeholder="0"
+            />
           ) : (
             <span className="text-sm text-gray-900 dark:text-gray-100">
-              {item.actualQuantity != null
-                ? `${item.actualQuantity} ${item.unit}`
-                : '-'}
+              {item.actualQuantity != null ? `${item.actualQuantity} ${item.unit}` : '-'}
             </span>
           )}
         </>
@@ -327,9 +345,15 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
       key: 'notes',
       header: 'Notes',
       render: (_value, item) => (
-        <Input fullWidth type="text" value={item.notes} onChange={(e) => handleNotesChange(item.itemId, e.target.value)} placeholder="Notes..." />
+        <Input
+          fullWidth
+          type="text"
+          value={item.notes}
+          onChange={(e) => handleNotesChange(item.itemId, e.target.value)}
+          placeholder="Notes..."
+        />
       ),
-    }
+    },
   ];
 
   return (
@@ -356,10 +380,10 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
                 count.status === InventoryCountStatus.PLANNED
                   ? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                   : count.status === InventoryCountStatus.IN_PROGRESS
-                    ? 'bg-blue-100 text-blue-800'
+                    ? 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200'
                     : count.status === InventoryCountStatus.COMPLETED
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-purple-100 text-purple-800'
+                      ? 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200'
+                      : 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200'
               }`}
             >
               {count.status.replace('_', ' ')}
@@ -379,7 +403,9 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
             {count.approvedByName && (
               <div>
                 <span className="text-gray-500 dark:text-gray-400">Approved by:</span>
-                <span className="ml-1 text-gray-900 dark:text-gray-100">{count.approvedByName}</span>
+                <span className="ml-1 text-gray-900 dark:text-gray-100">
+                  {count.approvedByName}
+                </span>
               </div>
             )}
             {count.approvedAt && (
@@ -404,17 +430,21 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
           <div
             className={`p-3 rounded-lg mb-4 ${
               count.totalVariance === 0
-                ? 'bg-green-50 border border-green-200'
+                ? 'bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800'
                 : Math.abs(count.totalVariance) > 0
-                  ? 'bg-amber-50 border border-amber-200'
+                  ? 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'
                   : 'bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
             }`}
           >
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Variance</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Total Variance
+              </span>
               <span
                 className={`text-lg font-bold ${
-                  count.totalVariance === 0 ? 'text-green-700' : 'text-red-700'
+                  count.totalVariance === 0
+                    ? 'text-success-700 dark:text-success-300'
+                    : 'text-error-700 dark:text-error-300'
                 }`}
               >
                 {count.totalVariance > 0 ? '+' : ''}
@@ -423,7 +453,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
             </div>
             {/* Regulatory warning: large variance requires investigation documentation */}
             {isReviewMode && count.totalVariance !== 0 && (
-              <p className="text-xs text-amber-700 mt-1">
+              <p className="text-xs text-warning-700 dark:text-warning-300 mt-1">
                 Variance detected. Approval will trigger automatic stock adjustments. Ensure
                 discrepancies are documented for audit compliance.
               </p>
@@ -439,12 +469,14 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
                 Counted: {editableItems.length - uncountedItems} / {editableItems.length}
               </span>
               {uncountedItems > 0 && (
-                <span className="text-amber-600">{uncountedItems} remaining</span>
+                <span className="text-warning-600 dark:text-warning-400">
+                  {uncountedItems} remaining
+                </span>
               )}
             </div>
             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
               <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                className="bg-info-600 h-2 rounded-full transition-all duration-300"
                 style={{
                   width: `${
                     editableItems.length > 0
@@ -490,13 +522,15 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
         <div>
           {/* Segregation of duties warning for review mode */}
           {isReviewMode && !canApprove && user?.id === count?.performedBy && (
-            <p className="text-xs text-amber-600">
+            <p className="text-xs text-warning-600 dark:text-warning-400">
               You cannot approve your own count (segregation of duties).
             </p>
           )}
         </div>
         <div className="flex gap-3">
-          <Button variant="secondary" type="button" onClick={onClose}>{isViewMode ? 'Close' : 'Cancel'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            {isViewMode ? 'Close' : 'Cancel'}
+          </Button>
 
           {/* Counting mode: Save Progress + Submit */}
           {isCountingMode && (
@@ -505,17 +539,26 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
                 type="button"
                 onClick={handleSaveProgress}
                 disabled={isBusy}
-                className="px-4 py-2 border border-blue-300 rounded-md text-sm text-blue-700 bg-blue-50 hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-4 py-2 border border-info-300 dark:border-info-700 rounded-md text-sm text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 hover:bg-info-100 dark:hover:bg-info-900/50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {updateItems.isPending ? 'Saving...' : 'Save Progress'}
               </button>
-              <Button variant="primary" type="button" onClick={handleSubmit} disabled={isBusy || uncountedItems > 0}>{submitCount.isPending ? 'Submitting...' : 'Submit Count'}</Button>
+              <Button
+                variant="primary"
+                type="button"
+                onClick={handleSubmit}
+                disabled={isBusy || uncountedItems > 0}
+              >
+                {submitCount.isPending ? 'Submitting...' : 'Submit Count'}
+              </Button>
             </>
           )}
 
           {/* Review mode: Approve button (only if different user) */}
           {canApprove && (
-            <Button variant="primary" type="button" onClick={handleApprove} disabled={isBusy}>{approveCount.isPending ? 'Approving...' : 'Approve Count'}</Button>
+            <Button variant="primary" type="button" onClick={handleApprove} disabled={isBusy}>
+              {approveCount.isPending ? 'Approving...' : 'Approve Count'}
+            </Button>
           )}
         </div>
       </div>

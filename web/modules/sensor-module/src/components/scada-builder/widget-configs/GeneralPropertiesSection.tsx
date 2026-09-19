@@ -33,9 +33,10 @@ interface GeneralPropertiesSectionProps {
 /* ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500';
 
-const LABEL_CLASS = 'block text-[11px] text-gray-600 dark:text-gray-400 mb-0.5 uppercase tracking-wide';
+const LABEL_CLASS =
+  'block text-[11px] text-gray-600 dark:text-gray-400 mb-0.5 uppercase tracking-wide';
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -109,7 +110,10 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
   const typeLabel = widgetType.replace(/([A-Z])/g, ' $1').trim();
 
   return (
-    <div className="space-y-3 pb-3 mb-3 border-b border-gray-100 dark:border-gray-700" data-testid="general-properties">
+    <div
+      className="space-y-3 pb-3 mb-3 border-b border-gray-100 dark:border-gray-700"
+      data-testid="general-properties"
+    >
       {/* Widget name */}
       <div>
         <label htmlFor={`widget-name-${widgetId}`} className={LABEL_CLASS}>
@@ -130,7 +134,7 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
       <div>
         <span className={LABEL_CLASS}>Type</span>
         <span
-          className="inline-block px-2 py-0.5 text-[10px] font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded capitalize"
+          className="inline-block px-2 py-0.5 text-[10px] font-medium text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded capitalize"
           data-testid="widget-type-badge"
         >
           {typeLabel}
@@ -212,7 +216,7 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
             type="checkbox"
             checked={locked}
             onChange={handleLockedChange}
-            className="text-cyan-600 rounded focus:ring-cyan-500"
+            className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
             data-testid="widget-locked-checkbox"
           />
           <span className="text-xs text-gray-600 dark:text-gray-400">Locked</span>
@@ -222,7 +226,7 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
             type="checkbox"
             checked={visible}
             onChange={handleVisibleChange}
-            className="text-cyan-600 rounded focus:ring-cyan-500"
+            className="text-info-600 dark:text-info-400 rounded focus:ring-info-500"
             data-testid="widget-visible-checkbox"
           />
           <span className="text-xs text-gray-600 dark:text-gray-400">Visible</span>

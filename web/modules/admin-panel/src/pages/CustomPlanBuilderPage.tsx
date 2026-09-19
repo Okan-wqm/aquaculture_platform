@@ -19,6 +19,7 @@ import {
   CustomPlan,
   CustomPlanStatus,
 } from '../services/adminApi';
+import { ChevronLeft, CircleCheck } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -170,9 +171,7 @@ const CustomPlanBuilderPage: React.FC = () => {
       // 1.0) that came from no sheet at all, so a failed call quietly showed a
       // price the server would not have charged.
       setPricing(null);
-      setPricingError(
-        err instanceof Error ? err.message : 'Could not price this plan right now',
-      );
+      setPricingError(err instanceof Error ? err.message : 'Could not price this plan right now');
     } finally {
       setCalculating(false);
     }
@@ -224,13 +223,15 @@ const CustomPlanBuilderPage: React.FC = () => {
     }
   };
 
-  const updateModuleQuantity = (moduleCode: string, field: keyof ModuleQuantities, value: number) => {
+  const updateModuleQuantity = (
+    moduleCode: string,
+    field: keyof ModuleQuantities,
+    value: number,
+  ) => {
     setConfig({
       ...config,
       modules: config.modules.map((m) =>
-        m.moduleCode === moduleCode
-          ? { ...m, quantities: { ...m.quantities, [field]: value } }
-          : m
+        m.moduleCode === moduleCode ? { ...m, quantities: { ...m.quantities, [field]: value } } : m,
       ),
     });
   };
@@ -333,11 +334,9 @@ const CustomPlanBuilderPage: React.FC = () => {
         eyebrow={
           <button
             onClick={() => navigate('/admin/billing/custom-plans')}
-            className="text-sm text-blue-600 hover:text-blue-800 mb-1 flex items-center gap-1"
+            className="text-sm text-info-600 dark:text-info-400 hover:text-info-800 dark:hover:text-info-200 mb-1 flex items-center gap-1"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             Back to Custom Plans
           </button>
         }
@@ -345,13 +344,13 @@ const CustomPlanBuilderPage: React.FC = () => {
 
       {/* Alerts */}
       {error && (
-        <Card className="p-4 bg-red-50 border-red-200">
-          <div className="text-red-700">{error}</div>
+        <Card className="p-4 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800">
+          <div className="text-error-700 dark:text-error-300">{error}</div>
         </Card>
       )}
       {success && (
-        <Card className="p-4 bg-green-50 border-green-200">
-          <div className="text-green-700">{success}</div>
+        <Card className="p-4 bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800">
+          <div className="text-success-700 dark:text-success-300">{success}</div>
         </Card>
       )}
 
@@ -364,7 +363,7 @@ const CustomPlanBuilderPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Tenant ID <span className="text-red-500">*</span>
+                  Tenant ID <span className="text-error-500">*</span>
                 </label>
                 <Input
                   placeholder="tenant-uuid"
@@ -374,7 +373,7 @@ const CustomPlanBuilderPage: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Plan Name <span className="text-red-500">*</span>
+                  Plan Name <span className="text-error-500">*</span>
                 </label>
                 <Input
                   placeholder="Custom Plan for Acme Corp"
@@ -383,7 +382,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Description
+                </label>
                 <Input
                   placeholder="Description..."
                   value={config.description}
@@ -391,9 +392,11 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tier</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Tier
+                </label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-info-500"
                   value={config.tier}
                   onChange={(e) => setConfig({ ...config, tier: e.target.value as PlanTier })}
                 >
@@ -404,11 +407,15 @@ const CustomPlanBuilderPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Billing Cycle</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Billing Cycle
+                </label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-info-500"
                   value={config.billingCycle}
-                  onChange={(e) => setConfig({ ...config, billingCycle: e.target.value as BillingCycle })}
+                  onChange={(e) =>
+                    setConfig({ ...config, billingCycle: e.target.value as BillingCycle })
+                  }
                 >
                   <option value={BillingCycle.MONTHLY}>Monthly</option>
                   <option value={BillingCycle.QUARTERLY}>Quarterly (5% off)</option>
@@ -417,7 +424,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valid From</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Valid From
+                </label>
                 <Input
                   type="date"
                   value={config.validFrom}
@@ -425,7 +434,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valid To (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Valid To (Optional)
+                </label>
                 <Input
                   type="date"
                   value={config.validTo}
@@ -450,7 +461,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                     key={module.moduleCode}
                     className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
                       isSelected
-                        ? 'border-blue-500 bg-blue-50'
+                        ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                         : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                     }`}
                     onClick={() => toggleModule(module)}
@@ -459,16 +470,15 @@ const CustomPlanBuilderPage: React.FC = () => {
                       <div className="text-2xl">{module.moduleIcon || '📦'}</div>
                       <div className="flex-1">
                         <div className="font-medium">{module.moduleName}</div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">{formatCurrency(Number(basePrice))}/mo base</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          {formatCurrency(Number(basePrice))}/mo base
+                        </div>
                       </div>
                       {isSelected && (
-                        <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path
-                            fillRule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
+                        <CircleCheck
+                          className="w-6 h-6 text-info-600 dark:text-info-400"
+                          aria-hidden="true"
+                        />
                       )}
                     </div>
                   </div>
@@ -484,12 +494,15 @@ const CustomPlanBuilderPage: React.FC = () => {
               <div className="space-y-6">
                 {config.modules.map((selectedModule) => {
                   const modulePricing = availableModules.find(
-                    (m) => m.moduleCode === selectedModule.moduleCode
+                    (m) => m.moduleCode === selectedModule.moduleCode,
                   );
                   if (!modulePricing) return null;
 
                   return (
-                    <div key={selectedModule.moduleCode} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div
+                      key={selectedModule.moduleCode}
+                      className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                    >
                       <div className="flex items-center gap-2 mb-4">
                         <span className="text-xl">{modulePricing.moduleIcon || '📦'}</span>
                         <span className="font-medium">{modulePricing.moduleName}</span>
@@ -506,7 +519,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                                 <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                                   {METRIC_LABELS[metric.metricType]}
                                   {metric.includedQuantity && (
-                                    <span className="text-green-600 ml-1">
+                                    <span className="text-success-600 dark:text-success-400 ml-1">
                                       ({metric.includedQuantity} free)
                                     </span>
                                   )}
@@ -519,7 +532,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                                     updateModuleQuantity(
                                       selectedModule.moduleCode,
                                       field,
-                                      parseInt(e.target.value) || 0
+                                      parseInt(e.target.value) || 0,
                                     )
                                   }
                                 />
@@ -539,7 +552,9 @@ const CustomPlanBuilderPage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">Discounts (Optional)</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Discount %</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Discount %
+                </label>
                 <Input
                   type="number"
                   min={0}
@@ -550,7 +565,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fixed Discount ($)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Fixed Discount ($)
+                </label>
                 <Input
                   type="number"
                   min={0}
@@ -560,7 +577,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Discount Reason</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Discount Reason
+                </label>
                 <Input
                   placeholder="Early adopter discount"
                   value={config.discountReason}
@@ -590,7 +609,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 <div className="space-y-3 mb-6">
                   {config.modules.map((m) => {
                     const modulePricing = availableModules.find(
-                      (mp) => mp.moduleCode === m.moduleCode
+                      (mp) => mp.moduleCode === m.moduleCode,
                     );
                     const basePrice =
                       modulePricing?.metrics.find(
@@ -614,13 +633,13 @@ const CustomPlanBuilderPage: React.FC = () => {
                         <span>{formatCurrency(Number(pricing.subtotal))}</span>
                       </div>
                       {Number(pricing.tierDiscount) > 0 && (
-                        <div className="flex justify-between text-sm text-green-600">
+                        <div className="flex justify-between text-sm text-success-600 dark:text-success-400">
                           <span>Tier Discount</span>
                           <span>-{formatCurrency(Number(pricing.tierDiscount))}</span>
                         </div>
                       )}
                       {Number(pricing.negotiatedDiscountAmount) > 0 && (
-                        <div className="flex justify-between text-sm text-green-600">
+                        <div className="flex justify-between text-sm text-success-600 dark:text-success-400">
                           <span>Negotiated Discount</span>
                           <span>-{formatCurrency(Number(pricing.negotiatedDiscountAmount))}</span>
                         </div>
@@ -632,7 +651,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 <div className="border-t mt-4 pt-4">
                   <div className="flex justify-between items-center">
                     <span className="text-lg font-semibold">Monthly Total</span>
-                    <span className="text-2xl font-bold text-blue-600">
+                    <span className="text-2xl font-bold text-info-600 dark:text-info-400">
                       {pricing ? formatCurrency(Number(pricing.monthlyTotal)) : '-'}
                     </span>
                   </div>
@@ -648,10 +667,14 @@ const CustomPlanBuilderPage: React.FC = () => {
                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Selected Tier</div>
                   <div className="font-medium capitalize">{config.tier}</div>
                   {config.tier === PlanTier.PROFESSIONAL && (
-                    <div className="text-xs text-green-600">10% tier discount applied</div>
+                    <div className="text-xs text-success-600 dark:text-success-400">
+                      10% tier discount applied
+                    </div>
                   )}
                   {config.tier === PlanTier.ENTERPRISE && (
-                    <div className="text-xs text-green-600">30% tier discount applied</div>
+                    <div className="text-xs text-success-600 dark:text-success-400">
+                      30% tier discount applied
+                    </div>
                   )}
                 </div>
 
@@ -661,7 +684,13 @@ const CustomPlanBuilderPage: React.FC = () => {
                     variant="primary"
                     className="w-full"
                     onClick={handleSavePlan}
-                    disabled={saving || savingDraft || !config.tenantId || !config.name || config.modules.length === 0}
+                    disabled={
+                      saving ||
+                      savingDraft ||
+                      !config.tenantId ||
+                      !config.name ||
+                      config.modules.length === 0
+                    }
                   >
                     {saving ? 'Creating...' : 'Create & Submit for Approval'}
                   </Button>

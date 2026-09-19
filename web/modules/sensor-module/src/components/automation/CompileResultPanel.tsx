@@ -31,15 +31,15 @@ interface CompileResultPanelProps {
 }
 
 const severityIcon = {
-  error: <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0" />,
-  warning: <AlertTriangle className="h-4 w-4 text-yellow-500 flex-shrink-0" />,
-  info: <Info className="h-4 w-4 text-blue-500 flex-shrink-0" />,
+  error: <AlertCircle className="h-4 w-4 text-error-500 flex-shrink-0" />,
+  warning: <AlertTriangle className="h-4 w-4 text-warning-500 flex-shrink-0" />,
+  info: <Info className="h-4 w-4 text-info-500 flex-shrink-0" />,
 };
 
 const severityBg = {
-  error: 'bg-red-50 border-red-200',
-  warning: 'bg-yellow-50 border-yellow-200',
-  info: 'bg-blue-50 border-blue-200',
+  error: 'bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800',
+  warning: 'bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800',
+  info: 'bg-info-50 dark:bg-info-900/20 border-info-200 dark:border-info-800',
 };
 
 const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
@@ -69,17 +69,21 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
   return (
     <div className="space-y-2">
       {/* Summary */}
-      <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
-        result.valid
-          ? 'bg-green-50 border-green-200'
-          : 'bg-red-50 border-red-200'
-      }`}>
+      <div
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${
+          result.valid
+            ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800'
+            : 'bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800'
+        }`}
+      >
         {result.valid ? (
-          <CheckCircle className="h-4 w-4 text-green-500" />
+          <CheckCircle className="h-4 w-4 text-success-500" />
         ) : (
-          <AlertCircle className="h-4 w-4 text-red-500" />
+          <AlertCircle className="h-4 w-4 text-error-500" />
         )}
-        <span className={`text-sm font-medium ${result.valid ? 'text-green-700' : 'text-red-700'}`}>
+        <span
+          className={`text-sm font-medium ${result.valid ? 'text-success-700 dark:text-success-300' : 'text-error-700 dark:text-error-300'}`}
+        >
           {result.valid ? 'Validation successful' : 'Validation failed'}
         </span>
         <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
@@ -105,7 +109,9 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
               </span>
               <span className="text-gray-700 dark:text-gray-300 flex-1">{diag.message}</span>
               {diag.code && (
-                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{diag.code}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                  {diag.code}
+                </span>
               )}
             </button>
           ))}

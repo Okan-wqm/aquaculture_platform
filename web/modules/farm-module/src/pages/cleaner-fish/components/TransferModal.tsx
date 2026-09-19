@@ -5,7 +5,11 @@
  */
 import React, { useState, useMemo, useCallback } from 'react';
 import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
-import { useTransferCleanerFish, useTankCleanerFish, CleanerFishBatch } from '../../../hooks/useCleanerFish';
+import {
+  useTransferCleanerFish,
+  useTankCleanerFish,
+  CleanerFishBatch,
+} from '../../../hooks/useCleanerFish';
 import type { TankOption } from '../types';
 
 interface TransferModalProps {
@@ -28,7 +32,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   // Form state
   const [destinationTankId, setDestinationTankId] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(0);
-  const [transferredAt, setTransferredAt] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [transferredAt, setTransferredAt] = useState<string>(
+    new Date().toISOString().split('T')[0],
+  );
   const [reason, setReason] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
 
@@ -94,7 +100,11 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       onClose();
     } catch (error) {
       if (import.meta.env.DEV) console.error('Failed to transfer cleaner fish:', error);
-      toast({ title: 'Error', description: 'Failed to transfer cleaner fish. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to transfer cleaner fish. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -124,15 +134,19 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Batch Info */}
         {batchDetail && (
-          <div className="bg-blue-50 rounded-lg p-4">
+          <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="font-medium text-blue-900">{batchDetail.batchNumber}</h4>
-                <p className="text-sm text-blue-600">{batchDetail.speciesName}</p>
+                <h4 className="font-medium text-info-900 dark:text-info-100">
+                  {batchDetail.batchNumber}
+                </h4>
+                <p className="text-sm text-info-600 dark:text-info-400">
+                  {batchDetail.speciesName}
+                </p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-blue-600">Available in Tank</p>
-                <p className="text-lg font-semibold text-blue-900">
+                <p className="text-sm text-info-600 dark:text-info-400">Available in Tank</p>
+                <p className="text-lg font-semibold text-info-900 dark:text-info-100">
                   {batchDetail.quantity.toLocaleString()}
                 </p>
               </div>
@@ -142,14 +156,17 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Destination Tank */}
         <div>
-          <label htmlFor="destinationTank" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Destination Tank <span className="text-red-500">*</span>
+          <label
+            htmlFor="destinationTank"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Destination Tank <span className="text-error-500">*</span>
           </label>
           <select
             id="destinationTank"
             value={destinationTankId}
             onChange={(e) => setDestinationTankId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
           >
             <option value="">Select destination tank...</option>
             {destinationTanks.map((tank) => (
@@ -162,10 +179,22 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Quantity */}
         <div>
-          <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Quantity to Transfer <span className="text-red-500">*</span>
+          <label
+            htmlFor="quantity"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
+            Quantity to Transfer <span className="text-error-500">*</span>
           </label>
-          <Input fullWidth type="number" id="quantity" min="1" max={maxQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter quantity" />
+          <Input
+            fullWidth
+            type="number"
+            id="quantity"
+            min="1"
+            max={maxQuantity}
+            value={quantity || ''}
+            onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+            placeholder="Enter quantity"
+          />
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Max: {maxQuantity.toLocaleString()}
           </p>
@@ -173,32 +202,63 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Transfer Date */}
         <div>
-          <label htmlFor="transferredAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="transferredAt"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Transfer Date
           </label>
-          <Input fullWidth type="date" id="transferredAt" value={transferredAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setTransferredAt(e.target.value)} />
+          <Input
+            fullWidth
+            type="date"
+            id="transferredAt"
+            value={transferredAt}
+            max={new Date().toISOString().split('T')[0]}
+            onChange={(e) => setTransferredAt(e.target.value)}
+          />
         </div>
 
         {/* Reason */}
         <div>
-          <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="reason"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Transfer Reason
           </label>
-          <Input fullWidth type="text" id="reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g., Rebalancing, Production needs..." />
+          <Input
+            fullWidth
+            type="text"
+            id="reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g., Rebalancing, Production needs..."
+          />
         </div>
 
         {/* Notes */}
         <div>
-          <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="notes"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Notes
           </label>
-          <Textarea fullWidth id="notes" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes..." />
+          <Textarea
+            fullWidth
+            id="notes"
+            rows={2}
+            maxLength={2000}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Optional notes..."
+          />
         </div>
 
         {/* Validation Error */}
         {quantity > maxQuantity && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-            <p className="text-sm text-red-600">
+          <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+            <p className="text-sm text-error-600 dark:text-error-400">
               Quantity exceeds available stock ({maxQuantity.toLocaleString()})
             </p>
           </div>

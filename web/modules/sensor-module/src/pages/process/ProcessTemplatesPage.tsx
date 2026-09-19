@@ -5,15 +5,7 @@
 
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import {
-  ArrowLeft,
-  Droplets,
-  Wind,
-  Utensils,
-  Thermometer,
-  AlertTriangle,
-  Cog,
-} from 'lucide-react';
+import { ArrowLeft, Droplets, Wind, Utensils, Thermometer, AlertTriangle, Cog } from 'lucide-react';
 import { PageHeader, Button } from '@aquaculture/shared-ui';
 
 interface Template {
@@ -50,8 +42,7 @@ const templates: Template[] = [
   {
     id: 'auto-feeding',
     name: 'Automated Feeding',
-    description:
-      'Auto-feeder network with sensor monitoring for optimized feeding schedules.',
+    description: 'Auto-feeder network with sensor monitoring for optimized feeding schedules.',
     category: 'Feeding',
     icon: Utensils,
     nodeCount: 4,
@@ -70,8 +61,7 @@ const templates: Template[] = [
   {
     id: 'emergency-response',
     name: 'Emergency Response',
-    description:
-      'Backup systems and alert triggers for critical parameter deviations.',
+    description: 'Backup systems and alert triggers for critical parameter deviations.',
     category: 'Safety',
     icon: AlertTriangle,
     nodeCount: 7,
@@ -80,8 +70,7 @@ const templates: Template[] = [
   {
     id: 'water-treatment',
     name: 'Water Treatment',
-    description:
-      'UV sterilizer and ozone generator setup for pathogen control and water quality.',
+    description: 'UV sterilizer and ozone generator setup for pathogen control and water quality.',
     category: 'Water Treatment',
     icon: Cog,
     nodeCount: 5,
@@ -90,9 +79,9 @@ const templates: Template[] = [
 ];
 
 const complexityColors = {
-  simple: 'bg-green-100 text-green-700',
-  medium: 'bg-yellow-100 text-yellow-700',
-  complex: 'bg-red-100 text-red-700',
+  simple: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+  medium: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+  complex: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
 };
 
 const ProcessTemplatesPage: React.FC = () => {
@@ -134,14 +123,16 @@ const ProcessTemplatesPage: React.FC = () => {
               {/* Template Header */}
               <div className="p-5 border-b border-gray-100 dark:border-gray-700">
                 <div className="flex items-start gap-4">
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <IconComponent className="w-6 h-6 text-blue-600" />
+                  <div className="p-3 bg-info-50 dark:bg-info-900/20 rounded-lg">
+                    <IconComponent className="w-6 h-6 text-info-600 dark:text-info-400" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
                       {template.name}
                     </h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{template.category}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                      {template.category}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -161,15 +152,16 @@ const ProcessTemplatesPage: React.FC = () => {
                       complexityColors[template.complexity]
                     }`}
                   >
-                    {template.complexity.charAt(0).toUpperCase() +
-                      template.complexity.slice(1)}
+                    {template.complexity.charAt(0).toUpperCase() + template.complexity.slice(1)}
                   </span>
                 </div>
               </div>
 
               {/* Template Footer */}
               <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
-                <Button variant="secondary" onClick={() => handleUseTemplate(template.id)}>Use This Template</Button>
+                <Button variant="secondary" onClick={() => handleUseTemplate(template.id)}>
+                  Use This Template
+                </Button>
               </div>
             </div>
           );
@@ -187,7 +179,7 @@ const ProcessTemplatesPage: React.FC = () => {
         </p>
         <Link
           to="/sensor/unified-editor/new"
-          className="inline-flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+          className="inline-flex items-center gap-2 px-4 py-2 text-white bg-info-600 rounded-lg hover:bg-info-700"
         >
           Create Custom Process
         </Link>

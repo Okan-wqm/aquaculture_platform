@@ -12,16 +12,12 @@
  *    opened from any widget in the tree.
  */
 
-import React, {
-  useEffect,
-  useCallback,
-  useRef,
-  type ReactNode,
-} from 'react';
+import React, { useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Bell, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 import { useOperatorStore } from '../../store/scada/operatorStore';
+import { useAlarmRuntimeStore } from '../../hooks/useAlarmRuntime';
 import { DataProviderRoot } from '../../providers';
 import type { DataProviderType } from '../../types/scada-runtime.types';
 
@@ -86,17 +82,13 @@ const AlarmPanel = React.memo(() => {
     })),
   );
 
-  // Access runtime alarms from the operator store. The alarmRuntimeSlice
-  // is merged into the same store at runtime via createScadaStore / operatorStore.
-  const activeAlarms = useOperatorStore(
-    (s) =>
-      (s as unknown as { activeAlarms: Array<{ id: string; severity: string; message: string; ruleName: string; onTime: number }> })
-        .activeAlarms ?? [],
-  );
+  // Live alarms come from the alarm runtime store — the store useAlarmRuntime and
+  // AlarmPanel read; the standalone operator store never carried them.
+  const activeAlarms = useAlarmRuntimeStore((s) => s.activeAlarms);
 
   const criticalCount = activeAlarms.filter((a) => a.severity === 'critical').length;
-  const highCount     = activeAlarms.filter((a) => a.severity === 'high').length;
-  const warningCount  = activeAlarms.filter((a) => a.severity === 'warning').length;
+  const highCount = activeAlarms.filter((a) => a.severity === 'high').length;
+  const warningCount = activeAlarms.filter((a) => a.severity === 'warning').length;
 
   if (!alarmPanelOpen) return <AlarmAnnouncer alarms={activeAlarms} />;
 
@@ -110,15 +102,23 @@ const AlarmPanel = React.memo(() => {
       {/* Panel header row */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 shrink-0">
         <div className="flex items-center gap-3">
-          <Bell size={16} className="text-yellow-400" aria-hidden="true" />
+          <Bell size={16} className="text-warning-400" aria-hidden="true" />
           <span className="text-sm font-semibold text-gray-100">Active Alarms</span>
           <div className="flex items-center gap-1">
             <AlarmBadgeCount count={criticalCount} severity="critical" />
-            <AlarmBadgeCount count={highCount}     severity="high" />
-            <AlarmBadgeCount count={warningCount}  severity="warning" />
+            <AlarmBadgeCount count={highCount} severity="high" />
+            <AlarmBadgeCount count={warningCount} severity="warning" />
           </div>
         </div>
-        <Button variant="ghost" size="xs" type="button" onClick={toggleAlarmPanel} aria-label="Close alarm panel">Close</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          type="button"
+          onClick={toggleAlarmPanel}
+          aria-label="Close alarm panel"
+        >
+          Close
+        </Button>
       </div>
 
       {/* Scrollable alarm list */}
@@ -139,12 +139,12 @@ const AlarmPanel = React.memo(() => {
                   size={14}
                   className={
                     alarm.severity === 'critical'
-                      ? 'text-red-500'
+                      ? 'text-error-500'
                       : alarm.severity === 'high'
-                      ? 'text-orange-400'
-                      : alarm.severity === 'warning'
-                      ? 'text-yellow-400'
-                      : 'text-blue-400'
+                        ? 'text-accent-400'
+                        : alarm.severity === 'warning'
+                          ? 'text-warning-400'
+                          : 'text-info-400'
                   }
                   aria-hidden="true"
                 />
@@ -160,9 +160,10 @@ const AlarmPanel = React.memo(() => {
                   {new Date(alarm.onTime).toLocaleTimeString()}
                 </span>
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${
-                    severityClasses(normalizeSeverity(alarm.severity), 'solid')
-                  }`}
+                  className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${severityClasses(
+                    normalizeSeverity(alarm.severity),
+                    'solid',
+                  )}`}
                 >
                   {alarm.severity}
                 </span>
@@ -210,21 +211,16 @@ function useCustomCss(css: string | undefined) {
 
 export const OperatorShell = React.memo<OperatorShellProps>(
   ({ children, dataProviderType = 'live', onNavigate, activeScreenId, projectName }) => {
-    const {
-      operatorLayout,
-      sidenavOpen,
-      kioskMode,
-      setKioskMode,
-      toggleSidenav,
-    } = useOperatorStore(
-      useShallow((s) => ({
-        operatorLayout: s.operatorLayout,
-        sidenavOpen:    s.sidenavOpen,
-        kioskMode:      s.kioskMode,
-        setKioskMode:   s.setKioskMode,
-        toggleSidenav:  s.toggleSidenav,
-      })),
-    );
+    const { operatorLayout, sidenavOpen, kioskMode, setKioskMode, toggleSidenav } =
+      useOperatorStore(
+        useShallow((s) => ({
+          operatorLayout: s.operatorLayout,
+          sidenavOpen: s.sidenavOpen,
+          kioskMode: s.kioskMode,
+          setKioskMode: s.setKioskMode,
+          toggleSidenav: s.toggleSidenav,
+        })),
+      );
 
     const { hideNavigation, sidenavMode, customCss, navItems } = operatorLayout;
 
@@ -248,19 +244,16 @@ export const OperatorShell = React.memo<OperatorShellProps>(
     }, [handleKeyDown]);
 
     // Computed visibility flags
-    const isKiosk    = kioskMode || hideNavigation;
+    const isKiosk = kioskMode || hideNavigation;
     const showHeader = !isKiosk;
     const showSidenav = !isKiosk && sidenavMode !== 'void';
 
-    const sidenavIsFixed   = sidenavMode === 'fixed';
+    const sidenavIsFixed = sidenavMode === 'fixed';
     const sidenavIsOverlay = sidenavMode === 'overlay';
-    const sidenavIsPush    = sidenavMode === 'push';
+    const sidenavIsPush = sidenavMode === 'push';
 
     // Safe navigate callback — guard against undefined
-    const handleNavigate = useCallback(
-      (screenId: string) => onNavigate?.(screenId),
-      [onNavigate],
-    );
+    const handleNavigate = useCallback((screenId: string) => onNavigate?.(screenId), [onNavigate]);
 
     return (
       <DataProviderRoot type={dataProviderType}>
@@ -272,16 +265,10 @@ export const OperatorShell = React.memo<OperatorShellProps>(
           aria-label="SCADA operator interface"
         >
           {/* ── Top header ── */}
-          {showHeader && (
-            <OperatorHeader
-              config={operatorLayout}
-              projectName={projectName}
-            />
-          )}
+          {showHeader && <OperatorHeader config={operatorLayout} projectName={projectName} />}
 
           {/* ── Middle row: sidenav + content area ── */}
           <div className="relative flex flex-1 min-h-0 overflow-hidden">
-
             {/* Fixed sidenav — always visible, takes its own column */}
             {showSidenav && sidenavIsFixed && (
               <OperatorSidenav
@@ -320,10 +307,7 @@ export const OperatorShell = React.memo<OperatorShellProps>(
             )}
 
             {/* Main content area */}
-            <main
-              className="flex-1 relative min-w-0 overflow-hidden"
-              aria-label="Screen content"
-            >
+            <main className="flex-1 relative min-w-0 overflow-hidden" aria-label="Screen content">
               {children}
             </main>
           </div>

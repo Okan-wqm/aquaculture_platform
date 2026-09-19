@@ -8,7 +8,7 @@
 import React, { useState, useCallback } from 'react';
 import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { Plus, Trash2 } from 'lucide-react';
-import { VfdAutomationRule } from '../../types/vfd.types';
+import type { CreateAutomationRuleInput, VfdAutomationRule } from '../../types/vfd.types';
 
 // ============================================================================
 // Types
@@ -32,7 +32,7 @@ interface ParameterChangeRow {
 
 interface VfdAutomationRuleFormProps {
   rule: VfdAutomationRule | null;
-  onSubmit: (data: Record<string, unknown>) => Promise<unknown>;
+  onSubmit: (data: CreateAutomationRuleInput) => Promise<unknown>;
   onCancel: () => void;
 }
 
@@ -40,18 +40,12 @@ interface VfdAutomationRuleFormProps {
 // Component
 // ============================================================================
 
-export function VfdAutomationRuleForm({
-  rule,
-  onSubmit,
-  onCancel,
-}: VfdAutomationRuleFormProps) {
+export function VfdAutomationRuleForm({ rule, onSubmit, onCancel }: VfdAutomationRuleFormProps) {
   const [name, setName] = useState(rule?.name ?? '');
   const [description, setDescription] = useState(rule?.description ?? '');
   const [requiresApproval, setRequiresApproval] = useState(rule?.requiresApproval ?? true);
   const [priority, setPriority] = useState(String(rule?.priority ?? 10));
-  const [targetDevices, setTargetDevices] = useState(
-    rule?.targetVfdDeviceIds.join(', ') ?? '',
-  );
+  const [targetDevices, setTargetDevices] = useState(rule?.targetVfdDeviceIds.join(', ') ?? '');
   const [submitting, setSubmitting] = useState(false);
 
   // Trigger conditions
@@ -106,7 +100,10 @@ export function VfdAutomationRuleForm({
           description: description.trim(),
           requiresApproval,
           priority: parseInt(priority, 10) || 10,
-          targetVfdDeviceIds: targetDevices.split(',').map((s) => s.trim()).filter(Boolean),
+          targetVfdDeviceIds: targetDevices
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
           triggerCondition: {
             operator: 'AND',
             conditions: conditions.map((c) => ({
@@ -125,7 +122,17 @@ export function VfdAutomationRuleForm({
         setSubmitting(false);
       }
     },
-    [name, description, requiresApproval, priority, targetDevices, conditions, paramChanges, validate, onSubmit],
+    [
+      name,
+      description,
+      requiresApproval,
+      priority,
+      targetDevices,
+      conditions,
+      paramChanges,
+      validate,
+      onSubmit,
+    ],
   );
 
   const addCondition = useCallback(() => {
@@ -136,9 +143,12 @@ export function VfdAutomationRuleForm({
     setConditions((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  const updateCondition = useCallback((idx: number, field: keyof TriggerConditionRow, val: string) => {
-    setConditions((prev) => prev.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
-  }, []);
+  const updateCondition = useCallback(
+    (idx: number, field: keyof TriggerConditionRow, val: string) => {
+      setConditions((prev) => prev.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
+    },
+    [],
+  );
 
   const addParamChange = useCallback(() => {
     setParamChanges((prev) => [...prev, { parameterName: '', newValue: '' }]);
@@ -148,9 +158,12 @@ export function VfdAutomationRuleForm({
     setParamChanges((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  const updateParamChange = useCallback((idx: number, field: keyof ParameterChangeRow, val: string) => {
-    setParamChanges((prev) => prev.map((p, i) => (i === idx ? { ...p, [field]: val } : p)));
-  }, []);
+  const updateParamChange = useCallback(
+    (idx: number, field: keyof ParameterChangeRow, val: string) => {
+      setParamChanges((prev) => prev.map((p, i) => (i === idx ? { ...p, [field]: val } : p)));
+    },
+    [],
+  );
 
   return (
     <Modal
@@ -167,40 +180,88 @@ export function VfdAutomationRuleForm({
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Name */}
         <div>
-          <label htmlFor="rule-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="rule-name"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Name *
           </label>
-          <Input fullWidth id="rule-name" type="text" value={name} onChange={(e) => setName(e.target.value)} />
-          {errors.name && <p className="mt-1 text-xs text-red-600">{errors.name}</p>}
+          <Input
+            fullWidth
+            id="rule-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          {errors.name && (
+            <p className="mt-1 text-xs text-error-600 dark:text-error-400">{errors.name}</p>
+          )}
         </div>
 
         {/* Description */}
         <div>
-          <label htmlFor="rule-desc" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="rule-desc"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Description
           </label>
-          <Textarea fullWidth id="rule-desc" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+          <Textarea
+            fullWidth
+            id="rule-desc"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={2}
+          />
         </div>
 
         {/* Target devices */}
         <div>
-          <label htmlFor="rule-targets" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="rule-targets"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Target VFD Device IDs * (comma separated)
           </label>
-          <Input fullWidth id="rule-targets" type="text" value={targetDevices} onChange={(e) => setTargetDevices(e.target.value)} placeholder="vfd-1, vfd-2" />
-          {errors.targets && <p className="mt-1 text-xs text-red-600">{errors.targets}</p>}
+          <Input
+            fullWidth
+            id="rule-targets"
+            type="text"
+            value={targetDevices}
+            onChange={(e) => setTargetDevices(e.target.value)}
+            placeholder="vfd-1, vfd-2"
+          />
+          {errors.targets && (
+            <p className="mt-1 text-xs text-error-600 dark:text-error-400">{errors.targets}</p>
+          )}
         </div>
 
         {/* Trigger conditions */}
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Trigger Conditions</label>
-            <Button variant="ghost" size="xs" leftIcon={<Plus className="h-3 w-3" />} type="button" onClick={addCondition}>Add</Button>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Trigger Conditions
+            </label>
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Plus className="h-3 w-3" />}
+              type="button"
+              onClick={addCondition}
+            >
+              Add
+            </Button>
           </div>
           <div className="space-y-2">
             {conditions.map((cond, idx) => (
               <div key={idx} className="flex items-center gap-2">
-                <Input type="text" value={cond.field} onChange={(e) => updateCondition(idx, 'field', e.target.value)} placeholder="field" aria-label={`Condition ${idx + 1} field`} />
+                <Input
+                  type="text"
+                  value={cond.field}
+                  onChange={(e) => updateCondition(idx, 'field', e.target.value)}
+                  placeholder="field"
+                  aria-label={`Condition ${idx + 1} field`}
+                />
                 <select
                   value={cond.operator}
                   onChange={(e) => updateCondition(idx, 'operator', e.target.value)}
@@ -214,35 +275,89 @@ export function VfdAutomationRuleForm({
                   <option value="==">{'=='}</option>
                   <option value="between">between</option>
                 </select>
-                <Input type="text" value={cond.value} onChange={(e) => updateCondition(idx, 'value', e.target.value)} placeholder="value" aria-label={`Condition ${idx + 1} value`} />
-                <Input type="text" value={cond.unit} onChange={(e) => updateCondition(idx, 'unit', e.target.value)} placeholder="unit" aria-label={`Condition ${idx + 1} unit`} />
+                <Input
+                  type="text"
+                  value={cond.value}
+                  onChange={(e) => updateCondition(idx, 'value', e.target.value)}
+                  placeholder="value"
+                  aria-label={`Condition ${idx + 1} value`}
+                />
+                <Input
+                  type="text"
+                  value={cond.unit}
+                  onChange={(e) => updateCondition(idx, 'unit', e.target.value)}
+                  placeholder="unit"
+                  aria-label={`Condition ${idx + 1} unit`}
+                />
                 {conditions.length > 1 && (
-                  <Button variant="ghost" iconOnly type="button" onClick={() => removeCondition(idx)} aria-label={`Remove condition ${idx + 1}`}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  <Button
+                    variant="ghost"
+                    iconOnly
+                    type="button"
+                    onClick={() => removeCondition(idx)}
+                    aria-label={`Remove condition ${idx + 1}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 )}
               </div>
             ))}
           </div>
-          {errors.conditions && <p className="mt-1 text-xs text-red-600">{errors.conditions}</p>}
+          {errors.conditions && (
+            <p className="mt-1 text-xs text-error-600 dark:text-error-400">{errors.conditions}</p>
+          )}
         </div>
 
         {/* Parameter changes */}
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Parameter Changes</label>
-            <Button variant="ghost" size="xs" leftIcon={<Plus className="h-3 w-3" />} type="button" onClick={addParamChange}>Add</Button>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Parameter Changes
+            </label>
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Plus className="h-3 w-3" />}
+              type="button"
+              onClick={addParamChange}
+            >
+              Add
+            </Button>
           </div>
           <div className="space-y-2">
             {paramChanges.map((pc, idx) => (
               <div key={idx} className="flex items-center gap-2">
-                <Input type="text" value={pc.parameterName} onChange={(e) => updateParamChange(idx, 'parameterName', e.target.value)} placeholder="Parameter" aria-label={`Parameter change ${idx + 1} name`} />
-                <Input type="text" value={pc.newValue} onChange={(e) => updateParamChange(idx, 'newValue', e.target.value)} placeholder="New value" aria-label={`Parameter change ${idx + 1} value`} />
+                <Input
+                  type="text"
+                  value={pc.parameterName}
+                  onChange={(e) => updateParamChange(idx, 'parameterName', e.target.value)}
+                  placeholder="Parameter"
+                  aria-label={`Parameter change ${idx + 1} name`}
+                />
+                <Input
+                  type="text"
+                  value={pc.newValue}
+                  onChange={(e) => updateParamChange(idx, 'newValue', e.target.value)}
+                  placeholder="New value"
+                  aria-label={`Parameter change ${idx + 1} value`}
+                />
                 {paramChanges.length > 1 && (
-                  <Button variant="ghost" iconOnly type="button" onClick={() => removeParamChange(idx)} aria-label={`Remove parameter change ${idx + 1}`}><Trash2 className="h-3.5 w-3.5" /></Button>
+                  <Button
+                    variant="ghost"
+                    iconOnly
+                    type="button"
+                    onClick={() => removeParamChange(idx)}
+                    aria-label={`Remove parameter change ${idx + 1}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 )}
               </div>
             ))}
           </div>
-          {errors.params && <p className="mt-1 text-xs text-red-600">{errors.params}</p>}
+          {errors.params && (
+            <p className="mt-1 text-xs text-error-600 dark:text-error-400">{errors.params}</p>
+          )}
         </div>
 
         {/* Options row */}
@@ -252,7 +367,7 @@ export function VfdAutomationRuleForm({
               type="checkbox"
               checked={requiresApproval}
               onChange={(e) => setRequiresApproval(e.target.checked)}
-              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600"
+              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600"
             />
             Requires Approval
           </label>
@@ -260,14 +375,25 @@ export function VfdAutomationRuleForm({
             <label htmlFor="rule-priority" className="text-sm text-gray-700 dark:text-gray-300">
               Priority:
             </label>
-            <Input id="rule-priority" type="number" min={1} max={100} value={priority} onChange={(e) => setPriority(e.target.value)} />
+            <Input
+              id="rule-priority"
+              type="number"
+              min={1}
+              max={100}
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+            />
           </div>
         </div>
 
         {/* Submit */}
         <div className="flex justify-end gap-3 border-t pt-4">
-          <Button variant="secondary" type="button" onClick={onCancel}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={submitting}>{submitting ? 'Saving...' : rule ? 'Save Changes' : 'Create Rule'}</Button>
+          <Button variant="secondary" type="button" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={submitting}>
+            {submitting ? 'Saving...' : rule ? 'Save Changes' : 'Create Rule'}
+          </Button>
         </div>
       </form>
     </Modal>

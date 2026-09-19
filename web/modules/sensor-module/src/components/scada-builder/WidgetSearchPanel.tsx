@@ -69,7 +69,13 @@ export const WidgetSearchPanel: React.FC = () => {
       {/* Search Input */}
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-        <Input fullWidth type="text" placeholder="Search widgets..." value={searchText} onChange={(e) => setSearchText(e.target.value)} />
+        <Input
+          fullWidth
+          type="text"
+          placeholder="Search widgets..."
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+        />
       </div>
 
       {/* Results List */}
@@ -80,16 +86,14 @@ export const WidgetSearchPanel: React.FC = () => {
           </div>
         ) : (
           results.map((item) => {
-            const isActive =
-              item.screenId === activeScreenId &&
-              item.widgetId === selectedWidgetId;
+            const isActive = item.screenId === activeScreenId && item.widgetId === selectedWidgetId;
 
             return (
               <div
                 key={`${item.screenId}-${item.widgetId}`}
                 onClick={() => handleResultClick(item.screenId, item.widgetId)}
                 className={`flex items-start gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-50 ${
-                  isActive ? 'bg-cyan-50' : ''
+                  isActive ? 'bg-info-50 dark:bg-info-900/20' : ''
                 }`}
               >
                 <Box className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 mt-0.5 shrink-0" />
@@ -105,7 +109,7 @@ export const WidgetSearchPanel: React.FC = () => {
                   <div className="flex items-center gap-1 mt-0.5">
                     <span className="text-gray-500 dark:text-gray-400">[{item.screenName}]</span>
                     {item.tag && (
-                      <span className="text-cyan-600 font-mono text-[10px]">
+                      <span className="text-info-600 dark:text-info-400 font-mono text-[10px]">
                         tag:{item.tag}
                       </span>
                     )}
@@ -119,7 +123,8 @@ export const WidgetSearchPanel: React.FC = () => {
 
       {/* Stats Footer */}
       <div className="px-3 py-1.5 text-[10px] text-gray-500 dark:text-gray-400 border-t border-gray-200 dark:border-gray-700">
-        {totalWidgets} widget{totalWidgets !== 1 ? 's' : ''}, {screens.length} screen{screens.length !== 1 ? 's' : ''}
+        {totalWidgets} widget{totalWidgets !== 1 ? 's' : ''}, {screens.length} screen
+        {screens.length !== 1 ? 's' : ''}
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom';
 import { Card, useAuthContext } from '@aquaculture/shared-ui';
 // PERF-L4: shared icon components — eliminates duplicate inline SVG bytes
 import { PlusIcon, SensorIcon, TaskIcon } from './icons';
+import { CirclePlay, FileChartColumn, Users } from 'lucide-react';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -36,7 +37,7 @@ const quickActions: QuickAction[] = [
     label: 'Yeni Çiftlik',
     description: 'Çiftlik ekle',
     path: '/sites/new',
-    color: 'bg-blue-500',
+    color: 'bg-info-500',
     icon: <PlusIcon />,
   },
   {
@@ -47,7 +48,7 @@ const quickActions: QuickAction[] = [
     // `/sites/sensors/new` target never had a route and fell through
     // to the farm catch-all (map page).
     path: '/sensor/devices',
-    color: 'bg-green-500',
+    color: 'bg-success-500',
     icon: <SensorIcon />,
   },
   {
@@ -55,7 +56,7 @@ const quickActions: QuickAction[] = [
     label: 'Görev Oluştur',
     description: 'Yeni görev',
     path: '/tasks/new',
-    color: 'bg-purple-500',
+    color: 'bg-accent-500',
     icon: <TaskIcon />,
   },
   {
@@ -63,12 +64,8 @@ const quickActions: QuickAction[] = [
     label: 'Rapor Oluştur',
     description: 'Yeni rapor',
     path: '/reports/new',
-    color: 'bg-orange-500',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-      </svg>
-    ),
+    color: 'bg-accent-500',
+    icon: <FileChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'new-process',
@@ -77,27 +74,18 @@ const quickActions: QuickAction[] = [
     // The sensor module is mounted at /sensor and the new-process editor route is
     // `process/new` (singular) — `/processes/new` resolves to no route (blank).
     path: '/sensor/process/new',
-    color: 'bg-teal-500',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    color: 'bg-info-500',
+    icon: <CirclePlay className="w-5 h-5" aria-hidden="true" />,
   },
   {
     id: 'manage-users',
     label: 'Kullanıcılar',
     description: 'Kullanıcı yönet',
     path: '/admin/users',
-    color: 'bg-pink-500',
+    color: 'bg-accent-500',
     // DASH-SEC-004: Admin route only visible to admin roles
     minRole: 'TENANT_ADMIN',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-      </svg>
-    ),
+    icon: <Users className="w-5 h-5" aria-hidden="true" />,
   },
 ];
 

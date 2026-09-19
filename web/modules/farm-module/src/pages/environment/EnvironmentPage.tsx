@@ -32,29 +32,43 @@ const DAY_MS = 24 * 60 * 60 * 1_000;
 const FORECAST_DAYS = 7;
 
 const AVAILABILITY_STYLES: Record<EnvironmentAvailabilityStatus, string> = {
-  PREPARING: 'bg-blue-50 text-blue-800 border-blue-200',
-  READY: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  PARTIAL_FAILURE: 'bg-red-50 text-red-900 border-red-300',
-  PARTIAL_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-300',
+  PREPARING:
+    'bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800',
+  READY:
+    'bg-success-50 dark:bg-success-900/20 text-success-800 dark:text-success-200 border-success-200 dark:border-success-800',
+  PARTIAL_FAILURE:
+    'bg-error-50 dark:bg-error-900/20 text-error-900 dark:text-error-100 border-error-300 dark:border-error-700',
+  PARTIAL_COVERAGE:
+    'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-300 dark:border-warning-700',
   NO_DATA:
     'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
-  OUT_OF_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-200',
-  STALE: 'bg-orange-50 text-orange-900 border-orange-200',
-  PROVIDER_UNAVAILABLE: 'bg-red-50 text-red-800 border-red-200',
-  CONFIGURATION_ERROR: 'bg-rose-50 text-rose-900 border-rose-200',
+  OUT_OF_COVERAGE:
+    'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
+  STALE:
+    'bg-accent-50 dark:bg-accent-900/20 text-accent-900 dark:text-accent-100 border-accent-200 dark:border-accent-800',
+  PROVIDER_UNAVAILABLE:
+    'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800',
+  CONFIGURATION_ERROR:
+    'bg-error-50 dark:bg-error-900/20 text-error-900 dark:text-error-100 border-error-200 dark:border-error-800',
 };
 
 const QUALITY_STYLES: Record<EnvironmentQualityStatus, string> = {
-  VALID: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  PROVISIONAL: 'bg-blue-50 text-blue-800 border-blue-200',
+  VALID:
+    'bg-success-50 dark:bg-success-900/20 text-success-800 dark:text-success-200 border-success-200 dark:border-success-800',
+  PROVISIONAL:
+    'bg-info-50 dark:bg-info-900/20 text-info-800 dark:text-info-200 border-info-200 dark:border-info-800',
   NO_DATA:
     'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
-  OUT_OF_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-200',
-  STALE: 'bg-orange-50 text-orange-900 border-orange-200',
-  PROVIDER_UNAVAILABLE: 'bg-red-50 text-red-800 border-red-200',
-  CONFIGURATION_ERROR: 'bg-rose-50 text-rose-900 border-rose-200',
+  OUT_OF_COVERAGE:
+    'bg-warning-50 dark:bg-warning-900/20 text-warning-900 dark:text-warning-100 border-warning-200 dark:border-warning-800',
+  STALE:
+    'bg-accent-50 dark:bg-accent-900/20 text-accent-900 dark:text-accent-100 border-accent-200 dark:border-accent-800',
+  PROVIDER_UNAVAILABLE:
+    'bg-error-50 dark:bg-error-900/20 text-error-800 dark:text-error-200 border-error-200 dark:border-error-800',
+  CONFIGURATION_ERROR:
+    'bg-error-50 dark:bg-error-900/20 text-error-900 dark:text-error-100 border-error-200 dark:border-error-800',
 };
 
 function formatMetric(metric: string): string {
@@ -240,7 +254,7 @@ function ErrorState({ message }: { message: string }): React.ReactElement {
   return (
     <div
       role="alert"
-      className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+      className="rounded-lg border border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20 px-4 py-3 text-sm text-error-800 dark:text-error-200"
     >
       {message}
     </div>
@@ -760,7 +774,7 @@ const EnvironmentPage: React.FC = () => {
             <div className="mt-4 text-center">
               <Link
                 to="/sites/setup/sites"
-                className="inline-flex min-h-10 items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                className="inline-flex min-h-10 items-center rounded-md bg-info-600 px-4 py-2 text-sm font-semibold text-white hover:bg-info-700"
               >
                 Open site setup
               </Link>
@@ -799,7 +813,7 @@ const EnvironmentPage: React.FC = () => {
               </>
             }
             eyebrow={
-              <p className="text-xs font-semibold uppercase tracking-widest text-blue-700">
+              <p className="text-xs font-semibold uppercase tracking-widest text-info-700 dark:text-info-300">
                 Site-specific
               </p>
             }
@@ -812,7 +826,7 @@ const EnvironmentPage: React.FC = () => {
                   onChange={(event) => {
                     navigate(`/sites/environment/${encodeURIComponent(event.target.value)}`);
                   }}
-                  className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-info-500 focus:outline-none focus:ring-2 focus:ring-info-500"
                 >
                   {eligibleSites.map((site) => (
                     <option key={site.id} value={site.id}>
@@ -854,7 +868,7 @@ const EnvironmentPage: React.FC = () => {
               aria-current={activeView === view ? 'page' : undefined}
               className={`whitespace-nowrap border-b-2 px-1 py-4 text-sm font-semibold ${
                 activeView === view
-                  ? 'border-blue-600 text-blue-700'
+                  ? 'border-info-600 text-info-700 dark:text-info-300'
                   : 'border-transparent text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-900 dark:hover:text-gray-100'
               }`}
             >
@@ -1038,13 +1052,13 @@ const EnvironmentPage: React.FC = () => {
                   </div>
 
                   {selectedLayer && (
-                    <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+                    <div className="mb-4 rounded-lg border border-info-200 dark:border-info-800 bg-info-50 dark:bg-info-900/20 p-4 text-sm text-info-900">
                       <div className="flex flex-wrap items-center gap-2">
                         <strong>{selectedLayer.name}</strong>
                         <StatusPill status={selectedLayer.availability} />
                       </div>
                       <p className="mt-2">{selectedLayer.scientificLabel}</p>
-                      <p className="mt-1 text-xs text-blue-900">
+                      <p className="mt-1 text-xs text-info-900 dark:text-info-100">
                         {selectedLayer.description} · {selectedLayer.resolutionLabel}
                         {selectedLayer.unit ? ` · Unit: ${selectedLayer.unit}` : ''}
                       </p>
@@ -1054,7 +1068,7 @@ const EnvironmentPage: React.FC = () => {
                   {selectedScene?.coverageStatus === 'UNKNOWN' && (
                     <div
                       role="status"
-                      className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+                      className="mb-4 rounded-lg border border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20 p-4 text-sm text-warning-900"
                     >
                       This is a legacy catalog row: its saved site-AOI coverage method and sample
                       count were not recorded. The exact scene is revalidated before rendering, but
@@ -1064,7 +1078,7 @@ const EnvironmentPage: React.FC = () => {
                   {selectedScene?.coverageStatus === 'PARTIAL' && (
                     <div
                       role="status"
-                      className="mb-4 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950"
+                      className="mb-4 rounded-lg border border-warning-300 dark:border-warning-700 bg-warning-50 dark:bg-warning-900/20 p-4 text-sm text-warning-900"
                     >
                       This scene covers only part of the site monitoring AOI. The displayed coverage
                       percentage is a deterministic grid estimate, not a provider measurement.

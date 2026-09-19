@@ -17,11 +17,20 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { AI_TIER_PRESENTATION, parseAiPersonaId } from '@aquaculture/shared-contracts';
 import { messagingApi } from '../../services/adminApi';
 import type { AiPersonaDefinition } from '../../services/api/messaging';
 import type { ApiError } from '../../services/http-client';
+import { CircleAlert, Monitor, TriangleAlert } from 'lucide-react';
 
 /** The hard limits the runtime enforces on an autonomous persona; the reference table lists them. */
 interface ActuationPolicyField {
@@ -32,11 +41,36 @@ interface ActuationPolicyField {
 }
 
 const ACTUATION_POLICY_FIELDS: ActuationPolicyField[] = [
-  { field: 'maxDosingKg', type: 'number (nullable)', description: 'Maximum reagent dosing per actuation in kilograms', impact: 'CRITICAL' },
-  { field: 'phRange', type: '{ min, max } (nullable)', description: 'Allowed pH range for autonomous adjustments', impact: 'CRITICAL' },
-  { field: 'temperatureRange', type: '{ min, max } (nullable)', description: 'Allowed temperature range for autonomous adjustments', impact: 'CRITICAL' },
-  { field: 'autonomousActionsEnabled', type: 'boolean', description: 'Master switch for autonomous AI actions', impact: 'HIGH' },
-  { field: 'proactiveMonitoringEnabled', type: 'boolean', description: 'Whether AI proactively monitors sensor data', impact: 'MEDIUM' },
+  {
+    field: 'maxDosingKg',
+    type: 'number (nullable)',
+    description: 'Maximum reagent dosing per actuation in kilograms',
+    impact: 'CRITICAL',
+  },
+  {
+    field: 'phRange',
+    type: '{ min, max } (nullable)',
+    description: 'Allowed pH range for autonomous adjustments',
+    impact: 'CRITICAL',
+  },
+  {
+    field: 'temperatureRange',
+    type: '{ min, max } (nullable)',
+    description: 'Allowed temperature range for autonomous adjustments',
+    impact: 'CRITICAL',
+  },
+  {
+    field: 'autonomousActionsEnabled',
+    type: 'boolean',
+    description: 'Master switch for autonomous AI actions',
+    impact: 'HIGH',
+  },
+  {
+    field: 'proactiveMonitoringEnabled',
+    type: 'boolean',
+    description: 'Whether AI proactively monitors sensor data',
+    impact: 'MEDIUM',
+  },
 ];
 
 const IMPACT_BADGE: Record<ActuationPolicyField['impact'], 'error' | 'warning' | 'info'> = {
@@ -46,9 +80,25 @@ const IMPACT_BADGE: Record<ActuationPolicyField['impact'], 'error' | 'warning' |
 };
 
 const actuationPolicyColumns: DataTableColumn<ActuationPolicyField>[] = [
-  { key: 'field', header: 'Field', render: (_value, row) => <span className="font-mono text-gray-700 dark:text-gray-300">{row.field}</span> },
-  { key: 'type', header: 'Type', render: (_value, row) => <span className="text-gray-500 dark:text-gray-400">{row.type}</span> },
-  { key: 'description', header: 'Description', render: (_value, row) => <span className="text-gray-600 dark:text-gray-400">{row.description}</span> },
+  {
+    key: 'field',
+    header: 'Field',
+    render: (_value, row) => (
+      <span className="font-mono text-gray-700 dark:text-gray-300">{row.field}</span>
+    ),
+  },
+  {
+    key: 'type',
+    header: 'Type',
+    render: (_value, row) => <span className="text-gray-500 dark:text-gray-400">{row.type}</span>,
+  },
+  {
+    key: 'description',
+    header: 'Description',
+    render: (_value, row) => (
+      <span className="text-gray-600 dark:text-gray-400">{row.description}</span>
+    ),
+  },
   {
     key: 'impact',
     header: 'Safety Impact',
@@ -74,11 +124,11 @@ interface LoadState {
 // ============================================================================
 
 const COLOR_CLASSES: Record<string, string> = {
-  purple: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-  cyan: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
-  blue: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-  green: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-  orange: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  purple: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-300',
+  cyan: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-300',
+  blue: 'bg-info-100 text-info-700 dark:bg-info-900/30 dark:text-info-300',
+  green: 'bg-success-100 text-success-700 dark:bg-success-900/30 dark:text-success-300',
+  orange: 'bg-accent-100 text-accent-700 dark:bg-accent-900/30 dark:text-accent-300',
 };
 
 // ============================================================================
@@ -86,23 +136,30 @@ const COLOR_CLASSES: Record<string, string> = {
 // ============================================================================
 
 /** LIFE-SAFETY: Human-readable descriptions for each actuation policy level. */
-const ACTUATION_POLICY_INFO: Record<string, { label: string; color: string; description: string }> = {
-  blocked: {
-    label: 'BLOCKED',
-    color: 'bg-red-100 text-red-800 border-red-300',
-    description: 'AI cannot execute any PLC actuation commands. All actuation requests are rejected.',
-  },
-  confirm_required: {
-    label: 'CONFIRM REQUIRED',
-    color: 'bg-amber-100 text-amber-800 border-amber-300',
-    description: 'AI can propose actuation commands but requires explicit human confirmation before execution.',
-  },
-  allowed: {
-    label: 'ALLOWED',
-    color: 'bg-red-100 text-red-800 border-red-300',
-    description: 'AI can execute actuation commands autonomously within configured safety limits. CAUTION: This enables autonomous PLC control.',
-  },
-};
+const ACTUATION_POLICY_INFO: Record<string, { label: string; color: string; description: string }> =
+  {
+    blocked: {
+      label: 'BLOCKED',
+      color:
+        'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-300 dark:border-error-700',
+      description:
+        'AI cannot execute any PLC actuation commands. All actuation requests are rejected.',
+    },
+    confirm_required: {
+      label: 'CONFIRM REQUIRED',
+      color:
+        'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200 border-warning-300 dark:border-warning-700',
+      description:
+        'AI can propose actuation commands but requires explicit human confirmation before execution.',
+    },
+    allowed: {
+      label: 'ALLOWED',
+      color:
+        'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200 border-error-300 dark:border-error-700',
+      description:
+        'AI can execute actuation commands autonomously within configured safety limits. CAUTION: This enables autonomous PLC control.',
+    },
+  };
 
 // ============================================================================
 // Tier × specialty (AISAFETY-MEDIUM-024)
@@ -131,16 +188,14 @@ const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
       const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
       return (
         <div className="flex items-center gap-3">
-          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${colorClass}`}>
+          <span
+            className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${colorClass}`}
+          >
             {persona.icon.charAt(0).toUpperCase()}
           </span>
           <div>
-            <p className="text-sm font-semibold text-gray-900 dark:text-white">
-              {persona.name}
-            </p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {persona.description}
-            </p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-white">{persona.name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{persona.description}</p>
           </div>
         </div>
       );
@@ -180,10 +235,7 @@ const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
       return (
         <div className="flex flex-wrap gap-1">
           {persona.capabilities.slice(0, 3).map((cap) => (
-            <span
-              key={cap}
-              className={`text-[10px] px-1.5 py-0.5 rounded-full ${colorClass}`}
-            >
+            <span key={cap} className={`text-[10px] px-1.5 py-0.5 rounded-full ${colorClass}`}>
               {cap}
             </span>
           ))}
@@ -244,29 +296,29 @@ function MessagingAiPersonasPage(): React.ReactElement {
         title="AI Personas Configuration"
         description={
           <>
-            View AI assistant personas from the backend registry.
-            Each persona maps to a specialized ai-service profile with real actuation policies.
+            View AI assistant personas from the backend registry. Each persona maps to a specialized
+            ai-service profile with real actuation policies.
           </>
         }
       />
 
       {/* LIFE-SAFETY Warning */}
-      <Card className="p-4 bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800">
+      <Card className="p-4 bg-error-50 dark:bg-error-900/20 border-error-300 dark:border-error-800">
         <div className="flex items-start gap-3">
-          <svg className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-          </svg>
+          <TriangleAlert
+            className="w-5 h-5 text-error-600 dark:text-error-400 mt-0.5 flex-shrink-0"
+            aria-hidden="true"
+          />
           <div>
-            <h3 className="text-sm font-semibold text-red-900 dark:text-red-200">
+            <h3 className="text-sm font-semibold text-error-900 dark:text-error-200">
               LIFE-SAFETY: Autonomous PLC Actuation
             </h3>
-            <p className="text-xs text-red-700 dark:text-red-300 leading-relaxed mt-1">
-              Some AI personas (especially the SCADA Supervisor) can control physical
-              equipment through PLC actuation. The actuation policy and autonomous safety
-              limits shown below are loaded from the real backend TenantAgentConfig entity.
-              These are not display-only values -- they directly control what the AI can
-              do to physical infrastructure. Always verify actuation policies match your
-              operational requirements.
+            <p className="text-xs text-error-700 dark:text-error-300 leading-relaxed mt-1">
+              Some AI personas (especially the SCADA Supervisor) can control physical equipment
+              through PLC actuation. The actuation policy and autonomous safety limits shown below
+              are loaded from the real backend TenantAgentConfig entity. These are not display-only
+              values -- they directly control what the AI can do to physical infrastructure. Always
+              verify actuation policies match your operational requirements.
             </p>
           </div>
         </div>
@@ -277,7 +329,10 @@ function MessagingAiPersonasPage(): React.ReactElement {
         <div className="p-4">
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
             <div className="flex-1 w-full">
-              <label htmlFor="persona-tenant-id" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label
+                htmlFor="persona-tenant-id"
+                className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1"
+              >
                 Tenant ID (UUID) -- required to load personas
               </label>
               <input
@@ -286,7 +341,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
                 placeholder="e.g. 550e8400-e29b-41d4-a716-446655440000"
                 value={tenantId}
                 onChange={(e) => setTenantId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden bg-white dark:bg-gray-800"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-info-500 focus:border-info-500 outline-hidden bg-white dark:bg-gray-800"
               />
             </div>
             <Button
@@ -303,17 +358,20 @@ function MessagingAiPersonasPage(): React.ReactElement {
 
       {/* Error State */}
       {loadState.error && (
-        <Card className="p-4 bg-red-50 border-red-200">
+        <Card className="p-4 bg-error-50 dark:bg-error-900/20 border-error-200 dark:border-error-800">
           <div className="flex items-start gap-3">
-            <svg className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <CircleAlert
+              className="w-5 h-5 text-error-500 mt-0.5 flex-shrink-0"
+              aria-hidden="true"
+            />
             <div>
-              <p className="text-sm font-medium text-red-800">Failed to load personas</p>
-              <p className="text-xs text-red-700 mt-1">{loadState.error}</p>
+              <p className="text-sm font-medium text-error-800 dark:text-error-200">
+                Failed to load personas
+              </p>
+              <p className="text-xs text-error-700 dark:text-error-300 mt-1">{loadState.error}</p>
               <button
                 onClick={() => void fetchPersonas(tenantId)}
-                className="text-xs text-red-600 hover:text-red-800 mt-2 underline"
+                className="text-xs text-error-600 dark:text-error-400 hover:text-error-800 dark:hover:text-error-200 mt-2 underline"
               >
                 Retry
               </button>
@@ -328,7 +386,9 @@ function MessagingAiPersonasPage(): React.ReactElement {
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
               <Spinner size="lg" block className="mb-3" />
-              <p className="text-sm text-gray-500 dark:text-gray-400">Loading personas from backend...</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Loading personas from backend...
+              </p>
             </div>
           </div>
         </Card>
@@ -352,10 +412,11 @@ function MessagingAiPersonasPage(): React.ReactElement {
         <Card>
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
-              <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Enter a Tenant ID and click "Load Personas" to view the AI persona configuration from the backend.</p>
+              <Monitor className="w-12 h-12 text-gray-300 mx-auto mb-3" aria-hidden="true" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Enter a Tenant ID and click "Load Personas" to view the AI persona configuration
+                from the backend.
+              </p>
             </div>
           </div>
         </Card>
@@ -368,17 +429,14 @@ function MessagingAiPersonasPage(): React.ReactElement {
             Actuation Policy Reference (from TenantAgentConfig)
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-            These policies are configured per-tenant in the TenantAgentConfig entity.
-            The effective policy is the most restrictive between the persona base policy
-            and the tenant override. Fields: actuationPolicy, autonomousSafetyLimits,
-            autonomousActionsEnabled, proactiveMonitoringEnabled.
+            These policies are configured per-tenant in the TenantAgentConfig entity. The effective
+            policy is the most restrictive between the persona base policy and the tenant override.
+            Fields: actuationPolicy, autonomousSafetyLimits, autonomousActionsEnabled,
+            proactiveMonitoringEnabled.
           </p>
           <div className="space-y-3">
             {Object.entries(ACTUATION_POLICY_INFO).map(([key, info]) => (
-              <div
-                key={key}
-                className={`p-3 rounded-lg border ${info.color}`}
-              >
+              <div key={key} className={`p-3 rounded-lg border ${info.color}`}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs font-bold">{info.label}</span>
                   <code className="text-[10px] bg-white/50 dark:bg-gray-900/50 px-1.5 py-0.5 rounded font-mono">
@@ -399,9 +457,9 @@ function MessagingAiPersonasPage(): React.ReactElement {
             Autonomous Safety Limits (from TenantAgentConfig)
           </h3>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
-            When autonomousActionsEnabled is true and actuationPolicy is &apos;allowed&apos;,
-            the AI operates within these hard limits enforced by the platform runtime.
-            Values exceeding these limits trigger automatic escalation to human operators.
+            When autonomousActionsEnabled is true and actuationPolicy is &apos;allowed&apos;, the AI
+            operates within these hard limits enforced by the platform runtime. Values exceeding
+            these limits trigger automatic escalation to human operators.
           </p>
           <DataTable<ActuationPolicyField>
             data={ACTUATION_POLICY_FIELDS}
@@ -416,18 +474,17 @@ function MessagingAiPersonasPage(): React.ReactElement {
       </Card>
 
       {/* Architecture Note */}
-      <Card className="p-4 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
-        <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1">
+      <Card className="p-4 bg-info-50 dark:bg-info-900/20 border-info-200 dark:border-info-800">
+        <h3 className="text-sm font-semibold text-info-900 dark:text-info-200 mb-1">
           Architecture Note
         </h3>
-        <p className="text-xs text-blue-700 dark:text-blue-300 leading-relaxed">
-          Persona definitions are loaded from the messaging-service AiPersonasRegistryService
-          via NATS request-reply (pattern: request.messaging.admin.getPersonas). Per-tenant
-          actuation policies and safety limits are stored in the TenantAgentConfig entity in
-          the ai-service database. The effective actuation policy is resolved at runtime by
-          AgentProfileService using most-restrictive-wins logic between the persona base
-          policy and the tenant override. Custom personas backed by external MCP servers are
-          planned for a future release.
+        <p className="text-xs text-info-700 dark:text-info-300 leading-relaxed">
+          Persona definitions are loaded from the messaging-service AiPersonasRegistryService via
+          NATS request-reply (pattern: request.messaging.admin.getPersonas). Per-tenant actuation
+          policies and safety limits are stored in the TenantAgentConfig entity in the ai-service
+          database. The effective actuation policy is resolved at runtime by AgentProfileService
+          using most-restrictive-wins logic between the persona base policy and the tenant override.
+          Custom personas backed by external MCP servers are planned for a future release.
         </p>
       </Card>
     </div>

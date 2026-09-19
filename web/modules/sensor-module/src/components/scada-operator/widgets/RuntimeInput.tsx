@@ -79,11 +79,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
   }, []);
 
   /* ---- helpers ---- */
-  function formatValueForInput(
-    val: unknown,
-    type: InputType,
-    dec: number,
-  ): string {
+  function formatValueForInput(val: unknown, type: InputType, dec: number): string {
     if (val === null || val === undefined) return '';
     if (type === 'number') {
       const n = Number(val);
@@ -126,7 +122,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
         // lastError from useTagWrite is displayed
       }
     },
-     
+
     [tagId, inputType, minVal, maxVal, writeTag, onCommand],
   );
 
@@ -157,15 +153,12 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
     setPinInput('');
   }, []);
 
-  const handleChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setInputVal(e.target.value);
-      setIsDirty(true);
-      setWriteSuccess(false);
-      setValidationError(null);
-    },
-    [],
-  );
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setInputVal(e.target.value);
+    setIsDirty(true);
+    setWriteSuccess(false);
+    setValidationError(null);
+  }, []);
 
   // SENSOR-CRITICAL-006: the PIN is verified SERVER-SIDE against the
   // package's salted hash — the client never sees or compares the secret
@@ -205,8 +198,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
   }, [packageId, pinVerifying, pinInput, doWrite, inputVal]);
 
   /* ---- HTML input type ---- */
-  const htmlInputType =
-    inputType === 'datetime' ? 'datetime-local' : inputType;
+  const htmlInputType = inputType === 'datetime' ? 'datetime-local' : inputType;
 
   /* ---- quality indicator color ---- */
   const quality = tagChange?.quality ?? 'good';
@@ -215,7 +207,9 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
     <div className="w-full h-full flex flex-col gap-1 p-2 min-w-0" role="group" aria-label={label}>
       {/* Label row */}
       <div className="flex items-center justify-between gap-1">
-        <span className="text-xs font-medium text-gray-600 dark:text-gray-400 truncate">{label}</span>
+        <span className="text-xs font-medium text-gray-600 dark:text-gray-400 truncate">
+          {label}
+        </span>
         <span className="flex items-center gap-1">
           <span className="text-xs font-mono text-gray-600 dark:text-gray-400">{unit}</span>
           <QualityIndicator quality={quality} size="xs" showLabel={quality !== 'good'} />
@@ -237,38 +231,42 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
           aria-describedby={validationError ? 'input-error' : undefined}
           className={[
             'flex-1 min-w-0 px-2 py-1 text-sm rounded border bg-white dark:bg-gray-900',
-            'focus:outline-hidden focus:ring-2 focus:ring-blue-400',
+            'focus:outline-hidden focus:ring-2 focus:ring-info-400',
             'disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed disabled:text-gray-400 dark:disabled:text-gray-500',
-            isDirty ? 'border-blue-400' : 'border-gray-300 dark:border-gray-600',
-            validationError ? 'border-red-400 focus:ring-red-400' : '',
+            isDirty ? 'border-info-400' : 'border-gray-300 dark:border-gray-600',
+            validationError ? 'border-error-400 focus:ring-error-400' : '',
           ]
             .filter(Boolean)
             .join(' ')}
         />
 
         {/* Status icons */}
-        {isWriting && (
-          <Spinner size="sm" label="Writing..." className="flex-shrink-0" />
-        )}
+        {isWriting && <Spinner size="sm" label="Writing..." className="flex-shrink-0" />}
         {writeSuccess && !isWriting && (
-          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" aria-label="Write successful" />
+          <CheckCircle
+            className="w-4 h-4 text-success-500 flex-shrink-0"
+            aria-label="Write successful"
+          />
         )}
         {(lastError || validationError) && !isWriting && (
-          <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" aria-label="Write error" />
+          <AlertCircle className="w-4 h-4 text-error-500 flex-shrink-0" aria-label="Write error" />
         )}
         {requirePin && (
-          <Lock className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" aria-label="PIN protected" />
+          <Lock
+            className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0"
+            aria-label="PIN protected"
+          />
         )}
       </div>
 
       {/* Validation error */}
       {validationError && (
-        <p id="input-error" role="alert" className="text-xs text-red-500">
+        <p id="input-error" role="alert" className="text-xs text-error-500">
           {validationError}
         </p>
       )}
       {lastError && !validationError && (
-        <p role="alert" className="text-xs text-red-500 truncate">
+        <p role="alert" className="text-xs text-error-500 truncate">
           {lastError}
         </p>
       )}
@@ -282,7 +280,7 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
           aria-label="Confirm write"
           className={[
             'w-full py-1 text-xs rounded font-medium transition-colors',
-            'bg-blue-500 text-white hover:bg-blue-600',
+            'bg-info-500 text-white hover:bg-info-600',
             'disabled:bg-gray-300 disabled:cursor-not-allowed',
           ].join(' ')}
         >
@@ -306,15 +304,40 @@ const RuntimeInput: React.FC<RuntimeWidgetProps> = ({
         showCloseButton={!pinVerifying}
         footer={
           <>
-            <Button variant="secondary" size="sm" type="button" onClick={closePinDialog} disabled={pinVerifying}>Cancel</Button>
-            <Button variant="primary" size="sm" type="button" onClick={handlePinConfirm} disabled={pinVerifying}>OK</Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              type="button"
+              onClick={closePinDialog}
+              disabled={pinVerifying}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              type="button"
+              onClick={handlePinConfirm}
+              disabled={pinVerifying}
+            >
+              OK
+            </Button>
           </>
         }
       >
         <div className="flex flex-col gap-3">
-          <Input type="password" value={pinInput} onChange={(e) => setPinInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handlePinConfirm()} placeholder="PIN" aria-label="PIN" />
+          <Input
+            type="password"
+            value={pinInput}
+            onChange={(e) => setPinInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handlePinConfirm()}
+            placeholder="PIN"
+            aria-label="PIN"
+          />
           {pinError && (
-            <p className="text-xs text-red-600" role="alert">{pinError}</p>
+            <p className="text-xs text-error-600 dark:text-error-400" role="alert">
+              {pinError}
+            </p>
           )}
         </div>
       </Modal>

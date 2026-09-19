@@ -26,7 +26,16 @@ import {
   Eye,
 } from 'lucide-react';
 import { useTenantAuditLog, type AuditLogEntry } from '../hooks/useTenantAuditLog';
-import { Modal, DataTable, type DataTableColumn, PageHeader, Button, Input, Select, Badge } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Badge,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Sub-Components
@@ -61,7 +70,8 @@ const ActionBadge: React.FC<{ action: string }> = ({ action }) => {
   let variant: 'default' | 'success' | 'error' | 'info' | 'outline' = 'default';
   if (lower.includes('create') || lower.includes('add')) variant = 'success';
   else if (lower.includes('delete') || lower.includes('remove')) variant = 'error';
-  else if (lower.includes('update') || lower.includes('edit') || lower.includes('modify')) variant = 'info';
+  else if (lower.includes('update') || lower.includes('edit') || lower.includes('modify'))
+    variant = 'info';
   else if (lower.includes('login') || lower.includes('auth')) variant = 'outline';
   return (
     <Badge variant={variant} size="sm">
@@ -88,48 +98,67 @@ const DetailsModal: React.FC<{
       className="max-h-[80vh] overflow-hidden flex flex-col"
       bodyClassName="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4"
       footer={
-        <Button variant="secondary" type="button" onClick={onClose}>Close</Button>
+        <Button variant="secondary" type="button" onClick={onClose}>
+          Close
+        </Button>
       }
     >
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Timestamp</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            Timestamp
+          </label>
           <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
             {new Date(entry.createdAt).toLocaleString()}
           </p>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Severity</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            Severity
+          </label>
           <div className="mt-0.5">
             <SeverityBadge severity={entry.severity} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Action</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            Action
+          </label>
           <div className="mt-0.5">
             <ActionBadge action={entry.action} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">User</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            User
+          </label>
           <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
             {entry.performedByEmail || entry.performedBy}
           </p>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">IP Address</label>
-          <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5 font-mono">{entry.ipAddress || 'N/A'}</p>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            IP Address
+          </label>
+          <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5 font-mono">
+            {entry.ipAddress || 'N/A'}
+          </p>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Entity</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            Entity
+          </label>
           <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
-            {entry.entityType}{entry.entityId ? ` / ${entry.entityId.slice(0, 8)}...` : ''}
+            {entry.entityType}
+            {entry.entityId ? ` / ${entry.entityId.slice(0, 8)}...` : ''}
           </p>
         </div>
       </div>
       {entry.userAgent && (
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">User Agent</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            User Agent
+          </label>
           <p className="text-xs text-gray-600 dark:text-gray-400 mt-0.5 break-all font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded">
             {entry.userAgent}
           </p>
@@ -137,7 +166,9 @@ const DetailsModal: React.FC<{
       )}
       {entry.details && Object.keys(entry.details).length > 0 && (
         <div>
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Details</label>
+          <label className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+            Details
+          </label>
           <pre className="text-xs text-gray-700 dark:text-gray-300 mt-0.5 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto max-h-48 font-mono">
             {JSON.stringify(entry.details, null, 2)}
           </pre>
@@ -210,13 +241,19 @@ const TenantAuditLogPage: React.FC = () => {
     ? entries.filter(
         (e) =>
           e.action.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-          (e.performedByEmail || e.performedBy).toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-          e.entityType.toLowerCase().includes(debouncedSearch.toLowerCase())
+          (e.performedByEmail || e.performedBy)
+            .toLowerCase()
+            .includes(debouncedSearch.toLowerCase()) ||
+          e.entityType.toLowerCase().includes(debouncedSearch.toLowerCase()),
       )
     : entries;
 
   const hasActiveFilters =
-    filters.startDate || filters.endDate || filters.action || filters.severity || filters.performedBy;
+    filters.startDate ||
+    filters.endDate ||
+    filters.action ||
+    filters.severity ||
+    filters.performedBy;
 
   const auditLogEntryColumns: DataTableColumn<AuditLogEntry>[] = [
     {
@@ -239,9 +276,7 @@ const TenantAuditLogPage: React.FC = () => {
     {
       key: 'action',
       header: 'Action',
-      render: (_value, entry) => (
-        <ActionBadge action={entry.action} />
-      ),
+      render: (_value, entry) => <ActionBadge action={entry.action} />,
     },
     {
       key: 'user',
@@ -264,9 +299,7 @@ const TenantAuditLogPage: React.FC = () => {
     {
       key: 'severity',
       header: 'Severity',
-      render: (_value, entry) => (
-        <SeverityBadge severity={entry.severity} />
-      ),
+      render: (_value, entry) => <SeverityBadge severity={entry.severity} />,
     },
     {
       key: 'details',
@@ -274,13 +307,22 @@ const TenantAuditLogPage: React.FC = () => {
       align: 'right',
       render: (_value, entry) => (
         <>
-          <Button variant="ghost" size="sm" iconOnly aria-label="View details" onClick={(e) => {
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="View details"
+            onClick={(e) => {
               e.stopPropagation();
               setSelectedEntry(entry);
-            }} title="View details"><Eye className="w-4 h-4" /></Button>
+            }}
+            title="View details"
+          >
+            <Eye className="w-4 h-4" />
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -291,21 +333,37 @@ const TenantAuditLogPage: React.FC = () => {
         description="Review all actions and changes within your tenant"
         actions={
           <div className="flex items-center gap-3">
-            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={refresh} disabled={isFetching} title="Refresh"><RefreshCw className={`w-5 h-5 text-gray-500 dark:text-gray-400 ${isFetching ? 'animate-spin' : ''}`} /></Button>
-            <Button variant="secondary" leftIcon={<Download className="w-4 h-4" />} onClick={exportCsv} disabled={entries.length === 0}>Export CSV</Button>
+            <Button
+              variant="ghost"
+              iconOnly
+              aria-label="Refresh"
+              onClick={refresh}
+              disabled={isFetching}
+              title="Refresh"
+            >
+              <RefreshCw
+                className={`w-5 h-5 text-gray-500 dark:text-gray-400 ${isFetching ? 'animate-spin' : ''}`}
+              />
+            </Button>
+            <Button
+              variant="secondary"
+              leftIcon={<Download className="w-4 h-4" />}
+              onClick={exportCsv}
+              disabled={entries.length === 0}
+            >
+              Export CSV
+            </Button>
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 showFilters || hasActiveFilters
-                  ? 'text-green-700 bg-green-50 border border-green-200'
+                  ? 'text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800'
                   : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               <Filter className="w-4 h-4" />
               Filters
-              {hasActiveFilters && (
-                <span className="w-2 h-2 rounded-full bg-green-500" />
-              )}
+              {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-success-500" />}
             </button>
           </div>
         }
@@ -313,13 +371,17 @@ const TenantAuditLogPage: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-xl p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-error-500 flex-shrink-0" />
           <div>
-            <p className="text-sm font-medium text-red-800">Failed to load audit logs</p>
-            <p className="text-sm text-red-600">{(error as Error).message}</p>
+            <p className="text-sm font-medium text-error-800 dark:text-error-200">
+              Failed to load audit logs
+            </p>
+            <p className="text-sm text-error-600 dark:text-error-400">{(error as Error).message}</p>
           </div>
-          <Button variant="ghost" size="sm" onClick={refresh}>Retry</Button>
+          <Button variant="ghost" size="sm" onClick={refresh}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -327,31 +389,78 @@ const TenantAuditLogPage: React.FC = () => {
       {showFilters && (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Filter Audit Logs</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Filter Audit Logs
+            </h3>
             {hasActiveFilters && (
-              <Button variant="ghost" size="xs" onClick={resetFilters}>Clear all</Button>
+              <Button variant="ghost" size="xs" onClick={resetFilters}>
+                Clear all
+              </Button>
             )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Start Date</label>
-              <Input fullWidth type="date" value={filters.startDate || ''} onChange={(e) => updateFilters({ startDate: e.target.value || null })} />
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Start Date
+              </label>
+              <Input
+                fullWidth
+                type="date"
+                value={filters.startDate || ''}
+                onChange={(e) => updateFilters({ startDate: e.target.value || null })}
+              />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">End Date</label>
-              <Input fullWidth type="date" value={filters.endDate || ''} onChange={(e) => updateFilters({ endDate: e.target.value || null })} />
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                End Date
+              </label>
+              <Input
+                fullWidth
+                type="date"
+                value={filters.endDate || ''}
+                onChange={(e) => updateFilters({ endDate: e.target.value || null })}
+              />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Action</label>
-              <Input fullWidth type="text" placeholder="e.g. USER_CREATE" value={filters.action || ''} onChange={(e) => updateFilters({ action: e.target.value || null })} />
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Action
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                placeholder="e.g. USER_CREATE"
+                value={filters.action || ''}
+                onChange={(e) => updateFilters({ action: e.target.value || null })}
+              />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Severity</label>
-              <Select fullWidth options={[{ value: '', label: 'All' }, { value: 'info', label: 'Info' }, { value: 'warning', label: 'Warning' }, { value: 'error', label: 'Error' }, { value: 'critical', label: 'Critical' }]} value={filters.severity || ''} onChange={(e) => updateFilters({ severity: e.target.value || null })} />
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Severity
+              </label>
+              <Select
+                fullWidth
+                options={[
+                  { value: '', label: 'All' },
+                  { value: 'info', label: 'Info' },
+                  { value: 'warning', label: 'Warning' },
+                  { value: 'error', label: 'Error' },
+                  { value: 'critical', label: 'Critical' },
+                ]}
+                value={filters.severity || ''}
+                onChange={(e) => updateFilters({ severity: e.target.value || null })}
+              />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">User</label>
-              <Input fullWidth type="text" placeholder="Email or ID" value={filters.performedBy || ''} onChange={(e) => updateFilters({ performedBy: e.target.value || null })} />
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                User
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                placeholder="Email or ID"
+                value={filters.performedBy || ''}
+                onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
+              />
             </div>
           </div>
         </div>
@@ -366,7 +475,7 @@ const TenantAuditLogPage: React.FC = () => {
             placeholder="Search audit logs by action, user, or entity..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-success-500 focus:border-transparent"
           />
         </div>
       </div>
@@ -392,14 +501,18 @@ const TenantAuditLogPage: React.FC = () => {
             {visibleEntries.length === 0 && !isLoading && (
               <div className="py-12 text-center">
                 <Shield className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
-                <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No audit log entries found</h3>
+                <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
+                  No audit log entries found
+                </h3>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   {hasActiveFilters
                     ? 'Try adjusting your filters to see more results.'
                     : 'Audit log entries will appear here as actions are performed.'}
                 </p>
                 {hasActiveFilters && (
-                  <Button variant="ghost" className="mt-4" onClick={resetFilters}>Clear Filters</Button>
+                  <Button variant="ghost" className="mt-4" onClick={resetFilters}>
+                    Clear Filters
+                  </Button>
                 )}
               </div>
             )}
@@ -411,7 +524,15 @@ const TenantAuditLogPage: React.FC = () => {
                 {totalPages > 1 && ` (Page ${page} of ${totalPages})`}
               </p>
               <div className="flex items-center gap-2">
-                <Button variant="ghost" size="sm" leftIcon={<ChevronLeft className="w-4 h-4" />} onClick={prevPage} disabled={page <= 1}>Previous</Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  leftIcon={<ChevronLeft className="w-4 h-4" />}
+                  onClick={prevPage}
+                  disabled={page <= 1}
+                >
+                  Previous
+                </Button>
 
                 {/* Page numbers */}
                 <div className="hidden sm:flex items-center gap-1">
@@ -432,7 +553,7 @@ const TenantAuditLogPage: React.FC = () => {
                         onClick={() => goToPage(pageNum)}
                         className={`w-8 h-8 text-sm rounded-lg transition-colors ${
                           page === pageNum
-                            ? 'bg-green-600 text-white'
+                            ? 'bg-success-600 text-white'
                             : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
                       >
@@ -442,7 +563,15 @@ const TenantAuditLogPage: React.FC = () => {
                   })}
                 </div>
 
-                <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />} onClick={nextPage} disabled={page >= totalPages}>Next</Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  rightIcon={<ChevronRight className="w-4 h-4" />}
+                  onClick={nextPage}
+                  disabled={page >= totalPages}
+                >
+                  Next
+                </Button>
               </div>
             </div>
           </>

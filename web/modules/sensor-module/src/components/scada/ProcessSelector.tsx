@@ -12,31 +12,47 @@ interface ProcessSelectorProps {
 }
 
 const statusConfig: Record<string, { label: string; color: string; icon: typeof FileText }> = {
-  draft: { label: 'Taslak', color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300', icon: FileText },
-  active: { label: 'Aktif', color: 'bg-green-100 text-green-700', icon: Play },
-  inactive: { label: 'Pasif', color: 'bg-yellow-100 text-yellow-700', icon: Pause },
-  archived: { label: 'Arşivlenmiş', color: 'bg-red-100 text-red-700', icon: FileText },
+  draft: {
+    label: 'Taslak',
+    color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
+    icon: FileText,
+  },
+  active: {
+    label: 'Aktif',
+    color: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+    icon: Play,
+  },
+  inactive: {
+    label: 'Pasif',
+    color: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    icon: Pause,
+  },
+  archived: {
+    label: 'Arşivlenmiş',
+    color: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+    icon: FileText,
+  },
 };
 
-const defaultStatus = { label: 'Bilinmiyor', color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300', icon: FileText };
+const defaultStatus = {
+  label: 'Bilinmiyor',
+  color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
+  icon: FileText,
+};
 
 export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = '' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const {
-    processes,
-    selectedProcessId,
-    selectedProcess,
-    setSelectedProcessId,
-  } = useScadaViewerStore();
+  const { processes, selectedProcessId, selectedProcess, setSelectedProcessId } =
+    useScadaViewerStore();
 
   // Filter processes based on search
   const filteredProcesses = processes.filter(
     (process) =>
       process.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      process.description?.toLowerCase().includes(searchTerm.toLowerCase())
+      process.description?.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   // Close dropdown on outside click
@@ -67,7 +83,7 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
           bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg
           hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
           min-w-[200px] max-w-[300px]
-          ${isOpen ? 'ring-2 ring-blue-500 border-blue-500' : ''}
+          ${isOpen ? 'ring-2 ring-info-500 border-info-500' : ''}
         `}
       >
         <FileText size={18} className="text-gray-500 dark:text-gray-400 flex-shrink-0" />
@@ -86,13 +102,16 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
           {/* Search */}
           <div className="p-2 border-b border-gray-100 dark:border-gray-700">
             <div className="relative">
-              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" />
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
+              />
               <input
                 type="text"
                 placeholder="Proses ara..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-9 pr-4 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-info-500"
                 autoFocus
               />
             </div>
@@ -118,7 +137,7 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
                       className={`
                         w-full flex items-start gap-3 p-3 rounded-lg text-left
                         transition-colors
-                        ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}
+                        ${isSelected ? 'bg-info-50 dark:bg-info-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-800'}
                       `}
                     >
                       {/* Status icon */}
@@ -133,7 +152,10 @@ export const ProcessSelector: React.FC<ProcessSelectorProps> = ({ className = ''
                             {process.name}
                           </span>
                           {isSelected && (
-                            <Check size={16} className="text-blue-600 flex-shrink-0" />
+                            <Check
+                              size={16}
+                              className="text-info-600 dark:text-info-400 flex-shrink-0"
+                            />
                           )}
                         </div>
                         {process.description && (

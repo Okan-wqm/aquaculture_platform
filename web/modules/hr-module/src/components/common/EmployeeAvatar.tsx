@@ -25,10 +25,10 @@ const sizeStyles = {
 };
 
 const statusColors = {
-  online: 'bg-green-500',
+  online: 'bg-success-500',
   offline: 'bg-gray-400',
-  away: 'bg-yellow-500',
-  busy: 'bg-red-500',
+  away: 'bg-warning-500',
+  busy: 'bg-error-500',
 };
 
 const statusSizes = {
@@ -47,14 +47,14 @@ function getInitials(firstName?: string, lastName?: string): string {
 
 function getAvatarColor(name: string): string {
   const colors = [
-    'bg-blue-500',
-    'bg-green-500',
-    'bg-yellow-500',
-    'bg-red-500',
-    'bg-purple-500',
-    'bg-pink-500',
-    'bg-indigo-500',
-    'bg-teal-500',
+    'bg-info-500',
+    'bg-success-500',
+    'bg-warning-500',
+    'bg-error-500',
+    'bg-accent-500',
+    'bg-accent-500',
+    'bg-primary-500',
+    'bg-info-500',
   ];
 
   let hash = 0;
@@ -85,10 +85,7 @@ export function EmployeeAvatar({
         <img
           src={avatarUrl}
           alt={fullName || 'Employee'}
-          className={cn(
-            'rounded-full object-cover',
-            sizeStyles[size]
-          )}
+          className={cn('rounded-full object-cover', sizeStyles[size])}
         />
       ) : (
         // BUG-015: initials fallback needs accessible label so screen readers
@@ -99,7 +96,7 @@ export function EmployeeAvatar({
           className={cn(
             'flex items-center justify-center rounded-full font-medium text-white',
             bgColor,
-            sizeStyles[size]
+            sizeStyles[size],
           )}
           title={fullName}
         >
@@ -112,7 +109,7 @@ export function EmployeeAvatar({
           className={cn(
             'absolute bottom-0 right-0 rounded-full ring-2 ring-white dark:ring-gray-800',
             statusColors[status],
-            statusSizes[size]
+            statusSizes[size],
           )}
         />
       )}

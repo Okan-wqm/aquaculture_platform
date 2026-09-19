@@ -488,25 +488,34 @@ export const speciesStatusLabels: Record<SpeciesStatus, string> = {
 };
 
 export const speciesStatusColors: Record<SpeciesStatus, string> = {
-  [SpeciesStatus.ACTIVE]: 'bg-green-100 text-green-800',
+  [SpeciesStatus.ACTIVE]:
+    'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   [SpeciesStatus.INACTIVE]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  [SpeciesStatus.EXPERIMENTAL]: 'bg-yellow-100 text-yellow-800',
-  [SpeciesStatus.DISCONTINUED]: 'bg-red-100 text-red-800',
+  [SpeciesStatus.EXPERIMENTAL]:
+    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  [SpeciesStatus.DISCONTINUED]:
+    'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 export const speciesCategoryColors: Record<SpeciesCategory, string> = {
-  [SpeciesCategory.FISH]: 'bg-blue-100 text-blue-800',
-  [SpeciesCategory.SHRIMP]: 'bg-orange-100 text-orange-800',
-  [SpeciesCategory.PRAWN]: 'bg-pink-100 text-pink-800',
-  [SpeciesCategory.CRAB]: 'bg-red-100 text-red-800',
-  [SpeciesCategory.LOBSTER]: 'bg-purple-100 text-purple-800',
-  [SpeciesCategory.MOLLUSK]: 'bg-teal-100 text-teal-800',
-  [SpeciesCategory.SEAWEED]: 'bg-green-100 text-green-800',
+  [SpeciesCategory.FISH]: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  [SpeciesCategory.SHRIMP]:
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [SpeciesCategory.PRAWN]:
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [SpeciesCategory.CRAB]: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  [SpeciesCategory.LOBSTER]:
+    'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  [SpeciesCategory.MOLLUSK]: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  [SpeciesCategory.SEAWEED]:
+    'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
   [SpeciesCategory.OTHER]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 export const waterTypeColors: Record<SpeciesWaterType, string> = {
-  [SpeciesWaterType.FRESHWATER]: 'bg-cyan-100 text-cyan-800',
-  [SpeciesWaterType.SALTWATER]: 'bg-indigo-100 text-indigo-800',
-  [SpeciesWaterType.BRACKISH]: 'bg-amber-100 text-amber-800',
+  [SpeciesWaterType.FRESHWATER]: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  [SpeciesWaterType.SALTWATER]:
+    'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  [SpeciesWaterType.BRACKISH]:
+    'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
 };

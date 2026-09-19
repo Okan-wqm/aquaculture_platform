@@ -114,17 +114,21 @@ export function MultiParameterTrendCard({
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title ?? 'Parametre Trendleri'}</h4>
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+          {title ?? 'Parametre Trendleri'}
+        </h4>
         {loading && <span className="text-xs text-gray-400 dark:text-gray-500">Yükleniyor…</span>}
       </div>
       {error ? (
-        <p className="text-sm text-red-600" role="alert">
+        <p className="text-sm text-error-600 dark:text-error-400" role="alert">
           Trend verisi alınamadı: {error}
         </p>
       ) : hasAnyData ? (
         <TrendChart mode="custom" lines={lines} customData={customData} className="h-64" />
       ) : (
-        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">Seçilen aralıkta trend verisi yok.</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+          Seçilen aralıkta trend verisi yok.
+        </p>
       )}
     </div>
   );

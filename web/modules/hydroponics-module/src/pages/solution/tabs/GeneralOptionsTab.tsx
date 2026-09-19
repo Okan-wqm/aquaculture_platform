@@ -94,7 +94,7 @@ const GeneralOptionsTab: React.FC = () => {
               />
             </div>
           ) : (
-            <div className="mb-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+            <div className="mb-3 px-3 py-2 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg text-sm text-warning-700 dark:text-warning-300">
               Starter stage uses Standard NS formula automatically.
             </div>
           )}
@@ -201,7 +201,9 @@ const GeneralOptionsTab: React.FC = () => {
               <NumberInput
                 label="Target Drainage %"
                 value={g.serviceDefinition.targetDrainagePercent}
-                onChange={(e) => updateService('targetDrainagePercent', parseFloat(e.target.value) || 0)}
+                onChange={(e) =>
+                  updateService('targetDrainagePercent', parseFloat(e.target.value) || 0)
+                }
                 unit="%"
                 min={0}
                 max={100}
@@ -210,7 +212,9 @@ const GeneralOptionsTab: React.FC = () => {
                 <NumberInput
                   label="Current Drainage EC"
                   value={g.serviceDefinition.currentDrainageEc}
-                  onChange={(e) => updateService('currentDrainageEc', parseFloat(e.target.value) || 0)}
+                  onChange={(e) =>
+                    updateService('currentDrainageEc', parseFloat(e.target.value) || 0)
+                  }
                   unit="mS/cm"
                   min={0}
                   max={15}

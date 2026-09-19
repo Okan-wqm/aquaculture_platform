@@ -8,6 +8,7 @@ import {
   RegisterVfdInput,
   VFD_PROTOCOL_NAMES,
 } from '../../../types/vfd.types';
+import { CircleCheck, CircleX, Info, Pencil, TriangleAlert } from 'lucide-react';
 
 interface VfdReviewStepProps {
   brand?: VfdBrandInfo;
@@ -38,23 +39,18 @@ export function VfdReviewStep({
       </div>
 
       {/* Brand & Protocol Section */}
-      <ReviewSection
-        title="Marka ve Protokol"
-        stepIndex={0}
-        onEdit={onEdit}
-      >
+      <ReviewSection title="Marka ve Protokol" stepIndex={0} onEdit={onEdit}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ReviewItem label="Marka" value={brand?.name} />
-          <ReviewItem label="Protokol" value={protocol ? VFD_PROTOCOL_NAMES[protocol] : undefined} />
+          <ReviewItem
+            label="Protokol"
+            value={protocol ? VFD_PROTOCOL_NAMES[protocol] : undefined}
+          />
         </div>
       </ReviewSection>
 
       {/* Basic Information Section */}
-      <ReviewSection
-        title="Temel Bilgiler"
-        stepIndex={2}
-        onEdit={onEdit}
-      >
+      <ReviewSection title="Temel Bilgiler" stepIndex={2} onEdit={onEdit}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <ReviewItem label="Cihaz Adı" value={basicInfo.name} required />
           <ReviewItem label="Model Serisi" value={modelSeries} />
@@ -68,7 +64,7 @@ export function VfdReviewStep({
                 {basicInfo.tags.map((tag) => (
                   <span
                     key={tag}
-                    className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full"
+                    className="px-2 py-0.5 text-xs bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded-full"
                   >
                     {tag}
                   </span>
@@ -86,35 +82,26 @@ export function VfdReviewStep({
       </ReviewSection>
 
       {/* Protocol Configuration Section */}
-      <ReviewSection
-        title="Protokol Yapılandırması"
-        stepIndex={3}
-        onEdit={onEdit}
-      >
+      <ReviewSection title="Protokol Yapılandırması" stepIndex={3} onEdit={onEdit}>
         {protocol && renderProtocolConfig(protocol, protocolConfig)}
       </ReviewSection>
 
       {/* Connection Test Section */}
-      <ReviewSection
-        title="Bağlantı Testi"
-        stepIndex={4}
-        onEdit={onEdit}
-      >
+      <ReviewSection title="Bağlantı Testi" stepIndex={4} onEdit={onEdit}>
         {connectionTestResult ? (
           <div className="flex items-center">
             {connectionTestResult.success ? (
               <>
-                <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-3">
-                  <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                <div className="w-8 h-8 bg-success-100 dark:bg-success-900/40 rounded-full flex items-center justify-center mr-3">
+                  <CircleCheck
+                    className="w-5 h-5 text-success-600 dark:text-success-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div>
-                  <span className="font-medium text-green-700">Bağlantı Başarılı</span>
+                  <span className="font-medium text-success-700 dark:text-success-300">
+                    Bağlantı Başarılı
+                  </span>
                   {connectionTestResult.latencyMs && (
                     <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">
                       ({connectionTestResult.latencyMs}ms)
@@ -124,19 +111,20 @@ export function VfdReviewStep({
               </>
             ) : (
               <>
-                <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center mr-3">
-                  <svg className="w-5 h-5 text-red-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                <div className="w-8 h-8 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mr-3">
+                  <CircleX
+                    className="w-5 h-5 text-error-600 dark:text-error-400"
+                    aria-hidden="true"
+                  />
                 </div>
                 <div>
-                  <span className="font-medium text-red-700">Bağlantı Başarısız</span>
+                  <span className="font-medium text-error-700 dark:text-error-300">
+                    Bağlantı Başarısız
+                  </span>
                   {connectionTestResult.error && (
-                    <span className="text-sm text-gray-500 dark:text-gray-400 block">{connectionTestResult.error}</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400 block">
+                      {connectionTestResult.error}
+                    </span>
                   )}
                 </div>
               </>
@@ -144,17 +132,16 @@ export function VfdReviewStep({
           </div>
         ) : (
           <div className="flex items-center">
-            <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center mr-3">
-              <svg className="w-5 h-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                  clipRule="evenodd"
-                />
-              </svg>
+            <div className="w-8 h-8 bg-warning-100 dark:bg-warning-900/40 rounded-full flex items-center justify-center mr-3">
+              <TriangleAlert
+                className="w-5 h-5 text-warning-600 dark:text-warning-400"
+                aria-hidden="true"
+              />
             </div>
             <div>
-              <span className="font-medium text-yellow-700">Test Yapılmadı</span>
+              <span className="font-medium text-warning-700 dark:text-warning-300">
+                Test Yapılmadı
+              </span>
               <span className="text-sm text-gray-500 dark:text-gray-400 block">
                 Bağlantı testi atlandı. Cihaz kayıt sonrası test edilebilir.
               </span>
@@ -164,18 +151,14 @@ export function VfdReviewStep({
       </ReviewSection>
 
       {/* Summary Card */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+      <div className="bg-gradient-to-r from-info-50 to-primary-50 rounded-lg p-6 border border-info-200 dark:border-info-800">
         <div className="flex items-start">
           <div className="flex-shrink-0">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+            <div className="w-12 h-12 bg-info-100 dark:bg-info-900/40 rounded-lg flex items-center justify-center">
+              <CircleCheck
+                className="w-6 h-6 text-info-600 dark:text-info-400"
+                aria-hidden="true"
+              />
             </div>
           </div>
           <div className="ml-4 flex-1">
@@ -186,13 +169,7 @@ export function VfdReviewStep({
               kaydedilecektir.
             </p>
             <div className="mt-3 flex items-center text-sm text-gray-500 dark:text-gray-400">
-              <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <Info className="w-4 h-4 mr-1" aria-hidden="true" />
               Kayıt sonrası cihaz ayarlarını düzenleyebilirsiniz.
             </div>
           </div>
@@ -215,15 +192,10 @@ function ReviewSection({ title, stepIndex, onEdit, children }: ReviewSectionProp
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <h4 className="font-medium text-gray-900 dark:text-gray-100">{title}</h4>
-        <Button variant="ghost" onClick={() => onEdit(stepIndex)}><svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
-            />
-          </svg>
-          Düzenle</Button>
+        <Button variant="ghost" onClick={() => onEdit(stepIndex)}>
+          <Pencil className="w-4 h-4 mr-1" aria-hidden="true" />
+          Düzenle
+        </Button>
       </div>
       <div className="p-4">{children}</div>
     </div>
@@ -243,7 +215,9 @@ function ReviewItem({ label, value, required }: ReviewItemProps) {
       {value ? (
         <span className="font-medium text-gray-900 dark:text-gray-100">{value}</span>
       ) : (
-        <span className={`text-sm ${required ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
+        <span
+          className={`text-sm ${required ? 'text-error-500' : 'text-gray-500 dark:text-gray-400'}`}
+        >
           {required ? 'Gerekli' : 'Belirtilmedi'}
         </span>
       )}
@@ -295,7 +269,7 @@ function renderProtocolConfig(protocol: VfdProtocol, config: Partial<VfdProtocol
   };
 
   const filteredConfig = Object.entries(configObj).filter(
-    ([key, value]) => value !== undefined && value !== null && value !== ''
+    ([key, value]) => value !== undefined && value !== null && value !== '',
   );
 
   return (

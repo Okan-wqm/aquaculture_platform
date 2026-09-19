@@ -12,7 +12,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Modal, useAuth, createTenantQueryKey, createTenantInvalidationKey, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useAuth,
+  createTenantQueryKey,
+  createTenantInvalidationKey,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
   Save,
@@ -42,11 +55,23 @@ import StEditorPanel from '../../components/unified-editor/StEditorPanel';
 import { setTags as setEditorTags } from '../../components/unified-editor/StCompletionProvider';
 import SimulationPanel from '../../simulation/SimulationPanel';
 import VariableSyncPanel from '../../components/automation/VariableSyncPanel';
-import DeployTargetSelector, { DeployTarget } from '../../components/automation/DeployTargetSelector';
-import { useEdgeDevices, useEdgeDevice, DeviceLifecycleState, getDeviceModelText } from '../../hooks/useEdgeDevices';
+import DeployTargetSelector, {
+  DeployTarget,
+} from '../../components/automation/DeployTargetSelector';
+import {
+  useEdgeDevices,
+  useEdgeDevice,
+  DeviceLifecycleState,
+  getDeviceModelText,
+} from '../../hooks/useEdgeDevices';
 import type { EdgeDevice, DeviceIoConfig } from '../../hooks/useEdgeDevices';
 import { graphqlFetch } from '../../config/api';
-import { ProgramStatus, ProgramType, getStatusColor, getStatusText } from '../../utils/automation.utils';
+import {
+  ProgramStatus,
+  ProgramType,
+  getStatusColor,
+  getStatusText,
+} from '../../utils/automation.utils';
 import {
   extractIoVariables,
   analyzeBindings,
@@ -165,7 +190,6 @@ interface ProgramTransition {
   priority?: number;
 }
 
-
 // ============================================================================
 // Components
 // ============================================================================
@@ -186,7 +210,7 @@ const TabButton: React.FC<{
         disabled
           ? 'border-transparent text-gray-500 dark:text-gray-400 cursor-not-allowed'
           : active
-            ? 'border-indigo-600 text-indigo-600'
+            ? 'border-primary-600 text-primary-600 dark:text-primary-400'
             : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
       }`}
     >
@@ -213,9 +237,13 @@ const StepCard: React.FC<{
   <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
     <div className="flex items-start justify-between">
       <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          step.stepType === 'initial' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
-        }`}>
+        <div
+          className={`w-10 h-10 rounded-full flex items-center justify-center ${
+            step.stepType === 'initial'
+              ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+          }`}
+        >
           {step.stepOrder}
         </div>
         <div>
@@ -225,10 +253,12 @@ const StepCard: React.FC<{
           )}
         </div>
       </div>
-      <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={onRemove}><Trash2 className="h-4 w-4" /></Button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={onRemove}>
+        <Trash2 className="h-4 w-4" />
+      </Button>
     </div>
     {step.stepType === 'initial' && (
-      <span className="mt-2 inline-block text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
+      <span className="mt-2 inline-block text-xs text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20 px-2 py-0.5 rounded">
         Initial Step
       </span>
     )}
@@ -241,9 +271,9 @@ const StepCard: React.FC<{
 
 /** Direction badge color */
 const directionBadge: Record<string, string> = {
-  input: 'bg-blue-100 text-blue-700',
-  output: 'bg-orange-100 text-orange-700',
-  inout: 'bg-purple-100 text-purple-700',
+  input: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+  output: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
+  inout: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
 };
 
 const directionLabel: Record<string, string> = {
@@ -254,9 +284,9 @@ const directionLabel: Record<string, string> = {
 
 /** Status badge styling */
 const statusBadgeStyle: Record<string, string> = {
-  bound: 'bg-green-100 text-green-700',
-  unbound: 'bg-red-100 text-red-700',
-  mismatch: 'bg-yellow-100 text-yellow-700',
+  bound: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+  unbound: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+  mismatch: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
 };
 
 const statusLabel: Record<string, string> = {
@@ -280,8 +310,8 @@ const IoTagAnalysisPanel: React.FC<{
         <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm">
           <Unlink className="h-4 w-4" />
           <span>
-            No VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT variables found in ST code.
-            I/O variables are required for binding to physical device tags.
+            No VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT variables found in ST code. I/O variables are
+            required for binding to physical device tags.
           </span>
         </div>
       </div>
@@ -307,7 +337,9 @@ const IoTagAnalysisPanel: React.FC<{
       key: 'direction',
       header: 'Direction',
       render: (_value, b) => (
-        <span className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
+        <span
+          className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+        >
           {directionLabel[b.direction] || b.direction}
         </span>
       ),
@@ -327,7 +359,7 @@ const IoTagAnalysisPanel: React.FC<{
       render: (_value, b) => (
         <>
           {b.boundTagName ? (
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 text-xs font-mono">
               <Link2 className="h-3 w-3" />
               {b.boundTagName}
             </span>
@@ -340,12 +372,8 @@ const IoTagAnalysisPanel: React.FC<{
     {
       key: 'line',
       header: 'Line',
-      render: (_value, b) => (
-        <>
-          L{b.line}
-        </>
-      ),
-    }
+      render: (_value, b) => <>L{b.line}</>,
+    },
   ];
 
   return (
@@ -354,36 +382,38 @@ const IoTagAnalysisPanel: React.FC<{
       <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-indigo-600" />
+            <Zap className="h-4 w-4 text-primary-600 dark:text-primary-400" />
             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               I/O Tag Analysis
             </span>
           </div>
           <div className="flex items-center gap-3 text-xs">
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
               {inputCount} Input
             </span>
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-orange-50 text-orange-700">
+            <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
               {outputCount} Output
             </span>
             {inoutCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-purple-50 text-purple-700">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
                 {inoutCount} In/Out
               </span>
             )}
             <span className="mx-1 text-gray-500 dark:text-gray-400">|</span>
-            <span className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
+            <span
+              className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300' : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}
+            >
               <Link2 className="h-3 w-3" />
               {boundCount} Bound
             </span>
             {unboundCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-red-50 text-red-700">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-error-50 dark:bg-error-900/20 text-error-700 dark:text-error-300">
                 <Unlink className="h-3 w-3" />
                 {unboundCount} Unbound
               </span>
             )}
             {mismatchCount > 0 && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-50 text-yellow-700">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
                 <AlertCircle className="h-3 w-3" />
                 {mismatchCount} Mismatched
               </span>
@@ -394,10 +424,10 @@ const IoTagAnalysisPanel: React.FC<{
 
       {/* Parse errors */}
       {parseErrors.length > 0 && (
-        <div className="bg-red-50 rounded-lg border border-red-200 p-3">
+        <div className="bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800 p-3">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-red-700">
+            <AlertCircle className="h-4 w-4 text-error-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-error-700 dark:text-error-300">
               <p className="font-medium mb-1">ST Parse Errors:</p>
               {parseErrors.map((err, i) => (
                 <div key={i} className="text-xs font-mono">
@@ -411,16 +441,16 @@ const IoTagAnalysisPanel: React.FC<{
 
       {/* Unbound warnings */}
       {unboundCount > 0 && (
-        <div className="bg-amber-50 rounded-lg border border-amber-200 p-3">
+        <div className="bg-warning-50 dark:bg-warning-900/20 rounded-lg border border-warning-200 dark:border-warning-800 p-3">
           <div className="flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-amber-700">
+            <AlertCircle className="h-4 w-4 text-warning-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-warning-700 dark:text-warning-300">
               <p className="font-medium">
                 {unboundCount} I/O variables are not bound to a physical tag
               </p>
               <p className="text-xs mt-0.5">
-                These variables need to be bound to a device I/O tag to access hardware.
-                You can bind each one to a tag from the Variables tab below.
+                These variables need to be bound to a device I/O tag to access hardware. You can
+                bind each one to a tag from the Variables tab below.
               </p>
             </div>
           </div>
@@ -429,10 +459,10 @@ const IoTagAnalysisPanel: React.FC<{
 
       {/* Binding suggestions */}
       {suggestions.length > 0 && hasDevice && (
-        <div className="bg-indigo-50 rounded-lg border border-indigo-200 p-3">
+        <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg border border-primary-200 dark:border-primary-800 p-3">
           <div className="flex items-start gap-2 mb-2">
-            <Zap className="h-4 w-4 text-indigo-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-indigo-700 font-medium">
+            <Zap className="h-4 w-4 text-primary-600 dark:text-primary-400 flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-primary-700 dark:text-primary-300 font-medium">
               Auto-Binding Suggestions
             </div>
           </div>
@@ -440,24 +470,42 @@ const IoTagAnalysisPanel: React.FC<{
             {suggestions.map((s) => (
               <div
                 key={s.variableName}
-                className="flex items-center justify-between bg-white dark:bg-gray-900 rounded px-3 py-1.5 border border-indigo-100"
+                className="flex items-center justify-between bg-white dark:bg-gray-900 rounded px-3 py-1.5 border border-primary-100"
               >
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="font-mono font-medium text-gray-900 dark:text-gray-100">{s.variableName}</span>
+                  <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
+                    {s.variableName}
+                  </span>
                   <span className="text-gray-500 dark:text-gray-400">&#8594;</span>
-                  <span className="font-mono text-indigo-700">{s.suggestedTag.tagName}</span>
-                  <span className="text-gray-500 dark:text-gray-400">({s.suggestedTag.ioType} {s.suggestedTag.dataType})</span>
+                  <span className="font-mono text-primary-700 dark:text-primary-300">
+                    {s.suggestedTag.tagName}
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400">
+                    ({s.suggestedTag.ioType} {s.suggestedTag.dataType})
+                  </span>
                   {s.matchType === 'exact' && (
-                    <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px]">Exact Match</span>
+                    <span className="px-1.5 py-0.5 rounded bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 text-[10px]">
+                      Exact Match
+                    </span>
                   )}
                   {s.matchType === 'normalized' && (
-                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">Similar</span>
+                    <span className="px-1.5 py-0.5 rounded bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 text-[10px]">
+                      Similar
+                    </span>
                   )}
                   {s.matchType === 'partial' && (
-                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[10px]">Partial</span>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[10px]">
+                      Partial
+                    </span>
                   )}
                 </div>
-                <Button variant="primary" size="xs" onClick={() => onApplySuggestion(s.variableName, s.suggestedTag)}>Apply</Button>
+                <Button
+                  variant="primary"
+                  size="xs"
+                  onClick={() => onApplySuggestion(s.variableName, s.suggestedTag)}
+                >
+                  Apply
+                </Button>
               </div>
             ))}
           </div>
@@ -479,14 +527,19 @@ const IoTagAnalysisPanel: React.FC<{
       {/* Warnings list */}
       {bindings.some((b) => b.warning) && (
         <div className="space-y-1">
-          {bindings.filter((b) => b.warning).map((b) => (
-            <div key={`warn-${b.name}-${b.line}`} className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 rounded px-3 py-1.5">
-              <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
-              <span>
-                <span className="font-mono font-medium">{b.name}</span>: {b.warning}
-              </span>
-            </div>
-          ))}
+          {bindings
+            .filter((b) => b.warning)
+            .map((b) => (
+              <div
+                key={`warn-${b.name}-${b.line}`}
+                className="flex items-start gap-2 text-xs text-warning-700 dark:text-warning-300 bg-warning-50 dark:bg-warning-900/20 rounded px-3 py-1.5"
+              >
+                <AlertCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                <span>
+                  <span className="font-mono font-medium">{b.name}</span>: {b.warning}
+                </span>
+              </div>
+            ))}
         </div>
       )}
     </div>
@@ -505,7 +558,9 @@ const AutomationProgramEditorPage: React.FC = () => {
   const isNew = !programId || programId === 'new';
 
   // State
-  const [activeTab, setActiveTab] = useState<'info' | 'steps' | 'variables' | 'code' | 'simulation' | 'transitions' | 'deploy'>('info');
+  const [activeTab, setActiveTab] = useState<
+    'info' | 'steps' | 'variables' | 'code' | 'simulation' | 'transitions' | 'deploy'
+  >('info');
   const [formData, setFormData] = useState({
     programCode: '',
     name: '',
@@ -522,14 +577,31 @@ const AutomationProgramEditorPage: React.FC = () => {
   }>({});
   const [showAddStep, setShowAddStep] = useState(false);
   const [showAddVariable, setShowAddVariable] = useState(false);
-  const [newStep, setNewStep] = useState({ stepName: '', stepCode: '', stepOrder: 1, stepType: 'normal' });
+  const [newStep, setNewStep] = useState({
+    stepName: '',
+    stepCode: '',
+    stepOrder: 1,
+    stepType: 'normal',
+  });
   // Variable form state -- ioTagName/ioConfigId are only populated when scope is INPUT/OUTPUT/IN_OUT
-  const [newVariable, setNewVariable] = useState({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
+  const [newVariable, setNewVariable] = useState({
+    varName: '',
+    dataType: 'BOOL',
+    initialValue: '',
+    scope: 'LOCAL',
+    ioTagName: '',
+    ioConfigId: '',
+  });
   // Tracks which device the user selected in the I/O picker (separate from deploy device)
   const [ioDeviceId, setIoDeviceId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [syncResult, setSyncResult] = useState<{ added: number; removed: number; updated: number; unchanged: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{
+    added: number;
+    removed: number;
+    updated: number;
+    unchanged: number;
+  } | null>(null);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -586,7 +658,9 @@ const AutomationProgramEditorPage: React.FC = () => {
         description: io.description,
       })),
     );
-    return () => { setEditorTags([]); };
+    return () => {
+      setEditorTags([]);
+    };
   }, [ioDeviceId, ioTags]);
 
   // Query
@@ -645,7 +719,9 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch<{ createAutomationProgram: { id: string } }>(CREATE_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       showSuccess('Program created successfully');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms') });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationPrograms'),
+      });
       navigate(`/sensor/automation/${result.createAutomationProgram.id}`, { replace: true });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to create program'),
@@ -656,7 +732,9 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(UPDATE_PROGRAM_MUTATION, { id: programId, input }),
     onSuccess: () => {
       showSuccess('Program updated successfully');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to save program'),
   });
@@ -665,7 +743,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: () => graphqlFetch(SUBMIT_FOR_REVIEW_MUTATION, { id: programId }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to submit for review'),
   });
@@ -675,9 +755,16 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_STEP_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddStep(false);
-      setNewStep({ stepName: '', stepCode: '', stepOrder: (data?.programSteps?.length ?? 0) + 1, stepType: 'normal' });
+      setNewStep({
+        stepName: '',
+        stepCode: '',
+        stepOrder: (data?.programSteps?.length ?? 0) + 1,
+        stepType: 'normal',
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add step'),
   });
@@ -686,7 +773,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_STEP_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete step'),
   });
@@ -696,9 +785,18 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_VARIABLE_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddVariable(false);
-      setNewVariable({ varName: '', dataType: 'BOOL', initialValue: '', scope: 'LOCAL', ioTagName: '', ioConfigId: '' });
+      setNewVariable({
+        varName: '',
+        dataType: 'BOOL',
+        initialValue: '',
+        scope: 'LOCAL',
+        ioTagName: '',
+        ioConfigId: '',
+      });
       setIoDeviceId('');
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add variable'),
@@ -708,21 +806,32 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_VARIABLE_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete variable'),
   });
 
   const syncVariablesMutation = useMutation({
-    mutationFn: (input: { programId: string; variables: { varName: string; dataType: string; initialValue?: string; scope: string }[] }) =>
-      graphqlFetch<{ syncProgramVariables: { added: number; removed: number; updated: number; unchanged: number } }>(
-        SYNC_PROGRAM_VARIABLES_MUTATION,
-        { input },
-      ),
+    mutationFn: (input: {
+      programId: string;
+      variables: { varName: string; dataType: string; initialValue?: string; scope: string }[];
+    }) =>
+      graphqlFetch<{
+        syncProgramVariables: {
+          added: number;
+          removed: number;
+          updated: number;
+          unchanged: number;
+        };
+      }>(SYNC_PROGRAM_VARIABLES_MUTATION, { input }),
     onSuccess: (result) => {
       setErrorMessage(null);
       setSyncResult(result.syncProgramVariables);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       // Auto-clear sync result after 5 seconds
       setTimeout(() => setSyncResult(null), 5000);
     },
@@ -731,17 +840,23 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const deployMutation = useMutation({
     mutationFn: (input: { programId: string; deviceId: string }) =>
-      graphqlFetch<{ deployProgram: { success: boolean; programId: string; deviceId: string; error?: string } }>(
-        DEPLOY_PROGRAM_MUTATION,
-        { input },
-      ),
+      graphqlFetch<{
+        deployProgram: { success: boolean; programId: string; deviceId: string; error?: string };
+      }>(DEPLOY_PROGRAM_MUTATION, { input }),
     onSuccess: (result) => {
       if (result.deployProgram.success) {
         showSuccess('Deployment started successfully');
-        queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
-        queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'deploymentHistory') });
+        queryClient.invalidateQueries({
+          queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+        });
+        queryClient.invalidateQueries({
+          queryKey: createTenantInvalidationKey(tenantId, 'deploymentHistory'),
+        });
       } else {
-        handleMutationError(new Error(result.deployProgram.error || 'Unknown error'), 'Deployment failed');
+        handleMutationError(
+          new Error(result.deployProgram.error || 'Unknown error'),
+          'Deployment failed',
+        );
       }
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to start deployment'),
@@ -751,18 +866,23 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: () => graphqlFetch(APPROVE_PROGRAM_MUTATION, { id: programId }),
     onSuccess: () => {
       showSuccess('Program approved');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to approve program'),
   });
 
   const rejectMutation = useMutation({
-    mutationFn: (reason: string) => graphqlFetch(REJECT_PROGRAM_MUTATION, { id: programId, reason }),
+    mutationFn: (reason: string) =>
+      graphqlFetch(REJECT_PROGRAM_MUTATION, { id: programId, reason }),
     onSuccess: () => {
       showSuccess('Program rejected');
       setShowRejectModal(false);
       setRejectReason('');
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to reject program'),
   });
@@ -772,9 +892,17 @@ const AutomationProgramEditorPage: React.FC = () => {
       graphqlFetch(ADD_TRANSITION_MUTATION, { input }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
       setShowAddTransition(false);
-      setNewTransition({ transitionCode: '', fromStepId: '', toStepId: '', conditionExpression: '', priority: 1 });
+      setNewTransition({
+        transitionCode: '',
+        fromStepId: '',
+        toStepId: '',
+        conditionExpression: '',
+        priority: 1,
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to add transition'),
   });
@@ -783,7 +911,9 @@ const AutomationProgramEditorPage: React.FC = () => {
     mutationFn: (id: string) => graphqlFetch(REMOVE_TRANSITION_MUTATION, { id }),
     onSuccess: () => {
       setErrorMessage(null);
-      queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId) });
+      queryClient.invalidateQueries({
+        queryKey: createTenantInvalidationKey(tenantId, 'automationProgram', programId),
+      });
     },
     onError: (error: Error) => handleMutationError(error, 'Failed to delete transition'),
   });
@@ -792,10 +922,15 @@ const AutomationProgramEditorPage: React.FC = () => {
   const { data: deploymentHistoryData } = useQuery({
     queryKey: createTenantQueryKey(tenantId, 'deploymentHistory', selectedDeviceId),
     queryFn: () =>
-      graphqlFetch<{ deploymentHistory: { items: DeploymentRecord[]; total: number; hasNextPage: boolean; hasPreviousPage: boolean; totalPages: number } }>(
-        DEPLOYMENT_HISTORY_QUERY,
-        { deviceId: selectedDeviceId, page: 1, limit: 10 },
-      ),
+      graphqlFetch<{
+        deploymentHistory: {
+          items: DeploymentRecord[];
+          total: number;
+          hasNextPage: boolean;
+          hasPreviousPage: boolean;
+          totalPages: number;
+        };
+      }>(DEPLOYMENT_HISTORY_QUERY, { deviceId: selectedDeviceId, page: 1, limit: 10 }),
     enabled: !isNew && !!selectedDeviceId && activeTab === 'deploy',
   });
   const deploymentHistory = deploymentHistoryData?.deploymentHistory?.items ?? [];
@@ -885,7 +1020,13 @@ const AutomationProgramEditorPage: React.FC = () => {
   };
 
   const handleAddTransition = () => {
-    if (!isNew && programId && newTransition.fromStepId && newTransition.toStepId && newTransition.conditionExpression) {
+    if (
+      !isNew &&
+      programId &&
+      newTransition.fromStepId &&
+      newTransition.toStepId &&
+      newTransition.conditionExpression
+    ) {
       addTransitionMutation.mutate({ ...newTransition, programId });
     }
   };
@@ -896,10 +1037,7 @@ const AutomationProgramEditorPage: React.FC = () => {
   const transitions = data?.programTransitions || [];
 
   // ── I/O Tag Analysis ──────────────────────────────────────────────────
-  const tagAnalysis: TagExtractionResult = useMemo(
-    () => extractIoVariables(stCode),
-    [stCode],
-  );
+  const tagAnalysis: TagExtractionResult = useMemo(() => extractIoVariables(stCode), [stCode]);
 
   const ioBindings: IoVariableWithBinding[] = useMemo(
     () => analyzeBindings(tagAnalysis.ioVariables, variables),
@@ -917,10 +1055,11 @@ const AutomationProgramEditorPage: React.FC = () => {
   }, [ioTags]);
 
   const unboundVars = useMemo(
-    () => tagAnalysis.ioVariables.filter((v) => {
-      const binding = ioBindings.find((b) => b.name === v.name && b.line === v.line);
-      return binding && binding.status !== 'bound';
-    }),
+    () =>
+      tagAnalysis.ioVariables.filter((v) => {
+        const binding = ioBindings.find((b) => b.name === v.name && b.line === v.line);
+        return binding && binding.status !== 'bound';
+      }),
     [tagAnalysis.ioVariables, ioBindings],
   );
 
@@ -931,12 +1070,16 @@ const AutomationProgramEditorPage: React.FC = () => {
 
   const handleApplySuggestion = (variableName: string, tag: DeviceTag) => {
     if (!programId || isNew) return;
-    const existingVar = variables.find((v) => v.varName.toLowerCase() === variableName.toLowerCase());
+    const existingVar = variables.find(
+      (v) => v.varName.toLowerCase() === variableName.toLowerCase(),
+    );
     const extracted = tagAnalysis.ioVariables.find((v) => v.name === variableName);
     if (!extracted) return;
 
     if (existingVar) {
-      setSuccessMessage(`Please bind variable "${variableName}" to tag "${tag.tagName}" from the Variables tab.`);
+      setSuccessMessage(
+        `Please bind variable "${variableName}" to tag "${tag.tagName}" from the Variables tab.`,
+      );
     } else {
       const scopeMap: Record<string, string> = { input: 'INPUT', output: 'OUTPUT', inout: 'INOUT' };
       const scope = scopeMap[extracted.direction] || 'INPUT';
@@ -974,7 +1117,9 @@ const AutomationProgramEditorPage: React.FC = () => {
   };
 
   // Bulk sync all detected variables with the backend in a single call
-  const handleSyncAllVariables = (variables: { varName: string; dataType: string; initialValue?: string; scope: string }[]) => {
+  const handleSyncAllVariables = (
+    variables: { varName: string; dataType: string; initialValue?: string; scope: string }[],
+  ) => {
     if (!isNew && programId) {
       const sanitized = variables.map((v) => ({
         varName: v.varName,
@@ -1000,14 +1145,16 @@ const AutomationProgramEditorPage: React.FC = () => {
       header: 'Status',
       render: (_value, dep) => {
         const statusBadge: Record<string, string> = {
-          success: 'bg-green-100 text-green-700',
-          failed: 'bg-red-100 text-red-700',
-          pending: 'bg-yellow-100 text-yellow-700',
-          in_progress: 'bg-blue-100 text-blue-700',
+          success: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+          failed: 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300',
+          pending: 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+          in_progress: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
           rolled_back: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
         };
         return (
-          <span className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
+          <span
+            className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
+          >
             {dep.status}
           </span>
         );
@@ -1016,11 +1163,7 @@ const AutomationProgramEditorPage: React.FC = () => {
     {
       key: 'version',
       header: 'Version',
-      render: (_value, dep) => (
-        <>
-          v{dep.version}
-        </>
-      ),
+      render: (_value, dep) => <>v{dep.version}</>,
     },
     {
       key: 'deployedBy',
@@ -1043,17 +1186,34 @@ const AutomationProgramEditorPage: React.FC = () => {
       render: (_value, dep, idx) => (
         <>
           {idx === 0 && dep.status === 'success' && (
-            <Button variant="ghost" size="xs" leftIcon={<Undo2 className="h-3 w-3" />} title="Roll back to this version">Rollback</Button>
+            <Button
+              variant="ghost"
+              size="xs"
+              leftIcon={<Undo2 className="h-3 w-3" />}
+              title="Roll back to this version"
+            >
+              Rollback
+            </Button>
           )}
         </>
       ),
-    }
+    },
   ];
 
   const variableColumns: DataTableColumn<ProgramVariable>[] = [
-    { key: 'varName', header: 'Name', render: (_value, variable) => <span className="font-mono">{variable.varName}</span> },
+    {
+      key: 'varName',
+      header: 'Name',
+      render: (_value, variable) => <span className="font-mono">{variable.varName}</span>,
+    },
     { key: 'dataType', header: 'Type' },
-    { key: 'initialValue', header: 'Value', render: (_value, variable) => <span className="font-mono">{variable.initialValue || '-'}</span> },
+    {
+      key: 'initialValue',
+      header: 'Value',
+      render: (_value, variable) => (
+        <span className="font-mono">{variable.initialValue || '-'}</span>
+      ),
+    },
     { key: 'scope', header: 'Scope' },
     {
       key: 'ioTagName',
@@ -1061,19 +1221,33 @@ const AutomationProgramEditorPage: React.FC = () => {
       // Show bound I/O tag name -- helps operators verify correct physical wiring
       render: (_value, variable) =>
         variable.ioTagName ? (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-mono">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300 text-xs font-mono">
             {variable.ioTagName}
           </span>
         ) : (
           <span className="text-gray-500 dark:text-gray-400">-</span>
         ),
     },
-    { key: 'description', header: 'Description', render: (_value, variable) => <span className="text-gray-500 dark:text-gray-400">{variable.description || '-'}</span> },
+    {
+      key: 'description',
+      header: 'Description',
+      render: (_value, variable) => (
+        <span className="text-gray-500 dark:text-gray-400">{variable.description || '-'}</span>
+      ),
+    },
     {
       key: 'actions',
       header: '',
       render: (_value, variable) => (
-        <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => removeVariableMutation.mutate(variable.id)}><Trash2 className="h-4 w-4" /></Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          aria-label="Delete"
+          onClick={() => removeVariableMutation.mutate(variable.id)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
       ),
     },
   ];
@@ -1082,23 +1256,37 @@ const AutomationProgramEditorPage: React.FC = () => {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Error Toast */}
       {errorMessage && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between" role="alert">
-          <div className="flex items-center gap-2 text-red-700">
+        <div
+          className="mb-4 p-3 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg flex items-center justify-between"
+          role="alert"
+        >
+          <div className="flex items-center gap-2 text-error-700 dark:text-error-300">
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">{errorMessage}</span>
           </div>
-          <Button variant="ghost" onClick={() => setErrorMessage(null)} aria-label="Dismiss error">Close</Button>
+          <Button variant="ghost" onClick={() => setErrorMessage(null)} aria-label="Dismiss error">
+            Close
+          </Button>
         </div>
       )}
 
       {/* Success Toast */}
       {successMessage && (
-        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between" role="status">
-          <div className="flex items-center gap-2 text-green-700">
+        <div
+          className="mb-4 p-3 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg flex items-center justify-between"
+          role="status"
+        >
+          <div className="flex items-center gap-2 text-success-700 dark:text-success-300">
             <CheckCircle className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">{successMessage}</span>
           </div>
-          <Button variant="ghost" onClick={() => setSuccessMessage(null)} aria-label="Dismiss success">Close</Button>
+          <Button
+            variant="ghost"
+            onClick={() => setSuccessMessage(null)}
+            aria-label="Dismiss success"
+          >
+            Close
+          </Button>
         </div>
       )}
 
@@ -1115,13 +1303,29 @@ const AutomationProgramEditorPage: React.FC = () => {
           bodyClassName="p-6"
           footer={
             <>
-              <Button variant="secondary" type="button" onClick={closeRejectModal}>Cancel</Button>
-              <Button variant="danger" onClick={() => rejectReason.trim() && rejectMutation.mutate(rejectReason.trim())} disabled={!rejectReason.trim() || rejectMutation.isPending}>{rejectMutation.isPending ? <Spinner size="sm" color="inherit" className="inline mr-1" /> : null}
-                Reject</Button>
+              <Button variant="secondary" type="button" onClick={closeRejectModal}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => rejectReason.trim() && rejectMutation.mutate(rejectReason.trim())}
+                disabled={!rejectReason.trim() || rejectMutation.isPending}
+              >
+                {rejectMutation.isPending ? (
+                  <Spinner size="sm" color="inherit" className="inline mr-1" />
+                ) : null}
+                Reject
+              </Button>
             </>
           }
         >
-          <Textarea fullWidth value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Enter rejection reason..." rows={4} />
+          <Textarea
+            fullWidth
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Enter rejection reason..."
+            rows={4}
+          />
         </Modal>
       )}
 
@@ -1151,25 +1355,50 @@ const AutomationProgramEditorPage: React.FC = () => {
         actions={
           <div className="flex items-center gap-2">
             {program?.status === ProgramStatus.DRAFT && (
-              <Button variant="secondary" leftIcon={<Send className="h-4 w-4" />} onClick={() => submitForReviewMutation.mutate()} disabled={submitForReviewMutation.isPending}>Submit for Review</Button>
+              <Button
+                variant="secondary"
+                leftIcon={<Send className="h-4 w-4" />}
+                onClick={() => submitForReviewMutation.mutate()}
+                disabled={submitForReviewMutation.isPending}
+              >
+                Submit for Review
+              </Button>
             )}
             {program?.status === ProgramStatus.PENDING_REVIEW && (
               <>
-                <Button variant="primary" onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending}>{approveMutation.isPending ? (
+                <Button
+                  variant="primary"
+                  onClick={() => approveMutation.mutate()}
+                  disabled={approveMutation.isPending}
+                >
+                  {approveMutation.isPending ? (
                     <Spinner size="sm" color="inherit" />
                   ) : (
                     <CheckCircle className="h-4 w-4" />
                   )}
-                  Approve</Button>
-                <Button variant="danger" leftIcon={<XCircle className="h-4 w-4" />} onClick={() => setShowRejectModal(true)}>Reject</Button>
+                  Approve
+                </Button>
+                <Button
+                  variant="danger"
+                  leftIcon={<XCircle className="h-4 w-4" />}
+                  onClick={() => setShowRejectModal(true)}
+                >
+                  Reject
+                </Button>
               </>
             )}
-            <Button variant="primary" onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending}>{(createMutation.isPending || updateMutation.isPending) ? (
+            <Button
+              variant="primary"
+              onClick={handleSave}
+              disabled={createMutation.isPending || updateMutation.isPending}
+            >
+              {createMutation.isPending || updateMutation.isPending ? (
                 <Spinner size="sm" color="inherit" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              Save</Button>
+              Save
+            </Button>
           </div>
         }
         className="mb-6"
@@ -1177,12 +1406,12 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Approval/Rejection Info */}
       {program?.approvedBy && (
-        <div className="mb-4 px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm text-green-700">
+        <div className="mb-4 px-3 py-2 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg text-sm text-success-700 dark:text-success-300">
           Approveyan: {program.approvedBy}
         </div>
       )}
       {program?.status === ProgramStatus.DRAFT && !program?.approvedBy && program?.version > 1 && (
-        <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        <div className="mb-4 px-3 py-2 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-sm text-error-700 dark:text-error-300">
           Program rejected
         </div>
       )}
@@ -1191,14 +1420,22 @@ const AutomationProgramEditorPage: React.FC = () => {
       {program && (
         <div className="mb-6">
           <div className="flex items-center justify-between">
-            {([
-              { key: ProgramStatus.DRAFT, label: 'Draft' },
-              { key: ProgramStatus.PENDING_REVIEW, label: 'Pending Review' },
-              { key: ProgramStatus.APPROVED, label: 'Approved' },
-              { key: ProgramStatus.DEPLOYING, label: 'Deploying' },
-              { key: ProgramStatus.DEPLOYED, label: 'Deployed' },
-            ] as const).map((step, index, arr) => {
-              const statusOrder = [ProgramStatus.DRAFT, ProgramStatus.PENDING_REVIEW, ProgramStatus.APPROVED, ProgramStatus.DEPLOYING, ProgramStatus.DEPLOYED];
+            {(
+              [
+                { key: ProgramStatus.DRAFT, label: 'Draft' },
+                { key: ProgramStatus.PENDING_REVIEW, label: 'Pending Review' },
+                { key: ProgramStatus.APPROVED, label: 'Approved' },
+                { key: ProgramStatus.DEPLOYING, label: 'Deploying' },
+                { key: ProgramStatus.DEPLOYED, label: 'Deployed' },
+              ] as const
+            ).map((step, index, arr) => {
+              const statusOrder = [
+                ProgramStatus.DRAFT,
+                ProgramStatus.PENDING_REVIEW,
+                ProgramStatus.APPROVED,
+                ProgramStatus.DEPLOYING,
+                ProgramStatus.DEPLOYED,
+              ];
               const currentIndex = statusOrder.indexOf(program.status);
               const stepIndex = statusOrder.indexOf(step.key);
               const isCompleted = stepIndex < currentIndex;
@@ -1210,9 +1447,9 @@ const AutomationProgramEditorPage: React.FC = () => {
                     <div
                       className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
                         isCompleted
-                          ? 'bg-green-500 text-white'
+                          ? 'bg-success-500 text-white'
                           : isCurrent
-                            ? 'bg-indigo-600 text-white ring-4 ring-indigo-100'
+                            ? 'bg-primary-600 text-white ring-4 ring-primary-100'
                             : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                       }`}
                     >
@@ -1220,7 +1457,9 @@ const AutomationProgramEditorPage: React.FC = () => {
                     </div>
                     <span
                       className={`mt-1 text-xs ${
-                        isCurrent ? 'font-semibold text-indigo-600' : 'text-gray-500 dark:text-gray-400'
+                        isCurrent
+                          ? 'font-semibold text-primary-600 dark:text-primary-400'
+                          : 'text-gray-500 dark:text-gray-400'
                       }`}
                     >
                       {step.label}
@@ -1229,7 +1468,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   {index < arr.length - 1 && (
                     <div
                       className={`flex-1 h-0.5 mx-1 mt-[-12px] ${
-                        stepIndex < currentIndex ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
+                        stepIndex < currentIndex ? 'bg-success-500' : 'bg-gray-200 dark:bg-gray-700'
                       }`}
                     />
                   )}
@@ -1252,9 +1491,11 @@ const AutomationProgramEditorPage: React.FC = () => {
           active={activeTab === 'variables'}
           onClick={() => setActiveTab('variables')}
           icon={
-            ioBindings.some((b) => b.status === 'unbound')
-              ? <AlertCircle className="h-4 w-4 text-amber-500" />
-              : <Variable className="h-4 w-4" />
+            ioBindings.some((b) => b.status === 'unbound') ? (
+              <AlertCircle className="h-4 w-4 text-warning-500" />
+            ) : (
+              <Variable className="h-4 w-4" />
+            )
           }
           label="Variables"
           count={isNew ? undefined : variables.length}
@@ -1291,13 +1532,26 @@ const AutomationProgramEditorPage: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Code *
               </label>
-              <Input fullWidth type="text" value={formData.programCode} onChange={(e) => setFormData({ ...formData, programCode: e.target.value })} disabled={!isNew} placeholder="PRG_001" />
+              <Input
+                fullWidth
+                type="text"
+                value={formData.programCode}
+                onChange={(e) => setFormData({ ...formData, programCode: e.target.value })}
+                disabled={!isNew}
+                placeholder="PRG_001"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Name *
               </label>
-              <Input fullWidth type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Feeding Automation" />
+              <Input
+                fullWidth
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="Feeding Automation"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1311,7 +1565,13 @@ const AutomationProgramEditorPage: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Description
               </label>
-              <Textarea fullWidth value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="Program description..." />
+              <Textarea
+                fullWidth
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={3}
+                placeholder="Program description..."
+              />
             </div>
           </div>
         </div>
@@ -1351,32 +1611,73 @@ const AutomationProgramEditorPage: React.FC = () => {
           )}
 
           <div className="flex justify-end">
-            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowAddVariable(true)}>Add Variable</Button>
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={() => setShowAddVariable(true)}
+            >
+              Add Variable
+            </Button>
           </div>
 
           {showAddVariable && (
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h3 className="font-medium mb-3">New Variable</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <Input type="text" value={newVariable.varName} onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })} placeholder="Variable name" />
-                <Select options={[{ value: 'BOOL', label: 'BOOL' }, { value: 'INT', label: 'INT' }, { value: 'REAL', label: 'REAL' }, { value: 'TIME', label: 'TIME' }, { value: 'STRING', label: 'STRING' }]} value={newVariable.dataType} onChange={(e) => setNewVariable({ ...newVariable, dataType: e.target.value })} />
-                <Input type="text" value={newVariable.initialValue} onChange={(e) => setNewVariable({ ...newVariable, initialValue: e.target.value })} placeholder="Initial value" />
-                <Select options={[{ value: 'LOCAL', label: 'LOCAL' }, { value: 'INPUT', label: 'INPUT' }, { value: 'OUTPUT', label: 'OUTPUT' }, { value: 'INOUT', label: 'INOUT' }, { value: 'RETAIN', label: 'RETAIN' }, { value: 'CONSTANT', label: 'CONSTANT' }]} value={newVariable.scope} onChange={(e) => {
-          const scope = e.target.value;
-          // Clear I/O binding when switching away from an I/O-capable scope
-          setNewVariable({ ...newVariable, scope, ioTagName: '', ioConfigId: '' });
-          if (!isIoScope(scope)) {
-           setIoDeviceId('');
-          }
-         }} />
+                <Input
+                  type="text"
+                  value={newVariable.varName}
+                  onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })}
+                  placeholder="Variable name"
+                />
+                <Select
+                  options={[
+                    { value: 'BOOL', label: 'BOOL' },
+                    { value: 'INT', label: 'INT' },
+                    { value: 'REAL', label: 'REAL' },
+                    { value: 'TIME', label: 'TIME' },
+                    { value: 'STRING', label: 'STRING' },
+                  ]}
+                  value={newVariable.dataType}
+                  onChange={(e) => setNewVariable({ ...newVariable, dataType: e.target.value })}
+                />
+                <Input
+                  type="text"
+                  value={newVariable.initialValue}
+                  onChange={(e) => setNewVariable({ ...newVariable, initialValue: e.target.value })}
+                  placeholder="Initial value"
+                />
+                <Select
+                  options={[
+                    { value: 'LOCAL', label: 'LOCAL' },
+                    { value: 'INPUT', label: 'INPUT' },
+                    { value: 'OUTPUT', label: 'OUTPUT' },
+                    { value: 'INOUT', label: 'INOUT' },
+                    { value: 'RETAIN', label: 'RETAIN' },
+                    { value: 'CONSTANT', label: 'CONSTANT' },
+                  ]}
+                  value={newVariable.scope}
+                  onChange={(e) => {
+                    const scope = e.target.value;
+                    // Clear I/O binding when switching away from an I/O-capable scope
+                    setNewVariable({ ...newVariable, scope, ioTagName: '', ioConfigId: '' });
+                    if (!isIoScope(scope)) {
+                      setIoDeviceId('');
+                    }
+                  }}
+                />
               </div>
               {/* I/O Tag Binding -- only INPUT/OUTPUT/IN_OUT variables can be bound to physical tags */}
               {showIoTagPicker && (
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h4 className="text-sm font-medium text-blue-700 mb-3">I/O Tag Binding</h4>
+                <div className="mt-4 p-3 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg">
+                  <h4 className="text-sm font-medium text-info-700 dark:text-info-300 mb-3">
+                    I/O Tag Binding
+                  </h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Edge Device</label>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        Edge Device
+                      </label>
                       <select
                         value={ioDeviceId}
                         onChange={(e) => {
@@ -1388,13 +1689,16 @@ const AutomationProgramEditorPage: React.FC = () => {
                         <option value="">Select device...</option>
                         {allActiveDevices.map((device: EdgeDevice) => (
                           <option key={device.id} value={device.id}>
-                            {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
+                            {device.deviceName} ({device.deviceCode}) -{' '}
+                            {getDeviceModelText(device.deviceModel)}
                           </option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">I/O Tag</label>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                        I/O Tag
+                      </label>
                       <select
                         value={newVariable.ioConfigId}
                         onChange={(e) => {
@@ -1406,7 +1710,8 @@ const AutomationProgramEditorPage: React.FC = () => {
                               ...newVariable,
                               ioConfigId: selectedTag.id,
                               ioTagName: selectedTag.tagName,
-                              dataType: IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
+                              dataType:
+                                IO_TO_IEC_DATA_TYPE[selectedTag.dataType] || newVariable.dataType,
                             });
                           } else {
                             setNewVariable({ ...newVariable, ioConfigId: '', ioTagName: '' });
@@ -1415,7 +1720,13 @@ const AutomationProgramEditorPage: React.FC = () => {
                         disabled={!ioDeviceId || ioTags.length === 0}
                         className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800"
                       >
-                        <option value="">{!ioDeviceId ? 'Select device first...' : ioTags.length === 0 ? 'No I/O tags found' : 'Select tag...'}</option>
+                        <option value="">
+                          {!ioDeviceId
+                            ? 'Select device first...'
+                            : ioTags.length === 0
+                              ? 'No I/O tags found'
+                              : 'Select tag...'}
+                        </option>
                         {ioTags.map((tag) => (
                           <option key={tag.id} value={tag.id}>
                             {tag.tagName} ({tag.ioType} - {tag.dataType})
@@ -1427,19 +1738,32 @@ const AutomationProgramEditorPage: React.FC = () => {
                     </div>
                   </div>
                   {newVariable.ioTagName && (
-                    <div className="mt-2 text-xs text-blue-600">
-                      Bound tag: <span className="font-mono font-medium">{newVariable.ioTagName}</span>
-                      {' | Data type auto-set: '}<span className="font-medium">{newVariable.dataType}</span>
+                    <div className="mt-2 text-xs text-info-600 dark:text-info-400">
+                      Bound tag:{' '}
+                      <span className="font-mono font-medium">{newVariable.ioTagName}</span>
+                      {' | Data type auto-set: '}
+                      <span className="font-medium">{newVariable.dataType}</span>
                     </div>
                   )}
                 </div>
               )}
               <div className="flex justify-end gap-2 mt-4">
-                <Button variant="secondary" onClick={() => {
+                <Button
+                  variant="secondary"
+                  onClick={() => {
                     setShowAddVariable(false);
                     setIoDeviceId('');
-                  }}>Cancel</Button>
-                <Button variant="primary" onClick={handleAddVariable} disabled={addVariableMutation.isPending}>Add</Button>
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleAddVariable}
+                  disabled={addVariableMutation.isPending}
+                >
+                  Add
+                </Button>
               </div>
             </div>
           )}
@@ -1466,23 +1790,30 @@ const AutomationProgramEditorPage: React.FC = () => {
                 <Zap className="h-3.5 w-3.5" />
                 I/O Variables:
               </span>
-              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700">{tagAnalysis.inputCount} Input</span>
-              <span className="px-1.5 py-0.5 rounded bg-orange-50 text-orange-700">{tagAnalysis.outputCount} Output</span>
+              <span className="px-1.5 py-0.5 rounded bg-info-50 dark:bg-info-900/20 text-info-700 dark:text-info-300">
+                {tagAnalysis.inputCount} Input
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+                {tagAnalysis.outputCount} Output
+              </span>
               {tagAnalysis.inoutCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-700">{tagAnalysis.inoutCount} In/Out</span>
+                <span className="px-1.5 py-0.5 rounded bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300">
+                  {tagAnalysis.inoutCount} In/Out
+                </span>
               )}
               {ioBindings.filter((b) => b.status === 'unbound').length > 0 && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-warning-50 dark:bg-warning-900/20 text-warning-700 dark:text-warning-300">
                   <AlertCircle className="h-3 w-3" />
                   {ioBindings.filter((b) => b.status === 'unbound').length} unbound tags
                 </span>
               )}
-              {ioBindings.filter((b) => b.status === 'unbound').length === 0 && tagAnalysis.ioVariables.length > 0 && (
-                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-50 text-green-700">
-                  <CheckCircle className="h-3 w-3" />
-                  All tags bound
-                </span>
-              )}
+              {ioBindings.filter((b) => b.status === 'unbound').length === 0 &&
+                tagAnalysis.ioVariables.length > 0 && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300">
+                    <CheckCircle className="h-3 w-3" />
+                    All tags bound
+                  </span>
+                )}
             </div>
           )}
           <StEditorPanel
@@ -1543,20 +1874,23 @@ const AutomationProgramEditorPage: React.FC = () => {
                 <option value="">Select device...</option>
                 {onlineDevices.map((device: EdgeDevice) => (
                   <option key={device.id} value={device.id}>
-                    {device.deviceName} ({device.deviceCode}) - {getDeviceModelText(device.deviceModel)}
+                    {device.deviceName} ({device.deviceCode}) -{' '}
+                    {getDeviceModelText(device.deviceModel)}
                     {device.isOnline ? ' [Online]' : ' [Offline]'}
                   </option>
                 ))}
               </select>
             )}
-            {selectedDeviceId && onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (
-              <div className="mt-3 flex items-center gap-2 text-sm text-green-600">
-                <Wifi className="h-4 w-4" />
-                <span>
-                  {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} - Online
-                </span>
-              </div>
-            )}
+            {selectedDeviceId &&
+              onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId) && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-success-600 dark:text-success-400">
+                  <Wifi className="h-4 w-4" />
+                  <span>
+                    {onlineDevices.find((d: EdgeDevice) => d.id === selectedDeviceId)?.deviceName} -
+                    Online
+                  </span>
+                </div>
+              )}
           </div>
 
           {/* Deploy Action */}
@@ -1571,23 +1905,29 @@ const AutomationProgramEditorPage: React.FC = () => {
                   ? `Will deploy to ${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} target`
                   : 'Program must be approved before deployment'}
               </p>
-              <Button variant="primary" onClick={handleDeploy} disabled={
+              <Button
+                variant="primary"
+                onClick={handleDeploy}
+                disabled={
                   program?.status !== ProgramStatus.APPROVED ||
                   !selectedDeviceId ||
                   deployMutation.isPending
-                }>{deployMutation.isPending ? (
+                }
+              >
+                {deployMutation.isPending ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <Upload className="h-4 w-4" />
                 )}
-                Start Deployment</Button>
+                Start Deployment
+              </Button>
               {program?.status !== ProgramStatus.APPROVED && (
-                <p className="mt-2 text-xs text-amber-600">
+                <p className="mt-2 text-xs text-warning-600 dark:text-warning-400">
                   Program must be approved for deployment.
                 </p>
               )}
               {program?.status === ProgramStatus.APPROVED && !selectedDeviceId && (
-                <p className="mt-2 text-xs text-amber-600">
+                <p className="mt-2 text-xs text-warning-600 dark:text-warning-400">
                   Please select an edge device.
                 </p>
               )}
@@ -1618,11 +1958,12 @@ const AutomationProgramEditorPage: React.FC = () => {
                 compact
               />
             )}
-            {deploymentHistory.length > 0 && deploymentHistory[deploymentHistory.length - 1]?.errorMessage && (
-              <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-sm text-red-600">
-                Last error: {deploymentHistory[deploymentHistory.length - 1].errorMessage}
-              </div>
-            )}
+            {deploymentHistory.length > 0 &&
+              deploymentHistory[deploymentHistory.length - 1]?.errorMessage && (
+                <div className="mt-3 p-2 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded text-sm text-error-600 dark:text-error-400">
+                  Last error: {deploymentHistory[deploymentHistory.length - 1].errorMessage}
+                </div>
+              )}
           </div>
         </div>
       )}

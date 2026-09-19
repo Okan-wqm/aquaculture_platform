@@ -14,6 +14,7 @@ import {
   tenantScopedStorageKey,
   chartChrome,
   colors,
+  ChartTooltipContent,
 } from '@aquaculture/shared-ui';
 import {
   BarChart,
@@ -36,16 +37,11 @@ import {
   defaultChartVisibility,
 } from '../../tanks/components';
 import type { ChartVisibility } from '../../tanks/components';
+import { Plus } from 'lucide-react';
 
 // ============================================================================
 // Constants
 // ============================================================================
-
-const tooltipStyle = {
-  backgroundColor: 'white',
-  border: `1px solid ${chartChrome.border}`,
-  borderRadius: '8px',
-};
 
 // ============================================================================
 // Status color mapping for pie chart
@@ -74,9 +70,7 @@ interface TanksAnalyticsTabProps {
  */
 const NoDataPlaceholder: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
-    <svg className="w-12 h-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 12H4M12 4v16" />
-    </svg>
+    <Plus className="w-12 h-12 mb-2" aria-hidden="true" />
     <p className="text-sm">{label}</p>
   </div>
 );
@@ -263,8 +257,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         {/* Biomass by Tank */}
         <Card>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Biomass by Tank</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Top 10 tanks by current biomass (kg)</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Biomass by Tank
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Top 10 tanks by current biomass (kg)
+            </p>
           </div>
           <div className="p-4">
             {biomassByTank.length > 0 ? (
@@ -273,7 +271,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
                   <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
                   <XAxis type="number" stroke={chartChrome.axis} />
                   <YAxis dataKey="tank" type="category" stroke={chartChrome.axis} width={80} />
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip content={<ChartTooltipContent />} />
                   <Bar
                     dataKey="biomass"
                     name="Biomass (kg)"
@@ -291,8 +289,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         {/* Tank Status Distribution */}
         <Card>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tank Status Distribution</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Current operational status of all tanks</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Tank Status Distribution
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Current operational status of all tanks
+            </p>
           </div>
           <div className="p-4">
             {tankStatusData.length > 0 ? (
@@ -312,7 +314,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={tooltipStyle} />
+                  <Tooltip content={<ChartTooltipContent />} />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
@@ -327,8 +329,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         {/* Water Temperature Trend */}
         <Card>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Water Temperature Trend</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Daily average temperature over 30 days</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Water Temperature Trend
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Daily average temperature over 30 days
+            </p>
           </div>
           <div className="p-4">
             <NoDataPlaceholder label="No water temperature data available yet" />
@@ -338,8 +344,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         {/* Mortality Trend */}
         <Card>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Mortality Trend</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Daily mortality count and cumulative total</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Mortality Trend
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Daily mortality count and cumulative total
+            </p>
           </div>
           <div className="p-4">
             <NoDataPlaceholder label="No mortality trend data available yet" />

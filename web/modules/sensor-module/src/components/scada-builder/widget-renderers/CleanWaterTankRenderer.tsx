@@ -7,12 +7,22 @@ import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import { colors } from '@aquaculture/shared-ui';
 
-const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
+const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
   const raw = isEditing ? (config.demoLevel ?? 70) : Number(value ?? 0);
   const numValue = typeof raw === 'number' && !isNaN(raw) ? raw : 0;
   const level = Math.max(0, Math.min(100, isNaN(numValue) ? 0 : numValue));
 
-  const status = (isEditing ? (config.demoStatus ?? 'running') : String(value !== undefined ? 'running' : 'stopped')) as string;
+  const status = (
+    isEditing
+      ? (config.demoStatus ?? 'running')
+      : String(value !== undefined ? 'running' : 'stopped')
+  ) as string;
   const isRunning = status === 'running';
   const statusColor = isRunning ? colors.success[500] : colors.neutral[400];
   const effectiveLevel = isRunning ? Math.max(level, 90) : 0;
@@ -53,13 +63,28 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           {/* Clip path for water fill inside tank */}
           <clipPath id="cleanTankClip">
             <rect x={tankX + 1} y={tankY + capRy} width={tankW - 2} height={tankH - capRy * 2} />
-            <ellipse cx={tankX + tankW / 2} cy={tankY + tankH - capRy} rx={tankW / 2 - 1} ry={capRy} />
+            <ellipse
+              cx={tankX + tankW / 2}
+              cy={tankY + tankH - capRy}
+              rx={tankW / 2 - 1}
+              ry={capRy}
+            />
           </clipPath>
         </defs>
 
         {/* Inlet pipe (top-left) */}
-        <line x1={2} y1={tankY + 8} x2={tankX} y2={tankY + 8} stroke="#333" strokeWidth={2} />
-        <polygon points={`${tankX - 4},${tankY + 5} ${tankX},${tankY + 8} ${tankX - 4},${tankY + 11}`} fill={statusColor} />
+        <line
+          x1={2}
+          y1={tankY + 8}
+          x2={tankX}
+          y2={tankY + 8}
+          stroke={colors.neutral[700]}
+          strokeWidth={2}
+        />
+        <polygon
+          points={`${tankX - 4},${tankY + 5} ${tankX},${tankY + 8} ${tankX - 4},${tankY + 11}`}
+          fill={statusColor}
+        />
 
         {/* Tank body (rounded rect simulating cylinder) */}
         <rect
@@ -68,7 +93,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           width={tankW}
           height={tankH - capRy * 2}
           fill="url(#cleanTankGrad)"
-          stroke="#333"
+          stroke={colors.neutral[700]}
           strokeWidth={2}
         />
 
@@ -79,7 +104,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           rx={tankW / 2}
           ry={capRy}
           fill={colors.neutral[200]}
-          stroke="#333"
+          stroke={colors.neutral[700]}
           strokeWidth={2}
         />
 
@@ -90,7 +115,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           rx={tankW / 2}
           ry={capRy}
           fill={colors.neutral[300]}
-          stroke="#333"
+          stroke={colors.neutral[700]}
           strokeWidth={2}
         />
 
@@ -118,12 +143,36 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         </g>
 
         {/* Outline over water (re-draw side walls) */}
-        <line x1={tankX} y1={tankY + capRy} x2={tankX} y2={tankY + tankH - capRy} stroke="#333" strokeWidth={2} />
-        <line x1={tankX + tankW} y1={tankY + capRy} x2={tankX + tankW} y2={tankY + tankH - capRy} stroke="#333" strokeWidth={2} />
+        <line
+          x1={tankX}
+          y1={tankY + capRy}
+          x2={tankX}
+          y2={tankY + tankH - capRy}
+          stroke={colors.neutral[700]}
+          strokeWidth={2}
+        />
+        <line
+          x1={tankX + tankW}
+          y1={tankY + capRy}
+          x2={tankX + tankW}
+          y2={tankY + tankH - capRy}
+          stroke={colors.neutral[700]}
+          strokeWidth={2}
+        />
 
         {/* Outlet pipe (bottom-right) */}
-        <line x1={tankX + tankW} y1={tankY + tankH - 14} x2={118} y2={tankY + tankH - 14} stroke="#333" strokeWidth={2} />
-        <polygon points={`${114},${tankY + tankH - 17} ${118},${tankY + tankH - 14} ${114},${tankY + tankH - 11}`} fill={statusColor} />
+        <line
+          x1={tankX + tankW}
+          y1={tankY + tankH - 14}
+          x2={118}
+          y2={tankY + tankH - 14}
+          stroke={colors.neutral[700]}
+          strokeWidth={2}
+        />
+        <polygon
+          points={`${114},${tankY + tankH - 17} ${118},${tankY + tankH - 14} ${114},${tankY + tankH - 11}`}
+          fill={statusColor}
+        />
 
         {/* Level percentage (centered in tank) */}
         <text
@@ -139,8 +188,24 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
 
         {/* "Temiz" badge */}
         <rect x={34} y={110} width={52} height={16} rx={8} fill={waterColor} opacity={0.2} />
-        <rect x={34} y={110} width={52} height={16} rx={8} fill="none" stroke={waterColor} strokeWidth={1} />
-        <text x={60} y={121} textAnchor="middle" fontSize={9} fill={colors.info[600]} fontWeight={600}>
+        <rect
+          x={34}
+          y={110}
+          width={52}
+          height={16}
+          rx={8}
+          fill="none"
+          stroke={waterColor}
+          strokeWidth={1}
+        />
+        <text
+          x={60}
+          y={121}
+          textAnchor="middle"
+          fontSize={9}
+          fill={colors.info[600]}
+          fontWeight={600}
+        >
           Clean
         </text>
 

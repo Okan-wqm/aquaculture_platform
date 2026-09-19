@@ -5,7 +5,12 @@
  * badged so the operator knows they came from source records; COMPUTED
  * rows (the 5% rule) are badged as calculated.
  */
-import { formatCurrency, parseMoney, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import {
+  formatCurrency,
+  parseMoney,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import React from 'react';
 
 import type { FinanceSummary } from '../../../hooks/useFinance';
@@ -34,18 +39,25 @@ export function formatMoney(amount: number | string, currency: string): string {
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, error, period }) => {
   if (isLoading) {
-    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading finance summary…</div>;
+    return (
+      <div className="py-16 text-center text-gray-500 dark:text-gray-400">
+        Loading finance summary…
+      </div>
+    );
   }
   if (error) {
     return (
-      <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">
-        Failed to load the finance summary. You need manager or admin access to view financial
-        data.
+      <div className="rounded-md bg-error-50 dark:bg-error-900/20 p-4 text-sm text-error-700 dark:text-error-300">
+        Failed to load the finance summary. You need manager or admin access to view financial data.
       </div>
     );
   }
   if (!summary) {
-    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">No finance data for this period.</div>;
+    return (
+      <div className="py-16 text-center text-gray-500 dark:text-gray-400">
+        No finance data for this period.
+      </div>
+    );
   }
 
   const expenseCategories = summary.byCategory.filter((c) => c.kind === 'EXPENSE');
@@ -75,12 +87,16 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Net result</p>
           <p
             className={`mt-1 text-3xl font-semibold ${
-              parseMoney(summary.netResultDecimal) >= 0 ? 'text-green-700' : 'text-red-700'
+              parseMoney(summary.netResultDecimal) >= 0
+                ? 'text-success-700 dark:text-success-300'
+                : 'text-error-700 dark:text-error-300'
             }`}
           >
             {formatMoney(summary.netResultDecimal, summary.currency)}
           </p>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Revenue − operational cost</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Revenue − operational cost
+          </p>
         </div>
       </div>
 
@@ -91,7 +107,11 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
           rows={expenseCategories}
           currency={summary.currency}
         />
-        <CategoryTable title="Revenue by category" rows={revenueCategories} currency={summary.currency} />
+        <CategoryTable
+          title="Revenue by category"
+          rows={revenueCategories}
+          currency={summary.currency}
+        />
       </div>
     </div>
   );
@@ -107,12 +127,12 @@ const categoryColumns = (currency: string): DataTableColumn<CategoryRow>[] => [
       <>
         <span>{row.categoryName}</span>
         {row.isDerived && (
-          <span className="ml-2 rounded bg-blue-100 px-1.5 py-0.5 text-xs text-blue-700">
+          <span className="ml-2 rounded bg-info-100 dark:bg-info-900/40 px-1.5 py-0.5 text-xs text-info-700 dark:text-info-300">
             auto
           </span>
         )}
         {row.isComputed && (
-          <span className="ml-2 rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700">
+          <span className="ml-2 rounded bg-accent-100 dark:bg-accent-900/40 px-1.5 py-0.5 text-xs text-accent-700 dark:text-accent-300">
             calculated
           </span>
         )}
@@ -124,7 +144,7 @@ const categoryColumns = (currency: string): DataTableColumn<CategoryRow>[] => [
     header: 'Total',
     align: 'right',
     render: (_value, row) => formatMoney(row.totalDecimal, currency),
-  }
+  },
 ];
 
 const CategoryTable: React.FC<{

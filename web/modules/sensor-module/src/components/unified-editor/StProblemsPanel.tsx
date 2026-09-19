@@ -42,10 +42,20 @@ const SEVERITY_CONFIG: Record<
   Diagnostic['severity'],
   { icon: React.FC<{ className?: string }>; color: string; textColor: string; label: string }
 > = {
-  error: { icon: XCircle, color: 'text-red-400', textColor: 'text-red-300', label: 'Errors' },
-  warning: { icon: AlertTriangle, color: 'text-yellow-400', textColor: 'text-yellow-300', label: 'Warnings' },
-  info: { icon: Info, color: 'text-blue-400', textColor: 'text-blue-300', label: 'Info' },
-  hint: { icon: Lightbulb, color: 'text-gray-500 dark:text-gray-400', textColor: 'text-gray-500 dark:text-gray-400', label: 'Hints' },
+  error: { icon: XCircle, color: 'text-error-400', textColor: 'text-error-300', label: 'Errors' },
+  warning: {
+    icon: AlertTriangle,
+    color: 'text-warning-400',
+    textColor: 'text-warning-300',
+    label: 'Warnings',
+  },
+  info: { icon: Info, color: 'text-info-400', textColor: 'text-info-300', label: 'Info' },
+  hint: {
+    icon: Lightbulb,
+    color: 'text-gray-500 dark:text-gray-400',
+    textColor: 'text-gray-500 dark:text-gray-400',
+    label: 'Hints',
+  },
 };
 
 type SortKey = 'severity' | 'line';
@@ -116,17 +126,17 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
         <span className="text-gray-500 dark:text-gray-400 font-medium">PROBLEMS</span>
 
         {counts.error > 0 && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-900/50 text-red-300">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-error-900/50 text-error-300">
             {counts.error} {counts.error === 1 ? 'error' : 'errors'}
           </span>
         )}
         {counts.warning > 0 && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-yellow-900/50 text-yellow-300">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-warning-900/50 text-warning-300">
             {counts.warning} {counts.warning === 1 ? 'warning' : 'warnings'}
           </span>
         )}
         {counts.info > 0 && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-900/50 text-blue-300">
+          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-info-900/50 text-info-300">
             {counts.info} info
           </span>
         )}
@@ -160,7 +170,14 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
 
             <div className="w-px h-3 bg-gray-700 mx-1" />
 
-            <Button variant="ghost" leftIcon={<ArrowUpDown className="w-3 h-3" />} onClick={toggleSort} title={`Sort by ${sortKey === 'severity' ? 'line' : 'severity'}`}>{sortKey === 'severity' ? 'Severity' : 'Line'}</Button>
+            <Button
+              variant="ghost"
+              leftIcon={<ArrowUpDown className="w-3 h-3" />}
+              onClick={toggleSort}
+              title={`Sort by ${sortKey === 'severity' ? 'line' : 'severity'}`}
+            >
+              {sortKey === 'severity' ? 'Severity' : 'Line'}
+            </Button>
           </div>
 
           {/* Diagnostics list */}
@@ -175,19 +192,24 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
               const cfg = SEVERITY_CONFIG[diag.severity];
               const Icon = cfg.icon;
               return (
-                <Button variant="secondary" size="xs" key={`${diag.code}-${diag.range.startLine}-${i}`} onClick={() => onNavigate(diag.range.startLine)}><Icon className={`w-3.5 h-3.5 flex-shrink-0 ${cfg.color}`} />
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  key={`${diag.code}-${diag.range.startLine}-${i}`}
+                  onClick={() => onNavigate(diag.range.startLine)}
+                >
+                  <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${cfg.color}`} />
                   <span className="text-gray-500 dark:text-gray-400 w-16 flex-shrink-0 truncate font-mono">
                     {diag.code}
                   </span>
                   <span className="text-gray-500 dark:text-gray-400 w-12 flex-shrink-0 text-right tabular-nums">
                     Ln {diag.range.startLine}
                   </span>
-                  <span className={`flex-1 min-w-0 truncate ${cfg.textColor}`}>
-                    {diag.message}
-                  </span>
+                  <span className={`flex-1 min-w-0 truncate ${cfg.textColor}`}>{diag.message}</span>
                   <span className="text-gray-600 dark:text-gray-400 text-[10px] flex-shrink-0">
                     {diag.source}
-                  </span></Button>
+                  </span>
+                </Button>
               );
             })}
           </div>

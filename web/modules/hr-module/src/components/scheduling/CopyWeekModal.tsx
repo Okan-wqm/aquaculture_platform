@@ -62,7 +62,7 @@ export function CopyWeekModal({
       closeOnOverlayClick={!isLoading}
       title={
         <span className="flex items-center gap-2">
-          <Copy className="h-5 w-5 text-indigo-600" aria-hidden="true" />
+          <Copy className="h-5 w-5 text-primary-600 dark:text-primary-400" aria-hidden="true" />
           <span>Haftayi Kopyala</span>
         </span>
       }
@@ -72,9 +72,7 @@ export function CopyWeekModal({
         {/* Source info */}
         <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Kaynak Hafta</p>
-          <p className="font-medium text-gray-900 dark:text-gray-100">
-            {employeeName}
-          </p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{employeeName}</p>
           <p className="text-sm text-gray-600 dark:text-gray-400">
             {formatWeekRange(new Date(sourceWeekStart))}
           </p>
@@ -85,15 +83,24 @@ export function CopyWeekModal({
           <legend className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Hedef Hafta
           </legend>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" role="radiogroup" aria-label="Hedef hafta secimi">
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 gap-2"
+            role="radiogroup"
+            aria-label="Hedef hafta secimi"
+          >
             {[1, 2, 3, 4].map((offset) => {
               const target = new Date(sourceWeekStart);
               target.setDate(target.getDate() + offset * 7);
               const weekNum = Math.ceil(
-                ((target.getTime() - new Date(target.getFullYear(), 0, 1).getTime()) / 86400000 + 1) / 7
+                ((target.getTime() - new Date(target.getFullYear(), 0, 1).getTime()) / 86400000 +
+                  1) /
+                  7,
               );
               const isSelected = targetWeekOffset === offset;
-              const dateStr = target.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+              const dateStr = target.toLocaleDateString('tr-TR', {
+                day: 'numeric',
+                month: 'short',
+              });
 
               return (
                 <button
@@ -105,8 +112,8 @@ export function CopyWeekModal({
                   className={cn(
                     'p-3 rounded-lg border text-left transition-colors',
                     isSelected
-                      ? 'border-indigo-500 bg-indigo-50'
-                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
+                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800',
                   )}
                   aria-label={`Hafta ${weekNum}, ${dateStr}`}
                 >
@@ -114,20 +121,24 @@ export function CopyWeekModal({
                     <Calendar
                       className={cn(
                         'h-4 w-4',
-                        isSelected ? 'text-indigo-600' : 'text-gray-400 dark:text-gray-500'
+                        isSelected
+                          ? 'text-primary-600 dark:text-primary-400'
+                          : 'text-gray-400 dark:text-gray-500',
                       )}
                       aria-hidden="true"
                     />
-                    <span className={cn(
-                      'text-sm font-medium',
-                      isSelected ? 'text-indigo-600' : 'text-gray-700 dark:text-gray-300'
-                    )}>
+                    <span
+                      className={cn(
+                        'text-sm font-medium',
+                        isSelected
+                          ? 'text-primary-600 dark:text-primary-400'
+                          : 'text-gray-700 dark:text-gray-300',
+                      )}
+                    >
                       Hafta {weekNum}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
-                    {dateStr}
-                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">{dateStr}</p>
                 </button>
               );
             })}
@@ -135,14 +146,20 @@ export function CopyWeekModal({
         </fieldset>
 
         {/* Selected target summary */}
-        <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100" role="status">
+        <div
+          className="p-4 bg-primary-50 dark:bg-primary-900/20 rounded-lg border border-primary-100 dark:border-primary-800"
+          role="status"
+        >
           <div className="flex items-start gap-2">
-            <AlertTriangle className="h-4 w-4 text-indigo-600 mt-0.5" aria-hidden="true" />
+            <AlertTriangle
+              className="h-4 w-4 text-primary-600 dark:text-primary-400 mt-0.5"
+              aria-hidden="true"
+            />
             <div>
-              <p className="text-sm font-medium text-indigo-900">
+              <p className="text-sm font-medium text-primary-900 dark:text-primary-100">
                 Hedef: {formatWeekRange(targetWeekStart)}
               </p>
-              <p className="text-xs text-indigo-700 mt-1">
+              <p className="text-xs text-primary-700 dark:text-primary-300 mt-1">
                 Bu hafta icin yeni plan olusturulacak ve kaynak haftadaki vardiyalar kopyalanacak.
               </p>
             </div>
@@ -162,9 +179,9 @@ export function CopyWeekModal({
           <button
             type="submit"
             className={cn(
-              'flex-1 px-4 py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition-colors font-medium',
+              'flex-1 px-4 py-2 text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors font-medium',
               'flex items-center justify-center gap-2',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
+              'disabled:opacity-50 disabled:cursor-not-allowed',
             )}
             disabled={isLoading}
             aria-busy={isLoading}

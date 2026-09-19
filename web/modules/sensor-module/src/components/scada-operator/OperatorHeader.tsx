@@ -16,15 +16,7 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useClickOutside, Button } from '@aquaculture/shared-ui';
 import { useShallow } from 'zustand/react/shallow';
-import {
-  Menu,
-  Bell,
-  Clock,
-  User,
-  ChevronDown,
-  AlertTriangle,
-  Shield,
-} from 'lucide-react';
+import { Menu, Bell, Clock, User, ChevronDown, AlertTriangle, Shield } from 'lucide-react';
 
 import { useOperatorStore } from '../../store/scada/operatorStore';
 import { useRealtimeData } from '../../hooks/useRealtimeData';
@@ -51,18 +43,18 @@ export interface OperatorHeaderProps {
 /* ------------------------------------------------------------------ */
 
 const SEVERITY_BADGE: Record<AlarmSeverity, string> = {
-  critical: 'bg-red-600 text-white',
-  high:     'bg-orange-500 text-white',
-  warning:  'bg-yellow-500 text-black',
-  info:     'bg-blue-500 text-white',
+  critical: 'bg-error-600 text-white',
+  high: 'bg-accent-500 text-white',
+  warning: 'bg-warning-500 text-black',
+  info: 'bg-info-500 text-white',
 };
 
 const ROLE_BADGE: Record<HmiRole, string> = {
-  admin:      'bg-purple-700 text-purple-100',
-  supervisor: 'bg-blue-700 text-blue-100',
-  engineer:   'bg-cyan-700 text-cyan-100',
-  operator:   'bg-green-700 text-green-100',
-  viewer:     'bg-gray-600 text-gray-200',
+  admin: 'bg-accent-700 text-accent-100',
+  supervisor: 'bg-info-700 text-info-100',
+  engineer: 'bg-info-700 text-info-100',
+  operator: 'bg-success-700 text-success-100',
+  viewer: 'bg-gray-600 text-gray-200',
 };
 
 const ALL_ROLES: HmiRole[] = ['viewer', 'operator', 'engineer', 'supervisor', 'admin'];
@@ -98,7 +90,9 @@ const LiveClock = memo(() => {
       <Clock size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
       <span className="text-xs font-mono tabular-nums">
         {date}
-        <span className="mx-1 text-gray-600 dark:text-gray-400" aria-hidden="true">|</span>
+        <span className="mx-1 text-gray-600 dark:text-gray-400" aria-hidden="true">
+          |
+        </span>
         {time}
       </span>
     </div>
@@ -149,10 +143,7 @@ const HeaderItemRenderer = memo<HeaderItemRendererProps>(({ item }) => {
 
   if (item.type === 'label') {
     return (
-      <span
-        className="text-sm text-gray-200 font-medium px-2 select-none"
-        aria-label={displayText}
-      >
+      <span className="text-sm text-gray-200 font-medium px-2 select-none" aria-label={displayText}>
         {displayText}
       </span>
     );
@@ -167,7 +158,7 @@ const HeaderItemRenderer = memo<HeaderItemRendererProps>(({ item }) => {
         flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium
         text-gray-200 bg-gray-700 hover:bg-gray-600 active:bg-gray-500
         border border-gray-600 transition-colors
-        focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
+        focus:outline-hidden focus-visible:ring-2 focus-visible:ring-info-500
       "
       aria-label={displayText || 'Header button'}
     >
@@ -185,7 +176,7 @@ const AlarmBadge = memo(() => {
   const { toggleAlarmPanel, alarmPanelOpen } = useOperatorStore(
     useShallow((s) => ({
       toggleAlarmPanel: s.toggleAlarmPanel,
-      alarmPanelOpen:   s.alarmPanelOpen,
+      alarmPanelOpen: s.alarmPanelOpen,
     })),
   );
 
@@ -194,17 +185,24 @@ const AlarmBadge = memo(() => {
     (s) =>
       (
         s as unknown as {
-          alarmStatusSummary: { critical: number; high: number; warning: number; info: number } | null;
+          alarmStatusSummary: {
+            critical: number;
+            high: number;
+            warning: number;
+            info: number;
+          } | null;
         }
       ).alarmStatusSummary,
   );
 
   const badge = (() => {
     if (!summary) return null;
-    if (summary.critical > 0) return { count: summary.critical, severity: 'critical' as AlarmSeverity };
-    if (summary.high     > 0) return { count: summary.high,     severity: 'high'     as AlarmSeverity };
-    if (summary.warning  > 0) return { count: summary.warning,  severity: 'warning'  as AlarmSeverity };
-    if (summary.info     > 0) return { count: summary.info,     severity: 'info'     as AlarmSeverity };
+    if (summary.critical > 0)
+      return { count: summary.critical, severity: 'critical' as AlarmSeverity };
+    if (summary.high > 0) return { count: summary.high, severity: 'high' as AlarmSeverity };
+    if (summary.warning > 0)
+      return { count: summary.warning, severity: 'warning' as AlarmSeverity };
+    if (summary.info > 0) return { count: summary.info, severity: 'info' as AlarmSeverity };
     return null;
   })();
 
@@ -222,14 +220,16 @@ const AlarmBadge = memo(() => {
       aria-pressed={alarmPanelOpen}
       className={`
         relative flex items-center justify-center w-8 h-8 rounded transition-colors
-        focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
+        focus:outline-hidden focus-visible:ring-2 focus-visible:ring-info-500
         ${alarmPanelOpen ? 'bg-gray-600 text-gray-100' : 'text-gray-400 dark:text-gray-500 hover:text-gray-100 hover:bg-gray-700'}
       `}
     >
       {badge ? (
         <AlertTriangle
           size={16}
-          className={badge.severity === 'critical' ? 'text-red-400 animate-pulse' : 'text-yellow-400'}
+          className={
+            badge.severity === 'critical' ? 'text-error-400 animate-pulse' : 'text-warning-400'
+          }
           aria-hidden="true"
         />
       ) : (
@@ -260,7 +260,7 @@ AlarmBadge.displayName = 'AlarmBadge';
 const UserRoleMenu = memo(() => {
   const { currentUserRole, setCurrentUserRole } = useOperatorStore(
     useShallow((s) => ({
-      currentUserRole:    s.currentUserRole,
+      currentUserRole: s.currentUserRole,
       setCurrentUserRole: s.setCurrentUserRole,
     })),
   );
@@ -272,14 +272,28 @@ const UserRoleMenu = memo(() => {
 
   return (
     <div className="relative" ref={roleMenuRef}>
-      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen((v) => !v)} aria-label="User role menu" aria-expanded={open} aria-haspopup="listbox"><User size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
+      <Button
+        variant="ghost"
+        size="xs"
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="User role menu"
+        aria-expanded={open}
+        aria-haspopup="listbox"
+      >
+        <User size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
         <span
           className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${roleClass}`}
           title={`Current role: ${currentUserRole}`}
         >
           {currentUserRole}
         </span>
-        <ChevronDown size={12} className="text-gray-500 dark:text-gray-400 shrink-0" aria-hidden="true" /></Button>
+        <ChevronDown
+          size={12}
+          className="text-gray-500 dark:text-gray-400 shrink-0"
+          aria-hidden="true"
+        />
+      </Button>
 
       {open && (
         <ul
@@ -302,9 +316,11 @@ const UserRoleMenu = memo(() => {
                 }}
                 className={`
                   w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors
-                  ${role === currentUserRole
-                    ? 'bg-gray-700 text-gray-100'
-                    : 'text-gray-300 hover:bg-gray-700/60 hover:text-gray-100'}
+                  ${
+                    role === currentUserRole
+                      ? 'bg-gray-700 text-gray-100'
+                      : 'text-gray-300 hover:bg-gray-700/60 hover:text-gray-100'
+                  }
                 `}
               >
                 <Shield
@@ -314,7 +330,9 @@ const UserRoleMenu = memo(() => {
                 />
                 <span className="capitalize flex-1">{role}</span>
                 {role === currentUserRole && (
-                  <span className="text-[10px] text-blue-400" aria-hidden="true">active</span>
+                  <span className="text-[10px] text-info-400" aria-hidden="true">
+                    active
+                  </span>
                 )}
               </button>
             </li>
@@ -330,87 +348,96 @@ UserRoleMenu.displayName = 'UserRoleMenu';
 /*  OperatorHeader                                                      */
 /* ------------------------------------------------------------------ */
 
-export const OperatorHeader = memo<OperatorHeaderProps>(
-  ({ config, projectName }) => {
-    const { sidenavOpen, toggleSidenav, operatorLayout } = useOperatorStore(
-      useShallow((s) => ({
-        sidenavOpen:     s.sidenavOpen,
-        toggleSidenav:   s.toggleSidenav,
-        operatorLayout:  s.operatorLayout,
-      })),
-    );
+export const OperatorHeader = memo<OperatorHeaderProps>(({ config, projectName }) => {
+  const { sidenavOpen, toggleSidenav, operatorLayout } = useOperatorStore(
+    useShallow((s) => ({
+      sidenavOpen: s.sidenavOpen,
+      toggleSidenav: s.toggleSidenav,
+      operatorLayout: s.operatorLayout,
+    })),
+  );
 
-    const showHamburger =
-      operatorLayout.sidenavMode !== 'fixed' && operatorLayout.sidenavMode !== 'void';
-    const showAlarmBadge = config.showAlarmBadge ?? true;
-    const showDateTime   = config.showDateTime ?? true;
+  const showHamburger =
+    operatorLayout.sidenavMode !== 'fixed' && operatorLayout.sidenavMode !== 'void';
+  const showAlarmBadge = config.showAlarmBadge ?? true;
+  const showDateTime = config.showDateTime ?? true;
 
-    return (
-      <header
-        className="
+  return (
+    <header
+      className="
           flex items-center h-12 px-3 gap-3
           bg-gray-900 border-b border-gray-700
           select-none shrink-0 z-30
         "
-        role="banner"
-        aria-label="Operator shell header"
-      >
-        {/* ── Hamburger ── */}
-        {showHamburger && (
-          <Button variant="ghost" size="sm" iconOnly className="shrink-0" type="button" onClick={toggleSidenav} aria-label={sidenavOpen ? 'Close navigation sidebar' : 'Open navigation sidebar'} aria-expanded={sidenavOpen}><Menu size={18} aria-hidden="true" /></Button>
-        )}
-
-        {/* ── Logo / title ── */}
-        <div className="flex items-center gap-2 shrink-0 min-w-0">
-          <div
-            className="flex items-center justify-center w-7 h-7 rounded bg-blue-600 shrink-0"
-            aria-hidden="true"
-          >
-            <span className="text-white text-xs font-bold leading-none select-none">SC</span>
-          </div>
-          {projectName && (
-            <span
-              className="text-gray-100 text-sm font-semibold truncate max-w-[180px]"
-              title={projectName}
-            >
-              {projectName}
-            </span>
-          )}
-        </div>
-
-        {/* Vertical separator */}
-        {config.headerItems.length > 0 && (
-          <div className="w-px h-6 bg-gray-700 shrink-0" aria-hidden="true" />
-        )}
-
-        {/* ── Centre header items (from config) ── */}
-        <nav
-          className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto scrollbar-none"
-          aria-label="Header navigation items"
+      role="banner"
+      aria-label="Operator shell header"
+    >
+      {/* ── Hamburger ── */}
+      {showHamburger && (
+        <Button
+          variant="ghost"
+          size="sm"
+          iconOnly
+          className="shrink-0"
+          type="button"
+          onClick={toggleSidenav}
+          aria-label={sidenavOpen ? 'Close navigation sidebar' : 'Open navigation sidebar'}
+          aria-expanded={sidenavOpen}
         >
-          {config.headerItems.map((item) => (
-            <HeaderItemRenderer key={item.id} item={item} />
-          ))}
-        </nav>
+          <Menu size={18} aria-hidden="true" />
+        </Button>
+      )}
 
-        {/* ── Right-side controls ── */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Date / time */}
-          {showDateTime && <LiveClock />}
-
-          <div className="w-px h-5 bg-gray-700" aria-hidden="true" />
-
-          {/* Alarm badge */}
-          {showAlarmBadge && <AlarmBadge />}
-
-          <div className="w-px h-5 bg-gray-700" aria-hidden="true" />
-
-          {/* User / role */}
-          <UserRoleMenu />
+      {/* ── Logo / title ── */}
+      <div className="flex items-center gap-2 shrink-0 min-w-0">
+        <div
+          className="flex items-center justify-center w-7 h-7 rounded bg-info-600 shrink-0"
+          aria-hidden="true"
+        >
+          <span className="text-white text-xs font-bold leading-none select-none">SC</span>
         </div>
-      </header>
-    );
-  },
-);
+        {projectName && (
+          <span
+            className="text-gray-100 text-sm font-semibold truncate max-w-[180px]"
+            title={projectName}
+          >
+            {projectName}
+          </span>
+        )}
+      </div>
+
+      {/* Vertical separator */}
+      {config.headerItems.length > 0 && (
+        <div className="w-px h-6 bg-gray-700 shrink-0" aria-hidden="true" />
+      )}
+
+      {/* ── Centre header items (from config) ── */}
+      <nav
+        className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto scrollbar-none"
+        aria-label="Header navigation items"
+      >
+        {config.headerItems.map((item) => (
+          <HeaderItemRenderer key={item.id} item={item} />
+        ))}
+      </nav>
+
+      {/* ── Right-side controls ── */}
+      <div className="flex items-center gap-2 shrink-0">
+        {/* Date / time */}
+        {showDateTime && <LiveClock />}
+
+        <div className="w-px h-5 bg-gray-700" aria-hidden="true" />
+
+        {/* Alarm badge */}
+        {showAlarmBadge && <AlarmBadge />}
+
+        <div className="w-px h-5 bg-gray-700" aria-hidden="true" />
+
+        {/* User / role */}
+        <UserRoleMenu />
+      </div>
+    </header>
+  );
+});
 
 OperatorHeader.displayName = 'OperatorHeader';

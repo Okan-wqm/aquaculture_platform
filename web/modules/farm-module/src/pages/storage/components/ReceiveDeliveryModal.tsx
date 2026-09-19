@@ -2,7 +2,14 @@
  * Receive Delivery Modal - Mark PO items as received
  */
 import React, { useState } from 'react';
-import { Modal, useToast, DataTable, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 import {
   useReceiveDelivery,
   PurchaseOrder,
@@ -109,9 +116,15 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
       render: (_value, item) => {
         const remaining = Number(item.quantity) - Number(item.quantityReceived);
         return (
-          <Input type="number" min="0" max={remaining} step="0.01" value={receivedItems[item.itemId]?.qty ?? ''} onChange={(e) =>
-       updateReceived(item.itemId, 'qty', parseFloat(e.target.value) || 0)
-      } placeholder={String(remaining)} />
+          <Input
+            type="number"
+            min="0"
+            max={remaining}
+            step="0.01"
+            value={receivedItems[item.itemId]?.qty ?? ''}
+            onChange={(e) => updateReceived(item.itemId, 'qty', parseFloat(e.target.value) || 0)}
+            placeholder={String(remaining)}
+          />
         );
       },
     },
@@ -119,18 +132,25 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
       key: 'lot',
       header: 'Lot #',
       render: (_value, item) => (
-        <Input type="text" value={receivedItems[item.itemId]?.lotNumber ?? ''} onChange={(e) => updateReceived(item.itemId, 'lotNumber', e.target.value)} placeholder="LOT-" />
+        <Input
+          type="text"
+          value={receivedItems[item.itemId]?.lotNumber ?? ''}
+          onChange={(e) => updateReceived(item.itemId, 'lotNumber', e.target.value)}
+          placeholder="LOT-"
+        />
       ),
     },
     {
       key: 'expiry',
       header: 'Expiry',
       render: (_value, item) => (
-        <Input type="date" value={receivedItems[item.itemId]?.expiryDate ?? ''} onChange={(e) =>
-      updateReceived(item.itemId, 'expiryDate', e.target.value)
-     } />
+        <Input
+          type="date"
+          value={receivedItems[item.itemId]?.expiryDate ?? ''}
+          onChange={(e) => updateReceived(item.itemId, 'expiryDate', e.target.value)}
+        />
       ),
-    }
+    },
   ];
 
   return (
@@ -145,12 +165,14 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
         <div className="space-y-4">
           {/* Storage Location */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Storage Location *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Storage Location *
+            </label>
             <select
               value={storageLocationId}
               onChange={(e) => setStorageLocationId(e.target.value)}
               required
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-info-500 focus:border-info-500"
             >
               <option value="">Select location...</option>
               {(locations?.items || []).map((loc: any) => (
@@ -180,8 +202,16 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={!storageLocationId || pendingItems.length === 0 || receiveDelivery.isPending}>{receiveDelivery.isPending ? 'Receiving...' : 'Confirm Receipt'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={!storageLocationId || pendingItems.length === 0 || receiveDelivery.isPending}
+          >
+            {receiveDelivery.isPending ? 'Receiving...' : 'Confirm Receipt'}
+          </Button>
         </div>
       </form>
     </Modal>

@@ -8,10 +8,7 @@ export const ScreenBreadcrumb: React.FC = () => {
   const activeScreenId = useScadaPackageStore((s) => s.activeScreenId);
   const setActiveScreen = useScadaPackageStore((s) => s.setActiveScreen);
 
-  const path = useMemo(
-    () => getScreenPath(screens, activeScreenId),
-    [screens, activeScreenId],
-  );
+  const path = useMemo(() => getScreenPath(screens, activeScreenId), [screens, activeScreenId]);
 
   // Don't render if root level (path length <= 1)
   if (path.length <= 1) return null;
@@ -24,16 +21,12 @@ export const ScreenBreadcrumb: React.FC = () => {
 
         return (
           <React.Fragment key={segment.id}>
-            {index > 0 && (
-              <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-            )}
+            {index > 0 && <ChevronRight className="w-3 h-3 text-gray-500 dark:text-gray-400" />}
             {isLast ? (
-              <span className="text-gray-900 dark:text-gray-100 font-semibold">
-                {segment.name}
-              </span>
+              <span className="text-gray-900 dark:text-gray-100 font-semibold">{segment.name}</span>
             ) : (
               <span
-                className="text-gray-500 dark:text-gray-400 hover:text-cyan-600 cursor-pointer"
+                className="text-gray-500 dark:text-gray-400 hover:text-info-600 cursor-pointer"
                 onClick={() => setActiveScreen(segment.id)}
               >
                 {segment.name}

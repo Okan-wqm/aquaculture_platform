@@ -7,6 +7,7 @@
 import React, { useState, useCallback, ReactNode } from 'react';
 import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { WizardStepIndicator, WizardStep } from './WizardStepIndicator';
+import { CircleX, X } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -174,18 +175,20 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
 
         {/* Current Step Info */}
         {currentStepData && (
-          <div className="px-6 py-3 bg-blue-50 border-b border-blue-100">
+          <div className="px-6 py-3 bg-info-50 dark:bg-info-900/20 border-b border-info-100 dark:border-info-800">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-medium text-blue-900">
+                <h3 className="text-sm font-medium text-info-900 dark:text-info-100">
                   Step {currentStep + 1}: {currentStepData.title}
                 </h3>
                 {currentStepData.description && (
-                  <p className="text-xs text-blue-700">{currentStepData.description}</p>
+                  <p className="text-xs text-info-700 dark:text-info-300">
+                    {currentStepData.description}
+                  </p>
                 )}
               </div>
               {currentStepData.optional && (
-                <span className="px-2 py-0.5 text-xs font-medium text-blue-600 bg-blue-100 rounded">
+                <span className="px-2 py-0.5 text-xs font-medium text-info-600 dark:text-info-400 bg-info-100 dark:bg-info-900/40 rounded">
                   Optional
                 </span>
               )}
@@ -197,26 +200,14 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
         <div className="p-6 overflow-y-auto max-h-[calc(90vh-280px)]">
           {/* Error Message */}
           {displayError && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="mb-4 p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg">
               <div className="flex">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+                <CircleX className="h-5 w-5 text-error-400" aria-hidden="true" />
                 <div className="ml-3">
-                  <p className="text-sm text-red-700">{displayError}</p>
+                  <p className="text-sm text-error-700 dark:text-error-300">{displayError}</p>
                 </div>
                 <Button variant="ghost" type="button" onClick={clearErrors}>
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <X className="w-4 h-4" aria-hidden="true" />
                 </Button>
               </div>
             </div>

@@ -111,8 +111,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         <div className="min-h-[400px] flex items-center justify-center p-8 bg-gray-50 dark:bg-gray-800 rounded-xl">
           <div className="text-center max-w-lg w-full">
             {/* Error Icon */}
-            <div className="mx-auto w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mb-6">
-              <AlertTriangle className="w-8 h-8 text-red-600" />
+            <div className="mx-auto w-16 h-16 bg-error-100 dark:bg-error-900/40 rounded-full flex items-center justify-center mb-6">
+              <AlertTriangle className="w-8 h-8 text-error-600 dark:text-error-400" />
             </div>
 
             {/* Title */}
@@ -137,26 +137,49 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-3 justify-center mb-6">
               {enableRetry && error?.retryable && (
-                <Button variant="primary" className="justify-center" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={this.handleRetry}>Try Again</Button>
+                <Button
+                  variant="primary"
+                  className="justify-center"
+                  leftIcon={<RefreshCw className="w-4 h-4" />}
+                  onClick={this.handleRetry}
+                >
+                  Try Again
+                </Button>
               )}
-              <Button variant="secondary" className="justify-center" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={this.handleRefresh}>Refresh Page</Button>
-              <Button variant="secondary" className="justify-center" leftIcon={<Home className="w-4 h-4" />} onClick={this.handleGoHome}>Go to Dashboard</Button>
+              <Button
+                variant="secondary"
+                className="justify-center"
+                leftIcon={<RefreshCw className="w-4 h-4" />}
+                onClick={this.handleRefresh}
+              >
+                Refresh Page
+              </Button>
+              <Button
+                variant="secondary"
+                className="justify-center"
+                leftIcon={<Home className="w-4 h-4" />}
+                onClick={this.handleGoHome}
+              >
+                Go to Dashboard
+              </Button>
             </div>
 
             {/* Technical Details (Development) */}
             {import.meta.env.DEV && (error || errorInfo) && (
               <div className="text-left">
-                <Button variant="ghost" className="mb-3" onClick={this.toggleDetails}><Bug className="w-4 h-4" />
+                <Button variant="ghost" className="mb-3" onClick={this.toggleDetails}>
+                  <Bug className="w-4 h-4" />
                   Technical Details
                   {showDetails ? (
                     <ChevronUp className="w-4 h-4" />
                   ) : (
                     <ChevronDown className="w-4 h-4" />
-                  )}</Button>
+                  )}
+                </Button>
 
                 {showDetails && (
                   <div className="bg-gray-900 rounded-lg p-4 text-left overflow-auto max-h-64">
-                    <pre className="text-xs text-green-400 font-mono whitespace-pre-wrap">
+                    <pre className="text-xs text-success-400 font-mono whitespace-pre-wrap">
                       {JSON.stringify(
                         {
                           code: error?.code,
@@ -165,14 +188,16 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                           retryable: error?.retryable,
                         },
                         null,
-                        2
+                        2,
                       )}
                     </pre>
                     {errorInfo?.componentStack && (
                       <>
                         <hr className="border-gray-700 my-3" />
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Component Stack:</p>
-                        <pre className="text-xs text-red-400 font-mono whitespace-pre-wrap">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                          Component Stack:
+                        </p>
+                        <pre className="text-xs text-error-400 font-mono whitespace-pre-wrap">
                           {errorInfo.componentStack}
                         </pre>
                       </>
@@ -208,18 +233,28 @@ export const ErrorFallback: React.FC<ErrorFallbackProps> = ({
   const processedError = processError(error);
 
   return (
-    <div className="min-h-[300px] flex items-center justify-center p-6 bg-red-50 rounded-xl border border-red-100">
+    <div className="min-h-[300px] flex items-center justify-center p-6 bg-error-50 dark:bg-error-900/20 rounded-xl border border-error-100 dark:border-error-800">
       <div className="text-center max-w-md">
-        <AlertTriangle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+        <AlertTriangle className="w-12 h-12 text-error-500 mx-auto mb-4" />
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">
           {moduleName ? `${moduleName} Error` : 'Error'}
         </h3>
-        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">{processedError.userMessage}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          {processedError.userMessage}
+        </p>
         <div className="flex justify-center gap-3">
           {processedError.retryable && (
-            <Button variant="primary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={resetErrorBoundary}>Try Again</Button>
+            <Button
+              variant="primary"
+              leftIcon={<RefreshCw className="w-4 h-4" />}
+              onClick={resetErrorBoundary}
+            >
+              Try Again
+            </Button>
           )}
-          <Button variant="secondary" onClick={() => window.location.reload()}>Refresh Page</Button>
+          <Button variant="secondary" onClick={() => window.location.reload()}>
+            Refresh Page
+          </Button>
         </div>
       </div>
     </div>
@@ -238,10 +273,7 @@ interface PageErrorBoundaryProps {
 /**
  * Specialized error boundary for page-level errors
  */
-export const PageErrorBoundary: React.FC<PageErrorBoundaryProps> = ({
-  children,
-  pageName,
-}) => {
+export const PageErrorBoundary: React.FC<PageErrorBoundaryProps> = ({ children, pageName }) => {
   return (
     <ErrorBoundary moduleName={pageName} enableRetry>
       {children}

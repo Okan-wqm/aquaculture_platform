@@ -43,18 +43,28 @@ function formatTimeSince(dateInput: Date | string): string {
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
 import { downsampleChartData, MAX_CHART_POINTS } from '../../../utils/downsample';
-import { colors, colors as themeColors, Spinner } from '@aquaculture/shared-ui';
+import {
+  colors,
+  colors as themeColors,
+  Spinner,
+  ChartTooltipContent,
+} from '@aquaculture/shared-ui';
 
 interface BarChartWidgetContentProps {
   config: WidgetConfig;
 }
 
 // Color palette for multiple sensors
-const COLORS = [colors.primary[400], colors.success[500], colors.warning[500], colors.error[500], colors.primary[700], colors.accent[500]];
+const COLORS = [
+  colors.primary[400],
+  colors.success[500],
+  colors.warning[500],
+  colors.error[500],
+  colors.primary[700],
+  colors.accent[500],
+];
 
-export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({
-  config,
-}) => {
+export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({ config }) => {
   const { data, history, loading, error } = useWidgetData(config);
   const [, forceUpdate] = useState(0);
 
@@ -104,16 +114,16 @@ export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({
   });
 
   const sortedChartData = Object.values(groupedData).sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
 
   // PERF-RISK-002: Downsample to prevent SVG DOM explosion with large datasets
   const finalChartData = downsampleChartData(sortedChartData, MAX_CHART_POINTS);
 
   // Get unique sensor names (filter out undefined/null)
-  const sensorNames = [...new Set(
-    history?.filter((h) => h.sensorName).map((h) => h.sensorName) || []
-  )];
+  const sensorNames = [
+    ...new Set(history?.filter((h) => h.sensorName).map((h) => h.sensorName) || []),
+  ];
 
   if (finalChartData.length === 0) {
     return (
@@ -131,9 +141,10 @@ export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({
   ];
 
   // Get latest timestamp from history
-  const latestTimestamp = history && history.length > 0
-    ? new Date(Math.max(...history.map(h => new Date(h.timestamp).getTime())))
-    : null;
+  const latestTimestamp =
+    history && history.length > 0
+      ? new Date(Math.max(...history.map((h) => new Date(h.timestamp).getTime())))
+      : null;
 
   // Get bar width from settings or default
   const barWidth = config.settings?.barWidth || 20;
@@ -175,21 +186,11 @@ export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({
               tickCount={yAxisConfig?.tickCount || 5}
             />
             <Tooltip
-              contentStyle={{
-                backgroundColor: 'white',
-                border: `1px solid ${themeColors.neutral[200]}`,
-                borderRadius: '8px',
-                fontSize: '12px',
-              }}
-              labelStyle={{ color: colors.neutral[700], fontWeight: 'bold' }}
+              content={<ChartTooltipContent />}
               cursor={{ fill: 'rgba(14, 165, 233, 0.1)' }}
             />
             {config.settings?.showLegend !== false && sensorNames.length > 1 && (
-              <Legend
-                wrapperStyle={{ fontSize: '10px' }}
-                iconType="rect"
-                iconSize={10}
-              />
+              <Legend wrapperStyle={{ fontSize: '10px' }} iconType="rect" iconSize={10} />
             )}
             {sensorNames.map((name, index) => (
               <Bar

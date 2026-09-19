@@ -33,10 +33,10 @@ const STATUS_LABELS: Record<RegulatoryReportStatusValue, string> = {
 };
 
 const STATUS_BADGES: Record<RegulatoryReportStatusValue, string> = {
-  PENDING: 'bg-yellow-100 text-yellow-800',
-  SUBMITTED: 'bg-green-100 text-green-800',
-  QUEUED: 'bg-blue-100 text-blue-800',
-  FAILED: 'bg-red-100 text-red-800',
+  PENDING: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  SUBMITTED: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  QUEUED: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  FAILED: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
 };
 
 function periodLabel(row: RegulatoryReportRow): string {
@@ -94,7 +94,9 @@ export function formatPayload(value: unknown, indent = 0): string {
 const PayloadDetail: React.FC<{ reportId: string }> = ({ reportId }) => {
   const { data, isLoading } = useRegulatoryReport(reportId);
   if (isLoading) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400 p-3">Loading submitted payload…</p>;
+    return (
+      <p className="text-sm text-gray-500 dark:text-gray-400 p-3">Loading submitted payload…</p>
+    );
   }
   if (!data) {
     return <p className="text-sm text-gray-500 dark:text-gray-400 p-3">Payload unavailable.</p>;
@@ -158,16 +160,22 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
           <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Submissions</div>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-green-200 p-4">
-          <div className="text-2xl font-bold text-green-600">{stats.submitted}</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-success-200 p-4">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+            {stats.submitted}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Submitted</div>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-red-200 p-4">
-          <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-error-200 p-4">
+          <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+            {stats.failed}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Failed</div>
         </div>
-        <div className="bg-white dark:bg-gray-900 rounded-lg border border-yellow-200 p-4">
-          <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-warning-200 p-4">
+          <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+            {stats.pending}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Pending</div>
         </div>
       </div>
@@ -182,7 +190,7 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
             onClick={() => setStatusFilter(status)}
             className={`px-3 py-1.5 text-sm rounded-md ${
               statusFilter === status
-                ? 'bg-blue-100 text-blue-700'
+                ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
                 : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
@@ -193,10 +201,14 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
 
       {/* Rows */}
       {isLoading ? (
-        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">Loading submission history…</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+          Loading submission history…
+        </p>
       ) : error ? (
-        <div className="text-center py-8 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-sm text-red-700">Failed to load submission history. Please retry.</p>
+        <div className="text-center py-8 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-sm text-error-700 dark:text-error-300">
+            Failed to load submission history. Please retry.
+          </p>
         </div>
       ) : visibleRows.length === 0 ? (
         <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
@@ -209,7 +221,9 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{periodLabel(row)}</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {periodLabel(row)}
+                    </span>
                     <span
                       className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_BADGES[row.status]}`}
                     >
@@ -225,14 +239,24 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
                     </p>
                   )}
                   {row.feilmelding && (
-                    <p className="text-xs text-red-600 mt-0.5" role="alert">
+                    <p className="text-xs text-error-600 dark:text-error-400 mt-0.5" role="alert">
                       {row.feilmelding}
                     </p>
                   )}
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{formatTimestamp(row.submittedAt)}</p>
-                  <Button variant="ghost" size="xs" className="mt-1" type="button" onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}>{expandedId === row.id ? 'Hide payload' : 'View payload'}</Button>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {formatTimestamp(row.submittedAt)}
+                  </p>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="mt-1"
+                    type="button"
+                    onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
+                  >
+                    {expandedId === row.id ? 'Hide payload' : 'View payload'}
+                  </Button>
                 </div>
               </div>
               {expandedId === row.id && (

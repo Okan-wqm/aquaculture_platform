@@ -52,7 +52,8 @@ interface SupportTicket extends Omit<ApiSupportTicket, 'tenantName' | 'tags'> {
   slaResolutionDeadline?: string;
 }
 
-interface TicketComment extends Omit<ApiTicketComment, 'authorType' | 'attachments' | 'authorName'> {
+interface TicketComment
+  extends Omit<ApiTicketComment, 'authorType' | 'attachments' | 'authorName'> {
   authorType: string; // Allow any string for flexibility
   authorName: string;
   attachments: TicketAttachment[];
@@ -65,7 +66,8 @@ interface TicketAttachment {
   size: number;
 }
 
-interface TicketStats extends Omit<ApiTicketStats, 'avgFirstResponseMinutes' | 'avgResolutionMinutes'> {
+interface TicketStats
+  extends Omit<ApiTicketStats, 'avgFirstResponseMinutes' | 'avgResolutionMinutes'> {
   // Aliased fields for UI
   avgResponseMinutes: number;
   avgResolutionMinutes: number;
@@ -150,7 +152,9 @@ export const TicketsPage: React.FC = () => {
         ...data,
         avgResponseMinutes: data.avgFirstResponseMinutes || data.avgResponseTime || 0,
         avgResolutionMinutes: data.avgResolutionMinutes || data.avgResolutionTime || 0,
-        slaComplianceRate: data.slaBreachCount ? 100 - (data.slaBreachCount / Math.max(data.total, 1)) * 100 : 100,
+        slaComplianceRate: data.slaBreachCount
+          ? 100 - (data.slaBreachCount / Math.max(data.total, 1)) * 100
+          : 100,
         satisfactionAvg: data.avgSatisfactionRating || data.satisfactionScore || 0,
       };
       setStats(mappedStats);
@@ -175,22 +179,26 @@ export const TicketsPage: React.FC = () => {
       setCommentsLoading(true);
       const data = await supportApi.getTicketComments(ticketId);
       // Map API response to UI type - handle flexible response format
-      const mappedComments: TicketComment[] = (data || []).map((comment: Record<string, unknown>) => ({
-        id: comment.id as string,
-        ticketId: comment.ticketId as string,
-        authorId: comment.authorId as string,
-        authorName: (comment.authorName as string) || '',
-        authorType: comment.authorType as string,
-        content: comment.content as string,
-        isInternal: comment.isInternal as boolean,
-        createdAt: comment.createdAt as string,
-        attachments: ((comment.attachments as Array<Record<string, unknown>>) || []).map((att) => ({
-          id: att.id as string,
-          filename: (att.fileName || att.filename) as string,
-          url: att.url as string,
-          size: (att.fileSize || att.size || 0) as number,
-        })),
-      }));
+      const mappedComments: TicketComment[] = (data || []).map(
+        (comment: Record<string, unknown>) => ({
+          id: comment.id as string,
+          ticketId: comment.ticketId as string,
+          authorId: comment.authorId as string,
+          authorName: (comment.authorName as string) || '',
+          authorType: comment.authorType as string,
+          content: comment.content as string,
+          isInternal: comment.isInternal as boolean,
+          createdAt: comment.createdAt as string,
+          attachments: ((comment.attachments as Array<Record<string, unknown>>) || []).map(
+            (att) => ({
+              id: att.id as string,
+              filename: (att.fileName || att.filename) as string,
+              url: att.url as string,
+              size: (att.fileSize || att.size || 0) as number,
+            }),
+          ),
+        }),
+      );
       setComments(mappedComments);
     } catch (err) {
       console.error('Failed to fetch comments:', err);
@@ -211,12 +219,14 @@ export const TicketsPage: React.FC = () => {
     }
   }, [selectedTicket, fetchComments]);
 
-  const filteredTickets = tickets.filter(ticket => {
+  const filteredTickets = tickets.filter((ticket) => {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      if (!ticket.subject.toLowerCase().includes(query) &&
-          !ticket.ticketNumber.toLowerCase().includes(query) &&
-          !ticket.tenantName.toLowerCase().includes(query)) {
+      if (
+        !ticket.subject.toLowerCase().includes(query) &&
+        !ticket.ticketNumber.toLowerCase().includes(query) &&
+        !ticket.tenantName.toLowerCase().includes(query)
+      ) {
         return false;
       }
     }
@@ -225,10 +235,14 @@ export const TicketsPage: React.FC = () => {
 
   const getPriorityColor = (priority: TicketPriority) => {
     switch (priority) {
-      case 'critical': return 'bg-red-100 text-red-700 border-red-200';
-      case 'high': return 'bg-orange-100 text-orange-700 border-orange-200';
-      case 'medium': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-      case 'low': return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700';
+      case 'critical':
+        return 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300 border-error-200 dark:border-error-800';
+      case 'high':
+        return 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 border-accent-200 dark:border-accent-800';
+      case 'medium':
+        return 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border-warning-200 dark:border-warning-800';
+      case 'low':
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700';
     }
   };
 
@@ -239,10 +253,11 @@ export const TicketsPage: React.FC = () => {
   // backend does not have, while `bug_report` and `account`, which it does,
   // rendered with no icon at all (ADMIN-MEDIUM-111).
   const STATUS_COLORS: Record<TicketStatus, string> = {
-    open: 'bg-blue-100 text-blue-700',
-    in_progress: 'bg-purple-100 text-purple-700',
-    waiting_customer: 'bg-yellow-100 text-yellow-700',
-    resolved: 'bg-green-100 text-green-700',
+    open: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+    in_progress: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
+    waiting_customer:
+      'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300',
+    resolved: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
     closed: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
   };
   const getStatusColor = (status: TicketStatus): string => STATUS_COLORS[status];
@@ -371,7 +386,10 @@ export const TicketsPage: React.FC = () => {
           description="Manage and resolve customer support requests"
           actions={
             <button
-              onClick={() => { fetchTickets(); fetchStats(); }}
+              onClick={() => {
+                fetchTickets();
+                fetchStats();
+              }}
               className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
             >
               <RefreshCw size={18} />
@@ -384,37 +402,53 @@ export const TicketsPage: React.FC = () => {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-8 gap-3 mt-4">
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="text-sm text-gray-500 dark:text-gray-400">Total</div>
-              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.total}</div>
+              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+                {stats.total}
+              </div>
             </div>
-            <div className="bg-blue-50 rounded-lg p-3">
-              <div className="text-sm text-blue-600">Open</div>
-              <div className="text-xl font-semibold text-blue-700">{stats.open}</div>
+            <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-3">
+              <div className="text-sm text-info-600 dark:text-info-400">Open</div>
+              <div className="text-xl font-semibold text-info-700 dark:text-info-300">
+                {stats.open}
+              </div>
             </div>
-            <div className="bg-purple-50 rounded-lg p-3">
-              <div className="text-sm text-purple-600">In Progress</div>
-              <div className="text-xl font-semibold text-purple-700">{stats.inProgress}</div>
+            <div className="bg-accent-50 dark:bg-accent-900/20 rounded-lg p-3">
+              <div className="text-sm text-accent-600 dark:text-accent-400">In Progress</div>
+              <div className="text-xl font-semibold text-accent-700 dark:text-accent-300">
+                {stats.inProgress}
+              </div>
             </div>
-            <div className="bg-green-50 rounded-lg p-3">
-              <div className="text-sm text-green-600">Resolved</div>
-              <div className="text-xl font-semibold text-green-700">{stats.resolved}</div>
+            <div className="bg-success-50 dark:bg-success-900/20 rounded-lg p-3">
+              <div className="text-sm text-success-600 dark:text-success-400">Resolved</div>
+              <div className="text-xl font-semibold text-success-700 dark:text-success-300">
+                {stats.resolved}
+              </div>
             </div>
-            <div className="bg-indigo-50 rounded-lg p-3">
-              <div className="text-sm text-indigo-600">Avg Response</div>
-              <div className="text-xl font-semibold text-indigo-700">{stats.avgResponseMinutes}m</div>
+            <div className="bg-primary-50 dark:bg-primary-900/20 rounded-lg p-3">
+              <div className="text-sm text-primary-600 dark:text-primary-400">Avg Response</div>
+              <div className="text-xl font-semibold text-primary-700 dark:text-primary-300">
+                {stats.avgResponseMinutes}m
+              </div>
             </div>
-            <div className="bg-cyan-50 rounded-lg p-3">
-              <div className="text-sm text-cyan-600">Avg Resolution</div>
-              <div className="text-xl font-semibold text-cyan-700">{Math.round(stats.avgResolutionMinutes / 60)}h</div>
+            <div className="bg-info-50 dark:bg-info-900/20 rounded-lg p-3">
+              <div className="text-sm text-info-600 dark:text-info-400">Avg Resolution</div>
+              <div className="text-xl font-semibold text-info-700 dark:text-info-300">
+                {Math.round(stats.avgResolutionMinutes / 60)}h
+              </div>
             </div>
-            <div className="bg-emerald-50 rounded-lg p-3">
-              <div className="text-sm text-emerald-600">SLA Compliance</div>
-              <div className="text-xl font-semibold text-emerald-700">{stats.slaComplianceRate}%</div>
+            <div className="bg-success-50 dark:bg-success-900/20 rounded-lg p-3">
+              <div className="text-sm text-success-600 dark:text-success-400">SLA Compliance</div>
+              <div className="text-xl font-semibold text-success-700 dark:text-success-300">
+                {stats.slaComplianceRate}%
+              </div>
             </div>
-            <div className="bg-amber-50 rounded-lg p-3">
-              <div className="text-sm text-amber-600">Satisfaction</div>
+            <div className="bg-warning-50 dark:bg-warning-900/20 rounded-lg p-3">
+              <div className="text-sm text-warning-600 dark:text-warning-400">Satisfaction</div>
               <div className="flex items-center gap-1">
-                <Star size={16} className="text-amber-500 fill-amber-500" />
-                <span className="text-xl font-semibold text-amber-700">{stats.satisfactionAvg}</span>
+                <Star size={16} className="text-warning-500 fill-warning-500" />
+                <span className="text-xl font-semibold text-warning-700 dark:text-warning-300">
+                  {stats.satisfactionAvg}
+                </span>
               </div>
             </div>
           </div>
@@ -424,24 +458,29 @@ export const TicketsPage: React.FC = () => {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Ticket List */}
-        <div className={`${selectedTicket ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900`}>
+        <div
+          className={`${selectedTicket ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900`}
+        >
           {/* Filters */}
           <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" size={18} />
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
+                size={18}
+              />
               <input
                 type="text"
                 placeholder="Search tickets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500 focus:border-info-500"
               />
             </div>
             <div className="flex items-center gap-2">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
               >
                 <option value="all">All Status</option>
                 <option value="open">Open</option>
@@ -453,7 +492,7 @@ export const TicketsPage: React.FC = () => {
               <select
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value as TicketPriority | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
               >
                 <option value="all">All Priority</option>
                 <option value="critical">Critical</option>
@@ -464,7 +503,7 @@ export const TicketsPage: React.FC = () => {
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value as TicketCategory | 'all')}
-                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
               >
                 <option value="all">All Categories</option>
                 <option value="technical">Technical</option>
@@ -483,12 +522,12 @@ export const TicketsPage: React.FC = () => {
                 <Spinner size="lg" />
               </div>
             ) : error ? (
-              <div className="flex flex-col items-center justify-center h-full text-red-500 p-4">
+              <div className="flex flex-col items-center justify-center h-full text-error-500 p-4">
                 <AlertCircle size={32} className="mb-2" />
                 <p className="text-center">{error}</p>
                 <button
                   onClick={fetchTickets}
-                  className="mt-2 text-sm text-blue-600 hover:text-blue-700"
+                  className="mt-2 text-sm text-info-600 dark:text-info-400 hover:text-info-700 dark:hover:text-info-200"
                 >
                   Retry
                 </button>
@@ -504,25 +543,33 @@ export const TicketsPage: React.FC = () => {
                   key={ticket.id}
                   onClick={() => setSelectedTicket(ticket)}
                   className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
-                    selectedTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                    selectedTicket?.id === ticket.id
+                      ? 'bg-info-50 dark:bg-info-900/20 border-l-4 border-l-blue-500'
+                      : ''
                   }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 text-xs rounded border ${getPriorityColor(ticket.priority)}`}>
+                        <span
+                          className={`px-2 py-0.5 text-xs rounded border ${getPriorityColor(ticket.priority)}`}
+                        >
                           {ticket.priority}
                         </span>
-                        <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(ticket.status)}`}>
+                        <span
+                          className={`px-2 py-0.5 text-xs rounded ${getStatusColor(ticket.status)}`}
+                        >
                           {getStatusLabel(ticket.status)}
                         </span>
                         {isSLABreached(ticket.slaResponseDeadline) && !ticket.firstResponseAt && (
-                          <span className="px-2 py-0.5 text-xs rounded bg-red-100 text-red-700">
+                          <span className="px-2 py-0.5 text-xs rounded bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300">
                             SLA Breach
                           </span>
                         )}
                       </div>
-                      <h3 className="font-medium text-gray-900 dark:text-gray-100 mt-1 truncate">{ticket.subject}</h3>
+                      <h3 className="font-medium text-gray-900 dark:text-gray-100 mt-1 truncate">
+                        {ticket.subject}
+                      </h3>
                       <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
                         <span>{ticket.ticketNumber}</span>
                         <span>·</span>
@@ -561,10 +608,14 @@ export const TicketsPage: React.FC = () => {
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 text-xs rounded border ${getPriorityColor(selectedTicket.priority)}`}>
+                    <span
+                      className={`px-2 py-0.5 text-xs rounded border ${getPriorityColor(selectedTicket.priority)}`}
+                    >
                       {selectedTicket.priority}
                     </span>
-                    <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedTicket.status)}`}>
+                    <span
+                      className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedTicket.status)}`}
+                    >
                       {getStatusLabel(selectedTicket.status)}
                     </span>
                     <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
@@ -596,8 +647,10 @@ export const TicketsPage: React.FC = () => {
                 {/* Status Change */}
                 <select
                   value={selectedTicket.status}
-                  onChange={(e) => handleStatusChange(selectedTicket.id, e.target.value as TicketStatus)}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) =>
+                    handleStatusChange(selectedTicket.id, e.target.value as TicketStatus)
+                  }
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
                 >
                   <option value="open">Open</option>
                   <option value="in_progress">In Progress</option>
@@ -609,8 +662,10 @@ export const TicketsPage: React.FC = () => {
                 {/* Priority Change */}
                 <select
                   value={selectedTicket.priority}
-                  onChange={(e) => handlePriorityChange(selectedTicket.id, e.target.value as TicketPriority)}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  onChange={(e) =>
+                    handlePriorityChange(selectedTicket.id, e.target.value as TicketPriority)
+                  }
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
                 >
                   <option value="critical">Critical</option>
                   <option value="high">High</option>
@@ -622,12 +677,12 @@ export const TicketsPage: React.FC = () => {
                 <select
                   value={selectedTicket.assignedTo || ''}
                   onChange={(e) => {
-                    const member = supportTeam.find(m => m.id === e.target.value);
+                    const member = supportTeam.find((m) => m.id === e.target.value);
                     if (member) {
                       handleAssign(selectedTicket.id, member.id, member.name);
                     }
                   }}
-                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-info-500"
                 >
                   <option value="">Assign to...</option>
                   {supportTeam.map((member) => (
@@ -642,23 +697,29 @@ export const TicketsPage: React.FC = () => {
               {(selectedTicket.slaResponseDeadline || selectedTicket.slaResolutionDeadline) && (
                 <div className="flex items-center gap-4 mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm">
                   {selectedTicket.slaResponseDeadline && !selectedTicket.firstResponseAt && (
-                    <div className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResponseDeadline) ? 'text-red-600' : 'text-gray-600 dark:text-gray-400'}`}>
+                    <div
+                      className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResponseDeadline) ? 'text-error-600 dark:text-error-400' : 'text-gray-600 dark:text-gray-400'}`}
+                    >
                       <Clock size={14} />
                       <span>Response: {formatTime(selectedTicket.slaResponseDeadline)}</span>
                       {isSLABreached(selectedTicket.slaResponseDeadline) && (
-                        <AlertTriangle size={14} className="text-red-500" />
+                        <AlertTriangle size={14} className="text-error-500" />
                       )}
                     </div>
                   )}
-                  {selectedTicket.slaResolutionDeadline && selectedTicket.status !== 'resolved' && selectedTicket.status !== 'closed' && (
-                    <div className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResolutionDeadline) ? 'text-red-600' : 'text-gray-600 dark:text-gray-400'}`}>
-                      <Target size={14} />
-                      <span>Resolution: {formatTime(selectedTicket.slaResolutionDeadline)}</span>
-                      {isSLABreached(selectedTicket.slaResolutionDeadline) && (
-                        <AlertTriangle size={14} className="text-red-500" />
-                      )}
-                    </div>
-                  )}
+                  {selectedTicket.slaResolutionDeadline &&
+                    selectedTicket.status !== 'resolved' &&
+                    selectedTicket.status !== 'closed' && (
+                      <div
+                        className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResolutionDeadline) ? 'text-error-600 dark:text-error-400' : 'text-gray-600 dark:text-gray-400'}`}
+                      >
+                        <Target size={14} />
+                        <span>Resolution: {formatTime(selectedTicket.slaResolutionDeadline)}</span>
+                        {isSLABreached(selectedTicket.slaResolutionDeadline) && (
+                          <AlertTriangle size={14} className="text-error-500" />
+                        )}
+                      </div>
+                    )}
                 </div>
               )}
 
@@ -666,7 +727,10 @@ export const TicketsPage: React.FC = () => {
               {selectedTicket.tags && selectedTicket.tags.length > 0 && (
                 <div className="flex items-center gap-2 mt-3">
                   {selectedTicket.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
+                    <span
+                      key={tag}
+                      className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded"
+                    >
                       {tag}
                     </span>
                   ))}
@@ -691,14 +755,14 @@ export const TicketsPage: React.FC = () => {
                     key={comment.id}
                     className={`rounded-lg p-4 ${
                       comment.isInternal
-                        ? 'bg-yellow-50 border border-yellow-200'
+                        ? 'bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800'
                         : comment.authorType === 'admin'
-                        ? 'bg-blue-50 border border-blue-100'
-                        : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
+                          ? 'bg-info-50 dark:bg-info-900/20 border border-info-100 dark:border-info-800'
+                          : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
                     }`}
                   >
                     {comment.isInternal && (
-                      <div className="flex items-center gap-1 text-yellow-700 text-xs mb-2">
+                      <div className="flex items-center gap-1 text-warning-700 dark:text-warning-300 text-xs mb-2">
                         <AlertCircle size={12} />
                         Internal Note
                       </div>
@@ -709,15 +773,21 @@ export const TicketsPage: React.FC = () => {
                           <User size={16} className="text-gray-500 dark:text-gray-400" />
                         </div>
                         <div>
-                          <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">{comment.authorName}</div>
+                          <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">
+                            {comment.authorName}
+                          </div>
                           <div className="text-xs text-gray-500 dark:text-gray-400">
                             {comment.authorType === 'admin' ? 'Support Team' : 'Customer'}
                           </div>
                         </div>
                       </div>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">{formatTime(comment.createdAt)}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatTime(comment.createdAt)}
+                      </span>
                     </div>
-                    <p className={`text-sm whitespace-pre-wrap ${comment.isInternal ? 'text-yellow-800' : 'text-gray-700 dark:text-gray-300'}`}>
+                    <p
+                      className={`text-sm whitespace-pre-wrap ${comment.isInternal ? 'text-warning-800 dark:text-warning-200' : 'text-gray-700 dark:text-gray-300'}`}
+                    >
                       {comment.content}
                     </p>
                     {comment.attachments && comment.attachments.length > 0 && (
@@ -747,7 +817,7 @@ export const TicketsPage: React.FC = () => {
                     onClick={() => setIsInternalNote(!isInternalNote)}
                     className={`text-xs px-2 py-1 rounded ${
                       isInternalNote
-                        ? 'bg-yellow-100 text-yellow-700 border border-yellow-300'
+                        ? 'bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 border border-warning-300 dark:border-warning-700'
                         : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
@@ -760,7 +830,7 @@ export const TicketsPage: React.FC = () => {
                     onChange={(e) => setNewComment(e.target.value)}
                     placeholder={isInternalNote ? 'Add internal note...' : 'Write a reply...'}
                     rows={3}
-                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-info-500 focus:border-info-500"
                   />
                   <div className="flex flex-col gap-2">
                     <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
@@ -769,7 +839,7 @@ export const TicketsPage: React.FC = () => {
                     <button
                       onClick={handleAddComment}
                       disabled={!newComment.trim()}
-                      className="p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-3 bg-info-600 text-white rounded-lg hover:bg-info-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Send size={20} />
                     </button>
@@ -780,17 +850,20 @@ export const TicketsPage: React.FC = () => {
 
             {/* Satisfaction Rating */}
             {selectedTicket.status === 'resolved' && selectedTicket.satisfactionRating && (
-              <div className="bg-green-50 border-t border-green-200 px-4 py-3">
+              <div className="bg-success-50 dark:bg-success-900/20 border-t border-success-200 dark:border-success-800 px-4 py-3">
                 <div className="flex items-center justify-center gap-2">
-                  <span className="text-sm text-green-700">Customer Satisfaction:</span>
+                  <span className="text-sm text-success-700 dark:text-success-300">
+                    Customer Satisfaction:
+                  </span>
                   <div className="flex items-center gap-1">
                     {[1, 2, 3, 4, 5].map((star) => (
                       <Star
                         key={star}
                         size={16}
-                        className={star <= selectedTicket.satisfactionRating!
-                          ? 'text-yellow-500 fill-yellow-500'
-                          : 'text-gray-500 dark:text-gray-400'
+                        className={
+                          star <= selectedTicket.satisfactionRating!
+                            ? 'text-warning-500 fill-warning-500'
+                            : 'text-gray-500 dark:text-gray-400'
                         }
                       />
                     ))}

@@ -15,6 +15,7 @@ import { REGULATORY_CONTACTS, DISEASE_LISTS } from '../utils/thresholds';
 import { DiseaseOutbreakModal } from '../components/modals';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 import { ProvenanceBadge } from '../components/common';
+import { CircleAlert, Link, Plus } from 'lucide-react';
 
 /** Data portion of the server-assembled disease varsling (see DiseaseReportAssembler). */
 interface DiseasePrefillPayload {
@@ -41,11 +42,12 @@ export const DiseaseAssembledReview: React.FC<{
 }> = ({ prefill }) => {
   if (!prefill) return null;
   const p = prefill.draftPayload;
-  const meta = (path: string): ReturnType<typeof findFieldMeta> => findFieldMeta(prefill.fields, path);
+  const meta = (path: string): ReturnType<typeof findFieldMeta> =>
+    findFieldMeta(prefill.fields, path);
 
   if (!p.healthEventId) {
     return (
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4 text-sm text-warning-800 dark:text-warning-200">
         No disease-outbreak health event on record for this site. Record it in Fish Health before
         filing the disease varsling — the report assembles from the health event.
       </div>
@@ -80,7 +82,9 @@ export const DiseaseAssembledReview: React.FC<{
                 <span>{row.label}</span>
                 {m && <ProvenanceBadge meta={m} />}
               </dt>
-              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">{row.value}</dd>
+              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+                {row.value}
+              </dd>
             </div>
           );
         })}
@@ -102,32 +106,44 @@ interface DiseaseOutbreakTabProps {
 // ============================================================================
 
 const DiseaseInfoPanel: React.FC<{ onCreateReport: () => void }> = ({ onCreateReport }) => (
-  <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+  <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-4 mb-6">
     <div className="flex">
       <div className="flex-shrink-0">
-        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-            clipRule="evenodd"
-          />
-        </svg>
+        <CircleAlert className="h-5 w-5 text-error-400" aria-hidden="true" />
       </div>
       <div className="ml-3 flex-1">
-        <h3 className="text-sm font-medium text-red-800">Notifiable Disease Requirements</h3>
-        <div className="mt-2 text-sm text-red-700">
+        <h3 className="text-sm font-medium text-error-800 dark:text-error-200">
+          Notifiable Disease Requirements
+        </h3>
+        <div className="mt-2 text-sm text-error-700 dark:text-error-300">
           <p>Norwegian law requires immediate reporting of:</p>
           <ul className="list-disc list-inside mt-1 space-y-1">
-            <li><strong>Liste A:</strong> Exotic diseases ({DISEASE_LISTS.A.diseases.slice(0, 3).map(d => d.code).join(', ')}...)</li>
-            <li><strong>Liste C:</strong> Non-exotic notifiable ({DISEASE_LISTS.C.diseases.slice(0, 3).map(d => d.code).join(', ')}...)</li>
-            <li><strong>Liste F:</strong> Other notifiable diseases</li>
+            <li>
+              <strong>Liste A:</strong> Exotic diseases (
+              {DISEASE_LISTS.A.diseases
+                .slice(0, 3)
+                .map((d) => d.code)
+                .join(', ')}
+              ...)
+            </li>
+            <li>
+              <strong>Liste C:</strong> Non-exotic notifiable (
+              {DISEASE_LISTS.C.diseases
+                .slice(0, 3)
+                .map((d) => d.code)
+                .join(', ')}
+              ...)
+            </li>
+            <li>
+              <strong>Liste F:</strong> Other notifiable diseases
+            </li>
           </ul>
         </div>
         <div className="mt-3">
           <button
             type="button"
             onClick={onCreateReport}
-            className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+            className="inline-flex items-center px-3 py-1.5 border border-transparent text-sm font-medium rounded-md text-error-700 dark:text-error-300 bg-error-100 dark:bg-error-900/40 hover:bg-error-200 dark:hover:bg-error-800/60 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-error-500"
           >
             Report Disease Outbreak
           </button>
@@ -218,20 +234,23 @@ export const DiseaseOutbreakTab: React.FC<DiseaseOutbreakTabProps> = ({ siteId }
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Disease Outbreaks</h2>
+          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+            Disease Outbreaks
+          </h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Immediate reporting required for notifiable diseases to {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
+            Immediate reporting required for notifiable diseases to{' '}
+            {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="secondary" type="button" onClick={handleCreateFromHealthEvent}><svg className="w-4 h-4 mr-2 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-            </svg>
-            Create from Health Event</Button>
-          <Button variant="danger" type="button" onClick={handleCreateReport}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
-            Report Outbreak</Button>
+          <Button variant="secondary" type="button" onClick={handleCreateFromHealthEvent}>
+            <Link className="w-4 h-4 mr-2 text-info-500" aria-hidden="true" />
+            Create from Health Event
+          </Button>
+          <Button variant="danger" type="button" onClick={handleCreateReport}>
+            <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+            Report Outbreak
+          </Button>
         </div>
       </div>
 

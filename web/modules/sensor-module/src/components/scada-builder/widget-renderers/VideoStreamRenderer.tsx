@@ -1,6 +1,7 @@
 import React, { memo, useState, useEffect, useRef, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import { colors, Button } from '@aquaculture/shared-ui';
+import { CircleAlert, Video } from 'lucide-react';
 
 type StreamMode = 'mjpeg' | 'hls' | 'image';
 
@@ -19,7 +20,12 @@ function isValidStreamUrl(url: string): boolean {
   }
 }
 
-const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
+const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  width,
+  height,
+  isEditing,
+}) => {
   const streamUrl = (config.streamUrl ?? '') as string;
   const mode = (config.streamMode ?? 'mjpeg') as StreamMode;
   const refreshInterval = (config.refreshInterval ?? 5) as number;
@@ -40,9 +46,13 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
   const toggleFullscreen = useCallback(() => {
     if (!containerRef.current) return;
     if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().catch(() => { /* noop */ });
+      containerRef.current.requestFullscreen().catch(() => {
+        /* noop */
+      });
     } else {
-      document.exitFullscreen().catch(() => { /* noop */ });
+      document.exitFullscreen().catch(() => {
+        /* noop */
+      });
     }
     // Not: State güncelleme artık fullscreenchange event'inde yapılıyor
     // Note: State update is now handled in the fullscreenchange event listener below
@@ -68,14 +78,22 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
   // Placeholder when no URL
   if (!streamUrl) {
     return (
-      <div style={{
-        width, height, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', background: colors.neutral[800], borderRadius: 8, color: colors.gray[400],
-        fontSize: 11, gap: 8,
-      }}>
-        <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-          <path d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
+      <div
+        style={{
+          width,
+          height,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: colors.neutral[800],
+          borderRadius: 8,
+          color: colors.gray[400],
+          fontSize: 11,
+          gap: 8,
+        }}
+      >
+        <Video strokeWidth={1.5} size={32} aria-hidden="true" />
         <span>No stream URL</span>
       </div>
     );
@@ -85,16 +103,28 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
   // Security: show warning placeholder instead of rendering unsafe URL sources
   if (!isValidStreamUrl(streamUrl)) {
     return (
-      <div style={{
-        width, height, display: 'flex', flexDirection: 'column', alignItems: 'center',
-        justifyContent: 'center', background: colors.neutral[800], borderRadius: 8, color: colors.error[500],
-        fontSize: 11, gap: 8, padding: 12, textAlign: 'center',
-      }}>
-        <svg width={32} height={32} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
-          <path d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
+      <div
+        style={{
+          width,
+          height,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: colors.neutral[800],
+          borderRadius: 8,
+          color: colors.error[500],
+          fontSize: 11,
+          gap: 8,
+          padding: 12,
+          textAlign: 'center',
+        }}
+      >
+        <CircleAlert strokeWidth={1.5} size={32} aria-hidden="true" />
         <span>Invalid stream URL</span>
-        <span style={{ fontSize: 9, color: colors.neutral[400] }}>Only http:// and https:// URLs are allowed</span>
+        <span style={{ fontSize: 9, color: colors.neutral[400] }}>
+          Only http:// and https:// URLs are allowed
+        </span>
       </div>
     );
   }
@@ -103,17 +133,47 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
   const contentH = height - headerH;
 
   return (
-    <div ref={containerRef} style={{ width, height, background: '#000', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
+    <div
+      ref={containerRef}
+      style={{
+        width,
+        height,
+        background: colors.black,
+        borderRadius: 4,
+        overflow: 'hidden',
+        position: 'relative',
+      }}
+    >
       {/* Label header */}
       {label && (
-        <div style={{
-          height: headerH, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '0 8px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: 10, fontWeight: 600,
-        }}>
+        <div
+          style={{
+            height: headerH,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 8px',
+            background: 'rgba(0,0,0,0.7)',
+            color: colors.white,
+            fontSize: 10,
+            fontWeight: 600,
+          }}
+        >
           <span>{label}</span>
-          <Button variant="ghost" onClick={toggleFullscreen} type="button" style={{
-            background: 'none', border: 'none', color: colors.neutral[400], cursor: 'pointer', fontSize: 10,
-          }}>{isFullscreen ? '\u229E' : '\u229F'}</Button>
+          <Button
+            variant="ghost"
+            onClick={toggleFullscreen}
+            type="button"
+            style={{
+              background: 'none',
+              border: 'none',
+              color: colors.neutral[400],
+              cursor: 'pointer',
+              fontSize: 10,
+            }}
+          >
+            {isFullscreen ? '\u229E' : '\u229F'}
+          </Button>
         </div>
       )}
 
@@ -130,19 +190,32 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({ config, width, hei
       ) : (
         <img
           key={mode === 'image' ? refreshKey : undefined}
-          src={mode === 'image' ? `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}t=${Date.now()}` : streamUrl}
+          src={
+            mode === 'image'
+              ? `${streamUrl}${streamUrl.includes('?') ? '&' : '?'}t=${Date.now()}`
+              : streamUrl
+          }
           alt={label || 'Camera stream'}
           style={{ width: '100%', height: contentH, objectFit: 'contain', display: 'block' }}
-          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          onError={(e) => {
+            (e.target as HTMLImageElement).style.display = 'none';
+          }}
         />
       )}
 
       {/* Status dot -- green when active */}
-      <div style={{
-        position: 'absolute', top: label ? headerH + 4 : 4, right: 4,
-        width: 8, height: 8, borderRadius: '50%', background: colors.success[500],
-        boxShadow: '0 0 4px rgba(34,197,94,0.6)',
-      }} />
+      <div
+        style={{
+          position: 'absolute',
+          top: label ? headerH + 4 : 4,
+          right: 4,
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          background: colors.success[500],
+          boxShadow: '0 0 4px rgba(34,197,94,0.6)',
+        }}
+      />
     </div>
   );
 };

@@ -27,7 +27,7 @@ export const ScreenLinkConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         <select
           value={config.targetScreenId || ''}
           onChange={(e) => onChange({ targetScreenId: e.target.value || undefined })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-info-500"
         >
           <option value="">Select screen...</option>
           {screens.map((screen) => (

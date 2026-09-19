@@ -20,7 +20,11 @@ interface ConnectionPointNodeData extends Record<string, unknown> {
   label?: string;
 }
 
-const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = ({ id, data, selected }) => {
+const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = ({
+  id,
+  data,
+  selected,
+}) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 
@@ -29,10 +33,13 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
   const [leftType, setLeftType] = useState<HandleType>(data?.leftType || 'target');
   const [rightType, setRightType] = useState<HandleType>(data?.rightType || 'source');
 
-  const toggleType = (current: HandleType): HandleType => (current === 'source' ? 'target' : 'source');
+  const toggleType = (current: HandleType): HandleType =>
+    current === 'source' ? 'target' : 'source';
 
   const updateType = (side: 'top' | 'bottom' | 'left' | 'right') => {
-    const currentType = { top: topType, bottom: bottomType, left: leftType, right: rightType }[side];
+    const currentType = { top: topType, bottom: bottomType, left: leftType, right: rightType }[
+      side
+    ];
     const newType = toggleType(currentType);
 
     updateNodeData(id, { [`${side}Type`]: newType } as any);
@@ -47,7 +54,8 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
     updateNodeInternals(id);
   }, [topType, bottomType, leftType, rightType, id, updateNodeInternals]);
 
-  const getColor = (type: HandleType) => type === 'source' ? colors.success[500] : colors.info[500];
+  const getColor = (type: HandleType) =>
+    type === 'source' ? colors.success[500] : colors.info[500];
 
   return (
     <div
@@ -65,7 +73,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
           cy="15"
           r="12"
           fill={data?.fillColor || colors.warning[500]}
-          stroke={data?.strokeColor || '#333'}
+          stroke={data?.strokeColor || themeColors.neutral[700]}
           strokeWidth="2"
         />
       </svg>

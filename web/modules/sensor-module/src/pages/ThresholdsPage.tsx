@@ -25,7 +25,14 @@ import {
   AlertThresholds,
   getSensorTypeLabel,
 } from '../hooks/useSensorThresholds';
-import { DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Components
@@ -34,18 +41,20 @@ import { DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input } f
 const TypeIcon: React.FC<{ type: string }> = ({ type }) => {
   const normalized = type.toLowerCase().replace(/-/g, '_');
   const icons: Record<string, React.ReactNode> = {
-    temperature: <Thermometer className="w-5 h-5 text-orange-500" />,
-    dissolved_oxygen: <Droplets className="w-5 h-5 text-blue-500" />,
-    ph: <Gauge className="w-5 h-5 text-purple-500" />,
-    salinity: <Activity className="w-5 h-5 text-cyan-500" />,
-    ammonia: <Activity className="w-5 h-5 text-yellow-500" />,
-    nitrite: <Activity className="w-5 h-5 text-rose-500" />,
-    nitrate: <Activity className="w-5 h-5 text-green-500" />,
-    turbidity: <Activity className="w-5 h-5 text-amber-500" />,
-    water_level: <Activity className="w-5 h-5 text-indigo-500" />,
+    temperature: <Thermometer className="w-5 h-5 text-accent-500" />,
+    dissolved_oxygen: <Droplets className="w-5 h-5 text-info-500" />,
+    ph: <Gauge className="w-5 h-5 text-accent-500" />,
+    salinity: <Activity className="w-5 h-5 text-info-500" />,
+    ammonia: <Activity className="w-5 h-5 text-warning-500" />,
+    nitrite: <Activity className="w-5 h-5 text-error-500" />,
+    nitrate: <Activity className="w-5 h-5 text-success-500" />,
+    turbidity: <Activity className="w-5 h-5 text-warning-500" />,
+    water_level: <Activity className="w-5 h-5 text-primary-500" />,
   };
 
-  return <>{icons[normalized] || <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />}</>;
+  return (
+    <>{icons[normalized] || <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />}</>
+  );
 };
 
 // ============================================================================
@@ -109,12 +118,21 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
     // Full class strings: Tailwind only emits utilities it can read literally.
     const inputClass =
       level === 'warning'
-        ? 'w-20 px-2 py-1 border border-yellow-300 rounded text-center text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500'
-        : 'w-20 px-2 py-1 border border-red-300 rounded text-center text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500';
+        ? 'w-20 px-2 py-1 border border-warning-300 dark:border-warning-700 rounded text-center text-sm focus:ring-2 focus:ring-warning-500 focus:border-warning-500'
+        : 'w-20 px-2 py-1 border border-error-300 dark:border-error-700 rounded text-center text-sm focus:ring-2 focus:ring-error-500 focus:border-error-500';
     return editing?.sensorId === threshold.sensorId ? (
-      <Input fullWidth type="number" step="0.1" value={editing.data[level]?.[bound] ?? ''} onChange={(e) => updateValue(level, bound, e.target.value)} placeholder="-" />
+      <Input
+        fullWidth
+        type="number"
+        step="0.1"
+        value={editing.data[level]?.[bound] ?? ''}
+        onChange={(e) => updateValue(level, bound, e.target.value)}
+        placeholder="-"
+      />
     ) : (
-      <span className="text-sm text-gray-700 dark:text-gray-300">{threshold.alertThresholds[level]?.[bound] ?? '-'}</span>
+      <span className="text-sm text-gray-700 dark:text-gray-300">
+        {threshold.alertThresholds[level]?.[bound] ?? '-'}
+      </span>
     );
   };
 
@@ -124,36 +142,42 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
       header: 'Sensör',
       render: (_value, threshold) => (
         <div>
-          <span className="font-medium text-gray-900 dark:text-gray-100">{threshold.sensorName}</span>
-          {threshold.dataPath && <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{threshold.dataPath}</p>}
+          <span className="font-medium text-gray-900 dark:text-gray-100">
+            {threshold.sensorName}
+          </span>
+          {threshold.dataPath && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+              {threshold.dataPath}
+            </p>
+          )}
         </div>
       ),
     },
     {
       key: 'warningLow',
       header: 'Uyarı Min',
-      headerRender: <span className="text-yellow-600">Uyarı Min</span>,
+      headerRender: <span className="text-warning-600 dark:text-warning-400">Uyarı Min</span>,
       align: 'center',
       render: (_value, threshold) => boundInput(threshold, 'warning', 'low'),
     },
     {
       key: 'warningHigh',
       header: 'Uyarı Max',
-      headerRender: <span className="text-yellow-600">Uyarı Max</span>,
+      headerRender: <span className="text-warning-600 dark:text-warning-400">Uyarı Max</span>,
       align: 'center',
       render: (_value, threshold) => boundInput(threshold, 'warning', 'high'),
     },
     {
       key: 'criticalLow',
       header: 'Kritik Min',
-      headerRender: <span className="text-red-600">Kritik Min</span>,
+      headerRender: <span className="text-error-600 dark:text-error-400">Kritik Min</span>,
       align: 'center',
       render: (_value, threshold) => boundInput(threshold, 'critical', 'low'),
     },
     {
       key: 'criticalHigh',
       header: 'Kritik Max',
-      headerRender: <span className="text-red-600">Kritik Max</span>,
+      headerRender: <span className="text-error-600 dark:text-error-400">Kritik Max</span>,
       align: 'center',
       render: (_value, threshold) => boundInput(threshold, 'critical', 'high'),
     },
@@ -161,7 +185,9 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
       key: 'unit',
       header: 'Birim',
       align: 'center',
-      render: (_value, threshold) => <span className="text-gray-500 dark:text-gray-400">{threshold.unit}</span>,
+      render: (_value, threshold) => (
+        <span className="text-gray-500 dark:text-gray-400">{threshold.unit}</span>
+      ),
     },
     {
       key: 'actions',
@@ -170,11 +196,43 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
       render: (_value, threshold) =>
         editing?.sensorId === threshold.sensorId ? (
           <div className="flex items-center justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => void saveEdit(threshold)} disabled={savingId === threshold.sensorId} title="Kaydet">{savingId === threshold.sensorId ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}</Button>
-            <Button variant="ghost" size="sm" iconOnly aria-label="İptal" onClick={cancelEdit} disabled={savingId === threshold.sensorId} title="İptal"><X className="w-4 h-4" /></Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void saveEdit(threshold)}
+              disabled={savingId === threshold.sensorId}
+              title="Kaydet"
+            >
+              {savingId === threshold.sensorId ? (
+                <Spinner size="sm" color="inherit" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              aria-label="İptal"
+              onClick={cancelEdit}
+              disabled={savingId === threshold.sensorId}
+              title="İptal"
+            >
+              <X className="w-4 h-4" />
+            </Button>
           </div>
         ) : (
-          <Button variant="ghost" size="sm" iconOnly aria-label="Düzenle" onClick={() => startEdit(threshold)} disabled={updating} title="Düzenle"><Edit className="w-4 h-4" /></Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            iconOnly
+            aria-label="Düzenle"
+            onClick={() => startEdit(threshold)}
+            disabled={updating}
+            title="Düzenle"
+          >
+            <Edit className="w-4 h-4" />
+          </Button>
         ),
     },
   ];
@@ -184,8 +242,12 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
       {/* Header */}
       <div className="p-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
         <TypeIcon type={type} />
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100">{getSensorTypeLabel(type)}</h3>
-        <span className="text-sm text-gray-500 dark:text-gray-400">({thresholds.length} sensör)</span>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+          {getSensorTypeLabel(type)}
+        </h3>
+        <span className="text-sm text-gray-500 dark:text-gray-400">
+          ({thresholds.length} sensör)
+        </span>
       </div>
 
       <DataTable<SensorThreshold>
@@ -207,20 +269,14 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
 // ============================================================================
 
 const ThresholdsPage: React.FC = () => {
-  const {
-    groupedByType,
-    loading,
-    error,
-    updating,
-    updateThreshold,
-    refetch,
-  } = useSensorThresholds();
+  const { groupedByType, loading, error, updating, updateThreshold, refetch } =
+    useSensorThresholds();
 
   const handleUpdate = useCallback(
     async (sensorId: string, thresholds: AlertThresholds) => {
       await updateThreshold({ sensorId, alertThresholds: thresholds });
     },
-    [updateThreshold]
+    [updateThreshold],
   );
 
   const sensorTypes = Object.keys(groupedByType);
@@ -239,11 +295,13 @@ const ThresholdsPage: React.FC = () => {
   if (error) {
     return (
       <div className="p-6">
-        <div className="bg-red-50 border border-red-100 rounded-xl p-4 text-center">
-          <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-          <h3 className="font-medium text-red-900">Yükleme Hatası</h3>
-          <p className="text-sm text-red-600 mt-1">{error}</p>
-          <Button variant="danger" className="mt-3" onClick={() => refetch()}>Tekrar Dene</Button>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-100 dark:border-error-800 rounded-xl p-4 text-center">
+          <AlertTriangle className="w-8 h-8 text-error-500 mx-auto mb-2" />
+          <h3 className="font-medium text-error-900 dark:text-error-100">Yükleme Hatası</h3>
+          <p className="text-sm text-error-600 dark:text-error-400 mt-1">{error}</p>
+          <Button variant="danger" className="mt-3" onClick={() => refetch()}>
+            Tekrar Dene
+          </Button>
         </div>
       </div>
     );
@@ -268,15 +326,17 @@ const ThresholdsPage: React.FC = () => {
       />
 
       {/* Info Card */}
-      <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-100 dark:border-info-800 rounded-xl p-4">
         <div className="flex items-start gap-3">
-          <Settings className="w-5 h-5 text-blue-600 mt-0.5" />
+          <Settings className="w-5 h-5 text-info-600 dark:text-info-400 mt-0.5" />
           <div>
-            <h4 className="font-medium text-blue-900">Eşik Değerleri Hakkında</h4>
-            <p className="text-sm text-blue-700 mt-1">
-              Eşik değerleri, sensör okumaları belirlenen limitlerin dışına çıktığında otomatik uyarı
-              oluşturulmasını sağlar. Her parametre için uyarı (sarı) ve kritik (kırmızı) seviye tanımlayabilirsiniz.
-              Değerleri düzenlemek için kalem ikonuna tıklayın.
+            <h4 className="font-medium text-info-900 dark:text-info-100">
+              Eşik Değerleri Hakkında
+            </h4>
+            <p className="text-sm text-info-700 dark:text-info-300 mt-1">
+              Eşik değerleri, sensör okumaları belirlenen limitlerin dışına çıktığında otomatik
+              uyarı oluşturulmasını sağlar. Her parametre için uyarı (sarı) ve kritik (kırmızı)
+              seviye tanımlayabilirsiniz. Değerleri düzenlemek için kalem ikonuna tıklayın.
             </p>
           </div>
         </div>
@@ -286,7 +346,9 @@ const ThresholdsPage: React.FC = () => {
       {sensorTypes.length === 0 && (
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
           <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Henüz Sensör Yok</h3>
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Henüz Sensör Yok
+          </h3>
           <p className="text-gray-500 dark:text-gray-400">
             Eşik değerlerini düzenlemek için önce sensör kaydetmeniz gerekiyor.
           </p>

@@ -108,7 +108,7 @@ export function ChildSensorFormModal({
 
   const handleChange = <K extends keyof ChildSensorConfig>(
     field: K,
-    value: ChildSensorConfig[K]
+    value: ChildSensorConfig[K],
   ) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
@@ -135,7 +135,7 @@ export function ChildSensorFormModal({
   const handleAlertChange = (
     level: 'warning' | 'critical',
     bound: 'low' | 'high',
-    value: string
+    value: string,
   ) => {
     const numValue = value === '' ? undefined : parseFloat(value);
     setFormData((prev) => ({
@@ -152,7 +152,7 @@ export function ChildSensorFormModal({
 
   const handleDisplayChange = <K extends keyof ChannelDisplaySettings>(
     field: K,
-    value: ChannelDisplaySettings[K]
+    value: ChannelDisplaySettings[K],
   ) => {
     setFormData((prev) => ({
       ...prev,
@@ -208,193 +208,303 @@ export function ChildSensorFormModal({
         )
       }
     >
+      {/* Form */}
+      <form onSubmit={handleSubmit}>
+        <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)] space-y-6">
+          {/* Basic Information */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 border-b pb-2">
+              Basic Information
+            </h3>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit}>
-            <div className="p-6 overflow-y-auto max-h-[calc(90vh-180px)] space-y-6">
-              {/* Basic Information */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 border-b pb-2">Basic Information</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Data Name <span className="text-error-500">*</span>
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                value={formData.name}
+                onChange={(e) => handleChange('name', e.target.value)}
+                required
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Data Name <span className="text-red-500">*</span>
-                  </label>
-                  <Input fullWidth type="text" value={formData.name} onChange={(e) => handleChange('name', e.target.value)} required />
-                </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Data Path (payload key) <span className="text-error-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={formData.dataPath}
+                onChange={(e) => {
+                  handleChange('dataPath', e.target.value);
+                  setDataPathError(null);
+                }}
+                disabled={!!sensor}
+                placeholder="e.g. temperature, sensors.mid"
+                className={`w-full px-3 py-2 border rounded-md focus:ring-info-500 focus:border-info-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400 ${
+                  dataPathError ? 'border-error-400' : 'border-gray-300 dark:border-gray-600'
+                }`}
+              />
+              {dataPathError ? (
+                <p className="text-sm text-error-600 dark:text-error-400 mt-1" role="alert">
+                  {dataPathError}
+                </p>
+              ) : (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  The key inside the MQTT payload this parameter is read from (dot paths allowed).
+                </p>
+              )}
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Data Path (payload key) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.dataPath}
-                    onChange={(e) => {
-                      handleChange('dataPath', e.target.value);
-                      setDataPathError(null);
-                    }}
-                    disabled={!!sensor}
-                    placeholder="e.g. temperature, sensors.mid"
-                    className={`w-full px-3 py-2 border rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400 ${
-                      dataPathError ? 'border-red-400' : 'border-gray-300 dark:border-gray-600'
-                    }`}
-                  />
-                  {dataPathError ? (
-                    <p className="text-sm text-red-600 mt-1" role="alert">{dataPathError}</p>
-                  ) : (
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      The key inside the MQTT payload this parameter is read from (dot paths allowed).
-                    </p>
-                  )}
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Data Type <span className="text-error-500">*</span>
+                </label>
+                <select
+                  value={formData.type}
+                  onChange={(e) => handleChange('type', e.target.value as SensorType)}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
+                  required
+                >
+                  {SENSOR_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Unit
+                </label>
+                <Input
+                  fullWidth
+                  type="text"
+                  value={formData.unit || ''}
+                  onChange={(e) => handleChange('unit', e.target.value || undefined)}
+                  placeholder="e.g., °C, mg/L, pH"
+                />
+              </div>
+            </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Data Type <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={formData.type}
-                      onChange={(e) => handleChange('type', e.target.value as SensorType)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    >
-                      {SENSOR_TYPE_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unit</label>
-                    <Input fullWidth type="text" value={formData.unit || ''} onChange={(e) => handleChange('unit', e.target.value || undefined)} placeholder="e.g., °C, mg/L, pH" />
-                  </div>
-                </div>
-
-                {/* SENSOR-MEDIUM-071: optional custom type-definition picker. When
+            {/* SENSOR-MEDIUM-071: optional custom type-definition picker. When
                     set, the backend bootstraps its default channels for this child. */}
-                {typeDefinitions.length > 0 && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Custom Type (optional)
-                    </label>
-                    <select
-                      value={formData.typeDefinitionId || ''}
-                      onChange={handleTypeDefinitionChange}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">None — use the data type above</option>
-                      {typeDefinitions.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.icon ? `${t.icon} ` : ''}{t.displayName}{t.isSystem ? '' : ' (custom)'}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Attaches a predefined channel set; its parameters are created automatically.
-                    </p>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min Value</label>
-                    <Input fullWidth type="number" step="any" value={formData.minValue ?? ''} onChange={(e) => handleChange('minValue', e.target.value ? parseFloat(e.target.value) : undefined)} />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Value</label>
-                    <Input fullWidth type="number" step="any" value={formData.maxValue ?? ''} onChange={(e) => handleChange('maxValue', e.target.value ? parseFloat(e.target.value) : undefined)} />
-                  </div>
-                </div>
+            {typeDefinitions.length > 0 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Custom Type (optional)
+                </label>
+                <select
+                  value={formData.typeDefinitionId || ''}
+                  onChange={handleTypeDefinitionChange}
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-info-500 focus:border-info-500"
+                >
+                  <option value="">None — use the data type above</option>
+                  {typeDefinitions.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.icon ? `${t.icon} ` : ''}
+                      {t.displayName}
+                      {t.isSystem ? '' : ' (custom)'}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Attaches a predefined channel set; its parameters are created automatically.
+                </p>
               </div>
+            )}
 
-              {/* Calibration */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b pb-2">
-                  <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Calibration</h3>
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={formData.calibrationEnabled}
-                      onChange={(e) => handleChange('calibrationEnabled', e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">Enable calibration</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Min Value
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  step="any"
+                  value={formData.minValue ?? ''}
+                  onChange={(e) =>
+                    handleChange(
+                      'minValue',
+                      e.target.value ? parseFloat(e.target.value) : undefined,
+                    )
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Max Value
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  step="any"
+                  value={formData.maxValue ?? ''}
+                  onChange={(e) =>
+                    handleChange(
+                      'maxValue',
+                      e.target.value ? parseFloat(e.target.value) : undefined,
+                    )
+                  }
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Calibration */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Calibration</h3>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  checked={formData.calibrationEnabled}
+                  onChange={(e) => handleChange('calibrationEnabled', e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-info-600 focus:ring-info-500"
+                />
+                <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">
+                  Enable calibration
+                </span>
+              </label>
+            </div>
+
+            {formData.calibrationEnabled && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Multiplier
                   </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    step="any"
+                    value={formData.calibrationMultiplier}
+                    onChange={(e) =>
+                      handleChange('calibrationMultiplier', parseFloat(e.target.value) || 1)
+                    }
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Multiplied with raw value
+                  </p>
                 </div>
-
-                {formData.calibrationEnabled && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Multiplier
-                      </label>
-                      <Input fullWidth type="number" step="any" value={formData.calibrationMultiplier} onChange={(e) => handleChange('calibrationMultiplier', parseFloat(e.target.value) || 1)} />
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Multiplied with raw value</p>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        Offset
-                      </label>
-                      <Input fullWidth type="number" step="any" value={formData.calibrationOffset} onChange={(e) => handleChange('calibrationOffset', parseFloat(e.target.value) || 0)} />
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Added after multiplication</p>
-                    </div>
-                    <div className="sm:col-span-2 text-sm text-gray-600 dark:text-gray-400">
-                      Formula: <code className="bg-white dark:bg-gray-900 px-2 py-0.5 rounded">
-                        calibrated = (raw × {formData.calibrationMultiplier}) + {formData.calibrationOffset}
-                      </code>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Alert Thresholds */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 border-b pb-2">Alert Thresholds</h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Warning */}
-                  <div className="bg-yellow-50 p-4 rounded-lg">
-                    <h4 className="text-sm font-medium text-yellow-800 mb-3">Warning</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Low</label>
-                        <Input fullWidth type="number" step="any" value={formData.alertThresholds?.warning?.low ?? ''} onChange={(e) => handleAlertChange('warning', 'low', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">High</label>
-                        <Input fullWidth type="number" step="any" value={formData.alertThresholds?.warning?.high ?? ''} onChange={(e) => handleAlertChange('warning', 'high', e.target.value)} />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Critical */}
-                  <div className="bg-red-50 p-4 rounded-lg">
-                    <h4 className="text-sm font-medium text-red-800 mb-3">Critical</h4>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Low</label>
-                        <Input fullWidth type="number" step="any" value={formData.alertThresholds?.critical?.low ?? ''} onChange={(e) => handleAlertChange('critical', 'low', e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">High</label>
-                        <Input fullWidth type="number" step="any" value={formData.alertThresholds?.critical?.high ?? ''} onChange={(e) => handleAlertChange('critical', 'high', e.target.value)} />
-                      </div>
-                    </div>
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Offset
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    step="any"
+                    value={formData.calibrationOffset}
+                    onChange={(e) =>
+                      handleChange('calibrationOffset', parseFloat(e.target.value) || 0)
+                    }
+                  />
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Added after multiplication
+                  </p>
+                </div>
+                <div className="sm:col-span-2 text-sm text-gray-600 dark:text-gray-400">
+                  Formula:{' '}
+                  <code className="bg-white dark:bg-gray-900 px-2 py-0.5 rounded">
+                    calibrated = (raw × {formData.calibrationMultiplier}) +{' '}
+                    {formData.calibrationOffset}
+                  </code>
                 </div>
               </div>
+            )}
+          </div>
 
-            </div>
+          {/* Alert Thresholds */}
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 border-b pb-2">
+              Alert Thresholds
+            </h3>
 
-            {/* Footer */}
-            <div className="flex items-center justify-end px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 space-x-3">
-              <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-              <Button variant="primary" type="submit">Save Configuration</Button>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Warning */}
+              <div className="bg-warning-50 dark:bg-warning-900/20 p-4 rounded-lg">
+                <h4 className="text-sm font-medium text-warning-800 dark:text-warning-200 mb-3">
+                  Warning
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                      Low
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="any"
+                      value={formData.alertThresholds?.warning?.low ?? ''}
+                      onChange={(e) => handleAlertChange('warning', 'low', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                      High
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="any"
+                      value={formData.alertThresholds?.warning?.high ?? ''}
+                      onChange={(e) => handleAlertChange('warning', 'high', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Critical */}
+              <div className="bg-error-50 dark:bg-error-900/20 p-4 rounded-lg">
+                <h4 className="text-sm font-medium text-error-800 dark:text-error-200 mb-3">
+                  Critical
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                      Low
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="any"
+                      value={formData.alertThresholds?.critical?.low ?? ''}
+                      onChange={(e) => handleAlertChange('critical', 'low', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">
+                      High
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="any"
+                      value={formData.alertThresholds?.critical?.high ?? ''}
+                      onChange={(e) => handleAlertChange('critical', 'high', e.target.value)}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-          </form>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 space-x-3">
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit">
+            Save Configuration
+          </Button>
+        </div>
+      </form>
     </Modal>
   );
 }

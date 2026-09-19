@@ -24,6 +24,7 @@ import { SubmissionHistorySection } from '../components/SubmissionHistorySection
 import { useStableClientReference } from '../../../hooks/useStableClientReference';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
 import { useSlaughterFacilities } from '../../../hooks/useSlaughterFacilities';
+import { Calendar, CircleCheck, Plus, X } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -283,59 +284,71 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Site
+        </label>
         <Input fullWidth type="text" value={siteName} disabled />
       </div>
 
       {/* Week / Year Selection */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Week Number</label>
-          <Input fullWidth type="number" min={1} max={52} value={formData.weekNumber} onChange={(e) =>
-       onChange({ weekNumber: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })
-      } />
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Week Number
+          </label>
+          <Input
+            fullWidth
+            type="number"
+            min={1}
+            max={52}
+            value={formData.weekNumber}
+            onChange={(e) =>
+              onChange({ weekNumber: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })
+            }
+          />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Year</label>
-          <Input fullWidth type="number" min={2020} max={2030} value={formData.year} onChange={(e) =>
-       onChange({ year: parseInt(e.target.value) || new Date().getFullYear() })
-      } />
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Year
+          </label>
+          <Input
+            fullWidth
+            type="number"
+            min={2020}
+            max={2030}
+            value={formData.year}
+            onChange={(e) =>
+              onChange({ year: parseInt(e.target.value) || new Date().getFullYear() })
+            }
+          />
         </div>
       </div>
-      <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-md">
-        <span className="text-sm text-blue-700 font-medium">{weekLabel}</span>
+      <div className="px-3 py-2 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-md">
+        <span className="text-sm text-info-700 dark:text-info-300 font-medium">{weekLabel}</span>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Report Type</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Report Type
+        </label>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <button
             type="button"
             onClick={() => onChange({ reportType: 'planned' })}
             className={`p-4 border-2 rounded-lg text-center ${
               formData.reportType === 'planned'
-                ? 'border-blue-500 bg-blue-50'
+                ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
                 : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
             }`}
           >
-            <div className="p-3 bg-blue-100 rounded-lg inline-block mb-2">
-              <svg
-                className="w-6 h-6 text-blue-600"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
-              </svg>
+            <div className="p-3 bg-info-100 dark:bg-info-900/40 rounded-lg inline-block mb-2">
+              <Calendar className="w-6 h-6 text-info-600 dark:text-info-400" aria-hidden="true" />
             </div>
             <div className="font-medium text-gray-900 dark:text-gray-100">Planned Slaughter</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Planlagt Slakt</div>
-            <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">Weekly schedule by day</div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              Weekly schedule by day
+            </div>
           </button>
           {/* Executed (utført) slaughter is filed from harvest records via the
               records-based "Scheduled reports due" review-and-approve draft — the
@@ -347,19 +360,10 @@ const ReportTypeStep: React.FC<ReportTypeStepProps> = ({ formData, onChange, sit
             title="Executed slaughter is filed from harvest records — see “Scheduled reports due”."
           >
             <div className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg inline-block mb-2">
-              <svg
+              <CircleCheck
                 className="w-6 h-6 text-gray-500 dark:text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+                aria-hidden="true"
+              />
             </div>
             <div className="font-medium text-gray-900 dark:text-gray-100">Executed Slaughter</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Utført Slakt</div>
@@ -433,8 +437,10 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
       {/* Regulatory Metadata */}
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Regulatory Metadata</h4>
-          <span className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Regulatory Metadata
+          </h4>
+          <span className="px-2 py-0.5 text-xs bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 rounded">
             Mattilsynet
           </span>
         </div>
@@ -446,29 +452,66 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
               Organization Number (organisasjonsnummer)
             </label>
-            <Input fullWidth type="text" value={formData.regulatory.organisasjonsnummer} onChange={(e) => updateRegulatory({ organisasjonsnummer: e.target.value })} placeholder="123456789" maxLength={9} />
+            <Input
+              fullWidth
+              type="text"
+              value={formData.regulatory.organisasjonsnummer}
+              onChange={(e) => updateRegulatory({ organisasjonsnummer: e.target.value })}
+              placeholder="123456789"
+              maxLength={9}
+            />
           </div>
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
               Site Number (lokalitetsnummer)
             </label>
-            <Input fullWidth type="number" value={formData.regulatory.lokalitetsnummer} onChange={(e) =>
-        updateRegulatory({ lokalitetsnummer: parseInt(e.target.value, 10) || '' })
-       } placeholder="31234" />
+            <Input
+              fullWidth
+              type="number"
+              value={formData.regulatory.lokalitetsnummer}
+              onChange={(e) =>
+                updateRegulatory({ lokalitetsnummer: parseInt(e.target.value, 10) || '' })
+              }
+              placeholder="31234"
+            />
           </div>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Contact Person (navn)</label>
-            <Input fullWidth type="text" value={formData.regulatory.kontaktperson.navn} onChange={(e) => updateKontakt({ navn: e.target.value })} placeholder="Erik Hansen" />
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Contact Person (navn)
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={formData.regulatory.kontaktperson.navn}
+              onChange={(e) => updateKontakt({ navn: e.target.value })}
+              placeholder="Erik Hansen"
+            />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Email (epost)</label>
-            <Input fullWidth type="email" value={formData.regulatory.kontaktperson.epost} onChange={(e) => updateKontakt({ epost: e.target.value })} placeholder="erik@example.no" />
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Email (epost)
+            </label>
+            <Input
+              fullWidth
+              type="email"
+              value={formData.regulatory.kontaktperson.epost}
+              onChange={(e) => updateKontakt({ epost: e.target.value })}
+              placeholder="erik@example.no"
+            />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Phone (telefonnummer)</label>
-            <Input fullWidth type="text" value={formData.regulatory.kontaktperson.telefonnummer} onChange={(e) => updateKontakt({ telefonnummer: e.target.value })} placeholder="+47 123 45 678" />
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Phone (telefonnummer)
+            </label>
+            <Input
+              fullWidth
+              type="text"
+              value={formData.regulatory.kontaktperson.telefonnummer}
+              onChange={(e) => updateKontakt({ telefonnummer: e.target.value })}
+              placeholder="+47 123 45 678"
+            />
           </div>
         </div>
       </div>
@@ -479,22 +522,25 @@ export const FacilityStep: React.FC<FacilityStepProps> = ({ formData, onChange }
       {/* Slaughter Facility */}
       <div>
         <div className="flex items-center gap-2 mb-3">
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Slaughter Facility</h4>
-          <span className="px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Slaughter Facility
+          </h4>
+          <span className="px-2 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
             Required
           </span>
         </div>
         {facilitiesLoading ? (
           <p className="text-xs text-gray-400 dark:text-gray-500">Loading facilities…</p>
         ) : facilities.length === 0 ? (
-          <p className="text-xs text-amber-600">
-            No slaughter facilities registered. Add one under Setup → Slaughter
-            Facilities — the catalog is the source of the approval number
-            (godkjenningsnummer) the report submits.
+          <p className="text-xs text-warning-600 dark:text-warning-400">
+            No slaughter facilities registered. Add one under Setup → Slaughter Facilities — the
+            catalog is the source of the approval number (godkjenningsnummer) the report submits.
           </p>
         ) : (
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Facility (slakteri) *</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Facility (slakteri) *
+            </label>
             <select
               value={selectedFacilityId}
               onChange={(e) => {
@@ -634,15 +680,19 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
       </div>
 
       {/* Summary */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <span className="text-sm text-blue-800">Total Planned Fish</span>
-            <div className="text-2xl font-bold text-blue-700">{formatNumber(totalQuantity)}</div>
+            <span className="text-sm text-info-800 dark:text-info-200">Total Planned Fish</span>
+            <div className="text-2xl font-bold text-info-700 dark:text-info-300">
+              {formatNumber(totalQuantity)}
+            </div>
           </div>
           <div>
-            <span className="text-sm text-blue-800">Total Planned Biomass</span>
-            <div className="text-2xl font-bold text-blue-700">{formatWeight(totalBiomass)}</div>
+            <span className="text-sm text-info-800 dark:text-info-200">Total Planned Biomass</span>
+            <div className="text-2xl font-bold text-info-700 dark:text-info-300">
+              {formatWeight(totalBiomass)}
+            </div>
           </div>
         </div>
       </div>
@@ -654,18 +704,30 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
           const dayDate = dayDates[dayIndex];
 
           return (
-            <div key={dayIndex} className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+            <div
+              key={dayIndex}
+              className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+            >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{dayLabel}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {dayLabel}
+                  </span>
                   <span className="text-xs text-gray-400 dark:text-gray-500">{dayDate}</span>
                   {dayEntries.length > 0 && (
-                    <span className="px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
+                    <span className="px-1.5 py-0.5 text-xs bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 rounded">
                       {dayEntries.length} {dayEntries.length === 1 ? 'entry' : 'entries'}
                     </span>
                   )}
                 </div>
-                <Button variant="secondary" size="xs" type="button" onClick={() => addDayPlan(dayIndex)}>+ Add</Button>
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  type="button"
+                  onClick={() => addDayPlan(dayIndex)}
+                >
+                  + Add
+                </Button>
               </div>
 
               {dayEntries.map((entry) => (
@@ -675,23 +737,19 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                 >
                   <div className="flex items-start justify-between mb-2">
                     <span className="text-xs text-gray-400 dark:text-gray-500">Entry</span>
-                    <Button variant="ghost" type="button" onClick={() => removeDayPlan(entry.originalIndex)}><svg
-                        className="w-3.5 h-3.5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg></Button>
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      onClick={() => removeDayPlan(entry.originalIndex)}
+                    >
+                      <X className="w-3.5 h-3.5" aria-hidden="true" />
+                    </Button>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                     <div className="md:col-span-2">
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Batch</label>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Batch
+                      </label>
                       <select
                         value={entry.batchId}
                         onChange={(e) => handleBatchSelect(entry.originalIndex, e.target.value)}
@@ -710,27 +768,49 @@ const PlannedSlaughterStep: React.FC<PlannedSlaughterStepProps> = ({
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         Species (artskode: {entry.artskode || '-'})
                       </label>
-                      <Input fullWidth type="text" value={entry.species} onChange={(e) =>
-             updateDayPlan(entry.originalIndex, { species: e.target.value })
-            } placeholder="Auto from batch" />
+                      <Input
+                        fullWidth
+                        type="text"
+                        value={entry.species}
+                        onChange={(e) =>
+                          updateDayPlan(entry.originalIndex, { species: e.target.value })
+                        }
+                        placeholder="Auto from batch"
+                      />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity (antall)</label>
-                      <Input fullWidth type="number" min="0" value={entry.quantity || ''} onChange={(e) =>
-             updateDayPlan(entry.originalIndex, {
-              quantity: parseInt(e.target.value) || 0,
-             })
-            } placeholder="0" />
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Quantity (antall)
+                      </label>
+                      <Input
+                        fullWidth
+                        type="number"
+                        min="0"
+                        value={entry.quantity || ''}
+                        onChange={(e) =>
+                          updateDayPlan(entry.originalIndex, {
+                            quantity: parseInt(e.target.value) || 0,
+                          })
+                        }
+                        placeholder="0"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         Biomass kg (mengdeKg)
                       </label>
-                      <Input fullWidth type="number" min="0" value={entry.biomassKg || ''} onChange={(e) =>
-             updateDayPlan(entry.originalIndex, {
-              biomassKg: parseFloat(e.target.value) || 0,
-             })
-            } placeholder="0" />
+                      <Input
+                        fullWidth
+                        type="number"
+                        min="0"
+                        value={entry.biomassKg || ''}
+                        onChange={(e) =>
+                          updateDayPlan(entry.originalIndex, {
+                            biomassKg: parseFloat(e.target.value) || 0,
+                          })
+                        }
+                        placeholder="0"
+                      />
                     </div>
                   </div>
                 </div>
@@ -836,24 +916,34 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Executed Slaughters</h4>
-          <p className="text-xs text-gray-500 dark:text-gray-400">Record actual harvest results for the week</p>
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Executed Slaughters
+          </h4>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Record actual harvest results for the week
+          </p>
         </div>
-        <Button variant="secondary" size="sm" type="button" onClick={addCompleted}>+ Add Completed</Button>
+        <Button variant="secondary" size="sm" type="button" onClick={addCompleted}>
+          + Add Completed
+        </Button>
       </div>
 
       {/* Summary */}
-      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+      <div className="bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg p-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <span className="text-sm text-green-800">Total Harvested Fish</span>
-            <div className="text-2xl font-bold text-green-700">
+            <span className="text-sm text-success-800 dark:text-success-200">
+              Total Harvested Fish
+            </span>
+            <div className="text-2xl font-bold text-success-700 dark:text-success-300">
               {formatNumber(formData.summary.totalCompleted)}
             </div>
           </div>
           <div>
-            <span className="text-sm text-green-800">Total Harvested Biomass</span>
-            <div className="text-2xl font-bold text-green-700">
+            <span className="text-sm text-success-800 dark:text-success-200">
+              Total Harvested Biomass
+            </span>
+            <div className="text-2xl font-bold text-success-700 dark:text-success-300">
               {formatWeight(formData.summary.completedBiomassKg)}
             </div>
           </div>
@@ -862,36 +952,26 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
 
       {formData.completedSlaughters.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <svg
-            className="w-12 h-12 mx-auto text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+          <CircleCheck className="w-12 h-12 mx-auto text-gray-300" aria-hidden="true" />
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No completed slaughters</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500">Click "Add Completed" to record a harvest</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            Click "Add Completed" to record a harvest
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
           {formData.completedSlaughters.map((record, index) => (
-            <div key={record.recordId} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <div
+              key={record.recordId}
+              className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+            >
               <div className="flex items-start justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Harvest #{index + 1}</span>
-                <Button variant="ghost" type="button" onClick={() => removeCompleted(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg></Button>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Harvest #{index + 1}
+                </span>
+                <Button variant="ghost" type="button" onClick={() => removeCompleted(index)}>
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </Button>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {/* Batch Selection Dropdown */}
@@ -914,34 +994,77 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
-                  <Input fullWidth type="text" value={record.speciesName || ''} onChange={(e) => updateCompleted(index, { speciesName: e.target.value })} placeholder="Auto from batch" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Species
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={record.speciesName || ''}
+                    onChange={(e) => updateCompleted(index, { speciesName: e.target.value })}
+                    placeholder="Auto from batch"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Harvest Date</label>
-                  <Input fullWidth type="date" value={record.harvestDate.toISOString().split('T')[0]} onChange={(e) =>
-           updateCompleted(index, { harvestDate: new Date(e.target.value) })
-          } />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Harvest Date
+                  </label>
+                  <Input
+                    fullWidth
+                    type="date"
+                    value={record.harvestDate.toISOString().split('T')[0]}
+                    onChange={(e) =>
+                      updateCompleted(index, { harvestDate: new Date(e.target.value) })
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Actual Quantity</label>
-                  <Input fullWidth type="number" min="0" value={record.actualQuantity || ''} onChange={(e) =>
-           updateCompleted(index, { actualQuantity: parseInt(e.target.value) || 0 })
-          } placeholder="0" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Actual Quantity
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={record.actualQuantity || ''}
+                    onChange={(e) =>
+                      updateCompleted(index, { actualQuantity: parseInt(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Actual Biomass (kg)</label>
-                  <Input fullWidth type="number" min="0" value={record.actualBiomassKg || ''} onChange={(e) =>
-           updateCompleted(index, { actualBiomassKg: parseFloat(e.target.value) || 0 })
-          } placeholder="0" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Actual Biomass (kg)
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    value={record.actualBiomassKg || ''}
+                    onChange={(e) =>
+                      updateCompleted(index, { actualBiomassKg: parseFloat(e.target.value) || 0 })
+                    }
+                    placeholder="0"
+                  />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (kg)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Avg Weight (kg)
+                  </label>
                   <Input fullWidth type="text" value={record.avgWeightKg.toFixed(2)} disabled />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Lot Number</label>
-                  <Input fullWidth type="text" value={record.lotNumber || ''} onChange={(e) => updateCompleted(index, { lotNumber: e.target.value })} placeholder="LOT-2026-001" />
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Lot Number
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={record.lotNumber || ''}
+                    onChange={(e) => updateCompleted(index, { lotNumber: e.target.value })}
+                    placeholder="LOT-2026-001"
+                  />
                 </div>
               </div>
             </div>
@@ -963,7 +1086,9 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
             </div>
             <span
               className={`px-2 py-0.5 text-xs font-medium rounded ${
-                gradeValid ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                gradeValid
+                  ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
+                  : 'bg-error-100 dark:bg-error-900/40 text-error-700 dark:text-error-300'
               }`}
             >
               {gradeSum}% / 100%
@@ -971,16 +1096,34 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Superior (Superioer)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Superior (Superioer)
+              </label>
               <div className="flex items-center gap-1">
-                <Input fullWidth type="number" min="0" max="100" value={formData.gradeDistribution.superior || ''} onChange={(e) => updateGrade('superior', parseInt(e.target.value) || 0)} />
+                <Input
+                  fullWidth
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={formData.gradeDistribution.superior || ''}
+                  onChange={(e) => updateGrade('superior', parseInt(e.target.value) || 0)}
+                />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
               </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ordinary (Ordinaer)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Ordinary (Ordinaer)
+              </label>
               <div className="flex items-center gap-1">
-                <Input fullWidth type="number" min="0" max="100" value={formData.gradeDistribution.ordinary || ''} onChange={(e) => updateGrade('ordinary', parseInt(e.target.value) || 0)} />
+                <Input
+                  fullWidth
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={formData.gradeDistribution.ordinary || ''}
+                  onChange={(e) => updateGrade('ordinary', parseInt(e.target.value) || 0)}
+                />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
               </div>
             </div>
@@ -989,20 +1132,36 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
                 Production (Produksjonsfisk)
               </label>
               <div className="flex items-center gap-1">
-                <Input fullWidth type="number" min="0" max="100" value={formData.gradeDistribution.production || ''} onChange={(e) => updateGrade('production', parseInt(e.target.value) || 0)} />
+                <Input
+                  fullWidth
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={formData.gradeDistribution.production || ''}
+                  onChange={(e) => updateGrade('production', parseInt(e.target.value) || 0)}
+                />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
               </div>
             </div>
             <div>
-              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Discard (Kassert)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                Discard (Kassert)
+              </label>
               <div className="flex items-center gap-1">
-                <Input fullWidth type="number" min="0" max="100" value={formData.gradeDistribution.discard || ''} onChange={(e) => updateGrade('discard', parseInt(e.target.value) || 0)} />
+                <Input
+                  fullWidth
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={formData.gradeDistribution.discard || ''}
+                  onChange={(e) => updateGrade('discard', parseInt(e.target.value) || 0)}
+                />
                 <span className="text-sm text-gray-500 dark:text-gray-400">%</span>
               </div>
             </div>
           </div>
           {!gradeValid && gradeSum > 0 && (
-            <p className="text-xs text-red-600 mt-2">
+            <p className="text-xs text-error-600 dark:text-error-400 mt-2">
               Grade percentages must sum to exactly 100% (currently {gradeSum}%)
             </p>
           )}
@@ -1011,28 +1170,28 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
             <div className="flex h-4 rounded-full overflow-hidden mt-3 bg-gray-100 dark:bg-gray-800">
               {formData.gradeDistribution.superior > 0 && (
                 <div
-                  className="bg-green-500 transition-all"
+                  className="bg-success-500 transition-all"
                   style={{ width: `${(formData.gradeDistribution.superior / gradeSum) * 100}%` }}
                   title={`Superior: ${formData.gradeDistribution.superior}%`}
                 />
               )}
               {formData.gradeDistribution.ordinary > 0 && (
                 <div
-                  className="bg-blue-500 transition-all"
+                  className="bg-info-500 transition-all"
                   style={{ width: `${(formData.gradeDistribution.ordinary / gradeSum) * 100}%` }}
                   title={`Ordinary: ${formData.gradeDistribution.ordinary}%`}
                 />
               )}
               {formData.gradeDistribution.production > 0 && (
                 <div
-                  className="bg-yellow-500 transition-all"
+                  className="bg-warning-500 transition-all"
                   style={{ width: `${(formData.gradeDistribution.production / gradeSum) * 100}%` }}
                   title={`Production: ${formData.gradeDistribution.production}%`}
                 />
               )}
               {formData.gradeDistribution.discard > 0 && (
                 <div
-                  className="bg-red-500 transition-all"
+                  className="bg-error-500 transition-all"
                   style={{ width: `${(formData.gradeDistribution.discard / gradeSum) * 100}%` }}
                   title={`Discard: ${formData.gradeDistribution.discard}%`}
                 />
@@ -1042,16 +1201,16 @@ const CompletedSlaughterStep: React.FC<CompletedSlaughterStepProps> = ({
           {gradeSum > 0 && (
             <div className="flex gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Superior
+                <span className="w-2 h-2 rounded-full bg-success-500 inline-block" /> Superior
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Ordinary
+                <span className="w-2 h-2 rounded-full bg-info-500 inline-block" /> Ordinary
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" /> Production
+                <span className="w-2 h-2 rounded-full bg-warning-500 inline-block" /> Production
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Discard
+                <span className="w-2 h-2 rounded-full bg-error-500 inline-block" /> Discard
               </span>
             </div>
           )}
@@ -1088,8 +1247,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   return (
     <div className="space-y-6">
       {/* Regulatory Metadata */}
-      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-yellow-800 mb-2">
+      <div className="bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-warning-800 dark:text-warning-200 mb-2">
           Regulatory Metadata (Mattilsynet)
         </h4>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -1121,15 +1280,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">{siteName}</p>
-        <p className="text-sm text-blue-700 font-medium mt-1">{weekLabel}</p>
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">{siteName}</p>
+        <p className="text-sm text-info-700 dark:text-info-300 font-medium mt-1">{weekLabel}</p>
         <span
           className={`inline-block mt-2 px-2 py-0.5 text-xs font-medium rounded ${
             formData.reportType === 'planned'
-              ? 'bg-blue-100 text-blue-700'
-              : 'bg-green-100 text-green-700'
+              ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+              : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'
           }`}
         >
           {formData.reportType === 'planned'
@@ -1139,8 +1298,10 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Slaughter Facility */}
-      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-        <h5 className="text-xs font-medium text-purple-800 uppercase mb-2">Slaughter Facility</h5>
+      <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-4">
+        <h5 className="text-xs font-medium text-accent-800 dark:text-accent-200 uppercase mb-2">
+          Slaughter Facility
+        </h5>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div>
             <span className="text-gray-500 dark:text-gray-400">Facility Name:</span>
@@ -1160,25 +1321,25 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {formatNumber(formData.summary.totalPlanned)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Planned Fish</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {formatWeight(formData.summary.plannedBiomassKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Planned Biomass</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {formatNumber(formData.summary.totalCompleted)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Completed Fish</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {formatWeight(formData.summary.completedBiomassKg)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Completed Biomass</div>
@@ -1188,16 +1349,16 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Variance */}
       {formData.summary.totalPlanned > 0 && formData.summary.totalCompleted > 0 && (
         <div
-          className={`rounded-lg p-4 ${variance >= 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}
+          className={`rounded-lg p-4 ${variance >= 0 ? 'bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800' : 'bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800'}`}
         >
           <div className="flex items-center justify-between">
             <span
-              className={`text-sm font-medium ${variance >= 0 ? 'text-green-800' : 'text-red-800'}`}
+              className={`text-sm font-medium ${variance >= 0 ? 'text-success-800 dark:text-success-200' : 'text-error-800 dark:text-error-200'}`}
             >
               Plan vs Actual Variance
             </span>
             <span
-              className={`text-xl font-bold ${variance >= 0 ? 'text-green-700' : 'text-red-700'}`}
+              className={`text-xl font-bold ${variance >= 0 ? 'text-success-700 dark:text-success-300' : 'text-error-700 dark:text-error-300'}`}
             >
               {variance > 0 ? '+' : ''}
               {variance.toFixed(1)}%
@@ -1220,8 +1381,12 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   {p.species || 'No species'}
                 </span>
                 <div className="text-right">
-                  <span className="font-medium text-gray-900 dark:text-gray-100">{formatNumber(p.quantity)}</span>
-                  <span className="text-gray-500 dark:text-gray-400 ml-2">({formatWeight(p.biomassKg)})</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">
+                    {formatNumber(p.quantity)}
+                  </span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-2">
+                    ({formatWeight(p.biomassKg)})
+                  </span>
                 </div>
               </div>
             ))}
@@ -1245,7 +1410,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <span className="font-medium text-gray-900 dark:text-gray-100">
                     {formatNumber(p.estimatedQuantity)}
                   </span>
-                  <span className="text-gray-500 dark:text-gray-400 ml-2">({formatWeight(p.estimatedBiomassKg)})</span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-2">
+                    ({formatWeight(p.estimatedBiomassKg)})
+                  </span>
                 </div>
               </div>
             ))}
@@ -1274,7 +1441,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <span className="font-medium text-gray-900 dark:text-gray-100">
                     {formatNumber(c.actualQuantity)}
                   </span>
-                  <span className="text-gray-500 dark:text-gray-400 ml-2">({formatWeight(c.actualBiomassKg)})</span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-2">
+                    ({formatWeight(c.actualBiomassKg)})
+                  </span>
                 </div>
               </div>
             ))}
@@ -1289,26 +1458,26 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
             Quality Grade Distribution
           </h5>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="text-center p-2 bg-green-50 rounded">
-              <div className="text-lg font-bold text-green-700">
+            <div className="text-center p-2 bg-success-50 dark:bg-success-900/20 rounded">
+              <div className="text-lg font-bold text-success-700 dark:text-success-300">
                 {formData.gradeDistribution.superior}%
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Superior</div>
             </div>
-            <div className="text-center p-2 bg-blue-50 rounded">
-              <div className="text-lg font-bold text-blue-700">
+            <div className="text-center p-2 bg-info-50 dark:bg-info-900/20 rounded">
+              <div className="text-lg font-bold text-info-700 dark:text-info-300">
                 {formData.gradeDistribution.ordinary}%
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Ordinary</div>
             </div>
-            <div className="text-center p-2 bg-yellow-50 rounded">
-              <div className="text-lg font-bold text-yellow-700">
+            <div className="text-center p-2 bg-warning-50 dark:bg-warning-900/20 rounded">
+              <div className="text-lg font-bold text-warning-700 dark:text-warning-300">
                 {formData.gradeDistribution.production}%
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Production</div>
             </div>
-            <div className="text-center p-2 bg-red-50 rounded">
-              <div className="text-lg font-bold text-red-700">
+            <div className="text-center p-2 bg-error-50 dark:bg-error-900/20 rounded">
+              <div className="text-lg font-bold text-error-700 dark:text-error-300">
                 {formData.gradeDistribution.discard}%
               </div>
               <div className="text-xs text-gray-500 dark:text-gray-400">Discard</div>
@@ -1318,25 +1487,25 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <div className="flex h-3 rounded-full overflow-hidden mt-3 bg-gray-100 dark:bg-gray-800">
             {formData.gradeDistribution.superior > 0 && (
               <div
-                className="bg-green-500"
+                className="bg-success-500"
                 style={{ width: `${formData.gradeDistribution.superior}%` }}
               />
             )}
             {formData.gradeDistribution.ordinary > 0 && (
               <div
-                className="bg-blue-500"
+                className="bg-info-500"
                 style={{ width: `${formData.gradeDistribution.ordinary}%` }}
               />
             )}
             {formData.gradeDistribution.production > 0 && (
               <div
-                className="bg-yellow-500"
+                className="bg-warning-500"
                 style={{ width: `${formData.gradeDistribution.production}%` }}
               />
             )}
             {formData.gradeDistribution.discard > 0 && (
               <div
-                className="bg-red-500"
+                className="bg-error-500"
                 style={{ width: `${formData.gradeDistribution.discard}%` }}
               />
             )}
@@ -1481,13 +1650,7 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
     } finally {
       setIsSubmitting(false);
     }
-  }, [
-    formData,
-    regulatorySettings,
-    siteId,
-    clientRef,
-    submitPlannedMutation,
-  ]);
+  }, [formData, regulatorySettings, siteId, clientRef, submitPlannedMutation]);
 
   // Wizard steps
   const steps: ReportWizardStep[] = useMemo(
@@ -1551,15 +1714,17 @@ export const SlaughterReportTab: React.FC<SlaughterReportTabProps> = ({ siteId }
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Slaughter Reports</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Slaughter Reports
+          </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
             Weekly planned and executed harvest reports (Mattilsynet slakt)
           </p>
         </div>
-        <Button variant="primary" onClick={() => handleOpenWizard()}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Report</Button>
+        <Button variant="primary" onClick={() => handleOpenWizard()}>
+          <Plus className="w-4 h-4" aria-hidden="true" />
+          New Report
+        </Button>
       </div>
 
       {/* Submission History */}

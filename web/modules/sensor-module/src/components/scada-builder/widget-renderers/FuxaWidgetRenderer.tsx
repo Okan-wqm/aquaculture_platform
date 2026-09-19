@@ -25,9 +25,10 @@
  * level instead -- the script runs but cannot escape its sandbox.
  */
 
-import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import { FuxaMessageBridge } from '../fuxa-bridge/FuxaMessageBridge';
+import { ScadaRuntimeContext } from '../../../engine/ScadaRuntime';
 import type { FuxaWidgetConfig, FuxaStateRule } from '../fuxa-bridge/types';
 import { evaluateStateRules, parseFuxaExportVariables } from '../fuxa-bridge/types';
 import { colors, colors as themeColors } from '@aquaculture/shared-ui';
@@ -128,6 +129,9 @@ export function buildFuxaSrcdoc(svgContent: string): string {
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
+/** A widget with no bindings keeps one identity for it, so the binding effect does not re-run per render. */
+const NO_BINDINGS: Readonly<Record<string, string>> = Object.freeze({});
+
 const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
   config,
   width,
@@ -139,18 +143,19 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
   const svgContent = fuxaConfig.svgContent || '';
   const variables = fuxaConfig.variables || {};
   const stateRules = fuxaConfig.stateRules || [];
-  const variableTagBindings = fuxaConfig.variableTagBindings || {};
+  const variableTagBindings = fuxaConfig.variableTagBindings ?? NO_BINDINGS;
+  // The runtime's tag bus feeds the bound variables; the builder renders outside a
+  // runtime, so there the variables keep their configured values.
+  const tagBus = useContext(ScadaRuntimeContext)?.tagBus ?? null;
   const label = (config.label as string) || '';
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bridgeRef = useRef<FuxaMessageBridge | null>(null);
+  const bindingUnsubscribersRef = useRef<Array<() => void>>([]);
   const [isVisible, setIsVisible] = useState(false);
 
   // Parse export variables once from SVG content
-  const exportVariables = useMemo(
-    () => parseFuxaExportVariables(svgContent),
-    [svgContent],
-  );
+  const exportVariables = useMemo(() => parseFuxaExportVariables(svgContent), [svgContent]);
 
   // Build srcdoc only when SVG content changes (not on every variable update)
   const srcdoc = useMemo(() => {
@@ -187,22 +192,37 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
   /*  Bridge lifecycle: create on iframe load, dispose on unmount      */
   /* ---------------------------------------------------------------- */
 
+  /**
+   * Binds every configured variable to its tag on the bus: the tag's current
+   * value goes to the iframe at once, every later publish follows. A previous
+   * set of bindings is released first.
+   */
+  const bindVariables = useCallback(
+    (bridge: FuxaMessageBridge) => {
+      for (const unsubscribe of bindingUnsubscribersRef.current) unsubscribe();
+      bindingUnsubscribersRef.current = Object.entries(variableTagBindings).map(
+        ([variableId, tagName]) => bridge.bindTag(variableId, tagName),
+      );
+    },
+    [variableTagBindings],
+  );
+
   const handleIframeLoad = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
 
-    // Dispose previous bridge if any (defensive)
+    // A reloaded iframe gets a fresh bridge; the old one released its subscriptions.
     bridgeRef.current?.dispose();
+    bindingUnsubscribersRef.current = [];
 
-    // Create new bridge. tagBus is null until ScadaRuntimeContext provides
-    // one through its hook; the bridge is constructed without a bus here.
-    const bridge = new FuxaMessageBridge(iframe, null);
+    const bridge = new FuxaMessageBridge(iframe, tagBus);
     bridgeRef.current = bridge;
 
     // Push current variable values into the iframe
     for (const [varId, varValue] of Object.entries(variables)) {
       bridge.sendValue(varId, varValue);
     }
+    bindVariables(bridge);
 
     // Evaluate state rules if tag value is available
     if (typeof value === 'number' && stateRules.length > 0) {
@@ -210,15 +230,23 @@ const FuxaWidgetRenderer: React.FC<WidgetRendererProps> = ({
       // FUXA convention: _pn_setState drives the visual state
       bridge.sendValue('_pn_setState', stateIndex);
     }
-  }, [variables, value, stateRules]);
+  }, [variables, value, stateRules, tagBus, bindVariables]);
 
   // Cleanup bridge on unmount
   useEffect(() => {
     return () => {
       bridgeRef.current?.dispose();
       bridgeRef.current = null;
+      bindingUnsubscribersRef.current = [];
     };
   }, []);
+
+  // Rebind when the bindings change after the iframe has loaded
+  useEffect(() => {
+    const bridge = bridgeRef.current;
+    if (!bridge) return;
+    bindVariables(bridge);
+  }, [bindVariables]);
 
   // Push variable updates when they change after initial load
   useEffect(() => {

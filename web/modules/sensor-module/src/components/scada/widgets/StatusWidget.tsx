@@ -32,23 +32,26 @@ const sizeConfig = {
   lg: { iconSize: 24, fontSize: 'text-base', padding: 'p-3' },
 };
 
-const statusConfig: Record<SensorStatus, { icon: LucideIcon; color: string; bg: string; label: string }> = {
+const statusConfig: Record<
+  SensorStatus,
+  { icon: LucideIcon; color: string; bg: string; label: string }
+> = {
   normal: {
     icon: CheckCircle,
-    color: 'text-green-600',
-    bg: 'bg-green-100',
+    color: 'text-success-600 dark:text-success-400',
+    bg: 'bg-success-100 dark:bg-success-900/40',
     label: 'Normal',
   },
   warning: {
     icon: AlertTriangle,
-    color: 'text-yellow-600',
-    bg: 'bg-yellow-100',
+    color: 'text-warning-600 dark:text-warning-400',
+    bg: 'bg-warning-100 dark:bg-warning-900/40',
     label: 'Warning',
   },
   critical: {
     icon: XCircle,
-    color: 'text-red-600',
-    bg: 'bg-red-100',
+    color: 'text-error-600 dark:text-error-400',
+    bg: 'bg-error-100 dark:bg-error-900/40',
     label: 'Critical',
   },
   offline: {
@@ -112,7 +115,9 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
         <span className={`${config.fontSize} font-medium ${statusCfg.color}`}>
           {reading.value.toFixed(1)}
         </span>
-        <span className={`${config.fontSize} text-gray-500 dark:text-gray-400`}>{reading.unit}</span>
+        <span className={`${config.fontSize} text-gray-500 dark:text-gray-400`}>
+          {reading.unit}
+        </span>
         <StatusIcon
           size={config.iconSize - 4}
           className={`${statusCfg.color} ${
@@ -158,9 +163,7 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
         `}
       >
         <StatusIcon size={config.iconSize} className={statusCfg.color} />
-        <span className={`text-xs ${statusCfg.color} font-medium`}>
-          {statusCfg.label}
-        </span>
+        <span className={`text-xs ${statusCfg.color} font-medium`}>{statusCfg.label}</span>
       </div>
     </div>
   );

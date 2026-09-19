@@ -10,17 +10,7 @@
  */
 
 import React from 'react';
-import {
-  Settings,
-  Zap,
-  Play,
-  Bell,
-  Shield,
-  TrendingUp,
-  Cpu,
-  Code,
-  GitBranch,
-} from 'lucide-react';
+import { Settings, Zap, Play, Bell, Shield, TrendingUp, Cpu, Code, GitBranch } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types (exported for PropertiesPanel)
@@ -166,7 +156,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
                 disabled
                   ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
                   : active
-                    ? 'text-cyan-600 border-b-2 border-cyan-500'
+                    ? 'text-info-600 dark:text-info-400 border-b-2 border-info-500'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 border-b-2 border-transparent'
               } min-h-11`}
               title={disabled ? `${tab.label} is not available for edges` : tab.label}

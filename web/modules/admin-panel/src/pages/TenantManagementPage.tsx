@@ -5,7 +5,19 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Table, Input, Select, Modal, Alert, formatDate, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Table,
+  Input,
+  Select,
+  Modal,
+  Alert,
+  formatDate,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
@@ -17,6 +29,7 @@ import {
 import { expectedTotalPages } from '@platform/pagination-contracts';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
+import { Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
 // Tenant Management Page
@@ -267,7 +280,7 @@ const TenantManagementPage: React.FC = () => {
       sortable: true,
       render: (tenant) => (
         <div
-          className="cursor-pointer hover:text-primary-600"
+          className="cursor-pointer hover:text-primary-600 dark:hover:text-primary-300"
           onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
         >
           <div className="flex items-center space-x-2">
@@ -384,19 +397,19 @@ const TenantManagementPage: React.FC = () => {
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
-          <p className="text-2xl font-bold text-green-600">
+          <p className="text-2xl font-bold text-success-600 dark:text-success-400">
             {stats ? stats.activeTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
-          <p className="text-2xl font-bold text-yellow-600">
+          <p className="text-2xl font-bold text-warning-600 dark:text-warning-400">
             {stats ? stats.pendingTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Suspended</p>
-          <p className="text-2xl font-bold text-red-600">
+          <p className="text-2xl font-bold text-error-600 dark:text-error-400">
             {stats ? stats.suspendedTenants.toLocaleString() : '—'}
           </p>
         </Card>
@@ -414,19 +427,10 @@ const TenantManagementPage: React.FC = () => {
                 setPage(1);
               }}
               leftIcon={
-                <svg
+                <SearchIcon
                   className="w-5 h-5 text-gray-500 dark:text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-                  />
-                </svg>
+                  aria-hidden="true"
+                />
               }
             />
           </div>
@@ -646,7 +650,7 @@ const TenantManagementPage: React.FC = () => {
           </Alert>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Reason <span className="text-red-500">*</span>
+              Reason <span className="text-error-500">*</span>
             </label>
             <textarea
               className="w-full border rounded-lg p-3 min-h-[80px]"

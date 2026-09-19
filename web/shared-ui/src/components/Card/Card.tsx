@@ -115,7 +115,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
       children,
       ...props
     },
-    ref
+    ref,
   ) => {
     // Temel stil sınıfları
     const baseStyles = `
@@ -130,11 +130,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
     const hasHeader = title || subtitle || headerAction;
 
     return (
-      <div
-        ref={ref}
-        className={`${baseStyles} ${className}`.trim()}
-        {...props}
-      >
+      <div ref={ref} className={`${baseStyles} ${className}`.trim()} {...props}>
         {/* Kart Başlığı */}
         {hasHeader && (
           <div
@@ -154,9 +150,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
               )}
             </div>
-            {headerAction && (
-              <div className="flex-shrink-0 ml-4">{headerAction}</div>
-            )}
+            {headerAction && <div className="flex-shrink-0 ml-4">{headerAction}</div>}
           </div>
         )}
 
@@ -182,7 +176,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 Card.displayName = 'Card';
@@ -230,9 +224,7 @@ export const CardGrid: React.FC<CardGridProps> = ({
   className = '',
 }) => {
   return (
-    <div className={`grid ${columnStyles[columns]} ${gapStyles[gap]} ${className}`}>
-      {children}
-    </div>
+    <div className={`grid ${columnStyles[columns]} ${gapStyles[gap]} ${className}`}>{children}</div>
   );
 };
 
@@ -297,13 +289,18 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   const displayLabel = label || title || '';
 
   // trend sayısal değer olabilir - dönüştür
-  const trend: 'up' | 'down' | 'neutral' = typeof trendProp === 'number'
-    ? trendProp > 0 ? 'up' : trendProp < 0 ? 'down' : 'neutral'
-    : trendProp;
+  const trend: 'up' | 'down' | 'neutral' =
+    typeof trendProp === 'number'
+      ? trendProp > 0
+        ? 'up'
+        : trendProp < 0
+          ? 'down'
+          : 'neutral'
+      : trendProp;
 
   const trendColors = {
-    up: 'text-success-600',
-    down: 'text-error-600',
+    up: 'text-success-600 dark:text-success-400',
+    down: 'text-error-600 dark:text-error-400',
     neutral: 'text-gray-600 dark:text-gray-400',
   };
 
@@ -314,12 +311,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   };
 
   return (
-    <Card
-      hoverable={!!onClick}
-      onClick={onClick}
-      className={className}
-      padding="md"
-    >
+    <Card hoverable={!!onClick} onClick={onClick} className={className} padding="md">
       <div className="flex items-start justify-between">
         <div className="flex-1">
           <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{displayLabel}</p>
@@ -334,14 +326,18 @@ export const MetricCard: React.FC<MetricCardProps> = ({
               {/* trendLabel artık GERÇEKTEN render ediliyor — bildirilmiş ama
                   hiç kullanılmayan bir prop'tu, yani her çağıran sessizce
                   yok sayılıyordu. Türkçe varsayılan korunur. */}
-              <span className="ml-1 text-gray-500 dark:text-gray-400">{trendLabel ?? 'son 30 günde'}</span>
+              <span className="ml-1 text-gray-500 dark:text-gray-400">
+                {trendLabel ?? 'son 30 günde'}
+              </span>
             </p>
           )}
-          {subtitle && <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">{subtitle}</div>}
+          {subtitle && (
+            <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">{subtitle}</div>
+          )}
         </div>
         {icon && (
           <div
-            className={`flex-shrink-0 p-3 rounded-lg ${iconClassName ?? 'bg-primary-50 text-primary-600'}`}
+            className={`flex-shrink-0 p-3 rounded-lg ${iconClassName ?? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400'}`}
           >
             {icon}
           </div>

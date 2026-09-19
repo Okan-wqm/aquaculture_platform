@@ -25,6 +25,7 @@ import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { toBackendReportMonth } from '../utils/reportPeriod';
 import { useTanksList } from '../../../hooks/useTanks';
 import type { Tank } from '../../../hooks/useTanks';
+import { Database, Download, Plus, X } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -197,35 +198,48 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
   <div className="space-y-4">
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Site
+        </label>
         <Input fullWidth type="text" value={siteName} disabled />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Period</label>
-        <Input fullWidth type="text" value={getMonthLabel(formData.month, formData.year)} disabled />
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Report Period
+        </label>
+        <Input
+          fullWidth
+          type="text"
+          value={getMonthLabel(formData.month, formData.year)}
+          disabled
+        />
       </div>
     </div>
     <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Facility Type</label>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        Facility Type
+      </label>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           type="button"
           onClick={() => onChange({ facilityType: 'land_based' })}
           className={`p-4 border-2 rounded-lg text-center ${
             formData.facilityType === 'land_based'
-              ? 'border-blue-500 bg-blue-50'
+              ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
               : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
           <div className="font-medium text-gray-900 dark:text-gray-100">Land Based</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">RAS or flow-through systems</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            RAS or flow-through systems
+          </div>
         </button>
         <button
           type="button"
           onClick={() => onChange({ facilityType: 'freshwater' })}
           className={`p-4 border-2 rounded-lg text-center ${
             formData.facilityType === 'freshwater'
-              ? 'border-cyan-500 bg-cyan-50'
+              ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
               : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
@@ -344,28 +358,25 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
             <button
               type="button"
               onClick={loadFromSystem}
-              className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1"
+              className="px-3 py-1.5 text-sm text-success-700 dark:text-success-300 bg-success-50 dark:bg-success-900/20 border border-success-300 dark:border-success-700 rounded-md hover:bg-success-100 dark:hover:bg-success-900/50 flex items-center gap-1"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
+              <Download className="w-4 h-4" aria-hidden="true" />
               Load from System
             </button>
           )}
-          <Button variant="secondary" size="sm" type="button" onClick={addUnit}>+ Add Unit</Button>
+          <Button variant="secondary" size="sm" type="button" onClick={addUnit}>
+            + Add Unit
+          </Button>
         </div>
       </div>
 
       {/* Total Summary */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-blue-800">Total Fish Count</span>
-          <span className="text-2xl font-bold text-blue-700">
+          <span className="text-sm font-medium text-info-800 dark:text-info-200">
+            Total Fish Count
+          </span>
+          <span className="text-2xl font-bold text-info-700 dark:text-info-300">
             {formatNumber(formData.fishCounts.total)}
           </span>
         </div>
@@ -373,19 +384,7 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
 
       {formData.fishCounts.byUnit.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <svg
-            className="w-12 h-12 mx-auto text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
-            />
-          </svg>
+          <Database className="w-12 h-12 mx-auto text-gray-300" aria-hidden="true" />
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No units added</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             {prefillUnits && prefillUnits.length > 0
@@ -401,21 +400,23 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
             const isFromSystem = !!matchedTank;
 
             return (
-              <div key={unit.unitId} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <div
+                key={unit.unitId}
+                className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+              >
                 <div className="flex items-start justify-between mb-3">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Unit #{index + 1}</span>
-                  <Button variant="ghost" type="button" onClick={() => removeUnit(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg></Button>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Unit #{index + 1}
+                  </span>
+                  <Button variant="ghost" type="button" onClick={() => removeUnit(index)}>
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </Button>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit Name / Tank</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Unit Name / Tank
+                    </label>
                     {tanks.length > 0 ? (
                       <select
                         value={isFromSystem ? unit.unitId : '__manual__'}
@@ -453,19 +454,42 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                         ))}
                       </select>
                     ) : (
-                      <Input fullWidth type="text" value={unit.unitName} onChange={(e) => updateUnit(index, { unitName: e.target.value })} placeholder="Tank A1" />
+                      <Input
+                        fullWidth
+                        type="text"
+                        value={unit.unitName}
+                        onChange={(e) => updateUnit(index, { unitName: e.target.value })}
+                        placeholder="Tank A1"
+                      />
                     )}
                     {!isFromSystem && tanks.length > 0 && (
-                      <Input fullWidth type="text" value={unit.unitName} onChange={(e) => updateUnit(index, { unitName: e.target.value })} placeholder="Enter unit name" />
+                      <Input
+                        fullWidth
+                        type="text"
+                        value={unit.unitName}
+                        onChange={(e) => updateUnit(index, { unitName: e.target.value })}
+                        placeholder="Enter unit name"
+                      />
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Type</label>
-                    <Select fullWidth options={[{ value: 'tank', label: 'Tank' }, { value: 'raceway', label: 'Raceway' }, { value: 'pond', label: 'Pond' }]} value={unit.unitType} onChange={(e) =>
-            updateUnit(index, {
-             unitType: e.target.value as 'tank' | 'raceway' | 'pond',
-            })
-           } />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Type
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'tank', label: 'Tank' },
+                        { value: 'raceway', label: 'Raceway' },
+                        { value: 'pond', label: 'Pond' },
+                      ]}
+                      value={unit.unitType}
+                      onChange={(e) =>
+                        updateUnit(index, {
+                          unitType: e.target.value as 'tank' | 'raceway' | 'pond',
+                        })
+                      }
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -486,22 +510,52 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stage</label>
-                    <Select fullWidth options={[{ value: 'fry', label: 'Fry' }, { value: 'parr', label: 'Parr' }, { value: 'smolt', label: 'Smolt' }]} value={unit.stage} onChange={(e) =>
-            updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })
-           } />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Stage
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'fry', label: 'Fry' },
+                        { value: 'parr', label: 'Parr' },
+                        { value: 'smolt', label: 'Smolt' },
+                      ]}
+                      value={unit.stage}
+                      onChange={(e) =>
+                        updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fish Count</label>
-                    <Input fullWidth type="number" min="0" value={unit.quantity || ''} onChange={(e) =>
-            updateUnit(index, { quantity: parseInt(e.target.value) || 0 })
-           } placeholder="0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Fish Count
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={unit.quantity || ''}
+                      onChange={(e) =>
+                        updateUnit(index, { quantity: parseInt(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
-                    <Input fullWidth type="number" min="0" step="0.1" value={unit.avgWeightG || ''} onChange={(e) =>
-            updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })
-           } placeholder="0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Avg Weight (g)
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={unit.avgWeightG || ''}
+                      onChange={(e) =>
+                        updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                 </div>
               </div>
@@ -592,7 +646,9 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Mortality and Transfers by Unit</h4>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Mortality and Transfers by Unit
+        </h4>
         <p className="text-xs text-gray-500 dark:text-gray-400">
           Mattilsynet requires separate counts for euthanized (avlivet) and natural deaths
           (selvdod), plus external transfers
@@ -601,23 +657,35 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
 
       {/* Overall Summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-          <div className="text-xs text-red-600 font-medium">Overall Mortality</div>
-          <div className="text-xl font-bold text-red-700">
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+          <div className="text-xs text-error-600 dark:text-error-400 font-medium">
+            Overall Mortality
+          </div>
+          <div className="text-xl font-bold text-error-700 dark:text-error-300">
             {formData.mortalityRates.overall.toFixed(2)}%
           </div>
         </div>
-        <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
-          <div className="text-xs text-orange-600 font-medium">Euthanized (avlivet)</div>
-          <div className="text-xl font-bold text-orange-700">{formatNumber(totalEuthanized)}</div>
+        <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800 rounded-lg p-3">
+          <div className="text-xs text-accent-600 dark:text-accent-400 font-medium">
+            Euthanized (avlivet)
+          </div>
+          <div className="text-xl font-bold text-accent-700 dark:text-accent-300">
+            {formatNumber(totalEuthanized)}
+          </div>
         </div>
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-          <div className="text-xs text-red-600 font-medium">Natural Deaths (selvdod)</div>
-          <div className="text-xl font-bold text-red-700">{formatNumber(totalNaturalDeaths)}</div>
+        <div className="bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg p-3">
+          <div className="text-xs text-error-600 dark:text-error-400 font-medium">
+            Natural Deaths (selvdod)
+          </div>
+          <div className="text-xl font-bold text-error-700 dark:text-error-300">
+            {formatNumber(totalNaturalDeaths)}
+          </div>
         </div>
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-          <div className="text-xs text-blue-600 font-medium">External Transfers</div>
-          <div className="text-xl font-bold text-blue-700">
+        <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-3">
+          <div className="text-xs text-info-600 dark:text-info-400 font-medium">
+            External Transfers
+          </div>
+          <div className="text-xl font-bold text-info-700 dark:text-info-300">
             {formatNumber(totalExternalTransfers)}
           </div>
         </div>
@@ -625,7 +693,9 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
 
       {formData.mortalityRates.byUnit.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Add fish counts first to record mortality by unit</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Add fish counts first to record mortality by unit
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -633,7 +703,10 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
             const ext = mort as SmoltMortalityUnitExtended;
             const unitData = formData.fishCounts.byUnit[index];
             return (
-              <div key={mort.unitId} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <div
+                key={mort.unitId}
+                className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+              >
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -648,7 +721,7 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                   <div className="text-right">
                     <span className="text-xs text-gray-500 dark:text-gray-400">Rate: </span>
                     <span
-                      className={`font-medium text-sm ${mort.rate > 1 ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'}`}
+                      className={`font-medium text-sm ${mort.rate > 1 ? 'text-error-600 dark:text-error-400' : 'text-gray-700 dark:text-gray-300'}`}
                     >
                       {mort.rate.toFixed(2)}%
                     </span>
@@ -656,30 +729,57 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Euthanized (avlivet)</label>
-                    <Input fullWidth type="number" min="0" value={ext.euthanized || ''} onChange={(e) =>
-            updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })
-           } placeholder="0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Euthanized (avlivet)
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={ext.euthanized || ''}
+                      onChange={(e) =>
+                        updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Natural Deaths (selvdod)
                     </label>
-                    <Input fullWidth type="number" min="0" value={ext.naturalDeaths || ''} onChange={(e) =>
-            updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })
-           } placeholder="0" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={ext.naturalDeaths || ''}
+                      onChange={(e) =>
+                        updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Total Dead</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Total Dead
+                    </label>
                     <div className="w-full px-2 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-gray-700 dark:text-gray-300 font-medium">
                       {formatNumber(mort.count)}
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">External Transfers</label>
-                    <Input fullWidth type="number" min="0" value={ext.externalTransfers || ''} onChange={(e) =>
-            updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })
-           } placeholder="0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      External Transfers
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={ext.externalTransfers || ''}
+                      onChange={(e) =>
+                        updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                 </div>
               </div>
@@ -722,16 +822,16 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   return (
     <div className="space-y-6">
       {/* Summary Header */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="text-sm font-medium text-blue-800">Report Summary</h4>
-        <p className="text-sm text-blue-600 mt-1">
+      <div className="bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg p-4">
+        <h4 className="text-sm font-medium text-info-800 dark:text-info-200">Report Summary</h4>
+        <p className="text-sm text-info-600 dark:text-info-400 mt-1">
           {siteName} - {getMonthLabel(formData.month, formData.year)}
         </p>
         <span
           className={`inline-block mt-2 px-2 py-0.5 text-xs font-medium rounded ${
             formData.facilityType === 'land_based'
-              ? 'bg-blue-100 text-blue-700'
-              : 'bg-cyan-100 text-cyan-700'
+              ? 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
+              : 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300'
           }`}
         >
           {formData.facilityType === 'land_based' ? 'Land Based Facility' : 'Freshwater Facility'}
@@ -741,19 +841,19 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Key Metrics */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">
+          <div className="text-2xl font-bold text-info-600 dark:text-info-400">
             {formatNumber(formData.fishCounts.total)}
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Total Fish</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">
+          <div className="text-2xl font-bold text-success-600 dark:text-success-400">
             {formData.averageWeights.overall.toFixed(1)}g
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Avg Weight</div>
         </div>
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">
+          <div className="text-2xl font-bold text-error-600 dark:text-error-400">
             {formData.mortalityRates.overall.toFixed(2)}%
           </div>
           <div className="text-xs text-gray-500 dark:text-gray-400">Mortality Rate</div>
@@ -766,16 +866,20 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           Mortality Breakdown (Mattilsynet)
         </h5>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="text-center p-2 bg-orange-50 rounded">
-            <div className="text-lg font-bold text-orange-700">{formatNumber(totalEuthanized)}</div>
+          <div className="text-center p-2 bg-accent-50 dark:bg-accent-900/20 rounded">
+            <div className="text-lg font-bold text-accent-700 dark:text-accent-300">
+              {formatNumber(totalEuthanized)}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Euthanized (avlivet)</div>
           </div>
-          <div className="text-center p-2 bg-red-50 rounded">
-            <div className="text-lg font-bold text-red-700">{formatNumber(totalNaturalDeaths)}</div>
+          <div className="text-center p-2 bg-error-50 dark:bg-error-900/20 rounded">
+            <div className="text-lg font-bold text-error-700 dark:text-error-300">
+              {formatNumber(totalNaturalDeaths)}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Natural Deaths (selvdod)</div>
           </div>
-          <div className="text-center p-2 bg-blue-50 rounded">
-            <div className="text-lg font-bold text-blue-700">
+          <div className="text-center p-2 bg-info-50 dark:bg-info-900/20 rounded">
+            <div className="text-lg font-bold text-info-700 dark:text-info-300">
               {formatNumber(totalExternalTransfers)}
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">External Transfers</div>
@@ -786,11 +890,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Stage Breakdown */}
       {stageTotals.length > 0 && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Fish by Stage</h5>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
+            Fish by Stage
+          </h5>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {stageTotals.map((s) => (
               <div key={s.stage} className="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatNumber(s.quantity)}</div>
+                <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                  {formatNumber(s.quantity)}
+                </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">{s.stage}</div>
               </div>
             ))}
@@ -826,7 +934,7 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     {unit.unitName || `Unit ${i + 1}`}
                   </div>
                   <div className="col-span-1">
-                    <span className="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">
+                    <span className="px-1.5 py-0.5 text-xs bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 rounded">
                       {ext.speciesCode || 'SAL'}
                     </span>
                   </div>
@@ -836,18 +944,18 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                   <div className="col-span-1 text-right text-gray-500 dark:text-gray-400">
                     {unit.avgWeightG.toFixed(1)}
                   </div>
-                  <div className="col-span-1 text-right text-orange-600">
+                  <div className="col-span-1 text-right text-accent-600 dark:text-accent-400">
                     {mort?.euthanized || 0}
                   </div>
-                  <div className="col-span-1 text-right text-red-600">
+                  <div className="col-span-1 text-right text-error-600 dark:text-error-400">
                     {mort?.naturalDeaths || 0}
                   </div>
-                  <div className="col-span-1 text-right text-blue-600">
+                  <div className="col-span-1 text-right text-info-600 dark:text-info-400">
                     {mort?.externalTransfers || 0}
                   </div>
                   <div className="col-span-2 text-right">
                     <span
-                      className={`font-medium ${(mort?.rate || 0) > 1 ? 'text-red-600' : 'text-gray-700 dark:text-gray-300'}`}
+                      className={`font-medium ${(mort?.rate || 0) > 1 ? 'text-error-600 dark:text-error-400' : 'text-gray-700 dark:text-gray-300'}`}
                     >
                       {(mort?.rate || 0).toFixed(2)}%
                     </span>
@@ -1009,7 +1117,9 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Smolt Reports</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Monthly settefisk reports - Due 7th of each month</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Monthly settefisk reports - Due 7th of each month
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <SiteLocalitySelector
@@ -1018,15 +1128,10 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
             onChange={setSelectedSiteId}
             show={showSelector}
           />
-          <Button variant="primary" onClick={() => handleOpenWizard()}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            New Report</Button>
+          <Button variant="primary" onClick={() => handleOpenWizard()}>
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            New Report
+          </Button>
         </div>
       </div>
 

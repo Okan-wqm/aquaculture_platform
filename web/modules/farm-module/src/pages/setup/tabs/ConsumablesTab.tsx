@@ -14,7 +14,20 @@ import {
   CreateConsumableInput,
 } from '../../../hooks/useConsumables';
 import { useSupplierList } from '../../../hooks/useSuppliers';
-import { FormField, Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useConfirm,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
+import { Box as BoxIcon, ChevronDown, Plus, Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
@@ -35,23 +48,23 @@ const CATEGORIES = [
 ];
 
 const categoryColors: Record<string, string> = {
-  NET: 'bg-blue-100 text-blue-800',
-  ROPE: 'bg-amber-100 text-amber-800',
-  PPE: 'bg-orange-100 text-orange-800',
-  SPARE_PART: 'bg-purple-100 text-purple-800',
-  OXYGEN: 'bg-cyan-100 text-cyan-800',
-  PACKAGING: 'bg-lime-100 text-lime-800',
-  CLEANING: 'bg-teal-100 text-teal-800',
-  TOOL: 'bg-indigo-100 text-indigo-800',
-  ELECTRICAL: 'bg-yellow-100 text-yellow-800',
-  PIPE_FITTING: 'bg-rose-100 text-rose-800',
+  NET: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  ROPE: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  PPE: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  SPARE_PART: 'bg-accent-100 dark:bg-accent-900/40 text-accent-800 dark:text-accent-200',
+  OXYGEN: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  PACKAGING: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  CLEANING: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
+  TOOL: 'bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200',
+  ELECTRICAL: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  PIPE_FITTING: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusColors: Record<string, string> = {
-  AVAILABLE: 'bg-green-100 text-green-800',
-  LOW_STOCK: 'bg-yellow-100 text-yellow-800',
-  OUT_OF_STOCK: 'bg-red-100 text-red-800',
+  AVAILABLE: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  LOW_STOCK: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OUT_OF_STOCK: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
   DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -124,14 +137,10 @@ const CollapsibleSection: React.FC<{
         className="w-full px-4 py-3 flex items-center justify-between bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
       >
         <span className="font-medium text-gray-700 dark:text-gray-300">{title}</span>
-        <svg
+        <ChevronDown
           className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+          aria-hidden="true"
+        />
       </button>
       {isOpen && <div className="p-4">{children}</div>}
     </div>
@@ -222,7 +231,14 @@ export const ConsumablesTab: React.FC = () => {
   const confirm = useConfirm();
   const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this item?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this item?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteConsumableMutation.mutateAsync(id);
       } catch (err) {
@@ -326,7 +342,7 @@ export const ConsumablesTab: React.FC = () => {
           <span
             className={
               item.quantity <= item.minStock
-                ? 'text-red-600 font-medium'
+                ? 'text-error-600 dark:text-error-400 font-medium'
                 : 'text-gray-900 dark:text-gray-100'
             }
           >
@@ -360,11 +376,15 @@ export const ConsumablesTab: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>Edit</Button>
-          <Button variant="ghost" onClick={() => handleDelete(item.id)}>Delete</Button>
+          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => handleDelete(item.id)}>
+            Delete
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -378,26 +398,17 @@ export const ConsumablesTab: React.FC = () => {
               placeholder="Search consumables..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
             />
-            <svg
+            <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
           </div>
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {CATEGORIES.map((c) => (
@@ -407,15 +418,10 @@ export const ConsumablesTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <Button variant="primary" onClick={openCreate}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-          Add Consumable</Button>
+        <Button variant="primary" onClick={openCreate}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Add Consumable
+        </Button>
       </div>
 
       {/* Loading State */}
@@ -427,9 +433,13 @@ export const ConsumablesTab: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
-          <p className="text-red-600">Failed to load consumables. Please try again.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+        <div className="text-center py-12 bg-error-50 dark:bg-error-900/20 rounded-lg border border-error-200 dark:border-error-800">
+          <p className="text-error-600 dark:text-error-400">
+            Failed to load consumables. Please try again.
+          </p>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -447,20 +457,13 @@ export const ConsumablesTab: React.FC = () => {
           />
           {filtered.length === 0 && (
             <div className="text-center py-12">
-              <svg
+              <BoxIcon
                 className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No consumables found</h3>
+                aria-hidden="true"
+              />
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No consumables found
+              </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Add consumable items to manage your stock.
               </p>
@@ -483,57 +486,109 @@ export const ConsumablesTab: React.FC = () => {
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
-                    <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
-                    <Input fullWidth type="text" required value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
-                    </FormField>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
-                    <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
-                    <Input fullWidth type="text" required value={formData.code} onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))} />
-                    </FormField>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
-                    <FormField error={formData.category ? undefined : fieldErrors.category} className="mb-0">
-                    <select
-                      required
-                      value={formData.category}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, category: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Name *
+                    </label>
+                    <FormField
+                      error={formData.name ? undefined : fieldErrors.name}
+                      className="mb-0"
                     >
-                      <option value="">Select</option>
-                      {CATEGORIES.map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
-                    </select>
+                      <Input
+                        fullWidth
+                        type="text"
+                        required
+                        value={formData.name}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                      />
                     </FormField>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
-                    <Select fullWidth options={[{ value: 'pcs', label: 'Pieces' }, { value: 'm', label: 'Meters' }, { value: 'kg', label: 'Kilograms' }, { value: 'L', label: 'Liters' }, { value: 'box', label: 'Box' }, { value: 'roll', label: 'Roll' }, { value: 'tank', label: 'Tank' }, { value: 'set', label: 'Set' }]} value={formData.unit} onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))} />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Code *
+                    </label>
+                    <FormField
+                      error={formData.code ? undefined : fieldErrors.code}
+                      className="mb-0"
+                    >
+                      <Input
+                        fullWidth
+                        type="text"
+                        required
+                        value={formData.code}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                      />
+                    </FormField>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Brand</label>
-                    <Input fullWidth type="text" value={formData.brand} onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))} />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Category *
+                    </label>
+                    <FormField
+                      error={formData.category ? undefined : fieldErrors.category}
+                      className="mb-0"
+                    >
+                      <select
+                        required
+                        value={formData.category}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, category: e.target.value }))
+                        }
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
+                      >
+                        <option value="">Select</option>
+                        {CATEGORIES.map((c) => (
+                          <option key={c.value} value={c.value}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Unit
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'pcs', label: 'Pieces' },
+                        { value: 'm', label: 'Meters' },
+                        { value: 'kg', label: 'Kilograms' },
+                        { value: 'L', label: 'Liters' },
+                        { value: 'box', label: 'Box' },
+                        { value: 'roll', label: 'Roll' },
+                        { value: 'tank', label: 'Tank' },
+                        { value: 'set', label: 'Set' },
+                      ]}
+                      value={formData.unit}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Brand
+                    </label>
+                    <Input
+                      fullWidth
+                      type="text"
+                      value={formData.brand}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, brand: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Supplier
+                    </label>
                     <select
                       value={formData.supplierId}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                     >
                       <option value="">Select Supplier</option>
                       {suppliers.map((supplier) => (
@@ -545,10 +600,17 @@ export const ConsumablesTab: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                  <Textarea fullWidth value={formData.description} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, description: e.target.value }))
-          } rows={2} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Description
+                  </label>
+                  <Textarea
+                    fullWidth
+                    value={formData.description}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, description: e.target.value }))
+                    }
+                    rows={2}
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -557,35 +619,73 @@ export const ConsumablesTab: React.FC = () => {
             <CollapsibleSection title="Stock & Price">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Current Stock</label>
-                  <Input fullWidth type="number" min="0" step="0.01" value={formData.quantity} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            quantity: e.target.value ? parseFloat(e.target.value) : '',
-           }))
-          } />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Current Stock
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.quantity}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        quantity: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Min Stock</label>
-                  <Input fullWidth type="number" min="0" step="0.01" value={formData.minStock} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            minStock: e.target.value ? parseFloat(e.target.value) : '',
-           }))
-          } />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Min Stock
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.minStock}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        minStock: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit Price</label>
-                  <Input fullWidth type="number" min="0" step="0.01" value={formData.unitPrice} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            unitPrice: e.target.value ? parseFloat(e.target.value) : '',
-           }))
-          } />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Unit Price
+                  </label>
+                  <Input
+                    fullWidth
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.unitPrice}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        unitPrice: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Currency</label>
-                  <Select fullWidth options={[{ value: 'NOK', label: 'NOK' }, { value: 'EUR', label: 'EUR' }, { value: 'USD', label: 'USD' }]} value={formData.currency} onChange={(e) => setFormData((prev) => ({ ...prev, currency: e.target.value }))} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Currency
+                  </label>
+                  <Select
+                    fullWidth
+                    options={[
+                      { value: 'NOK', label: 'NOK' },
+                      { value: 'EUR', label: 'EUR' },
+                      { value: 'USD', label: 'USD' },
+                    ]}
+                    value={formData.currency}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, currency: e.target.value }))}
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -597,53 +697,87 @@ export const ConsumablesTab: React.FC = () => {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Temperature (°C)
                   </label>
-                  <Input fullWidth type="number" step="0.1" value={formData.storageTempMin} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
-           }))
-          } />
+                  <Input
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    value={formData.storageTempMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Max Temperature (°C)
                   </label>
-                  <Input fullWidth type="number" step="0.1" value={formData.storageTempMax} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
-           }))
-          } />
+                  <Input
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    value={formData.storageTempMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Min Humidity (%)
                   </label>
-                  <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.storageHumidityMin} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
-           }))
-          } />
+                  <Input
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.storageHumidityMin}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Max Humidity (%)
                   </label>
-                  <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.storageHumidityMax} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
-           }))
-          } />
+                  <Input
+                    fullWidth
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.storageHumidityMax}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
+                      }))
+                    }
+                  />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Storage Requirements
                   </label>
-                  <Textarea fullWidth rows={2} placeholder="Special storage instructions..." value={formData.storageRequirements} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
-          } />
+                  <Textarea
+                    fullWidth
+                    rows={2}
+                    placeholder="Special storage instructions..."
+                    value={formData.storageRequirements}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
+                    }
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -652,15 +786,24 @@ export const ConsumablesTab: React.FC = () => {
             <CollapsibleSection title="Additional Information">
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-                  <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={3} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Notes
+                  </label>
+                  <Textarea
+                    fullWidth
+                    value={formData.notes}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                    rows={3}
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Status
+                  </label>
                   <select
                     value={formData.status}
                     onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500"
                   >
                     {Object.entries(statusLabels).map(([v, l]) => (
                       <option key={v} value={v}>
@@ -674,8 +817,12 @@ export const ConsumablesTab: React.FC = () => {
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" type="submit" disabled={isSaving}>{isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={isSaving}>
+              {isSaving ? 'Saving...' : editingId ? 'Update' : 'Create'}
+            </Button>
           </div>
         </form>
       </Modal>

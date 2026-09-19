@@ -24,10 +24,10 @@ export type BatchScopeAccent = 'red' | 'orange' | 'blue' | 'purple' | 'gray';
  * interpolation) so Tailwind's content scanner never purges them.
  */
 const ACCENT_FOCUS: Record<BatchScopeAccent, string> = {
-  red: 'focus:border-red-500 focus:ring-red-500',
-  orange: 'focus:border-orange-500 focus:ring-orange-500',
-  blue: 'focus:border-blue-500 focus:ring-blue-500',
-  purple: 'focus:border-purple-500 focus:ring-purple-500',
+  red: 'focus:border-error-500 focus:ring-error-500',
+  orange: 'focus:border-accent-500 focus:ring-accent-500',
+  blue: 'focus:border-info-500 focus:ring-info-500',
+  purple: 'focus:border-accent-500 focus:ring-accent-500',
   gray: 'focus:border-gray-500 focus:ring-gray-500',
 };
 
@@ -65,8 +65,12 @@ export const BatchScopeSelector: React.FC<BatchScopeSelectorProps> = ({
 
   return (
     <div>
-      <label htmlFor="batch-scope" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-        Operating on batch <span className="font-normal text-gray-400 dark:text-gray-500">(combined tank)</span>
+      <label
+        htmlFor="batch-scope"
+        className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+      >
+        Operating on batch{' '}
+        <span className="font-normal text-gray-400 dark:text-gray-500">(combined tank)</span>
       </label>
       <select
         id="batch-scope"

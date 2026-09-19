@@ -64,7 +64,11 @@ export const DraftReviewPanel: React.FC<DraftReviewPanelProps> = ({ draftId }) =
     return <p className="text-sm text-gray-500 dark:text-gray-400 px-2 py-3">Loading draft…</p>;
   }
   if (!draft) {
-    return <p className="text-sm text-gray-500 dark:text-gray-400 px-2 py-3">Draft is no longer available.</p>;
+    return (
+      <p className="text-sm text-gray-500 dark:text-gray-400 px-2 py-3">
+        Draft is no longer available.
+      </p>
+    );
   }
 
   const setOverride = (pointer: string, value: string): void => {
@@ -120,8 +124,10 @@ export const DraftReviewPanel: React.FC<DraftReviewPanelProps> = ({ draftId }) =
           >
             Save manual values
           </button>
-          {saved && <span className="text-xs text-green-700">Saved</span>}
-          {save.isError && <span className="text-xs text-red-600">{save.error.message}</span>}
+          {saved && <span className="text-xs text-success-700 dark:text-success-300">Saved</span>}
+          {save.isError && (
+            <span className="text-xs text-error-600 dark:text-error-400">{save.error.message}</span>
+          )}
         </div>
       )}
     </div>

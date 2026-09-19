@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useProtocols, useCategoryInfo, useCategoryStats } from '../../../hooks/useProtocols';
 import { ProtocolInfo, ProtocolCategory } from '../../../types/registration.types';
 import { Spinner, Input } from '@aquaculture/shared-ui';
+import { CircleCheck } from 'lucide-react';
 
 interface ProtocolSelectionStepProps {
   selectedProtocol: string | null;
@@ -36,8 +37,8 @@ function CategoryCard({
       onClick={onClick}
       className={`p-4 border-2 rounded-lg text-left transition-all ${
         isSelected
-          ? 'border-blue-500 bg-blue-50'
-          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
+          : 'border-gray-200 dark:border-gray-700 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
       }`}
     >
       <div className="flex items-center space-x-3">
@@ -45,7 +46,7 @@ function CategoryCard({
         <div>
           <h3 className="font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">{description}</p>
-          <span className="text-xs text-blue-600">{count} protocols</span>
+          <span className="text-xs text-info-600 dark:text-info-400">{count} protocols</span>
         </div>
       </div>
     </button>
@@ -67,14 +68,16 @@ function ProtocolCard({
       onClick={onClick}
       className={`p-4 border-2 rounded-lg text-left transition-all w-full ${
         isSelected
-          ? 'border-blue-500 bg-blue-50'
-          : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+          ? 'border-info-500 bg-info-50 dark:bg-info-900/20'
+          : 'border-gray-200 dark:border-gray-700 hover:border-info-300 hover:bg-gray-50 dark:hover:bg-gray-800'
       }`}
     >
       <div className="flex justify-between items-start">
         <div>
           <h4 className="font-medium text-gray-900 dark:text-gray-100">{protocol.displayName}</h4>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{protocol.description}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+            {protocol.description}
+          </p>
           <div className="flex flex-wrap gap-1 mt-2">
             <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
               {protocol.subcategory}
@@ -85,30 +88,32 @@ function ProtocolCard({
           </div>
         </div>
         {isSelected && (
-          <span className="text-blue-500">
-            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clipRule="evenodd"
-              />
-            </svg>
+          <span className="text-info-500">
+            <CircleCheck className="w-6 h-6" aria-hidden="true" />
           </span>
         )}
       </div>
       {/* Capabilities */}
       <div className="flex flex-wrap gap-1 mt-3">
         {protocol.capabilities?.supportsDiscovery && (
-          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded">Discovery</span>
+          <span className="px-2 py-0.5 bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300 text-xs rounded">
+            Discovery
+          </span>
         )}
         {protocol.capabilities?.supportsPolling && (
-          <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">Polling</span>
+          <span className="px-2 py-0.5 bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300 text-xs rounded">
+            Polling
+          </span>
         )}
         {protocol.capabilities?.supportsSubscription && (
-          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded">Subscribe</span>
+          <span className="px-2 py-0.5 bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300 text-xs rounded">
+            Subscribe
+          </span>
         )}
         {protocol.capabilities?.supportsEncryption && (
-          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">Encrypted</span>
+          <span className="px-2 py-0.5 bg-warning-100 dark:bg-warning-900/40 text-warning-700 dark:text-warning-300 text-xs rounded">
+            Encrypted
+          </span>
         )}
       </div>
     </button>
@@ -137,7 +142,7 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
         (p) =>
           p.displayName.toLowerCase().includes(query) ||
           p.description.toLowerCase().includes(query) ||
-          p.code.toLowerCase().includes(query)
+          p.code.toLowerCase().includes(query),
       );
     }
 
@@ -155,7 +160,7 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
 
   if (error) {
     return (
-      <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+      <div className="p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg text-error-700 dark:text-error-300">
         Failed to load protocols: {error.message}
       </div>
     );
@@ -165,12 +170,20 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
     <div className="space-y-6">
       {/* Search */}
       <div>
-        <Input fullWidth type="text" placeholder="Search protocols..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+        <Input
+          fullWidth
+          type="text"
+          placeholder="Search protocols..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
 
       {/* Category cards */}
       <div>
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Filter by Category</h3>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          Filter by Category
+        </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {Object.entries(ProtocolCategory).map(([key, value]) => (
             <CategoryCard
@@ -194,7 +207,9 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
               ? `${categoryInfo[selectedCategory].title} Protocols`
               : 'All Protocols'}
           </h3>
-          <span className="text-sm text-gray-500 dark:text-gray-400">{filteredProtocols.length} protocols</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {filteredProtocols.length} protocols
+          </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto p-1">

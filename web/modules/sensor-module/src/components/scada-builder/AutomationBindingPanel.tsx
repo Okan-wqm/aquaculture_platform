@@ -7,9 +7,23 @@
 
 import React, { useState, useMemo } from 'react';
 import { Button, Input } from '@aquaculture/shared-ui';
-import { Plus, Trash2, Link, Unlink, Zap, ChevronDown, ChevronRight, Check, AlertTriangle, Search } from 'lucide-react';
+import {
+  Plus,
+  Trash2,
+  Link,
+  Unlink,
+  Zap,
+  ChevronDown,
+  ChevronRight,
+  Check,
+  AlertTriangle,
+  Search,
+} from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
-import { useAutomationPrograms, useAutomationProgramVariables } from '../../hooks/useAutomationPrograms';
+import {
+  useAutomationPrograms,
+  useAutomationProgramVariables,
+} from '../../hooks/useAutomationPrograms';
 import { getStatusColor, getStatusText, ProgramStatus } from '../../utils/automation.utils';
 import type { AutomationBinding, VariableBinding } from '../../types/scada-package.types';
 
@@ -19,9 +33,9 @@ import type { AutomationBinding, VariableBinding } from '../../types/scada-packa
 
 const ScopeLabel: React.FC<{ scope: VariableBinding['scope'] }> = ({ scope }) => {
   const colors = {
-    INPUT: 'bg-blue-100 text-blue-700',
-    OUTPUT: 'bg-orange-100 text-orange-700',
-    INOUT: 'bg-purple-100 text-purple-700',
+    INPUT: 'bg-info-100 dark:bg-info-900/40 text-info-700 dark:text-info-300',
+    OUTPUT: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
+    INOUT: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   };
   return (
     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${colors[scope]}`}>
@@ -45,12 +59,25 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
   const [search, setSearch] = useState('');
 
   const allWidgets = useMemo(() => {
-    const result: { widgetId: string; label: string; tag: string | null; widgetType: string; screenName: string }[] = [];
+    const result: {
+      widgetId: string;
+      label: string;
+      tag: string | null;
+      widgetType: string;
+      screenName: string;
+    }[] = [];
     for (const screen of screens) {
       for (const w of screen.widgets) {
-        const tag = (w.config.tagName as string | undefined) || (w.config.tag as string | undefined) || null;
+        const tag =
+          (w.config.tagName as string | undefined) || (w.config.tag as string | undefined) || null;
         const label = (w.config.label as string | undefined) || w.widgetType;
-        result.push({ widgetId: w.id, label, tag, widgetType: w.widgetType, screenName: screen.name });
+        result.push({
+          widgetId: w.id,
+          label,
+          tag,
+          widgetType: w.widgetType,
+          screenName: screen.name,
+        });
       }
     }
     return result;
@@ -70,7 +97,13 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
       <div className="p-2 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700">
           <Search className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-          <Input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search widget..." autoFocus />
+          <Input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search widget..."
+            autoFocus
+          />
         </div>
       </div>
       <div className="overflow-y-auto flex-1">
@@ -80,18 +113,36 @@ const WidgetPicker: React.FC<WidgetPickerProps> = ({ variableTag, onSelect, onCl
           </p>
         ) : (
           filtered.map((w) => (
-            <Button variant="secondary" size="xs" key={w.widgetId} onClick={() => { onSelect(w.widgetId, variableTag); onClose(); }}><div className="flex-1 min-w-0">
-                <span className="font-medium text-gray-700 dark:text-gray-300 truncate block">{w.label}</span>
+            <Button
+              variant="secondary"
+              size="xs"
+              key={w.widgetId}
+              onClick={() => {
+                onSelect(w.widgetId, variableTag);
+                onClose();
+              }}
+            >
+              <div className="flex-1 min-w-0">
+                <span className="font-medium text-gray-700 dark:text-gray-300 truncate block">
+                  {w.label}
+                </span>
                 {w.tag && (
-                  <span className="text-[10px] text-cyan-600 font-mono truncate block">tag: {w.tag}</span>
+                  <span className="text-[10px] text-info-600 dark:text-info-400 font-mono truncate block">
+                    tag: {w.tag}
+                  </span>
                 )}
               </div>
-              <span className="text-gray-500 dark:text-gray-400 truncate text-[10px] shrink-0">{w.widgetType}</span></Button>
+              <span className="text-gray-500 dark:text-gray-400 truncate text-[10px] shrink-0">
+                {w.widgetType}
+              </span>
+            </Button>
           ))
         )}
       </div>
       <div className="p-1.5 border-t border-gray-100 dark:border-gray-700">
-        <Button variant="ghost" size="xs" onClick={onClose}>Close</Button>
+        <Button variant="ghost" size="xs" onClick={onClose}>
+          Close
+        </Button>
       </div>
     </div>
   );
@@ -107,7 +158,11 @@ interface ProgramSelectorProps {
   existingProgramIds: string[];
 }
 
-const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, existingProgramIds }) => {
+const ProgramSelector: React.FC<ProgramSelectorProps> = ({
+  onSelect,
+  onClose,
+  existingProgramIds,
+}) => {
   const { data, isLoading } = useAutomationPrograms();
   const programs = data?.automationPrograms || [];
   const available = programs.filter((p) => !existingProgramIds.includes(p.id));
@@ -115,7 +170,9 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
   return (
     <div className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 max-h-60 overflow-hidden flex flex-col">
       <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
-        <h5 className="text-xs font-medium text-gray-700 dark:text-gray-300">Select Automation Program</h5>
+        <h5 className="text-xs font-medium text-gray-700 dark:text-gray-300">
+          Select Automation Program
+        </h5>
       </div>
       <div className="overflow-y-auto flex-1">
         {isLoading ? (
@@ -126,21 +183,39 @@ const ProgramSelector: React.FC<ProgramSelectorProps> = ({ onSelect, onClose, ex
           </p>
         ) : (
           available.map((p) => (
-            <Button variant="secondary" size="sm" key={p.id} onClick={() => { onSelect(p.id); onClose(); }}><div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{p.programName}</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              key={p.id}
+              onClick={() => {
+                onSelect(p.id);
+                onClose();
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-gray-800 dark:text-gray-200">
+                  {p.programName}
+                </span>
                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${getStatusColor(p.status)}`}>
                   {getStatusText(p.status)}
                 </span>
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono">{p.programCode}</span>
-                <span className="text-[10px] text-gray-500 dark:text-gray-400">{p.variableCount} variable{p.variableCount !== 1 ? 's' : ''}</span>
-              </div></Button>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono">
+                  {p.programCode}
+                </span>
+                <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                  {p.variableCount} variable{p.variableCount !== 1 ? 's' : ''}
+                </span>
+              </div>
+            </Button>
           ))
         )}
       </div>
       <div className="p-1.5 border-t border-gray-100 dark:border-gray-700">
-        <Button variant="ghost" size="xs" onClick={onClose}>Cancel</Button>
+        <Button variant="ghost" size="xs" onClick={onClose}>
+          Cancel
+        </Button>
       </div>
     </div>
   );
@@ -159,7 +234,9 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
   const [expanded, setExpanded] = useState(true);
   const [pickerVarId, setPickerVarId] = useState<string | null>(null);
   const removeAutomationProgram = useScadaPackageStore((s) => s.removeAutomationProgram);
-  const bindVariableToWidgetAndSetTag = useScadaPackageStore((s) => s.bindVariableToWidgetAndSetTag);
+  const bindVariableToWidgetAndSetTag = useScadaPackageStore(
+    (s) => s.bindVariableToWidgetAndSetTag,
+  );
   const unbindVariable = useScadaPackageStore((s) => s.unbindVariable);
 
   const boundCount = binding.variableBindings.filter((v) => v.boundWidgetId).length;
@@ -169,45 +246,88 @@ const ProgramCard: React.FC<{ binding: AutomationBinding }> = ({ binding }) => {
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       {/* Header */}
       <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 flex items-center gap-2">
-        <Button variant="ghost" onClick={() => setExpanded(!expanded)}>{expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}</Button>
+        <Button variant="ghost" onClick={() => setExpanded(!expanded)}>
+          {expanded ? (
+            <ChevronDown className="w-3.5 h-3.5" />
+          ) : (
+            <ChevronRight className="w-3.5 h-3.5" />
+          )}
+        </Button>
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{binding.programName}</div>
-          <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono">{binding.programCode}</span>
+          <div className="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">
+            {binding.programName}
+          </div>
+          <span className="text-[10px] text-gray-500 dark:text-gray-400 font-mono">
+            {binding.programCode}
+          </span>
         </div>
         <span className="text-[10px] text-gray-500 dark:text-gray-400">
           {boundCount}/{totalCount}
         </span>
-        <Button variant="ghost" iconOnly aria-label="Remove program" onClick={() => removeAutomationProgram(binding.programId)} title="Remove program"><Trash2 className="w-3.5 h-3.5" /></Button>
+        <Button
+          variant="ghost"
+          iconOnly
+          aria-label="Remove program"
+          onClick={() => removeAutomationProgram(binding.programId)}
+          title="Remove program"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </Button>
       </div>
 
       {/* Variable List */}
       {expanded && (
         <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {binding.variableBindings.length === 0 ? (
-            <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-3">No I/O variables</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-3">
+              No I/O variables
+            </p>
           ) : (
             binding.variableBindings.map((v) => (
               <div key={v.variableId} className="px-3 py-2 relative">
                 <div className="flex items-center gap-1.5 mb-1">
-                  <span className="text-xs font-mono text-gray-700 dark:text-gray-300">{v.varName}</span>
+                  <span className="text-xs font-mono text-gray-700 dark:text-gray-300">
+                    {v.varName}
+                  </span>
                   <ScopeLabel scope={v.scope} />
                   <span className="text-[10px] text-gray-500 dark:text-gray-400">{v.dataType}</span>
                 </div>
                 {v.boundWidgetId ? (
                   <div className="flex items-center gap-1.5">
-                    <Check className="w-3 h-3 text-green-500" />
-                    <span className="text-[10px] text-green-700 font-mono flex-1 truncate">{v.boundTag}</span>
-                    <Button variant="ghost" iconOnly aria-label="Remove binding" onClick={() => unbindVariable(binding.programId, v.variableId)} title="Remove binding"><Unlink className="w-3 h-3" /></Button>
+                    <Check className="w-3 h-3 text-success-500" />
+                    <span className="text-[10px] text-success-700 dark:text-success-300 font-mono flex-1 truncate">
+                      {v.boundTag}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      iconOnly
+                      aria-label="Remove binding"
+                      onClick={() => unbindVariable(binding.programId, v.variableId)}
+                      title="Remove binding"
+                    >
+                      <Unlink className="w-3 h-3" />
+                    </Button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1.5">
-                    <AlertTriangle className="w-3 h-3 text-amber-500" />
-                    <span className="text-[10px] text-amber-600 flex-1">Unbound</span>
-                    <Button variant="ghost" size="xs" leftIcon={<Link className="w-3 h-3" />} onClick={() => setPickerVarId(v.variableId)}>Bind</Button>
+                    <AlertTriangle className="w-3 h-3 text-warning-500" />
+                    <span className="text-[10px] text-warning-600 dark:text-warning-400 flex-1">
+                      Unbound
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      leftIcon={<Link className="w-3 h-3" />}
+                      onClick={() => setPickerVarId(v.variableId)}
+                    >
+                      Bind
+                    </Button>
                   </div>
                 )}
                 {v.ioTagName && (
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">I/O: {v.ioTagName}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">
+                    I/O: {v.ioTagName}
+                  </div>
                 )}
 
                 {pickerVarId === v.variableId && (
@@ -239,7 +359,10 @@ export const AutomationBindingPanel: React.FC = () => {
 
   const [showSelector, setShowSelector] = useState(false);
   const [pendingProgram, setPendingProgram] = useState<PendingProgram | null>(null);
-  const [autoBindResult, setAutoBindResult] = useState<{ matched: number; unmatched: number } | null>(null);
+  const [autoBindResult, setAutoBindResult] = useState<{
+    matched: number;
+    unmatched: number;
+  } | null>(null);
 
   // When a program is selected from the selector, fetch its variables
   const { data: programData } = useAutomationProgramVariables(pendingProgram?.programId ?? null);
@@ -283,9 +406,18 @@ export const AutomationBindingPanel: React.FC = () => {
     <div className="space-y-3">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Automation Programs</h4>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Automation Programs
+        </h4>
         <div className="relative">
-          <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={() => setShowSelector(!showSelector)}>Add Program</Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            leftIcon={<Plus className="w-3 h-3" />}
+            onClick={() => setShowSelector(!showSelector)}
+          >
+            Add Program
+          </Button>
           {showSelector && (
             <ProgramSelector
               onSelect={handleSelectProgram}
@@ -300,7 +432,7 @@ export const AutomationBindingPanel: React.FC = () => {
       {automationBindings.length > 0 && (
         <button
           onClick={handleAutoBind}
-          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100 transition-colors"
+          className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-info-700 dark:text-info-300 bg-info-50 dark:bg-info-900/20 border border-info-200 dark:border-info-800 rounded-lg hover:bg-info-100 dark:hover:bg-info-900/50 transition-colors"
         >
           <Zap className="w-3.5 h-3.5" />
           Auto Bind
@@ -309,7 +441,7 @@ export const AutomationBindingPanel: React.FC = () => {
 
       {/* Auto-bind result toast */}
       {autoBindResult && (
-        <div className="px-3 py-2 text-xs bg-green-50 text-green-700 border border-green-200 rounded-lg">
+        <div className="px-3 py-2 text-xs bg-success-50 dark:bg-success-900/20 text-success-700 dark:text-success-300 border border-success-200 dark:border-success-800 rounded-lg">
           {autoBindResult.matched} matched, {autoBindResult.unmatched} unmatched
         </div>
       )}
@@ -317,19 +449,27 @@ export const AutomationBindingPanel: React.FC = () => {
       {/* Summary */}
       {automationBindings.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div className="px-3 py-2 bg-green-50 border border-green-100 rounded-lg">
+          <div className="px-3 py-2 bg-success-50 dark:bg-success-900/20 border border-success-100 dark:border-success-800 rounded-lg">
             <div className="flex items-center gap-1 mb-0.5">
-              <Check className="w-3 h-3 text-green-600" />
-              <span className="text-[10px] text-green-700 font-medium">Bound</span>
+              <Check className="w-3 h-3 text-success-600 dark:text-success-400" />
+              <span className="text-[10px] text-success-700 dark:text-success-300 font-medium">
+                Bound
+              </span>
             </div>
-            <span className="text-sm font-semibold text-green-800">{totalBound}</span>
+            <span className="text-sm font-semibold text-success-800 dark:text-success-200">
+              {totalBound}
+            </span>
           </div>
-          <div className="px-3 py-2 bg-amber-50 border border-amber-100 rounded-lg">
+          <div className="px-3 py-2 bg-warning-50 dark:bg-warning-900/20 border border-warning-100 dark:border-warning-800 rounded-lg">
             <div className="flex items-center gap-1 mb-0.5">
-              <AlertTriangle className="w-3 h-3 text-amber-600" />
-              <span className="text-[10px] text-amber-700 font-medium">Unbound</span>
+              <AlertTriangle className="w-3 h-3 text-warning-600 dark:text-warning-400" />
+              <span className="text-[10px] text-warning-700 dark:text-warning-300 font-medium">
+                Unbound
+              </span>
             </div>
-            <span className="text-sm font-semibold text-amber-800">{totalUnbound}</span>
+            <span className="text-sm font-semibold text-warning-800 dark:text-warning-200">
+              {totalUnbound}
+            </span>
           </div>
         </div>
       )}
@@ -339,9 +479,7 @@ export const AutomationBindingPanel: React.FC = () => {
         <div className="flex flex-col items-center py-8 text-center text-gray-500 dark:text-gray-400">
           <Zap className="w-8 h-8 mb-2 text-gray-500 dark:text-gray-400" />
           <p className="text-xs">No programs linked yet</p>
-          <p className="text-[10px] mt-1">
-            Use "Add Program" to select an automation program
-          </p>
+          <p className="text-[10px] mt-1">Use "Add Program" to select an automation program</p>
         </div>
       ) : (
         <div className="space-y-2">

@@ -3,7 +3,21 @@
  * Displays and manages spare parts inventory with full CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, useConfirm, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Modal,
+  Input,
+  Select,
+  Badge,
+  Spinner,
+  Alert,
+  formatCurrency as sharedFormatCurrency,
+  parseMoney,
+  DEFAULT_CURRENCY,
+  useConfirm,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   useSpareParts,
   useCreateSparePart,
@@ -21,10 +35,10 @@ import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // Status colors
 const statusColors: Record<SparePartStatus, string> = {
-  IN_STOCK: 'bg-green-100 text-green-800',
-  LOW_STOCK: 'bg-yellow-100 text-yellow-800',
-  OUT_OF_STOCK: 'bg-red-100 text-red-800',
-  ON_ORDER: 'bg-blue-100 text-blue-800',
+  IN_STOCK: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  LOW_STOCK: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  OUT_OF_STOCK: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  ON_ORDER: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
@@ -104,7 +118,8 @@ export const SparePartsPage: React.FC = () => {
 
   // Stock movement modal
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
-  const [stockMovementData, setStockMovementData] = useState<StockMovementFormData>(defaultStockMovementData);
+  const [stockMovementData, setStockMovementData] =
+    useState<StockMovementFormData>(defaultStockMovementData);
   const [selectedPartForStock, setSelectedPartForStock] = useState<SparePart | null>(null);
 
   // API hooks
@@ -125,7 +140,7 @@ export const SparePartsPage: React.FC = () => {
         item.name.toLowerCase().includes(term) ||
         item.code.toLowerCase().includes(term) ||
         item.partNumber.toLowerCase().includes(term) ||
-        item.description?.toLowerCase().includes(term)
+        item.description?.toLowerCase().includes(term),
     );
   }, [data?.items, searchTerm]);
 
@@ -191,7 +206,7 @@ export const SparePartsPage: React.FC = () => {
           unitPrice: formData.unitPrice || undefined,
           currency: formData.currency,
           leadTimeDays: formData.leadTimeDays || undefined,
-          location: Object.values(location).some(v => v) ? location : undefined,
+          location: Object.values(location).some((v) => v) ? location : undefined,
           notes: formData.notes || undefined,
         });
       } else {
@@ -209,7 +224,7 @@ export const SparePartsPage: React.FC = () => {
           unitPrice: formData.unitPrice || undefined,
           currency: formData.currency,
           leadTimeDays: formData.leadTimeDays || undefined,
-          location: Object.values(location).some(v => v) ? location : undefined,
+          location: Object.values(location).some((v) => v) ? location : undefined,
           notes: formData.notes || undefined,
         };
         await createMutation.mutateAsync(input);
@@ -242,7 +257,14 @@ export const SparePartsPage: React.FC = () => {
 
   const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Yedek parçayı sil?', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Yedek parçayı sil?',
+        confirmText: 'Sil',
+        cancelText: 'Vazgeç',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -287,9 +309,7 @@ export const SparePartsPage: React.FC = () => {
       header: 'Kod / İsim',
       render: (_value, item) => (
         <>
-          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-            {item.code}
-          </div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.code}</div>
           <div className="text-sm text-gray-500 dark:text-gray-400">{item.name}</div>
         </>
       ),
@@ -303,9 +323,7 @@ export const SparePartsPage: React.FC = () => {
       key: 'durum',
       header: 'Durum',
       render: (_value, item) => (
-        <Badge className={statusColors[item.status]}>
-          {statusLabels[item.status]}
-        </Badge>
+        <Badge className={statusColors[item.status]}>{statusLabels[item.status]}</Badge>
       ),
     },
     {
@@ -316,10 +334,10 @@ export const SparePartsPage: React.FC = () => {
           <span
             className={`text-sm font-medium ${
               item.quantity <= item.minStock
-                ? 'text-red-600'
+                ? 'text-error-600 dark:text-error-400'
                 : item.quantity <= item.reorderPoint
-                ? 'text-yellow-600'
-                : 'text-gray-900 dark:text-gray-100'
+                  ? 'text-warning-600 dark:text-warning-400'
+                  : 'text-gray-900 dark:text-gray-100'
             }`}
           >
             {item.quantity} {item.unit}
@@ -347,22 +365,25 @@ export const SparePartsPage: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <Button variant="ghost" className="mr-3" onClick={() => handleOpenStockMovement(item)}>Stok</Button>
-          <Button variant="ghost" className="mr-3" onClick={() => handleOpenEdit(item)}>Düzenle</Button>
-          <Button variant="ghost" onClick={() => handleDelete(item.id)}>Sil</Button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleOpenStockMovement(item)}>
+            Stok
+          </Button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleOpenEdit(item)}>
+            Düzenle
+          </Button>
+          <Button variant="ghost" onClick={() => handleDelete(item.id)}>
+            Sil
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
       {error && (
-        <Alert
-          type="warning"
-          action={{ label: 'Yeniden Dene', onClick: () => refetch() }}
-        >
+        <Alert type="warning" action={{ label: 'Yeniden Dene', onClick: () => refetch() }}>
           Yedek parçalar yenilenemedi — son yüklenen veriler gösteriliyor.
         </Alert>
       )}
@@ -371,9 +392,7 @@ export const SparePartsPage: React.FC = () => {
       <PageHeader
         title="Yedek Parçalar"
         description="Yedek parça envanterini görüntüleyin ve yönetin"
-        actions={
-          <Button onClick={handleOpenCreate}>Yeni Yedek Parça</Button>
-        }
+        actions={<Button onClick={handleOpenCreate}>Yeni Yedek Parça</Button>}
       />
 
       {/* Summary Cards */}
@@ -381,23 +400,33 @@ export const SparePartsPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
             <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Parça</div>
-            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stockSummary.totalParts}</div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+              {stockSummary.totalParts}
+            </div>
           </Card>
           <Card className="p-4">
             <div className="text-sm text-gray-500 dark:text-gray-400">Stokta</div>
-            <div className="text-2xl font-bold text-green-600">{stockSummary.inStockCount}</div>
+            <div className="text-2xl font-bold text-success-600 dark:text-success-400">
+              {stockSummary.inStockCount}
+            </div>
           </Card>
           <Card className="p-4">
             <div className="text-sm text-gray-500 dark:text-gray-400">Az Stok</div>
-            <div className="text-2xl font-bold text-yellow-600">{stockSummary.lowStockCount}</div>
+            <div className="text-2xl font-bold text-warning-600 dark:text-warning-400">
+              {stockSummary.lowStockCount}
+            </div>
           </Card>
           <Card className="p-4">
             <div className="text-sm text-gray-500 dark:text-gray-400">Stok Yok</div>
-            <div className="text-2xl font-bold text-red-600">{stockSummary.outOfStockCount}</div>
+            <div className="text-2xl font-bold text-error-600 dark:text-error-400">
+              {stockSummary.outOfStockCount}
+            </div>
           </Card>
           <Card className="p-4">
             <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Değer</div>
-            <div className="text-2xl font-bold text-blue-600">{formatCurrency(parseMoney(stockSummary.totalValueDecimal))}</div>
+            <div className="text-2xl font-bold text-info-600 dark:text-info-400">
+              {formatCurrency(parseMoney(stockSummary.totalValueDecimal))}
+            </div>
           </Card>
         </div>
       )}
@@ -606,13 +635,8 @@ export const SparePartsPage: React.FC = () => {
             <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
               İptal
             </Button>
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || updateMutation.isPending}
-            >
-              {createMutation.isPending || updateMutation.isPending
-                ? 'Kaydediliyor...'
-                : 'Kaydet'}
+            <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+              {createMutation.isPending || updateMutation.isPending ? 'Kaydediliyor...' : 'Kaydet'}
             </Button>
           </div>
         </form>
@@ -664,16 +688,12 @@ export const SparePartsPage: React.FC = () => {
           <Input
             label="Sebep"
             value={stockMovementData.reason}
-            onChange={(e) =>
-              setStockMovementData({ ...stockMovementData, reason: e.target.value })
-            }
+            onChange={(e) => setStockMovementData({ ...stockMovementData, reason: e.target.value })}
           />
           <Input
             label="Notlar"
             value={stockMovementData.notes}
-            onChange={(e) =>
-              setStockMovementData({ ...stockMovementData, notes: e.target.value })
-            }
+            onChange={(e) => setStockMovementData({ ...stockMovementData, notes: e.target.value })}
           />
           <div className="flex justify-end gap-2 pt-4">
             <Button variant="secondary" onClick={() => setIsStockModalOpen(false)}>

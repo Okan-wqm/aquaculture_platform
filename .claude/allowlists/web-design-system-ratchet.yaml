@@ -97,7 +97,7 @@ rawTable:
       findingId: FE-HIGH-069
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
     - package: web/modules/farm-module
-      ceiling: 17
+      ceiling: 14
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-069
@@ -115,7 +115,7 @@ rawTable:
       findingId: FE-HIGH-069
       reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 15
+      ceiling: 13
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-069

@@ -91,22 +91,21 @@ bypass.
 
 ## 2. Store the company CDSE credential
 
-Authenticate to config-service as the tenantless platform `SUPER_ADMIN` and
-use the `setConfiguration` mutation. Tenantless platform administration maps
-to the system tenant automatically.
+Sign in to the admin panel as the tenantless platform `SUPER_ADMIN`, open
+**System Settings → Providers**, and enter the CDSE client identifier, client
+secret and, only for Sentinel Hub configuration instances, the instance
+identifier. Saving writes one complete secret bundle under the system tenant
+through config-service's `setMarineProviderCdseCredential` mutation; the
+storage key, the bundle shape and the secret flag are fixed server-side, so
+there is nothing to type by hand and nothing to get wrong. The tab shows only
+that a credential is stored, its revision and when it changed — never the
+value. Saving again rotates the credential atomically.
 
-Use this metadata:
-
-- service: `farm-service`
-- key: `marine.cdse.credentials`
-- environment: `ALL`
-- secret flag: `true`
-- value: the complete CDSE credential bundle, supplied only through protected
-  GraphQL variables
-
-The bundle contains the required client identifier and client secret, with an
-optional instance identifier. Do not send those fields through farm-service,
-tenant UI, URL parameters, or shell history.
+The same mutation is the only supported write path for a script. Its
+arguments are the credential's fields, supplied through protected GraphQL
+variables; it refuses any tenant-scoped principal. Do not send those fields
+through farm-service, tenant UI, URL parameters, or shell history, and do not
+write the bundle through the generic `setConfiguration` mutation.
 
 Verify the configuration version and config-service audit event. Secret reads
 must remain redacted on public GraphQL surfaces. Farm-service resolves an
@@ -193,7 +192,9 @@ Within one 15-minute scheduler interval:
   during a long run remains visible for the next sweep, and oldest-due age
   remains below the 30-minute scheduling SLO;
 - the tenant environment panel reports provider provenance and honest
-  availability states;
+  availability states (while the gate is still closed it states
+  "Environmental monitoring is not enabled for this deployment" from the
+  `environmentMonitoringStatus` query and issues no site reads);
 - no credential, tenant ID, site ID, schema name, or raw upstream error is
   present in metrics or logs.
 

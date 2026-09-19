@@ -63,7 +63,13 @@ import { relative, resolve } from 'node:path';
 // farm-service-enterprise-guardrails.ts consume the same parser, so a
 // hunk-header edge case can no longer be fixed in one gate and stay
 // broken in another).
-import { addedLinesByFile, collectRangeAddedLines, stagedChangedFiles } from './git-diff-ranges';
+import {
+  addedLinesByFile,
+  collectMergeIntroducedLines,
+  collectRangeAddedLines,
+  mergeInProgressRef,
+  stagedChangedFiles,
+} from './git-diff-ranges';
 
 const REPO_ROOT = (() => {
   try {
@@ -617,8 +623,21 @@ function main(): void {
   const violations: Violation[] = [];
 
   if (mode === 'staged') {
-    for (const f of stagedChangedFiles(REPO_ROOT)) {
-      violations.push(...scanFile(f, ignoreExemptions));
+    const otherParent = mergeInProgressRef(REPO_ROOT);
+    if (otherParent === null) {
+      for (const f of stagedChangedFiles(REPO_ROOT)) {
+        violations.push(...scanFile(f, ignoreExemptions));
+      }
+    } else {
+      // A merge commit: the index holds the other branch's files too, and a
+      // whole-file scan reads every phrase that branch already carried as
+      // this commit's own. Scan only the lines new to BOTH parents — CI's
+      // added-lines rule, applied to a two-parent commit. A phrase inherited
+      // from either side is that side's debt, already judged when it landed.
+      const addedByFile = addedLinesByFile(collectMergeIntroducedLines(REPO_ROOT, otherParent));
+      for (const [f, added] of addedByFile) {
+        violations.push(...scanFileAddedLinesOnly(f, added, ignoreExemptions));
+      }
     }
   } else if (mode === 'range') {
     const [baseRef, headRef] = positional;

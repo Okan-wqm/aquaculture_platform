@@ -13,6 +13,21 @@ import {
   SatelliteCoverageStatus,
 } from '../entities/environment-observation.types';
 
+/**
+ * Whether this deployment serves environmental monitoring at all.
+ *
+ * WHY a query result rather than an error (ORPHAN-MEDIUM-827): the rollout
+ * gate refuses every environment read with a 503 while it is closed, and a
+ * client that only sees errors cannot tell "not enabled here" from "the
+ * provider is down". Reading the gate as a value lets the panel say the true
+ * thing and skip the reads it knows will be refused.
+ */
+@ObjectType()
+export class EnvironmentMonitoringStatusResponse {
+  @Field()
+  enabled!: boolean;
+}
+
 @ObjectType()
 export class EnvironmentCoverageScopeResponse {
   @Field(() => EnvironmentProvider)

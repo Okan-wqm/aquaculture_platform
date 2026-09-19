@@ -5314,6 +5314,10 @@ export type EnvironmentMetric =
   | 'WIND_GUST'
   | 'WIND_SPEED';
 
+export type EnvironmentMonitoringStatusResponse = {
+  enabled: Scalars['Boolean']['output'];
+};
+
 export type EnvironmentProvider =
   | 'CDSE_SENTINEL_2'
   | 'CMEMS'
@@ -8998,6 +9002,17 @@ export type ManualAttendanceInput = {
   shiftId?: InputMaybe<Scalars['String']['input']>;
 };
 
+/** Marine data providers whose company credential the platform stores */
+export type MarineProviderCredentialProvider =
+  | 'CDSE';
+
+export type MarineProviderCredentialStatusDto = {
+  configured: Scalars['Boolean']['output'];
+  provider: MarineProviderCredentialProvider;
+  updatedAt?: Maybe<Scalars['DateTime']['output']>;
+  version?: Maybe<Scalars['Int']['output']>;
+};
+
 export type MarkReadInput = {
   /** Channel UUID */
   channelId: Scalars['ID']['input'];
@@ -9817,6 +9832,7 @@ export type Mutation = {
   setDeviceMaintenanceMode: EdgeDevice;
   setDigitalOutput: SetDigitalOutputResult;
   setLayoutAsDefault: DashboardLayout;
+  setMarineProviderCdseCredential: MarineProviderCredentialStatusDto;
   /** Set or update a retention policy. */
   setRetentionPolicy: RetentionPolicy;
   setSupplierApprovedSites: Array<SupplierSiteResponse>;
@@ -12346,6 +12362,11 @@ export type MutationSetDigitalOutputArgs = {
 
 export type MutationSetLayoutAsDefaultArgs = {
   id: Scalars['ID']['input'];
+};
+
+
+export type MutationSetMarineProviderCdseCredentialArgs = {
+  input: SetMarineProviderCdseCredentialInput;
 };
 
 
@@ -15409,6 +15430,7 @@ export type Query = {
   employeesByDepartment: Array<Employee>;
   enabledChannelsBySensor: Array<DataChannelType>;
   environmentLayerCatalog: Array<EnvironmentLayerResponse>;
+  environmentMonitoringStatus: EnvironmentMonitoringStatusResponse;
   environmentScenes: EnvironmentSceneCursorConnection;
   equipment?: Maybe<EquipmentResponse>;
   equipmentByDepartment: Array<EquipmentResponse>;
@@ -15563,6 +15585,7 @@ export type Query = {
   maintenanceScheduleByCode: MaintenanceSchedule;
   maintenanceSchedules: MaintenanceScheduleListResponse;
   mandatoryTrainingStatus: Array<MandatoryTrainingStatus>;
+  marineProviderCredentialStatus: MarineProviderCredentialStatusDto;
   /** Get Maskinporten configuration status */
   maskinportenStatus: MaskinportenStatus;
   /** Get Mattilsynet API configuration status */
@@ -16952,6 +16975,11 @@ export type QueryMaintenanceSchedulesArgs = {
 
 export type QueryMandatoryTrainingStatusArgs = {
   employeeId: Scalars['ID']['input'];
+};
+
+
+export type QueryMarineProviderCredentialStatusArgs = {
+  provider: MarineProviderCredentialProvider;
 };
 
 
@@ -19948,6 +19976,14 @@ export type SetDigitalOutputResult = {
   success: Scalars['Boolean']['output'];
   tagName?: Maybe<Scalars['String']['output']>;
   value?: Maybe<Scalars['Boolean']['output']>;
+};
+
+export type SetMarineProviderCdseCredentialInput = {
+  clientId: Scalars['String']['input'];
+  clientSecret: Scalars['String']['input'];
+  instanceId?: InputMaybe<Scalars['String']['input']>;
+  /** Recorded in the configuration history for this write */
+  reason?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type SetRetentionPolicyInput = {

@@ -101,7 +101,7 @@ export function useDialogBehavior<T extends HTMLElement>({
         first.focus();
       }
     },
-    [containerRef]
+    [containerRef],
   );
 
   useEffect(() => {

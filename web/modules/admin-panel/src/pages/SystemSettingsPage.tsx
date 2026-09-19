@@ -33,12 +33,14 @@ import { settingsApi } from '../services/adminApi';
 import {
   Clock,
   CreditCard,
+  Globe,
   Mail,
   RefreshCw,
   Server as ServerIcon,
   Settings as SettingsIcon,
   ShieldCheck,
 } from 'lucide-react';
+import { ProviderCredentialsTab } from '../components/settings/ProviderCredentialsTab';
 
 // ============================================================================
 // Types
@@ -50,7 +52,7 @@ interface SystemInfo {
   database?: Record<string, unknown>;
 }
 
-type TabId = 'general' | 'email' | 'security' | 'billing' | 'ratelimit' | 'system';
+type TabId = 'general' | 'email' | 'security' | 'billing' | 'ratelimit' | 'providers' | 'system';
 
 // ============================================================================
 // Constants
@@ -62,6 +64,10 @@ const TABS: Array<{ id: TabId; label: string; icon: string }> = [
   { id: 'security', label: 'Security', icon: 'shield' },
   { id: 'billing', label: 'Billing', icon: 'credit-card' },
   { id: 'ratelimit', label: 'Rate Limit', icon: 'clock' },
+  // Company marine data provider credential (ADMIN-HIGH-135). Its own
+  // config-service surface, not a `service=platform` key — see
+  // components/settings/ProviderCredentialsTab.tsx.
+  { id: 'providers', label: 'Providers', icon: 'globe' },
   { id: 'system', label: 'System Info', icon: 'server' },
 ];
 
@@ -91,6 +97,7 @@ const TabIcon: React.FC<{ name: string; className?: string }> = ({
     shield: <ShieldCheck className={className} aria-hidden="true" />,
     'credit-card': <CreditCard className={className} aria-hidden="true" />,
     clock: <Clock className={className} aria-hidden="true" />,
+    globe: <Globe className={className} aria-hidden="true" />,
     server: <ServerIcon className={className} aria-hidden="true" />,
   };
   return <>{icons[name] || null}</>;
@@ -715,6 +722,8 @@ const SystemSettingsPage: React.FC = () => {
             saving={saving}
           />
         )}
+
+        {activeTab === 'providers' && <ProviderCredentialsTab />}
 
         {activeTab === 'system' && (
           <SystemInfoTab info={systemInfo} onRefresh={refreshSystemInfo} />

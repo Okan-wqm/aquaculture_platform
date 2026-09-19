@@ -30,9 +30,7 @@ describe('AttachmentPicker — MIME validation (MSG-LOW-051)', () => {
   it('rejects image/svg+xml at pick time and never calls onFileSelect', () => {
     const onFileSelect = vi.fn();
     const onClose = vi.fn();
-    render(
-      <AttachmentPicker isOpen onClose={onClose} onFileSelect={onFileSelect} />,
-    );
+    render(<AttachmentPicker isOpen onClose={onClose} onFileSelect={onFileSelect} />);
 
     const input = firstFileInput();
     fireEvent.change(input, { target: { files: [fileOf('image/svg+xml')] } });
@@ -44,9 +42,7 @@ describe('AttachmentPicker — MIME validation (MSG-LOW-051)', () => {
   it('accepts an allowed type (image/png) and calls onFileSelect', () => {
     const onFileSelect = vi.fn();
     const onClose = vi.fn();
-    render(
-      <AttachmentPicker isOpen onClose={onClose} onFileSelect={onFileSelect} />,
-    );
+    render(<AttachmentPicker isOpen onClose={onClose} onFileSelect={onFileSelect} />);
 
     const input = firstFileInput();
     fireEvent.change(input, { target: { files: [fileOf('image/png')] } });

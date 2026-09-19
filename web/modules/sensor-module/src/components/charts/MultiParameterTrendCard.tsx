@@ -36,7 +36,14 @@ export interface MultiParameterTrendCardProps {
   title?: string;
 }
 
-const PALETTE = [themeColors.primary[700], themeColors.success[500], themeColors.accent[600], themeColors.warning[700], themeColors.primary[700], themeColors.primary[600]];
+const PALETTE = [
+  themeColors.primary[700],
+  themeColors.success[500],
+  themeColors.accent[600],
+  themeColors.warning[700],
+  themeColors.primary[700],
+  themeColors.primary[600],
+];
 
 function unitScaleGroup(unit: string | undefined): 1 | 2 {
   // Temperature-like units take axis 1, everything else axis 2 — keeps the

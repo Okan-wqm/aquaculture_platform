@@ -158,17 +158,23 @@ export const ConfirmProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const confirm = useCallback<ConfirmFn>(
     (options) =>
       new Promise<boolean>((resolve) => {
-        setQueue((prev) => [...prev, { kind: 'confirm', options: normalizeConfirm(options), resolve }]);
+        setQueue((prev) => [
+          ...prev,
+          { kind: 'confirm', options: normalizeConfirm(options), resolve },
+        ]);
       }),
-    []
+    [],
   );
 
   const prompt = useCallback<PromptFn>(
     (options) =>
       new Promise<string | null>((resolve) => {
-        setQueue((prev) => [...prev, { kind: 'prompt', options: normalizePrompt(options), resolve }]);
+        setQueue((prev) => [
+          ...prev,
+          { kind: 'prompt', options: normalizePrompt(options), resolve },
+        ]);
       }),
-    []
+    [],
   );
 
   const value = useMemo<ConfirmContextValue>(() => ({ confirm, prompt }), [confirm, prompt]);

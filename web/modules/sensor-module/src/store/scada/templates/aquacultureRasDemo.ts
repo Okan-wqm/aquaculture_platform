@@ -181,9 +181,27 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
               range: { min: 0, max: 14 },
               options: {
                 ranges: [
-                  { min: 0, max: 5, fill: colors.error[100], stroke: colors.error[600], label: 'Low DO' },
-                  { min: 5, max: 7, fill: colors.warning[100], stroke: colors.warning[500], label: 'Marginal DO' },
-                  { min: 7, max: 14, fill: colors.secondary[200], stroke: colors.success[500], label: 'Optimal DO' },
+                  {
+                    min: 0,
+                    max: 5,
+                    fill: colors.error[100],
+                    stroke: colors.error[600],
+                    label: 'Low DO',
+                  },
+                  {
+                    min: 5,
+                    max: 7,
+                    fill: colors.warning[100],
+                    stroke: colors.warning[500],
+                    label: 'Marginal DO',
+                  },
+                  {
+                    min: 7,
+                    max: 14,
+                    fill: colors.secondary[200],
+                    stroke: colors.success[500],
+                    label: 'Optimal DO',
+                  },
                 ],
               },
             },
@@ -258,9 +276,27 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
               range: { min: 0, max: 5 },
               options: {
                 ranges: [
-                  { min: 0, max: 2.0, fill: colors.secondary[200], stroke: colors.success[500], label: 'Normal' },
-                  { min: 2.0, max: 2.5, fill: colors.warning[100], stroke: colors.warning[500], label: 'High' },
-                  { min: 2.5, max: 5.0, fill: colors.error[100], stroke: colors.error[600], label: 'Critical' },
+                  {
+                    min: 0,
+                    max: 2.0,
+                    fill: colors.secondary[200],
+                    stroke: colors.success[500],
+                    label: 'Normal',
+                  },
+                  {
+                    min: 2.0,
+                    max: 2.5,
+                    fill: colors.warning[100],
+                    stroke: colors.warning[500],
+                    label: 'High',
+                  },
+                  {
+                    min: 2.5,
+                    max: 5.0,
+                    fill: colors.error[100],
+                    stroke: colors.error[600],
+                    label: 'Critical',
+                  },
                 ],
               },
             },
@@ -287,9 +323,27 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
               range: { min: 0, max: 14 },
               options: {
                 ranges: [
-                  { min: 0, max: 6.5, fill: colors.error[100], stroke: colors.error[600], label: 'Low pH' },
-                  { min: 6.5, max: 8.5, fill: colors.secondary[200], stroke: colors.success[500], label: 'Optimal pH' },
-                  { min: 8.5, max: 14, fill: colors.error[100], stroke: colors.error[600], label: 'High pH' },
+                  {
+                    min: 0,
+                    max: 6.5,
+                    fill: colors.error[100],
+                    stroke: colors.error[600],
+                    label: 'Low pH',
+                  },
+                  {
+                    min: 6.5,
+                    max: 8.5,
+                    fill: colors.secondary[200],
+                    stroke: colors.success[500],
+                    label: 'Optimal pH',
+                  },
+                  {
+                    min: 8.5,
+                    max: 14,
+                    fill: colors.error[100],
+                    stroke: colors.error[600],
+                    label: 'High pH',
+                  },
                 ],
               },
             },
@@ -362,9 +416,27 @@ export const AQUACULTURE_RAS_DEMO: ScadaPackageJSON = {
               range: { min: 0, max: 100 },
               options: {
                 ranges: [
-                  { min: 0, max: 1, fill: colors.neutral[100], stroke: colors.neutral[400], label: 'OFF' },
-                  { min: 1, max: 40, fill: colors.warning[100], stroke: colors.warning[500], label: 'Low' },
-                  { min: 40, max: 100, fill: colors.primary[100], stroke: colors.primary[800], label: 'Active' },
+                  {
+                    min: 0,
+                    max: 1,
+                    fill: colors.neutral[100],
+                    stroke: colors.neutral[400],
+                    label: 'OFF',
+                  },
+                  {
+                    min: 1,
+                    max: 40,
+                    fill: colors.warning[100],
+                    stroke: colors.warning[500],
+                    label: 'Low',
+                  },
+                  {
+                    min: 40,
+                    max: 100,
+                    fill: colors.primary[100],
+                    stroke: colors.primary[800],
+                    label: 'Active',
+                  },
                 ],
               },
             },

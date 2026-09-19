@@ -46,7 +46,7 @@ const DynamicTankTable: React.FC<DynamicTankTableProps> = ({ tanks, onChange }) 
           className="max-w-[160px]"
         />
       ),
-    }
+    },
   ];
 
   return (

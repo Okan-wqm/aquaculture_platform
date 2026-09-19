@@ -10,7 +10,9 @@ describe('LeaveBalanceWidget color policy', () => {
   });
 
   it('falls back for non-color CSS payloads', () => {
-    expect(sanitizeColor('red; background-image: url(//example.invalid)')).toBe(colors.primary[500]);
+    expect(sanitizeColor('red; background-image: url(//example.invalid)')).toBe(
+      colors.primary[500],
+    );
     expect(sanitizeColor(undefined, '#111827')).toBe('#111827');
   });
 });

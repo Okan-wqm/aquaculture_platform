@@ -80,9 +80,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
         <polygon
           points={`${width / 2 + width * 0.05},${height / 2} ${
             width / 2 + width * 0.1
-          },${height / 2 - height * 0.05} ${
-            width / 2 + width * 0.1
-          },${height / 2 + height * 0.05}`}
+          },${height / 2 - height * 0.05} ${width / 2 + width * 0.1},${height / 2 + height * 0.05}`}
           fill={colors.accent[600]}
         />
 
@@ -92,7 +90,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           y={height}
           width={pipeWidth}
           height={pipeHeight}
-          fill={data?.pipeColor || '#555'}
+          fill={data?.pipeColor || themeColors.neutral[600]}
           rx={pipeHeight / 2}
         />
         <rect
@@ -100,7 +98,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           y={height}
           width={pipeWidth}
           height={pipeHeight}
-          fill={data?.pipeColor || '#555'}
+          fill={data?.pipeColor || themeColors.neutral[600]}
           rx={pipeHeight / 2}
         />
 

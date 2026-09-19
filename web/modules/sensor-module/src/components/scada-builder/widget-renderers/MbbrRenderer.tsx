@@ -16,21 +16,38 @@ import { colors as themeColors } from '@aquaculture/shared-ui';
 const STATUS_COLORS: Record<string, { fill: string; accent: string }> = {
   running: { fill: themeColors.success[500], accent: themeColors.success[600] },
   stopped: { fill: themeColors.neutral[400], accent: themeColors.gray[400] },
-  error:   { fill: themeColors.error[500], accent: themeColors.error[600] },
+  error: { fill: themeColors.error[500], accent: themeColors.error[600] },
 };
 
 /** Bio-media carrier positions (cx, cy) — scattered inside the tank */
 const CARRIERS = [
-  [40, 42], [60, 36], [82, 44], [100, 38],
-  [35, 58], [55, 62], [75, 55], [95, 60],
-  [45, 75], [68, 72], [88, 78], [105, 70],
-  [38, 90], [58, 88], [80, 92], [98, 86],
+  [40, 42],
+  [60, 36],
+  [82, 44],
+  [100, 38],
+  [35, 58],
+  [55, 62],
+  [75, 55],
+  [95, 60],
+  [45, 75],
+  [68, 72],
+  [88, 78],
+  [105, 70],
+  [38, 90],
+  [58, 88],
+  [80, 92],
+  [98, 86],
 ] as const;
 
 /** Aeration bubble positions (cx, startY) */
 const BUBBLES = [
-  [36, 100], [48, 98], [60, 102], [72, 99],
-  [84, 101], [96, 97], [108, 100],
+  [36, 100],
+  [48, 98],
+  [60, 102],
+  [72, 99],
+  [84, 101],
+  [96, 97],
+  [108, 100],
 ] as const;
 
 const MbbrRenderer: React.FC<WidgetRendererProps> = ({
@@ -41,7 +58,7 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
   isEditing,
 }) => {
   const demoStatus = (config.demoStatus ?? 'running') as string;
-  const status = isEditing ? demoStatus : (String(value ?? 'stopped'));
+  const status = isEditing ? demoStatus : String(value ?? 'stopped');
   const colors = STATUS_COLORS[status] ?? STATUS_COLORS.stopped;
   const isRunning = status === 'running';
 
@@ -62,26 +79,18 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
           height={86}
           rx={3}
           fill={themeColors.neutral[300]}
-          stroke="#333"
+          stroke={themeColors.neutral[700]}
           strokeWidth={2}
         />
 
         {/* Water fill */}
-        <rect
-          x={22}
-          y={16}
-          width={96}
-          height={76}
-          rx={2}
-          fill={colors.fill}
-          opacity={0.15}
-        />
+        <rect x={22} y={16} width={96} height={76} rx={2} fill={colors.fill} opacity={0.15} />
 
         {/* Diffuser grid at bottom */}
-        <line x1={28} y1={90} x2={112} y2={90} stroke="#555" strokeWidth={2} />
+        <line x1={28} y1={90} x2={112} y2={90} stroke={themeColors.neutral[600]} strokeWidth={2} />
         {/* Diffuser nozzles */}
         {[36, 48, 60, 72, 84, 96, 108].map((cx) => (
-          <circle key={cx} cx={cx} cy={90} r={1.5} fill="#555" />
+          <circle key={cx} cx={cx} cy={90} r={1.5} fill={themeColors.neutral[600]} />
         ))}
 
         {/* Aeration bubbles (animated when running) */}
@@ -136,17 +145,42 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
         {/* Bio-media carriers (small donut shapes) */}
         {CARRIERS.map(([cx, cy], i) => (
           <g key={`carrier-${i}`}>
-            <circle cx={cx} cy={cy - 14} r={4} fill={themeColors.neutral[200]} stroke="#777" strokeWidth={1} />
+            <circle
+              cx={cx}
+              cy={cy - 14}
+              r={4}
+              fill={themeColors.neutral[200]}
+              stroke={themeColors.neutral[500]}
+              strokeWidth={1}
+            />
             <circle cx={cx} cy={cy - 14} r={1.5} fill={themeColors.neutral[300]} />
           </g>
         ))}
 
         {/* Inlet pipe (left) */}
-        <rect x={2} y={26} width={20} height={8} fill={themeColors.neutral[300]} stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect
+          x={2}
+          y={26}
+          width={20}
+          height={8}
+          fill={themeColors.neutral[300]}
+          stroke={themeColors.neutral[700]}
+          strokeWidth={1.5}
+          rx={1}
+        />
         <polygon points="16,30 20,27 20,33" fill={colors.fill} />
 
         {/* Outlet pipe (right) */}
-        <rect x={118} y={26} width={20} height={8} fill={themeColors.neutral[300]} stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect
+          x={118}
+          y={26}
+          width={20}
+          height={8}
+          fill={themeColors.neutral[300]}
+          stroke={themeColors.neutral[700]}
+          strokeWidth={1.5}
+          rx={1}
+        />
         <polygon points="132,30 136,27 136,33" fill={colors.fill} />
 
         {/* Status indicator */}

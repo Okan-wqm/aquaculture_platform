@@ -44,60 +44,63 @@ export interface WidgetRendererProps {
 /*  Lazy map — each entry resolves to a default-exported React.FC      */
 /* ------------------------------------------------------------------ */
 
-export const lazyMap: Record<string, React.LazyExoticComponent<React.ComponentType<WidgetRendererProps>>> = {
-  gauge:               React.lazy(() => import('./widget-renderers/GaugeRenderer')),
-  numericDisplay:      React.lazy(() => import('./widget-renderers/NumericDisplayRenderer')),
-  statusIndicator:     React.lazy(() => import('./widget-renderers/StatusIndicatorRenderer')),
-  tankLevel:           React.lazy(() => import('./widget-renderers/TankLevelRenderer')),
-  toggleSwitch:        React.lazy(() => import('./widget-renderers/ToggleSwitchRenderer')),
-  slider:              React.lazy(() => import('./widget-renderers/SliderRenderer')),
-  numericInput:        React.lazy(() => import('./widget-renderers/NumericInputRenderer')),
-  pushButton:          React.lazy(() => import('./widget-renderers/PushButtonRenderer')),
-  emergencyStop:       React.lazy(() => import('./widget-renderers/EmergencyStopRenderer')),
-  trendChart:          React.lazy(() => import('./widget-renderers/TrendChartRenderer')),
-  alarmBanner:         React.lazy(() => import('./widget-renderers/AlarmBannerRenderer')),
-  alarmList:           React.lazy(() => import('./widget-renderers/AlarmListRenderer')),
-  calibrationWizard:   React.lazy(() => import('./widget-renderers/CalibrationWizardRenderer')),
-  calibrationHistory:  React.lazy(() => import('./widget-renderers/CalibrationHistoryRenderer')),
-  calibrationStatus:   React.lazy(() => import('./widget-renderers/CalibrationStatusRenderer')),
-  processView:         React.lazy(() => import('./widget-renderers/ProcessViewRenderer')),
-  equipment:           React.lazy(() => import('./widget-renderers/EquipmentRenderer')),
-  feeder:              React.lazy(() => import('./widget-renderers/FeederRenderer')),
-  radialFilter:        React.lazy(() => import('./widget-renderers/RadialFilterRenderer')),
-  cleanWaterTank:      React.lazy(() => import('./widget-renderers/CleanWaterTankRenderer')),
-  dirtyWaterTank:      React.lazy(() => import('./widget-renderers/DirtyWaterTankRenderer')),
-  mbbr:                React.lazy(() => import('./widget-renderers/MbbrRenderer')),
-  hepaFilter:          React.lazy(() => import('./widget-renderers/HepaFilterRenderer')),
-  cornellDualDrain:    React.lazy(() => import('./widget-renderers/CornellDualDrainRenderer')),
-  screenLink:        React.lazy(() => import('./widget-renderers/ScreenLinkRenderer')),
-  staticText:        React.lazy(() => import('./widget-renderers/StaticTextRenderer')),
-  pipeFlow:          React.lazy(() => import('./widget-renderers/PipeFlowRenderer')),
-  svgRect:           React.lazy(() => import('./widget-renderers/SvgRectRenderer')),
-  svgCircle:         React.lazy(() => import('./widget-renderers/SvgCircleRenderer')),
-  svgLine:           React.lazy(() => import('./widget-renderers/SvgLineRenderer')),
-  svgText:           React.lazy(() => import('./widget-renderers/SvgTextRenderer')),
-  customSvg:         React.lazy(() => import('./widget-renderers/CustomSvgRenderer')),
-  scheduler:         React.lazy(() => import('./widget-renderers/SchedulerRenderer')),
-  videoStream:       React.lazy(() => import('./widget-renderers/VideoStreamRenderer')),
-  mapView:           React.lazy(() => import('./widget-renderers/MapViewRenderer')),
-  svgEllipse:        React.lazy(() => import('./widget-renderers/SvgEllipseRenderer')),
-  svgPath:           React.lazy(() => import('./widget-renderers/SvgPathRenderer')),
-  svgPolygon:        React.lazy(() => import('./widget-renderers/SvgPolygonRenderer')),
-  svgTriangle:       React.lazy(() => import('./widget-renderers/SvgTriangleRenderer')),
-  svgDiamond:        React.lazy(() => import('./widget-renderers/SvgDiamondRenderer')),
-  svgArrow:          React.lazy(() => import('./widget-renderers/SvgArrowRenderer')),
-  rasterImage:       React.lazy(() => import('./widget-renderers/RasterImageRenderer')),
-  dataTable:         React.lazy(() => import('./widget-renderers/DataTableRenderer')),
-  iframe:            React.lazy(() => import('./widget-renderers/IFrameRenderer')),
-  progressBar:       React.lazy(() => import('./widget-renderers/ProgressBarRenderer')),
-  barChart:          React.lazy(() => import('./widget-renderers/BarChartRenderer')),
-  pieChart:          React.lazy(() => import('./widget-renderers/PieChartRenderer')),
-  knob:              React.lazy(() => import('./widget-renderers/KnobRenderer')),
-  dropdownSelect:    React.lazy(() => import('./widget-renderers/DropdownSelectRenderer')),
-  fuxaWidget:        React.lazy(() => import('./widget-renderers/FuxaWidgetRenderer')),
-  vfdDrive:          React.lazy(() => import('./widget-renderers/VfdDriveWidget')),
-  vfdMini:           React.lazy(() => import('./widget-renderers/VfdMiniWidget')),
-  vfdGroup:          React.lazy(() => import('./widget-renderers/VfdGroupWidget')),
+export const lazyMap: Record<
+  string,
+  React.LazyExoticComponent<React.ComponentType<WidgetRendererProps>>
+> = {
+  gauge: React.lazy(() => import('./widget-renderers/GaugeRenderer')),
+  numericDisplay: React.lazy(() => import('./widget-renderers/NumericDisplayRenderer')),
+  statusIndicator: React.lazy(() => import('./widget-renderers/StatusIndicatorRenderer')),
+  tankLevel: React.lazy(() => import('./widget-renderers/TankLevelRenderer')),
+  toggleSwitch: React.lazy(() => import('./widget-renderers/ToggleSwitchRenderer')),
+  slider: React.lazy(() => import('./widget-renderers/SliderRenderer')),
+  numericInput: React.lazy(() => import('./widget-renderers/NumericInputRenderer')),
+  pushButton: React.lazy(() => import('./widget-renderers/PushButtonRenderer')),
+  emergencyStop: React.lazy(() => import('./widget-renderers/EmergencyStopRenderer')),
+  trendChart: React.lazy(() => import('./widget-renderers/TrendChartRenderer')),
+  alarmBanner: React.lazy(() => import('./widget-renderers/AlarmBannerRenderer')),
+  alarmList: React.lazy(() => import('./widget-renderers/AlarmListRenderer')),
+  calibrationWizard: React.lazy(() => import('./widget-renderers/CalibrationWizardRenderer')),
+  calibrationHistory: React.lazy(() => import('./widget-renderers/CalibrationHistoryRenderer')),
+  calibrationStatus: React.lazy(() => import('./widget-renderers/CalibrationStatusRenderer')),
+  processView: React.lazy(() => import('./widget-renderers/ProcessViewRenderer')),
+  equipment: React.lazy(() => import('./widget-renderers/EquipmentRenderer')),
+  feeder: React.lazy(() => import('./widget-renderers/FeederRenderer')),
+  radialFilter: React.lazy(() => import('./widget-renderers/RadialFilterRenderer')),
+  cleanWaterTank: React.lazy(() => import('./widget-renderers/CleanWaterTankRenderer')),
+  dirtyWaterTank: React.lazy(() => import('./widget-renderers/DirtyWaterTankRenderer')),
+  mbbr: React.lazy(() => import('./widget-renderers/MbbrRenderer')),
+  hepaFilter: React.lazy(() => import('./widget-renderers/HepaFilterRenderer')),
+  cornellDualDrain: React.lazy(() => import('./widget-renderers/CornellDualDrainRenderer')),
+  screenLink: React.lazy(() => import('./widget-renderers/ScreenLinkRenderer')),
+  staticText: React.lazy(() => import('./widget-renderers/StaticTextRenderer')),
+  pipeFlow: React.lazy(() => import('./widget-renderers/PipeFlowRenderer')),
+  svgRect: React.lazy(() => import('./widget-renderers/SvgRectRenderer')),
+  svgCircle: React.lazy(() => import('./widget-renderers/SvgCircleRenderer')),
+  svgLine: React.lazy(() => import('./widget-renderers/SvgLineRenderer')),
+  svgText: React.lazy(() => import('./widget-renderers/SvgTextRenderer')),
+  customSvg: React.lazy(() => import('./widget-renderers/CustomSvgRenderer')),
+  scheduler: React.lazy(() => import('./widget-renderers/SchedulerRenderer')),
+  videoStream: React.lazy(() => import('./widget-renderers/VideoStreamRenderer')),
+  mapView: React.lazy(() => import('./widget-renderers/MapViewRenderer')),
+  svgEllipse: React.lazy(() => import('./widget-renderers/SvgEllipseRenderer')),
+  svgPath: React.lazy(() => import('./widget-renderers/SvgPathRenderer')),
+  svgPolygon: React.lazy(() => import('./widget-renderers/SvgPolygonRenderer')),
+  svgTriangle: React.lazy(() => import('./widget-renderers/SvgTriangleRenderer')),
+  svgDiamond: React.lazy(() => import('./widget-renderers/SvgDiamondRenderer')),
+  svgArrow: React.lazy(() => import('./widget-renderers/SvgArrowRenderer')),
+  rasterImage: React.lazy(() => import('./widget-renderers/RasterImageRenderer')),
+  dataTable: React.lazy(() => import('./widget-renderers/DataTableRenderer')),
+  iframe: React.lazy(() => import('./widget-renderers/IFrameRenderer')),
+  progressBar: React.lazy(() => import('./widget-renderers/ProgressBarRenderer')),
+  barChart: React.lazy(() => import('./widget-renderers/BarChartRenderer')),
+  pieChart: React.lazy(() => import('./widget-renderers/PieChartRenderer')),
+  knob: React.lazy(() => import('./widget-renderers/KnobRenderer')),
+  dropdownSelect: React.lazy(() => import('./widget-renderers/DropdownSelectRenderer')),
+  fuxaWidget: React.lazy(() => import('./widget-renderers/FuxaWidgetRenderer')),
+  vfdDrive: React.lazy(() => import('./widget-renderers/VfdDriveWidget')),
+  vfdMini: React.lazy(() => import('./widget-renderers/VfdMiniWidget')),
+  vfdGroup: React.lazy(() => import('./widget-renderers/VfdGroupWidget')),
 };
 
 /* ------------------------------------------------------------------ */
@@ -205,20 +208,42 @@ class WidgetErrorBoundary extends Component<WidgetErrorBoundaryProps, WidgetErro
       const canRetry = this.state.errorCount < MAX_RETRIES;
 
       return (
-        <div style={{
-          width: this.props.width, height: this.props.height,
-          display: 'flex', flexDirection: 'column' as const, alignItems: 'center',
-          justifyContent: 'center', background: colors.error[50], color: colors.error[700],
-          fontSize: 11, gap: 6, padding: 8, textAlign: 'center' as const,
-        }}>
+        <div
+          style={{
+            width: this.props.width,
+            height: this.props.height,
+            display: 'flex',
+            flexDirection: 'column' as const,
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: colors.error[50],
+            color: colors.error[700],
+            fontSize: 11,
+            gap: 6,
+            padding: 8,
+            textAlign: 'center' as const,
+          }}
+        >
           <span className="text-lg">&#9888;</span>
           <span>Widget error: {this.props.widgetType}</span>
           {canRetry ? (
-            <Button variant="ghost" onClick={this.handleRetry} style={{
-                marginTop: 4, padding: '3px 10px', fontSize: 10, fontWeight: 600,
-                background: '#fff', color: colors.error[700], border: `1px solid ${themeColors.error[100]}`,
-                borderRadius: 4, cursor: 'pointer',
-              }}>Retry ({MAX_RETRIES - this.state.errorCount} left)</Button>
+            <Button
+              variant="ghost"
+              onClick={this.handleRetry}
+              style={{
+                marginTop: 4,
+                padding: '3px 10px',
+                fontSize: 10,
+                fontWeight: 600,
+                background: themeColors.white,
+                color: colors.error[700],
+                border: `1px solid ${themeColors.error[100]}`,
+                borderRadius: 4,
+                cursor: 'pointer',
+              }}
+            >
+              Retry ({MAX_RETRIES - this.state.errorCount} left)
+            </Button>
           ) : (
             /* 3 deneme sonrası kalıcı hata — sayfa yenilenmeli */
             /* After 3 retries, permanent failure — page must be refreshed */

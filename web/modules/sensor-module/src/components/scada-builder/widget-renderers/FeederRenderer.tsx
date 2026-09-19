@@ -21,10 +21,14 @@ const STATUS_LABELS: Record<string, string> = {
   error: 'Error',
 };
 
-const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
-  const rawLevel = isEditing
-    ? ((config.demoFeedLevel ?? 65) as number)
-    : Number(value ?? 0);
+const FeederRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+}) => {
+  const rawLevel = isEditing ? ((config.demoFeedLevel ?? 65) as number) : Number(value ?? 0);
   const feedLevel = Math.max(0, Math.min(100, isNaN(rawLevel) ? 0 : rawLevel));
   const status = (
     isEditing ? ((config.demoStatus ?? 'running') as string) : String(value ?? 'stopped')
@@ -33,7 +37,8 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   const statusLabel = STATUS_LABELS[status] ?? status;
 
   // When stopped/maintenance → show empty; when running → show ~90% if no specific value
-  const effectiveLevel = status === 'stopped' ? 0 : (status === 'error' ? feedLevel : Math.max(feedLevel, 90));
+  const effectiveLevel =
+    status === 'stopped' ? 0 : status === 'error' ? feedLevel : Math.max(feedLevel, 90);
   const pct = effectiveLevel / 100;
 
   // --- Hopper geometry (viewBox 0 0 120 160) ---
@@ -44,7 +49,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   const motorH = 18;
 
   // Hopper body: trapezoid from wide top to narrow bottom
-  const hopperTopY = motorY + motorH;            // 26
+  const hopperTopY = motorY + motorH; // 26
   const hopperTopLeft = 18;
   const hopperTopRight = 102;
   const hopperBottomY = 118;
@@ -88,7 +93,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           height={motorH}
           rx={3}
           fill={colors.neutral[200]}
-          stroke="#444"
+          stroke={colors.neutral[600]}
           strokeWidth={2}
         />
         {/* Motor "M" symbol */}
@@ -99,7 +104,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           dominantBaseline="middle"
           fontSize={11}
           fontWeight={700}
-          fill="#333"
+          fill={colors.neutral[700]}
         >
           M
         </text>
@@ -115,7 +120,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
         <polygon
           points={`${hopperTopLeft},${hopperTopY} ${hopperTopRight},${hopperTopY} ${hopperBottomRight},${hopperBottomY} ${hopperBottomLeft},${hopperBottomY}`}
           fill={colors.neutral[100]}
-          stroke="#444"
+          stroke={colors.neutral[600]}
           strokeWidth={2}
           strokeLinejoin="round"
         />
@@ -141,13 +146,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
         >
           {Math.round(effectiveLevel)}
         </text>
-        <text
-          x={60}
-          y={93}
-          textAnchor="middle"
-          fontSize={10}
-          fill={colors.gray[400]}
-        >
+        <text x={60} y={93} textAnchor="middle" fontSize={10} fill={colors.gray[400]}>
           %
         </text>
 
@@ -159,7 +158,7 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
           height={chuteH}
           rx={1}
           fill={colors.neutral[300]}
-          stroke="#444"
+          stroke={colors.neutral[600]}
           strokeWidth={1.5}
         />
 
@@ -167,29 +166,54 @@ const FeederRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
         {status === 'running' && (
           <>
             <circle cx={57} cy={chuteY + chuteH + 4} r={1.5} fill={fillColor} opacity={0.8}>
-              <animate attributeName="cy" from={chuteY + chuteH + 2} to={chuteY + chuteH + 16} dur="0.8s" repeatCount="indefinite" />
+              <animate
+                attributeName="cy"
+                from={chuteY + chuteH + 2}
+                to={chuteY + chuteH + 16}
+                dur="0.8s"
+                repeatCount="indefinite"
+              />
               <animate attributeName="opacity" values="0.8;0" dur="0.8s" repeatCount="indefinite" />
             </circle>
             <circle cx={60} cy={chuteY + chuteH + 6} r={1.5} fill={fillColor} opacity={0.8}>
-              <animate attributeName="cy" from={chuteY + chuteH + 2} to={chuteY + chuteH + 16} dur="0.8s" begin="0.25s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.8;0" dur="0.8s" begin="0.25s" repeatCount="indefinite" />
+              <animate
+                attributeName="cy"
+                from={chuteY + chuteH + 2}
+                to={chuteY + chuteH + 16}
+                dur="0.8s"
+                begin="0.25s"
+                repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity"
+                values="0.8;0"
+                dur="0.8s"
+                begin="0.25s"
+                repeatCount="indefinite"
+              />
             </circle>
             <circle cx={63} cy={chuteY + chuteH + 4} r={1.5} fill={fillColor} opacity={0.8}>
-              <animate attributeName="cy" from={chuteY + chuteH + 2} to={chuteY + chuteH + 16} dur="0.8s" begin="0.5s" repeatCount="indefinite" />
-              <animate attributeName="opacity" values="0.8;0" dur="0.8s" begin="0.5s" repeatCount="indefinite" />
+              <animate
+                attributeName="cy"
+                from={chuteY + chuteH + 2}
+                to={chuteY + chuteH + 16}
+                dur="0.8s"
+                begin="0.5s"
+                repeatCount="indefinite"
+              />
+              <animate
+                attributeName="opacity"
+                values="0.8;0"
+                dur="0.8s"
+                begin="0.5s"
+                repeatCount="indefinite"
+              />
             </circle>
           </>
         )}
 
         {/* ---- Status text ---- */}
-        <text
-          x={60}
-          y={154}
-          textAnchor="middle"
-          fontSize={10}
-          fontWeight={600}
-          fill={statusColor}
-        >
+        <text x={60} y={154} textAnchor="middle" fontSize={10} fontWeight={600} fill={statusColor}>
           {statusLabel}
         </text>
 

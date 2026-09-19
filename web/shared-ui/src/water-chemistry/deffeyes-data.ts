@@ -15,19 +15,28 @@ import {
 } from '@platform/aquaculture-engines';
 import type { DeffeyesChartData } from '@platform/aquaculture-engines';
 
+import { chartPalette, colors } from '../styles/theme';
 import type { WaterChemistryInputs } from './types';
 
-export const REAGENT_COLORS: Record<string, string> = {
-  'Sodium Bicarbonate': '#2563eb',
-  'Sodium Carbonate': '#7c3aed',
-  'Sodium Hydroxide': '#059669',
-  'Calcium Carbonate': '#0891b2',
-  'Calcium Hydroxide': '#65a30d',
-  'Calcium Oxide': '#ca8a04',
-  'Add CO₂': '#ea580c',
-  'De-gas CO₂': '#dc2626',
-  'Muriatic Acid': '#be185d',
-};
+/** The reagents in display order; each takes the next colour of the theme's categorical palette. */
+const REAGENT_NAMES = [
+  'Sodium Bicarbonate',
+  'Sodium Carbonate',
+  'Sodium Hydroxide',
+  'Calcium Carbonate',
+  'Calcium Hydroxide',
+  'Calcium Oxide',
+  'Add CO₂',
+  'De-gas CO₂',
+  'Muriatic Acid',
+] as const;
+
+export const REAGENT_COLORS: Record<string, string> = Object.fromEntries(
+  REAGENT_NAMES.map((name, index) => [
+    name,
+    chartPalette[index % chartPalette.length] ?? colors.gray[400],
+  ]),
+);
 
 const EMPTY_DEFFEYES: DeffeyesChartData = {
   isolines: [],
@@ -86,7 +95,12 @@ export function buildDeffeyesData(
   if (selectedReagents.length === 1) {
     const reagent = REAGENTS.find((r) => r.name === selectedReagents[0]);
     if (reagent) {
-      result.reagentLine = reagentDirectionLine(base.currentPoint.DIC, base.currentPoint.ALK, reagent, 8);
+      result.reagentLine = reagentDirectionLine(
+        base.currentPoint.DIC,
+        base.currentPoint.ALK,
+        reagent,
+        8,
+      );
     }
   } else if (selectedReagents.length === 2) {
     if (base.targetPoint) {
@@ -107,8 +121,16 @@ export function buildDeffeyesData(
         const line1 = reagentDirectionLine(base.currentPoint.DIC, base.currentPoint.ALK, r1, 8);
         const line2 = reagentDirectionLine(base.currentPoint.DIC, base.currentPoint.ALK, r2, 8);
         result.dosingVisualization = {
-          reagentLine1: { points: line1, label: r1.formula, color: REAGENT_COLORS[r1.name] || '#6b7280' },
-          reagentLine2: { points: line2, label: r2.formula, color: REAGENT_COLORS[r2.name] || '#6b7280' },
+          reagentLine1: {
+            points: line1,
+            label: r1.formula,
+            color: REAGENT_COLORS[r1.name] || colors.gray[400],
+          },
+          reagentLine2: {
+            points: line2,
+            label: r2.formula,
+            color: REAGENT_COLORS[r2.name] || colors.gray[400],
+          },
           step1Path: [],
           step2Path: [],
           intermediatePoint: { DIC: 0, ALK: 0 },

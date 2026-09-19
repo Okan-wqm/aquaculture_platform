@@ -228,7 +228,8 @@ const FallbackTable: React.FC<{ grid: HeatmapGrid; scale: ColorScale }> = ({ gri
                   style={{
                     backgroundColor:
                       normalized !== null ? colorFromScale(normalized, scale) : colors.neutral[100],
-                    color: normalized !== null && normalized > 0.6 ? '#fff' : colors.neutral[700],
+                    color:
+                      normalized !== null && normalized > 0.6 ? colors.white : colors.neutral[700],
                   }}
                 >
                   {cell ? cell.value.toFixed(1) : '—'}

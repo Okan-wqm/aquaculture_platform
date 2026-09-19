@@ -23,6 +23,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { useRealtimeData } from '../../hooks/useRealtimeData';
 import { useTrendData, type TrendTimeRange } from '../../hooks/useTrendData';
+import { colors } from '@aquaculture/shared-ui';
 import { ChartToolbar } from './ChartToolbar';
 import type {
   ChartViewMode,
@@ -170,7 +171,7 @@ function buildScales(opts: Partial<ChartOptions>): Record<string, uPlot.Scale> {
  * Build uPlot axis configs for all active Y axes.
  */
 function buildAxes(lines: ChartLine[], opts: Partial<ChartOptions>): uPlot.Axis[] {
-  const axisColor = opts.axisLabelColor ?? '#666';
+  const axisColor = opts.axisLabelColor ?? colors.neutral[500];
   const gridColor = opts.gridLineColor ?? 'rgba(0,0,0,0.1)';
   const font = opts.fontFamily ? `12px ${opts.fontFamily}` : '12px system-ui';
 

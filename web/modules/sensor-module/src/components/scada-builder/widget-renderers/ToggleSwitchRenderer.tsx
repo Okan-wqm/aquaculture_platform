@@ -7,7 +7,14 @@ import React, { memo, useCallback, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import { colors } from '@aquaculture/shared-ui';
 
-const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
+const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({
+  config,
+  value,
+  width,
+  height,
+  isEditing,
+  onCommand,
+}) => {
   const label = (config.label ?? 'Switch') as string;
   const isOn = isEditing ? (config.demoValue ?? true) : Boolean(value);
 
@@ -63,7 +70,13 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
           </radialGradient>
           {/* Drop shadow for the knob */}
           <filter id={ids.knobShadow} x="-30%" y="-30%" width="160%" height="160%">
-            <feDropShadow dx="0" dy="1" stdDeviation="1.2" floodColor="#00000033" />
+            <feDropShadow
+              dx="0"
+              dy="1"
+              stdDeviation="1.2"
+              floodColor={colors.black}
+              floodOpacity={0.2}
+            />
           </filter>
           {/* Green glow filter for the ON state */}
           <filter id={ids.glowFilter} x="-40%" y="-40%" width="180%" height="180%">
@@ -78,8 +91,10 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
         <g transform="translate(4, 4)">
           {/* Track background - color transitions smoothly via CSS */}
           <rect
-            x={0} y={0}
-            width={trackW} height={trackH}
+            x={0}
+            y={0}
+            width={trackW}
+            height={trackH}
             rx={trackH / 2}
             fill={isOn ? colors.success[500] : colors.neutral[300]}
             className="transition-[fill] duration-200 ease-in-out"

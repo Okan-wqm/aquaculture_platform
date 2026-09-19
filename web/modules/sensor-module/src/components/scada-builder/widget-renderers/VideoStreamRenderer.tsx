@@ -138,7 +138,7 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({
       style={{
         width,
         height,
-        background: '#000',
+        background: colors.black,
         borderRadius: 4,
         overflow: 'hidden',
         position: 'relative',
@@ -154,7 +154,7 @@ const VideoStreamRenderer: React.FC<WidgetRendererProps> = ({
             justifyContent: 'space-between',
             padding: '0 8px',
             background: 'rgba(0,0,0,0.7)',
-            color: '#fff',
+            color: colors.white,
             fontSize: 10,
             fontWeight: 600,
           }}

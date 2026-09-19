@@ -43,7 +43,7 @@ const BlowerNode: React.FC<NodeProps<Node<BlowerNodeData>>> = ({ id, data, selec
     e: React.MouseEvent,
     current: HandleType,
     setFunc: React.Dispatch<React.SetStateAction<HandleType>>,
-    key: 'inlet' | 'outlet'
+    key: 'inlet' | 'outlet',
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -93,21 +93,72 @@ const BlowerNode: React.FC<NodeProps<Node<BlowerNodeData>>> = ({ id, data, selec
       >
         <svg width={WIDTH} height={HEIGHT}>
           {/* Housing */}
-          <rect x="50" y="40" width="100" height="60" rx="12" fill={colors.neutral[300]} stroke="#444" strokeWidth="2" />
+          <rect
+            x="50"
+            y="40"
+            width="100"
+            height="60"
+            rx="12"
+            fill={colors.neutral[300]}
+            stroke={themeColors.neutral[600]}
+            strokeWidth="2"
+          />
           {/* Left lobe */}
-          <circle cx="75" cy="70" r="18" fill={colors.primary[200]} stroke="#333" strokeWidth="1.5" />
-          <path d="M75 52 A18 18 0 0 1 75 88 A18 18 0 0 1 75 52" fill="none" stroke={colors.primary[500]} strokeWidth="1" />
+          <circle
+            cx="75"
+            cy="70"
+            r="18"
+            fill={colors.primary[200]}
+            stroke={themeColors.neutral[700]}
+            strokeWidth="1.5"
+          />
+          <path
+            d="M75 52 A18 18 0 0 1 75 88 A18 18 0 0 1 75 52"
+            fill="none"
+            stroke={colors.primary[500]}
+            strokeWidth="1"
+          />
           {/* Right lobe */}
-          <circle cx="125" cy="70" r="18" fill={colors.primary[200]} stroke="#333" strokeWidth="1.5" />
-          <path d="M125 52 A18 18 0 0 1 125 88 A18 18 0 0 1 125 52" fill="none" stroke={colors.primary[500]} strokeWidth="1" />
+          <circle
+            cx="125"
+            cy="70"
+            r="18"
+            fill={colors.primary[200]}
+            stroke={themeColors.neutral[700]}
+            strokeWidth="1.5"
+          />
+          <path
+            d="M125 52 A18 18 0 0 1 125 88 A18 18 0 0 1 125 52"
+            fill="none"
+            stroke={colors.primary[500]}
+            strokeWidth="1"
+          />
           {/* Center shaft */}
-          <circle cx="100" cy="70" r="6" fill={colors.neutral[600]} stroke="#222" strokeWidth="1.5" />
+          <circle
+            cx="100"
+            cy="70"
+            r="6"
+            fill={colors.neutral[600]}
+            stroke={themeColors.neutral[800]}
+            strokeWidth="1.5"
+          />
           {/* Motor */}
-          <rect x="150" y="50" width="35" height="40" rx="4" fill={colors.neutral[400]} stroke="#333" strokeWidth="2" />
+          <rect
+            x="150"
+            y="50"
+            width="35"
+            height="40"
+            rx="4"
+            fill={colors.neutral[400]}
+            stroke={themeColors.neutral[700]}
+            strokeWidth="2"
+          />
           <circle cx="168" cy="70" r="6" fill={colors.neutral[900]} />
-          <text x="168" y="75" fontSize="9" fill="#fff" textAnchor="middle">M</text>
+          <text x="168" y="75" fontSize="9" fill={themeColors.white} textAnchor="middle">
+            M
+          </text>
           {/* Label */}
-          <text x="100" y="125" textAnchor="middle" fontSize="12" fill="#000">
+          <text x="100" y="125" textAnchor="middle" fontSize="12" fill={themeColors.black}>
             {data?.label || 'Lobe Blower'}
           </text>
         </svg>

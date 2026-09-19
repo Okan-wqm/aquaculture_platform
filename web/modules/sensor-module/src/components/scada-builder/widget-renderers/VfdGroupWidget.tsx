@@ -9,6 +9,7 @@
 import React, { memo, useMemo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import type { VfdParameters, VfdStatusBits } from '../../../types/vfd.types';
+import { useI18n } from '@aquaculture/shared-ui';
 import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
@@ -32,7 +33,7 @@ interface VfdCardData {
 const LED_COLORS: Record<string, string> = {
   running: themeColors.success[500],
   stopped: themeColors.neutral[400],
-  fault:   themeColors.error[500],
+  fault: themeColors.error[500],
   warning: themeColors.warning[500],
   offline: themeColors.gray[400],
 };
@@ -51,12 +52,8 @@ const DEMO_DEVICES: VfdCardData[] = [
 /*  Component                                                          */
 /* ------------------------------------------------------------------ */
 
-const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
-  config,
-  width,
-  height,
-  isEditing,
-}) => {
+const VfdGroupWidget: React.FC<WidgetRendererProps> = ({ config, width, height, isEditing }) => {
+  const { t } = useI18n();
   const title = (config.groupTitle as string) || (config.label as string) || 'Pump Station VFDs';
 
   /* ---- Resolve device data ---- */
@@ -69,10 +66,7 @@ const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
   }, [isEditing, config.devices]);
 
   /* ---- Aggregate calculations ---- */
-  const totalPower = useMemo(
-    () => devices.reduce((sum, d) => sum + (d.power || 0), 0),
-    [devices],
-  );
+  const totalPower = useMemo(() => devices.reduce((sum, d) => sum + (d.power || 0), 0), [devices]);
 
   const avgFrequency = useMemo(() => {
     const running = devices.filter((d) => d.status === 'running');
@@ -96,10 +90,7 @@ const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
   const totalVbH = gridStartY + rows * (cardH + gapY) - gapY + footerH + 10;
 
   return (
-    <div
-      style={{ width, height, position: 'relative' }}
-      data-testid="vfd-group-widget"
-    >
+    <div style={{ width, height, position: 'relative' }} data-testid="vfd-group-widget">
       <svg
         width="100%"
         height="100%"
@@ -108,10 +99,21 @@ const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
         className="block"
       >
         {/* Background */}
-        <rect x={1} y={1} width={totalVbW - 2} height={totalVbH - 2} rx={6} fill={themeColors.neutral[50]} stroke={themeColors.neutral[300]} strokeWidth={1.5} />
+        <rect
+          x={1}
+          y={1}
+          width={totalVbW - 2}
+          height={totalVbH - 2}
+          rx={6}
+          fill={themeColors.neutral[50]}
+          stroke={themeColors.neutral[300]}
+          strokeWidth={1.5}
+        />
 
         {/* Title */}
-        <text x={12} y={20} fontSize={12} fontWeight={700} fill={themeColors.neutral[700]}>{title}</text>
+        <text x={12} y={20} fontSize={12} fontWeight={700} fill={themeColors.neutral[700]}>
+          {title}
+        </text>
 
         {/* VFD cards */}
         {devices.map((device, idx) => {
@@ -125,21 +127,44 @@ const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
             <g key={device.id} data-testid={`vfd-group-card-${device.id}`}>
               {/* Card background */}
               <rect
-                x={x} y={y} width={cardW} height={cardH} rx={4}
-                fill="#fff"
+                x={x}
+                y={y}
+                width={cardW}
+                height={cardH}
+                rx={4}
+                fill={themeColors.white}
                 stroke={isFault ? themeColors.error[500] : themeColors.neutral[200]}
                 strokeWidth={isFault ? 2 : 1}
               />
               {/* Name + LED */}
-              <text x={x + 6} y={y + 14} fontSize={9} fontWeight={600} fill={themeColors.neutral[700]}>
+              <text
+                x={x + 6}
+                y={y + 14}
+                fontSize={9}
+                fontWeight={600}
+                fill={themeColors.neutral[700]}
+              >
                 {device.name}
               </text>
-              <circle cx={x + cardW - 10} cy={y + 10} r={3.5} fill={LED_COLORS[device.status] || themeColors.neutral[400]} />
+              <circle
+                cx={x + cardW - 10}
+                cy={y + 10}
+                r={3.5}
+                fill={LED_COLORS[device.status] || themeColors.neutral[400]}
+              />
 
               {/* Main value row */}
               {isFault ? (
                 <>
-                  <text x={x + 6} y={y + 30} fontSize={10} fontWeight={700} fill={themeColors.error[500]}>FAULT</text>
+                  <text
+                    x={x + 6}
+                    y={y + 30}
+                    fontSize={10}
+                    fontWeight={700}
+                    fill={themeColors.error[500]}
+                  >
+                    {t('scada.vfd.fault')}
+                  </text>
                   {device.faultCode !== undefined && (
                     <text x={x + 6} y={y + 44} fontSize={9} fill={themeColors.error[500]}>
                       F{String(device.faultCode).padStart(3, '0')}
@@ -148,7 +173,13 @@ const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
                 </>
               ) : (
                 <>
-                  <text x={x + 6} y={y + 32} fontSize={10} fontWeight={600} fill={themeColors.neutral[900]}>
+                  <text
+                    x={x + 6}
+                    y={y + 32}
+                    fontSize={10}
+                    fontWeight={600}
+                    fill={themeColors.neutral[900]}
+                  >
                     {device.frequency.toFixed(1)} Hz
                   </text>
                   <text x={x + 6} y={y + 46} fontSize={9} fill={themeColors.gray[400]}>
@@ -162,7 +193,13 @@ const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
 
         {/* Empty state */}
         {devices.length === 0 && (
-          <text x={totalVbW / 2} y={gridStartY + 30} textAnchor="middle" fontSize={10} fill={themeColors.neutral[400]}>
+          <text
+            x={totalVbW / 2}
+            y={gridStartY + 30}
+            textAnchor="middle"
+            fontSize={10}
+            fill={themeColors.neutral[400]}
+          >
             No VFD devices configured
           </text>
         )}
@@ -170,11 +207,24 @@ const VfdGroupWidget: React.FC<WidgetRendererProps> = ({
         {/* Footer: aggregates */}
         {devices.length > 0 && (
           <g transform={`translate(0, ${gridStartY + rows * (cardH + gapY) - gapY + 8})`}>
-            <line x1={10} y1={0} x2={totalVbW - 10} y2={0} stroke={chartChrome.grid} strokeWidth={1} />
+            <line
+              x1={10}
+              y1={0}
+              x2={totalVbW - 10}
+              y2={0}
+              stroke={chartChrome.grid}
+              strokeWidth={1}
+            />
             <text x={12} y={16} fontSize={9} fill={themeColors.gray[400]}>
               Total Power: {totalPower.toFixed(1)} kW
             </text>
-            <text x={totalVbW - 12} y={16} textAnchor="end" fontSize={9} fill={themeColors.gray[400]}>
+            <text
+              x={totalVbW - 12}
+              y={16}
+              textAnchor="end"
+              fontSize={9}
+              fill={themeColors.gray[400]}
+            >
               Avg Freq: {avgFrequency.toFixed(1)} Hz
             </text>
           </g>

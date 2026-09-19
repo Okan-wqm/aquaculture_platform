@@ -30,14 +30,8 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
   const height = overlay.size?.height ?? 300;
 
   // Clamp position to viewport
-  const clampedX = Math.min(
-    Math.max(overlay.position?.x ?? 100, 0),
-    window.innerWidth - width,
-  );
-  const clampedY = Math.min(
-    Math.max(overlay.position?.y ?? 100, 0),
-    window.innerHeight - height,
-  );
+  const clampedX = Math.min(Math.max(overlay.position?.x ?? 100, 0), window.innerWidth - width);
+  const clampedY = Math.min(Math.max(overlay.position?.y ?? 100, 0), window.innerHeight - height);
 
   const handleClose = useCallback(() => {
     closeOverlay(overlay.id);
@@ -71,7 +65,7 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
         top: clampedY,
         width,
         height,
-        background: '#fff',
+        background: themeColors.white,
         borderRadius: 12,
         boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
         display: 'flex',
@@ -97,7 +91,11 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
         <span style={{ fontWeight: 600, fontSize: 14, color: colors.neutral[900] }}>
           {screenName}
         </span>
-        <Button variant="ghost" iconOnly onClick={handleClose} style={{
+        <Button
+          variant="ghost"
+          iconOnly
+          onClick={handleClose}
+          style={{
             background: 'none',
             border: 'none',
             cursor: 'pointer',
@@ -107,7 +105,11 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
             justifyContent: 'center',
             borderRadius: 6,
             color: colors.gray[400],
-          }} aria-label="Close overlay"><X size={16} /></Button>
+          }}
+          aria-label="Close overlay"
+        >
+          <X size={16} />
+        </Button>
       </div>
 
       {/* Content */}
@@ -129,7 +131,14 @@ export const PopupCard: React.FC<PopupCardProps> = ({ overlay }) => {
             variableMap={overlay.variableMap}
           />
         ) : (
-          <div style={{ fontSize: 12, color: colors.neutral[400], textAlign: 'center', paddingTop: 40 }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: colors.neutral[400],
+              textAlign: 'center',
+              paddingTop: 40,
+            }}
+          >
             Screen not found
           </div>
         )}

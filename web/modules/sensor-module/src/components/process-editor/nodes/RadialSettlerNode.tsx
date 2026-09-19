@@ -20,7 +20,11 @@ interface RadialSettlerNodeData extends Record<string, unknown> {
 const WIDTH = 120;
 const HEIGHT = 160;
 
-const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ id, data, selected }) => {
+const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({
+  id,
+  data,
+  selected,
+}) => {
   const updateNodeInternals = useUpdateNodeInternals();
   const updateNodeData = useProcessStore((state) => state.updateNodeData);
 
@@ -34,10 +38,7 @@ const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ i
 
   const toggleType = (type: HandleType): HandleType => (type === 'source' ? 'target' : 'source');
 
-  const handleRightClick = (
-    e: React.MouseEvent,
-    side: 'left' | 'right' | 'bottom'
-  ) => {
+  const handleRightClick = (e: React.MouseEvent, side: 'left' | 'right' | 'bottom') => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -72,21 +73,57 @@ const RadialSettlerNode: React.FC<NodeProps<Node<RadialSettlerNodeData>>> = ({ i
         {/* Settling Cone */}
         <polygon points="20,120 60,160 100,120" fill={colors.gray[400]} opacity="0.8" />
         {/* Top Ring */}
-        <ellipse cx="60" cy="20" rx="40" ry="10" fill="#bbb" stroke="#333" strokeWidth="2" />
-        <line x1="20" y1="20" x2="20" y2="120" stroke="#333" strokeWidth="2" />
-        <line x1="100" y1="20" x2="100" y2="120" stroke="#333" strokeWidth="2" />
+        <ellipse
+          cx="60"
+          cy="20"
+          rx="40"
+          ry="10"
+          fill={themeColors.neutral[300]}
+          stroke={themeColors.neutral[700]}
+          strokeWidth="2"
+        />
+        <line x1="20" y1="20" x2="20" y2="120" stroke={themeColors.neutral[700]} strokeWidth="2" />
+        <line
+          x1="100"
+          y1="20"
+          x2="100"
+          y2="120"
+          stroke={themeColors.neutral[700]}
+          strokeWidth="2"
+        />
         {/* Cone Highlight */}
-        <polygon points="20,120 60,160 100,120" fill="#bbb" stroke="#333" strokeWidth="2" />
+        <polygon
+          points="20,120 60,160 100,120"
+          fill={themeColors.neutral[300]}
+          stroke={themeColors.neutral[700]}
+          strokeWidth="2"
+        />
         {/* Left/Right Pipe Decorations */}
-        <rect x="0" y="50" width="20" height="20" fill="#888" stroke="#333" strokeWidth="2" />
-        <rect x="100" y="50" width="20" height="20" fill="#888" stroke="#333" strokeWidth="2" />
+        <rect
+          x="0"
+          y="50"
+          width="20"
+          height="20"
+          fill={themeColors.neutral[400]}
+          stroke={themeColors.neutral[700]}
+          strokeWidth="2"
+        />
+        <rect
+          x="100"
+          y="50"
+          width="20"
+          height="20"
+          fill={themeColors.neutral[400]}
+          stroke={themeColors.neutral[700]}
+          strokeWidth="2"
+        />
         {/* X icons */}
-        <line x1="0" y1="50" x2="20" y2="70" stroke="#fff" strokeWidth="2" />
-        <line x1="0" y1="70" x2="20" y2="50" stroke="#fff" strokeWidth="2" />
-        <line x1="100" y1="50" x2="120" y2="70" stroke="#fff" strokeWidth="2" />
-        <line x1="100" y1="70" x2="120" y2="50" stroke="#fff" strokeWidth="2" />
+        <line x1="0" y1="50" x2="20" y2="70" stroke={themeColors.white} strokeWidth="2" />
+        <line x1="0" y1="70" x2="20" y2="50" stroke={themeColors.white} strokeWidth="2" />
+        <line x1="100" y1="50" x2="120" y2="70" stroke={themeColors.white} strokeWidth="2" />
+        <line x1="100" y1="70" x2="120" y2="50" stroke={themeColors.white} strokeWidth="2" />
         {/* Label */}
-        <text x="60" y="90" fill="#000" textAnchor="middle" fontSize="12">
+        <text x="60" y="90" fill={themeColors.black} textAnchor="middle" fontSize="12">
           {data?.label || 'Radial Settler'}
         </text>
       </svg>

@@ -5,6 +5,7 @@
 
 import React, { useId } from 'react';
 import { ArrowDown, ArrowUp, Minus } from 'lucide-react';
+import { colors as themeColors } from '../../styles/theme';
 
 // ============================================================================
 // Types
@@ -104,7 +105,7 @@ const TrendIndicator: React.FC<{
 // PERF-009: Wrap in React.memo — sparkline re-renders are expensive due to SVG coordinate math
 const MiniSparkline = React.memo(function MiniSparkline({
   data,
-  color = '#3B82F6',
+  color = themeColors.info[500],
   height = 32,
 }: {
   data: number[];
@@ -352,12 +353,12 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
                   data={sparklineData}
                   color={
                     variant === 'success'
-                      ? '#10B981'
+                      ? themeColors.success[500]
                       : variant === 'danger'
-                        ? '#EF4444'
+                        ? themeColors.error[500]
                         : variant === 'warning'
-                          ? '#F59E0B'
-                          : '#3B82F6'
+                          ? themeColors.warning[500]
+                          : themeColors.info[500]
                   }
                 />
               </div>

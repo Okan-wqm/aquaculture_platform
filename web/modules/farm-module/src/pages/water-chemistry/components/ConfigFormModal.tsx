@@ -290,7 +290,7 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
             />
             <div
               className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600"
-              style={{ backgroundColor: formData.chartColor || '#ccc' }}
+              style={{ backgroundColor: formData.chartColor || colors.neutral[300] }}
             />
             <input
               type="color"

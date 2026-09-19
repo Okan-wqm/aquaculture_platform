@@ -34,7 +34,13 @@ export interface EmptyStateProps {
 }
 
 const DefaultIcon: React.FC = () => (
-  <svg className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+  <svg
+    className="h-12 w-12"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    aria-hidden="true"
+  >
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -56,12 +62,22 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 }) => (
   <div
     className={`flex flex-col items-center text-center ${size === 'sm' ? 'gap-2 py-8' : 'gap-3 py-12'} ${
-      variant === 'card' ? 'rounded-lg border border-gray-200 bg-white px-6 dark:border-gray-700 dark:bg-gray-900' : ''
+      variant === 'card'
+        ? 'rounded-lg border border-gray-200 bg-white px-6 dark:border-gray-700 dark:bg-gray-900'
+        : ''
     } ${className}`}
   >
-    <div className="text-gray-400 dark:text-gray-500 [&>svg]:h-12 [&>svg]:w-12">{icon ?? <DefaultIcon />}</div>
-    <h3 className={`font-medium text-gray-900 dark:text-gray-100 ${size === 'sm' ? 'text-sm' : 'text-base'}`}>{title}</h3>
-    {description && <p className="max-w-md text-sm text-gray-500 dark:text-gray-400">{description}</p>}
+    <div className="text-gray-400 dark:text-gray-500 [&>svg]:h-12 [&>svg]:w-12">
+      {icon ?? <DefaultIcon />}
+    </div>
+    <h3
+      className={`font-medium text-gray-900 dark:text-gray-100 ${size === 'sm' ? 'text-sm' : 'text-base'}`}
+    >
+      {title}
+    </h3>
+    {description && (
+      <p className="max-w-md text-sm text-gray-500 dark:text-gray-400">{description}</p>
+    )}
     {(action || secondaryAction) && (
       <div className="mt-2 flex items-center gap-3">
         {action && (
@@ -92,7 +108,13 @@ export interface ErrorStateProps {
 }
 
 const ErrorIcon: React.FC = () => (
-  <svg className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+  <svg
+    className="h-12 w-12"
+    fill="none"
+    viewBox="0 0 24 24"
+    stroke="currentColor"
+    aria-hidden="true"
+  >
     <path
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -115,14 +137,22 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
   <div
     role="alert"
     className={`flex flex-col items-center text-center ${size === 'sm' ? 'gap-2 py-8' : 'gap-3 py-12'} ${
-      variant === 'card' ? 'rounded-lg border border-error-200 bg-error-50 px-6 dark:border-error-800 dark:bg-error-900/20' : ''
+      variant === 'card'
+        ? 'rounded-lg border border-error-200 bg-error-50 px-6 dark:border-error-800 dark:bg-error-900/20'
+        : ''
     } ${className}`}
   >
     <div className="text-error-500 dark:text-error-400">
       <ErrorIcon />
     </div>
-    <h3 className={`font-medium text-error-800 dark:text-error-200 ${size === 'sm' ? 'text-sm' : 'text-base'}`}>{title}</h3>
-    {description && <p className="max-w-md text-sm text-error-700 dark:text-error-300">{description}</p>}
+    <h3
+      className={`font-medium text-error-800 dark:text-error-200 ${size === 'sm' ? 'text-sm' : 'text-base'}`}
+    >
+      {title}
+    </h3>
+    {description && (
+      <p className="max-w-md text-sm text-error-700 dark:text-error-300">{description}</p>
+    )}
     {onRetry && (
       <div className="mt-2">
         <Button variant="secondary" size="sm" onClick={onRetry}>

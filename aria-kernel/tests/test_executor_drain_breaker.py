@@ -535,3 +535,71 @@ class AnOpenRouteEndsTheDrainByName(unittest.TestCase):
             self.assertNotEqual(h.payload()["stop_reason"], "circuit_open_streak")
         finally:
             h.close()
+
+
+class AFleetWideRefusalEndsTheDrainByName(unittest.TestCase):
+    """ARIA-HIGH-159 — `no_eligible_provider` is a fact about the fleet, not
+    the request: on 2026-09-19 (run 35429400706, login retired, Z.ai not yet
+    in the job's env) every child was refused that way at ~35 s each and the
+    drain would have walked the whole queue. A streak of fleet refusals ends
+    the drain by name; per-request refusals never count."""
+
+    def test_a_streak_of_fleet_refusals_stops_the_drain(self) -> None:
+        from ci_executor_drain import CIRCUIT_SKIP_STREAK_STOP
+
+        queue = [_row(f"AIR-{i}") for i in range(CIRCUIT_SKIP_STREAK_STOP + 4)]
+        summaries = {
+            f"AIR-{i}": _summary(request_id=f"AIR-{i}", outcome="refused",
+                                 failure_class="policy_violation", detail_code="no_eligible_provider")
+            for i in range(CIRCUIT_SKIP_STREAK_STOP + 4)
+        }
+        h = _DrainHarness(queue=queue, summaries=summaries)
+        try:
+            h.run_drain()
+            payload = h.payload()
+            self.assertEqual(payload["attempted"], CIRCUIT_SKIP_STREAK_STOP)
+            self.assertEqual(payload["stop_reason"], "fleet_refusal_streak:no_eligible_provider")
+            self.assertEqual(payload["failed"], 0, "a refusal is never a failure")
+            self.assertEqual(payload["circuit_breakers"], [], "a refusal never opens a circuit")
+        finally:
+            h.close()
+
+    def test_a_per_request_refusal_never_counts_toward_the_streak(self) -> None:
+        from ci_executor_drain import CIRCUIT_SKIP_STREAK_STOP
+
+        n = CIRCUIT_SKIP_STREAK_STOP + 3
+        queue = [_row(f"AIR-{i}") for i in range(n)]
+        summaries = {
+            f"AIR-{i}": _summary(request_id=f"AIR-{i}", outcome="refused",
+                                 failure_class="policy_violation", detail_code="target_revision_mismatch")
+            for i in range(n)
+        }
+        h = _DrainHarness(queue=queue, summaries=summaries)
+        try:
+            h.run_drain()
+            payload = h.payload()
+            self.assertEqual(payload["attempted"], n)
+            self.assertNotEqual(payload["stop_reason"], "fleet_refusal_streak:target_revision_mismatch")
+        finally:
+            h.close()
+
+    def test_a_success_between_fleet_refusals_resets_the_streak(self) -> None:
+        from ci_executor_drain import CIRCUIT_SKIP_STREAK_STOP
+
+        queue, summaries = [], {}
+        for i in range(2 * CIRCUIT_SKIP_STREAK_STOP):
+            rid = f"AIR-{i}"
+            queue.append(_row(rid))
+            if i % 3 == 2:
+                summaries[rid] = _summary(request_id=rid, outcome="succeeded")
+            else:
+                summaries[rid] = _summary(request_id=rid, outcome="refused",
+                                          failure_class="policy_violation", detail_code="no_eligible_provider")
+        h = _DrainHarness(queue=queue, summaries=summaries)
+        try:
+            h.run_drain()
+            payload = h.payload()
+            self.assertEqual(payload["attempted"], 2 * CIRCUIT_SKIP_STREAK_STOP)
+            self.assertNotEqual(payload["stop_reason"], "fleet_refusal_streak:no_eligible_provider")
+        finally:
+            h.close()

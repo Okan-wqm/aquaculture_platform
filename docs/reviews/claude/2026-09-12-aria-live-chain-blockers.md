@@ -1840,3 +1840,27 @@ expired and could not be refreshed`. The managed spawn binds the login's one fil
   a queue that interleaves healthy routes keeps draining. Pinned in
   `test_executor_drain_breaker.py`: a streak stops after one dispatch and at most a handful of
   selections; a dispatch between skips resets it.
+
+## ARIA-HIGH-159 — a fleet that refuses everyone was asked once per request
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-26
+- **Evidence (executor run 35429400706, 2026-09-19 08:42Z):** the runner's managed login was
+  retired (ARIA-HIGH-157's shape, before the operator's renewal) and the Z.ai credential was
+  on disk but not yet in the runner service's environment; the pre-spawn admission decided
+  every provider and found none eligible. The drain logged `drain_dispatch … drain_child_refused
+detail=no_eligible_provider` for one request after another, ~35 s apart — a selection plus
+  a child's admission each — with ~800 rows pending and a 21,000 s budget; the run was
+  cancelled by hand. ARIA-HIGH-158's streak did not fire: a refusal is not a circuit, by design
+  (it is neither a failure nor a breaker event), so the drain kept asking a fleet that had
+  already answered for everyone.
+- **Rule:** an admission refusal whose reason is the fleet's, not the request's, ends the
+  drain by name after a short streak; the queue stays pending. A refusal whose reason is the
+  request's (a target revision behind the tip, a budget signal, an operator cancel) never counts.
+- **What is now true (2026-09-19):** `FLEET_REFUSAL_DETAILS` names the fleet-level admission
+  reasons (`no_eligible_provider`); `CIRCUIT_SKIP_STREAK_STOP` consecutive fleet refusals with
+  nothing dispatched between them set the drain's stop (`fleet_refusal_streak:<detail>`) from
+  the settling closure, and the dispatch loop honours it before claiming anything more; a
+  success resets the streak; refusals stay what they were — not failures, not breaker events.
+  Pinned in `test_executor_drain_breaker.py`: five fleet refusals stop the drain with
+  `attempted == 5`, `failed == 0` and no circuit; per-request refusals never count; a success
+  between fleet refusals resets the streak.

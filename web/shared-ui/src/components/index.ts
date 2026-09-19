@@ -173,4 +173,9 @@ export type { SandboxedHtmlPreviewProps } from './SandboxedHtmlPreview';
 
 // Accessibility (a11y) Primitives — FE-HIGH-017, FE-HIGH-018, FE-HIGH-019
 export { VisuallyHidden, FocusTrap, RouteAnnouncer, SkipToContent } from './a11y';
-export type { VisuallyHiddenProps, FocusTrapProps, RouteAnnouncerProps, SkipToContentProps } from './a11y';
+export type {
+  VisuallyHiddenProps,
+  FocusTrapProps,
+  RouteAnnouncerProps,
+  SkipToContentProps,
+} from './a11y';

@@ -114,7 +114,10 @@ function useToastState(): UseToastReturn {
     for (const t of toastsRef.current) schedule(t);
   }, [schedule]);
 
-  return useMemo(() => ({ toast, toasts, dismiss, pause, resume }), [toast, toasts, dismiss, pause, resume]);
+  return useMemo(
+    () => ({ toast, toasts, dismiss, pause, resume }),
+    [toast, toasts, dismiss, pause, resume],
+  );
 }
 
 /**
@@ -131,7 +134,12 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <ToastContext.Provider value={state}>
       {children}
-      <ToastContainer toasts={state.toasts} onDismiss={state.dismiss} onPause={state.pause} onResume={state.resume} />
+      <ToastContainer
+        toasts={state.toasts}
+        onDismiss={state.dismiss}
+        onPause={state.pause}
+        onResume={state.resume}
+      />
     </ToastContext.Provider>
   );
 };
@@ -236,12 +244,24 @@ export const ToastContainer: React.FC<{
     <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none">
       <div aria-live="polite" aria-atomic="true" role="status" className="flex flex-col gap-2">
         {polite.map((t) => (
-          <ToastCard key={t.id} toast={t} onDismiss={onDismiss} onPause={onPause} onResume={onResume} />
+          <ToastCard
+            key={t.id}
+            toast={t}
+            onDismiss={onDismiss}
+            onPause={onPause}
+            onResume={onResume}
+          />
         ))}
       </div>
       <div aria-live="assertive" aria-atomic="true" role="alert" className="flex flex-col gap-2">
         {assertive.map((t) => (
-          <ToastCard key={t.id} toast={t} onDismiss={onDismiss} onPause={onPause} onResume={onResume} />
+          <ToastCard
+            key={t.id}
+            toast={t}
+            onDismiss={onDismiss}
+            onPause={onPause}
+            onResume={onResume}
+          />
         ))}
       </div>
     </div>

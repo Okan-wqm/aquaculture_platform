@@ -40,6 +40,8 @@ describe('required reaches the control', () => {
 
   it('DatePicker marks its trigger aria-required', () => {
     render(<DatePicker label="Tarih" required value={null} onChange={() => {}} />);
-    expect(screen.getByRole('button', { name: /Tarih|Seç|Select/i }).getAttribute('aria-required')).toBe('true');
+    expect(
+      screen.getByRole('button', { name: /Tarih|Seç|Select/i }).getAttribute('aria-required'),
+    ).toBe('true');
   });
 });

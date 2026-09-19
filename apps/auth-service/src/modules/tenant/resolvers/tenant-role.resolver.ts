@@ -4,6 +4,7 @@ import { CurrentUser, RequireTenantPermission } from '@aquaculture/backend-commo
 import GraphQLJSON from 'graphql-type-json';
 
 import { User } from '../../authentication/entities/user.entity';
+import { colors } from '@aquaculture/shared-contracts';
 
 /**
  * UUID v4 regex for parameter validation
@@ -180,7 +181,7 @@ export class TenantRoleResolver {
       {
         name: sanitizedName,
         description: sanitizedDescription,
-        color: sanitizedColor || '#6366F1',
+        color: sanitizedColor || colors.primary[500],
         icon: sanitizedIcon || 'shield',
         level: input.level,
         isDefault: input.isDefault,

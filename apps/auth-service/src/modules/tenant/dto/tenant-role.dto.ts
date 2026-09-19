@@ -2,6 +2,7 @@ import { InputType, Field, ObjectType, ID, Int, registerEnumType } from '@nestjs
 import { IsNotEmpty, IsString, IsOptional, IsUUID, IsInt, Min, Max, IsBoolean, IsEnum, IsArray, ArrayMaxSize, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import GraphQLJSON from 'graphql-type-json';
+import { colors } from '@aquaculture/shared-contracts';
 
 // WHY: Import AccessType enum so CreateTenantUserInput and UpdateTenantUserInput
 // can expose platform-access control to the GraphQL schema. Tenant admins
@@ -237,7 +238,7 @@ export class CreateTenantRoleInput {
   @IsString()
   description?: string;
 
-  @Field({ defaultValue: '#6366F1' })
+  @Field({ defaultValue: colors.primary[500] })
   @IsString()
   color!: string;
 

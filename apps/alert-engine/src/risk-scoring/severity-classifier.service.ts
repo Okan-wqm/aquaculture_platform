@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AlertSeverity } from '../database/entities/alert-rule.entity';
 import { RiskThresholds } from './risk-calculator.service';
+import { severityColor } from '@aquaculture/shared-contracts';
 
 /**
  * Classification criteria
@@ -65,12 +66,12 @@ export interface SeverityWeights {
  * Default severity weights
  */
 const DEFAULT_SEVERITY_WEIGHTS: SeverityWeights = {
-  impactWeight: 0.30,
+  impactWeight: 0.3,
   frequencyWeight: 0.15,
   trendWeight: 0.15,
-  contextWeight: 0.10,
-  urgencyWeight: 0.20,
-  scopeWeight: 0.10,
+  contextWeight: 0.1,
+  urgencyWeight: 0.2,
+  scopeWeight: 0.1,
 };
 
 /**
@@ -99,7 +100,8 @@ const SCOPE_SCORES: Record<ClassificationScope, number> = {
 export class SeverityClassifierService {
   private readonly logger = new Logger(SeverityClassifierService.name);
   private weights: SeverityWeights = { ...DEFAULT_SEVERITY_WEIGHTS };
-  private customRules: Map<string, (criteria: ClassificationCriteria) => AlertSeverity | null> = new Map();
+  private customRules: Map<string, (criteria: ClassificationCriteria) => AlertSeverity | null> =
+    new Map();
 
   /**
    * Classify severity based on risk score
@@ -255,15 +257,9 @@ export class SeverityClassifierService {
           'Document for trending analysis',
         ];
       case AlertSeverity.LOW:
-        return [
-          'Add to review queue',
-          'Monitor for pattern development',
-        ];
+        return ['Add to review queue', 'Monitor for pattern development'];
       case AlertSeverity.INFO:
-        return [
-          'Log for historical analysis',
-          'No immediate action required',
-        ];
+        return ['Log for historical analysis', 'No immediate action required'];
       case AlertSeverity.WARNING:
         return [
           'Monitor situation',
@@ -473,16 +469,9 @@ export class SeverityClassifierService {
    * Get severity color for UI
    */
   getSeverityColor(severity: AlertSeverity): string {
-    const colors: Record<AlertSeverity, string> = {
-      [AlertSeverity.CRITICAL]: '#dc2626', // red-600
-      [AlertSeverity.HIGH]: '#ea580c', // orange-600
-      [AlertSeverity.MEDIUM]: '#ca8a04', // yellow-600
-      [AlertSeverity.WARNING]: '#eab308', // yellow-500
-      [AlertSeverity.LOW]: '#2563eb', // blue-600
-      [AlertSeverity.INFO]: '#6b7280', // gray-500
-    };
-
-    return colors[severity];
+    // The product's ladder, not this service's: the same incident is the same
+    // colour in the alert list, the incident mail and the SCADA banner.
+    return severityColor(severity);
   }
 
   /**
@@ -520,7 +509,7 @@ export class SeverityClassifierService {
    * Batch classify multiple criteria
    */
   batchClassify(criteriaList: ClassificationCriteria[]): ClassificationResult[] {
-    return criteriaList.map(criteria => this.classifyByCriteria(criteria));
+    return criteriaList.map((criteria) => this.classifyByCriteria(criteria));
   }
 
   /**
@@ -530,7 +519,7 @@ export class SeverityClassifierService {
     if (severities.length === 0) return AlertSeverity.INFO;
 
     return severities.reduce((most, current) =>
-      this.compareSeverity(current, most) > 0 ? current : most
+      this.compareSeverity(current, most) > 0 ? current : most,
     );
   }
 
@@ -541,7 +530,7 @@ export class SeverityClassifierService {
     if (severities.length === 0) return AlertSeverity.CRITICAL;
 
     return severities.reduce((least, current) =>
-      this.compareSeverity(current, least) < 0 ? current : least
+      this.compareSeverity(current, least) < 0 ? current : least,
     );
   }
 }

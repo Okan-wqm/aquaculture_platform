@@ -7,6 +7,21 @@ import {
 import { NotificationChannel } from '../../database/entities/escalation-policy.entity';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { IncidentStatus } from '../../database/entities/alert-incident.entity';
+import { colors } from '@aquaculture/shared-contracts';
+
+/**
+ * The colour the rendered band actually takes: the severity picks a
+ * `header-<severity>` class and the document's stylesheet paints it. Reading
+ * both together is what proves a critical incident arrives red — every rule is
+ * present in every render, so matching a bare hex would pass for any severity.
+ */
+function renderedBandColor(html: string | undefined): string | undefined {
+  const band = html?.match(/class="header header-([a-z]+)"/)?.[1];
+  if (band === undefined) return undefined;
+  return html?.match(
+    new RegExp(`\\.header-${band} \\{ background-color: (#[0-9a-f]{6}); \\}`),
+  )?.[1];
+}
 
 describe('TemplateRendererService', () => {
   let service: TemplateRendererService;
@@ -128,10 +143,11 @@ describe('TemplateRendererService', () => {
       expect(result.htmlBody).toBeDefined();
     });
 
-    it('should include severity color in HTML', () => {
+    it('paints the band with the severity the incident carries', () => {
       const result = service.renderForEmail(baseContext);
 
-      expect(result.htmlBody).toContain('#ea580c'); // HIGH severity color
+      expect(result.htmlBody).toContain('class="header header-high"');
+      expect(renderedBandColor(result.htmlBody)).toBe(colors.accent[600]);
     });
   });
 
@@ -272,7 +288,7 @@ describe('TemplateRendererService', () => {
       const templates = service.getTemplatesForChannel(NotificationChannel.EMAIL);
 
       expect(templates.length).toBeGreaterThanOrEqual(1);
-      expect(templates.some(t => t.isDefault)).toBe(true);
+      expect(templates.some((t) => t.isDefault)).toBe(true);
     });
 
     it('should include custom templates for channel', () => {
@@ -287,7 +303,7 @@ describe('TemplateRendererService', () => {
       const templates = service.getTemplatesForChannel(NotificationChannel.SMS);
 
       expect(templates.length).toBe(2);
-      expect(templates.some(t => t.id === 'custom-sms')).toBe(true);
+      expect(templates.some((t) => t.id === 'custom-sms')).toBe(true);
     });
   });
 
@@ -312,7 +328,9 @@ describe('TemplateRendererService', () => {
 
     it('should apply truncate helper', () => {
       const template = '{{truncate:text}}';
-      const context = { text: 'This is a very long text that should be truncated because it exceeds the limit' };
+      const context = {
+        text: 'This is a very long text that should be truncated because it exceeds the limit',
+      };
 
       const result = service.renderString(template, context);
 
@@ -388,7 +406,7 @@ describe('TemplateRendererService', () => {
       const result = service.validateTemplate(template);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('ID'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('ID'))).toBe(true);
     });
 
     it('should fail for missing body', () => {
@@ -403,7 +421,7 @@ describe('TemplateRendererService', () => {
       const result = service.validateTemplate(template);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('Body'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('Body'))).toBe(true);
     });
 
     it('should require subject for email', () => {
@@ -418,7 +436,7 @@ describe('TemplateRendererService', () => {
       const result = service.validateTemplate(template);
 
       expect(result.valid).toBe(false);
-      expect(result.errors.some(e => e.includes('Subject'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('Subject'))).toBe(true);
     });
   });
 
@@ -461,7 +479,7 @@ describe('TemplateRendererService', () => {
   });
 
   describe('severity colors', () => {
-    it('should include correct color for CRITICAL', () => {
+    it('paints the band from the design tokens for CRITICAL', () => {
       const context: TemplateContext = {
         ...baseContext,
         severity: AlertSeverity.CRITICAL,
@@ -469,10 +487,11 @@ describe('TemplateRendererService', () => {
 
       const result = service.renderForEmail(context);
 
-      expect(result.htmlBody).toContain('#dc2626');
+      expect(result.htmlBody).toContain('class="header header-critical"');
+      expect(renderedBandColor(result.htmlBody)).toBe(colors.error[600]);
     });
 
-    it('should include correct color for HIGH', () => {
+    it('paints the band from the design tokens for HIGH', () => {
       const context: TemplateContext = {
         ...baseContext,
         severity: AlertSeverity.HIGH,
@@ -480,10 +499,11 @@ describe('TemplateRendererService', () => {
 
       const result = service.renderForEmail(context);
 
-      expect(result.htmlBody).toContain('#ea580c');
+      expect(result.htmlBody).toContain('class="header header-high"');
+      expect(renderedBandColor(result.htmlBody)).toBe(colors.accent[600]);
     });
 
-    it('should include correct color for MEDIUM', () => {
+    it('paints the band from the design tokens for MEDIUM', () => {
       const context: TemplateContext = {
         ...baseContext,
         severity: AlertSeverity.MEDIUM,
@@ -491,7 +511,8 @@ describe('TemplateRendererService', () => {
 
       const result = service.renderForEmail(context);
 
-      expect(result.htmlBody).toContain('#ca8a04');
+      expect(result.htmlBody).toContain('class="header header-medium"');
+      expect(renderedBandColor(result.htmlBody)).toBe(colors.warning[500]);
     });
   });
 
@@ -517,7 +538,7 @@ describe('TemplateRendererService', () => {
 
       // Should fall back to default
       const emailTemplates = service.getTemplatesForChannel(NotificationChannel.EMAIL);
-      expect(emailTemplates.every(t => t.isDefault || !t.id.startsWith('custom'))).toBe(true);
+      expect(emailTemplates.every((t) => t.isDefault || !t.id.startsWith('custom'))).toBe(true);
     });
   });
 });

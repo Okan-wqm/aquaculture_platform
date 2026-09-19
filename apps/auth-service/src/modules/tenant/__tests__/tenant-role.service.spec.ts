@@ -7,6 +7,7 @@ import { DurableUserTokenInvalidationService } from '../../authentication/servic
 import { CapabilityAuthorityService } from '../services/capability-authority';
 import { CATALOGUE_CAPABILITIES, isKnownCapability } from '../services/permission-catalogue';
 import { DEFAULT_ROLE_PERMISSIONS, TenantRoleService } from '../services/tenant-role.service';
+import { colors } from '@aquaculture/shared-contracts';
 
 // ============================================================================
 // Constants
@@ -782,7 +783,7 @@ describe('TenantRoleService', () => {
       const insertCall = mockQueryRunner.query.mock.calls[1];
       const insertParams = insertCall![1];
       expect((insertParams as unknown[])[0]).toBe(TENANT_ID); // tenantId prepended
-      expect(insertParams).toContain('#6366F1'); // default color
+      expect(insertParams).toContain(colors.primary[500]); // default color, from the tokens
       expect(insertParams).toContain('shield'); // default icon
     });
 

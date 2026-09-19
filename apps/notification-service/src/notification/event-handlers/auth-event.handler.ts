@@ -1,3 +1,11 @@
+import {
+  emailButton,
+  emailCallout,
+  emailLinkFallback,
+  emailParagraph,
+  escapeHtml,
+  renderEmail,
+} from '@aquaculture/shared-contracts';
 import { signedFetchJson, type InternalCallResult } from '@aquaculture/backend-common/http';
 import { maskEmail } from '@aquaculture/backend-common/utils';
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
@@ -279,44 +287,23 @@ export class AuthEventHandler
     const unlockDisplay = Number.isNaN(unlockAt.getTime()) ? 'shortly' : unlockAt.toUTCString();
 
     const subject = 'Your account was temporarily locked - Aquaculture Platform';
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
-            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
-            .header { background-color: #cc3300; color: white; padding: 32px; text-align: center; }
-            .header h1 { margin: 0; font-size: 24px; }
-            .content { padding: 32px; }
-            .warning { background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px 16px; margin: 20px 0; font-size: 14px; }
-            .footer { padding: 24px 32px; font-size: 12px; color: #666; border-top: 1px solid #eee; text-align: center; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>Account Temporarily Locked</h1>
-            </div>
-            <div class="content">
-              <p>Hello ${displayName},</p>
-              <p>Your account was locked after ${event.failedAttempts} failed sign-in attempts.</p>
-              <p>It will unlock automatically at <strong>${unlockDisplay}</strong>. You can also regain access immediately by resetting your password — a successful password reset clears the lock.</p>
-              <div class="warning">
-                <strong>Wasn't you?</strong> If you did not attempt to sign in, someone may be
-                trying to guess your password. We recommend resetting your password now and
-                contacting your administrator.
-              </div>
-            </div>
-            <div class="footer">
-              <p>This is an automated security notification from the Aquaculture Platform.</p>
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
+    const html = renderEmail({
+      title: 'Account Temporarily Locked',
+      tone: 'error',
+      preheader: `Your account unlocks at ${unlockDisplay}.`,
+      body:
+        emailParagraph(`Hello ${escapeHtml(displayName)},`) +
+        emailParagraph(
+          `Your account was locked after ${escapeHtml(event.failedAttempts)} failed sign-in attempts.`,
+        ) +
+        emailParagraph(
+          `It will unlock automatically at <strong>${escapeHtml(unlockDisplay)}</strong>. You can also regain access immediately by resetting your password — a successful password reset clears the lock.`,
+        ) +
+        emailCallout(
+          "<strong>Wasn't you?</strong> If you did not attempt to sign in, someone may be trying to guess your password. We recommend resetting your password now and contacting your administrator.",
+        ),
+      footerLines: ['This is a security notification.'],
+    });
 
     await this.emailService.sendEmail(userPII.email, subject, html);
     this.logger.log(
@@ -372,53 +359,25 @@ export class AuthEventHandler
     const displayName = userPII.firstName || 'there';
 
     const subject = 'Password Reset Request - Aquaculture Platform';
-    const html = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 0; background-color: #f5f5f5; }
-            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; }
-            .header { background-color: #0066cc; color: white; padding: 32px; text-align: center; }
-            .header h1 { margin: 0; font-size: 24px; }
-            .content { padding: 32px; }
-            .button-container { text-align: center; margin: 32px 0; }
-            .button { display: inline-block; background-color: #0066cc; color: white; padding: 16px 48px; text-decoration: none; border-radius: 6px; font-size: 16px; font-weight: 600; }
-            .warning { background-color: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 12px 16px; margin: 20px 0; font-size: 14px; }
-            .footer { padding: 24px 32px; font-size: 12px; color: #666; border-top: 1px solid #eee; text-align: center; }
-            .link-fallback { font-size: 12px; color: #666; word-break: break-all; margin-top: 16px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>Password Reset</h1>
-            </div>
-            <div class="content">
-              <p>Hello ${displayName},</p>
-              <p>We received a request to reset your password. Click the button below to set a new password:</p>
-              <div class="button-container">
-                <a href="${resetUrl}" class="button">Reset Password</a>
-              </div>
-              <div class="warning">
-                <strong>Important:</strong> This link will expire in 1 hour.
-                If you did not request a password reset, please ignore this email.
-              </div>
-              <p class="link-fallback">
-                If the button doesn't work, copy and paste this link into your browser:<br>
-                ${resetUrl}
-              </p>
-            </div>
-            <div class="footer">
-              <p>This is an automated message from Aquaculture Platform.</p>
-              <p>If you didn't request this, please ignore this email.</p>
-            </div>
-          </div>
-        </body>
-      </html>
-    `;
+    const html = renderEmail({
+      title: 'Password Reset',
+      tone: 'brand',
+      preheader: 'Set a new password. The link expires in 1 hour.',
+      body:
+        emailParagraph(`Hello ${escapeHtml(displayName)},`) +
+        emailParagraph(
+          'We received a request to reset your password. Click the button below to set a new password:',
+        ) +
+        emailButton('Reset Password', resetUrl) +
+        emailCallout(
+          '<strong>Important:</strong> This link will expire in 1 hour. If you did not request a password reset, please ignore this email.',
+        ) +
+        emailLinkFallback(
+          resetUrl,
+          "If the button doesn't work, copy and paste this link into your browser:",
+        ),
+      footerLines: ["If you didn't request this, please ignore this email."],
+    });
 
     await this.emailService.sendEmail(userPII.email, subject, html);
     // SECURITY: Mask email in logs to prevent PII exposure (H-14)

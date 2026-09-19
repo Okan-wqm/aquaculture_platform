@@ -92,7 +92,7 @@ describe('ConfirmModal — requireTypedConfirmation gate', () => {
     const input = screen.getByLabelText('Typed confirmation');
     fireEvent.change(input, { target: { value: '  KABUL  ' } });
     const confirmButton = screen.getByRole('button', {
-      name: 'Confirm',
+      name: 'Onayla',
     }) as HTMLButtonElement;
     expect(confirmButton.disabled).toBe(false);
   });
@@ -141,7 +141,7 @@ describe('ConfirmModal — requireTypedConfirmation gate', () => {
     ).toBe(false);
 
     // Close then re-open.
-    fireEvent.click(screen.getByText('Cancel'));
+    fireEvent.click(screen.getByText('İptal'));
     fireEvent.click(screen.getByText('re-open'));
 
     input = screen.getByLabelText('Typed confirmation');

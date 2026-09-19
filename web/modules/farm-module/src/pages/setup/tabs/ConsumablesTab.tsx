@@ -14,7 +14,7 @@ import {
   CreateConsumableInput,
 } from '../../../hooks/useConsumables';
 import { useSupplierList } from '../../../hooks/useSuppliers';
-import { Modal, useConfirm, useToast } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -283,6 +283,95 @@ export const ConsumablesTab: React.FC = () => {
     }
   };
 
+  type ItemRow = (typeof filtered)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'nameCode',
+      header: 'Name / Code',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{item.name}</div>
+          <div className="text-sm text-gray-500">{item.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 text-gray-800'}`}
+          >
+            {getCategoryLabel(item.category)}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, item) => item.unit,
+    },
+    {
+      key: 'stockMin',
+      header: 'Stock / Min',
+      render: (_value, item) => (
+        <>
+          <span
+            className={
+              item.quantity <= item.minStock
+                ? 'text-red-600 font-medium'
+                : 'text-gray-900'
+            }
+          >
+            {item.quantity}
+          </span>
+          <span className="text-gray-400"> / {item.minStock}</span>
+        </>
+      ),
+    },
+    {
+      key: 'supplier',
+      header: 'Supplier',
+      render: (_value, item) => getSupplierName(item.supplierId),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
+          >
+            {statusLabels[item.status] || item.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          <button
+            onClick={() => openEdit(item)}
+            className="text-blue-600 hover:text-blue-900 mr-3"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => handleDelete(item.id)}
+            className="text-red-600 hover:text-red-900"
+          >
+            Delete
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div>
       {/* Toolbar */}
@@ -359,87 +448,15 @@ export const ConsumablesTab: React.FC = () => {
       {/* Table */}
       {!isLoading && !error && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name / Code
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Unit
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Stock / Min
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Supplier
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filtered.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{item.name}</div>
-                    <div className="text-sm text-gray-500">{item.code}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[item.category] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {getCategoryLabel(item.category)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.unit}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <span
-                      className={
-                        item.quantity <= item.minStock
-                          ? 'text-red-600 font-medium'
-                          : 'text-gray-900'
-                      }
-                    >
-                      {item.quantity}
-                    </span>
-                    <span className="text-gray-400"> / {item.minStock}</span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {getSupplierName(item.supplierId)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {statusLabels[item.status] || item.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => openEdit(item)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(item.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<ItemRow>
+            data={filtered}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {filtered.length === 0 && (
             <div className="text-center py-12">
               <svg

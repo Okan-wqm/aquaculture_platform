@@ -3,7 +3,7 @@
  * Displays list of feeds with comprehensive feed management form
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, formatCurrency, parseMoney, DEFAULT_CURRENCY, useConfirm, useToast } from '@aquaculture/shared-ui';
+import { Modal, formatCurrency, parseMoney, DEFAULT_CURRENCY, useConfirm, useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useFeedList,
   useCreateFeed,
@@ -484,6 +484,97 @@ export const FeedsTab: React.FC = () => {
       documents: prev.documents.map((doc, i) => (i === index ? { ...doc, [field]: value } : doc)),
     }));
   };
+
+  type PointRow = NonNullable<NonNullable<typeof formData>['feedingCurve']>[number];
+  const pointRowColumns: DataTableColumn<PointRow>[] = [
+    {
+      key: 'fishWeightG',
+      header: 'Fish Weight (g)',
+      render: (_value, point, index) => (
+        <input
+          type="number"
+          step="0.1"
+          min="0"
+          value={point.fishWeightG}
+          onChange={(e) =>
+            updateFeedingCurvePoint(
+              index,
+              'fishWeightG',
+              parseFloat(e.target.value) || 0,
+            )
+          }
+          className="w-full border border-gray-300 rounded px-2 py-1"
+        />
+      ),
+    },
+    {
+      key: 'feedingRateBw',
+      header: 'Feeding Rate (%BW)',
+      render: (_value, point, index) => (
+        <input
+          type="number"
+          step="0.1"
+          min="0"
+          value={point.feedingRatePercent}
+          onChange={(e) =>
+            updateFeedingCurvePoint(
+              index,
+              'feedingRatePercent',
+              parseFloat(e.target.value) || 0,
+            )
+          }
+          className="w-full border border-gray-300 rounded px-2 py-1"
+        />
+      ),
+    },
+    {
+      key: 'fcr',
+      header: 'FCR',
+      render: (_value, point, index) => (
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={point.fcr}
+          onChange={(e) =>
+            updateFeedingCurvePoint(
+              index,
+              'fcr',
+              parseFloat(e.target.value) || 0,
+            )
+          }
+          className="w-full border border-gray-300 rounded px-2 py-1"
+        />
+      ),
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, point, index) => (
+        <>
+          <button
+            type="button"
+            onClick={() => removeFeedingCurvePoint(index)}
+            className="text-red-600 hover:text-red-800"
+          >
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
+            </svg>
+          </button>
+        </>
+      ),
+    }
+  ];
 
   return (
     <div>
@@ -1223,99 +1314,15 @@ export const FeedsTab: React.FC = () => {
                 {formData.curveType === '1d' && (
                   <>
                     {formData.feedingCurve.length > 0 && (
-                      <div className="border rounded-lg overflow-hidden">
-                        <table className="min-w-full divide-y divide-gray-200">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">
-                                Fish Weight (g)
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">
-                                Feeding Rate (%BW)
-                              </th>
-                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500">
-                                FCR
-                              </th>
-                              <th className="px-4 py-2"></th>
-                            </tr>
-                          </thead>
-                          <tbody className="bg-white divide-y divide-gray-200">
-                            {formData.feedingCurve.map((point, index) => (
-                              <tr key={index}>
-                                <td className="px-4 py-2">
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={point.fishWeightG}
-                                    onChange={(e) =>
-                                      updateFeedingCurvePoint(
-                                        index,
-                                        'fishWeightG',
-                                        parseFloat(e.target.value) || 0,
-                                      )
-                                    }
-                                    className="w-full border border-gray-300 rounded px-2 py-1"
-                                  />
-                                </td>
-                                <td className="px-4 py-2">
-                                  <input
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={point.feedingRatePercent}
-                                    onChange={(e) =>
-                                      updateFeedingCurvePoint(
-                                        index,
-                                        'feedingRatePercent',
-                                        parseFloat(e.target.value) || 0,
-                                      )
-                                    }
-                                    className="w-full border border-gray-300 rounded px-2 py-1"
-                                  />
-                                </td>
-                                <td className="px-4 py-2">
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    value={point.fcr}
-                                    onChange={(e) =>
-                                      updateFeedingCurvePoint(
-                                        index,
-                                        'fcr',
-                                        parseFloat(e.target.value) || 0,
-                                      )
-                                    }
-                                    className="w-full border border-gray-300 rounded px-2 py-1"
-                                  />
-                                </td>
-                                <td className="px-4 py-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => removeFeedingCurvePoint(index)}
-                                    className="text-red-600 hover:text-red-800"
-                                  >
-                                    <svg
-                                      className="w-5 h-5"
-                                      fill="none"
-                                      viewBox="0 0 24 24"
-                                      stroke="currentColor"
-                                    >
-                                      <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                      />
-                                    </svg>
-                                  </button>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      <DataTable<PointRow>
+                        data={formData.feedingCurve}
+                        columns={pointRowColumns}
+                        keyExtractor={(_point, index) => String(index)}
+                        emptyMessage="No records found"
+                        searchable={false}
+                        sortable={false}
+                        stickyHeader={false}
+                      />
                     )}
                     <button
                       type="button"

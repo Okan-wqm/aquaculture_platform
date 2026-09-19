@@ -46,7 +46,8 @@ export interface DataTableProps<T> {
   /** Rows to render. Accepts readonly arrays: the table never mutates them. */
   data: readonly T[];
   columns: TableColumn<T>[];
-  keyExtractor: (row: T) => string;
+  /** Stable row key; the index is there for rows that have no identity of their own (form arrays). */
+  keyExtractor: (row: T, index: number) => string;
 
   // Sorting
   sortable?: boolean;
@@ -212,7 +213,7 @@ interface TableBodyProps<T> {
   expandable: boolean;
   selectedRows: string[];
   expandedRows: Set<string>;
-  keyExtractor: (row: T) => string;
+  keyExtractor: (row: T, index: number) => string;
   rowClasses: (row: T, index: number) => string;
   cellClasses: string;
   onRowClick?: (row: T) => void;
@@ -273,7 +274,7 @@ const TableBodyInner = <T,>({
         </tr>
       ) : (
         processedData.map((row, index) => {
-          const rowId = keyExtractor(row);
+          const rowId = keyExtractor(row, index);
           const isSelected = selectedRows.includes(rowId);
           const isExpanded = expandedRows.has(rowId);
 
@@ -440,7 +441,7 @@ export function DataTable<T>({
   const handleSelectAll = useCallback(
     (checked: boolean) => {
       if (checked) {
-        onSelectionChange?.(data.map(keyExtractor));
+        onSelectionChange?.(data.map((row, index) => keyExtractor(row, index)));
       } else {
         onSelectionChange?.([]);
       }

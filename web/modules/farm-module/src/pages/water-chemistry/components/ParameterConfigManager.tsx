@@ -6,7 +6,7 @@
  * delete confirmation, and template picker integration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, chartChrome, colors } from '@aquaculture/shared-ui';
+import { Modal, chartChrome, colors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useParameterConfigList,
   useCreateParameterConfig,
@@ -262,6 +262,159 @@ export const ParameterConfigManager: React.FC = () => {
     );
   }
 
+  type ConfigRow = (typeof sortedConfigs)[number];
+  const configRowColumns: DataTableColumn<ConfigRow>[] = [
+    {
+      key: 'order',
+      header: 'Order',
+      render: (_value, config) => config.displayOrder ?? '-',
+    },
+    {
+      key: 'name',
+      header: 'Name',
+      render: (_value, config) => config.name,
+    },
+    {
+      key: 'code',
+      header: 'Code',
+      render: (_value, config) => config.code,
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, config) => config.unit,
+    },
+    {
+      key: 'group',
+      header: 'Group',
+      render: (_value, config) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGroupColor(config.group)}`}
+          >
+            {getGroupLabel(config.group)}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'optimalRange',
+      header: 'Optimal Range',
+      render: (_value, config) => (
+        <>
+          {config.optimalMin != null && config.optimalMax != null
+            ? `${config.optimalMin} - ${config.optimalMax}`
+            : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'criticalRange',
+      header: 'Critical Range',
+      render: (_value, config) => (
+        <>
+          {config.criticalMin != null && config.criticalMax != null
+            ? `${config.criticalMin} - ${config.criticalMax}`
+            : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'equipment',
+      header: 'Equipment',
+      align: 'center',
+      render: (_value, config) => (
+        <>
+          <button
+            onClick={() => setEquipmentMappingTarget(config)}
+            className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+            title="Map Equipment"
+          >
+            <svg
+              className="w-3.5 h-3.5 mr-1"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+              />
+            </svg>
+            {equipmentCountMap.get(config.id) ?? 0}
+          </button>
+        </>
+      ),
+    },
+    {
+      key: 'color',
+      header: 'Color',
+      align: 'center',
+      render: (_value, config) => (
+        <>
+          {config.chartColor ? (
+            <div
+              className="inline-block w-6 h-6 rounded border border-gray-300"
+              style={{ backgroundColor: config.chartColor }}
+              title={config.chartColor}
+            />
+          ) : (
+            <span className="text-xs text-gray-400">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'active',
+      header: 'Active',
+      align: 'center',
+      render: (_value, config) => (
+        <>
+          <button
+            onClick={() => handleToggleActive(config)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+              config.isActive ? 'bg-blue-600' : 'bg-gray-200'
+            }`}
+            role="switch"
+            aria-checked={config.isActive}
+          >
+            <span
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                config.isActive ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+          </button>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, config) => (
+        <>
+          <button
+            onClick={() => {
+              setEditingConfig(config);
+              setModalMode('edit');
+            }}
+            className="text-blue-600 hover:text-blue-900"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => setDeleteTarget(config)}
+            className="text-red-600 hover:text-red-900"
+          >
+            Delete
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-4">
       {/* Non-blocking refresh error — keeps the last-loaded configs visible. */}
@@ -333,156 +486,15 @@ export const ParameterConfigManager: React.FC = () => {
 
       {/* Parameter Table */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Order
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Name
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Code
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Unit
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Group
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Optimal Range
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                  Critical Range
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Equipment
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Color
-                </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
-                  Active
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {sortedConfigs.length === 0 && (
-                <tr>
-                  <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
-                    No parameter configurations found. Click &quot;Add Parameter&quot; or
-                    &quot;Apply Template&quot; to get started.
-                  </td>
-                </tr>
-              )}
-              {sortedConfigs.map((config) => (
-                <tr key={config.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {config.displayOrder ?? '-'}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {config.name}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500 font-mono">
-                    {config.code}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {config.unit}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getGroupColor(config.group)}`}
-                    >
-                      {getGroupLabel(config.group)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {config.optimalMin != null && config.optimalMax != null
-                      ? `${config.optimalMin} - ${config.optimalMax}`
-                      : '-'}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {config.criticalMin != null && config.criticalMax != null
-                      ? `${config.criticalMin} - ${config.criticalMax}`
-                      : '-'}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                    <button
-                      onClick={() => setEquipmentMappingTarget(config)}
-                      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
-                      title="Map Equipment"
-                    >
-                      <svg
-                        className="w-3.5 h-3.5 mr-1"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                        />
-                      </svg>
-                      {equipmentCountMap.get(config.id) ?? 0}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                    {config.chartColor ? (
-                      <div
-                        className="inline-block w-6 h-6 rounded border border-gray-300"
-                        style={{ backgroundColor: config.chartColor }}
-                        title={config.chartColor}
-                      />
-                    ) : (
-                      <span className="text-xs text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-center">
-                    <button
-                      onClick={() => handleToggleActive(config)}
-                      className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                        config.isActive ? 'bg-blue-600' : 'bg-gray-200'
-                      }`}
-                      role="switch"
-                      aria-checked={config.isActive}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                          config.isActive ? 'translate-x-5' : 'translate-x-0'
-                        }`}
-                      />
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm space-x-2">
-                    <button
-                      onClick={() => {
-                        setEditingConfig(config);
-                        setModalMode('edit');
-                      }}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => setDeleteTarget(config)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ConfigRow>
+          data={sortedConfigs}
+          columns={configRowColumns}
+          keyExtractor={(config) => config.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       </div>
 
       {/* Modals */}

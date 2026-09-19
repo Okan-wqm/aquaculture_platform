@@ -10,6 +10,7 @@ import {
   NS_TYPE_OPTIONS,
 } from '../../../types/solution.types';
 import type { NutrientVector, FertilizerAmount } from '../../../lib/calculator';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 const MACRO_ROWS: { key: keyof NutrientVector; label: string; unit: string }[] = [
   { key: 'K', label: 'K+', unit: 'mmol/L' },
@@ -61,6 +62,39 @@ const ResultTab: React.FC = () => {
     (acc[f.tank] = acc[f.tank] || []).push(f);
     return acc;
   }, {});
+
+  // Macro and micro rows share a shape; the columns read the calculation once it exists.
+  type NutrientRow = (typeof MACRO_ROWS)[number];
+  const nutrientColumns = (calc: NonNullable<typeof result>): DataTableColumn<NutrientRow>[] => [
+    {
+      key: 'nutrient',
+      header: 'Nutrient',
+      render: (_value, row) => row.label,
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, row) => row.unit,
+    },
+    {
+      key: 'irrigWater',
+      header: 'Irrig. Water',
+      align: 'right',
+      render: (_value, row) => fmt(calc.irrigationWater[row.key]),
+    },
+    {
+      key: 'addedSolution',
+      header: 'Added Solution',
+      align: 'right',
+      render: (_value, row) => fmt(calc.addedSolution[row.key]),
+    },
+    {
+      key: 'dripSolution',
+      header: 'Drip Solution',
+      align: 'right',
+      render: (_value, row) => fmt(calc.dripSolution[row.key]),
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -171,32 +205,15 @@ const ResultTab: React.FC = () => {
             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
               <h3 className="text-sm font-semibold text-gray-800">Macronutrient Composition</h3>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                    <th className="px-4 py-2">Nutrient</th>
-                    <th className="px-4 py-2">Unit</th>
-                    <th className="px-4 py-2 text-right">Irrig. Water</th>
-                    {isClosed && <th className="px-4 py-2 text-right">Added Solution</th>}
-                    <th className="px-4 py-2 text-right">Drip Solution</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {MACRO_ROWS.map((row) => (
-                    <tr key={row.key} className="border-b border-gray-100 last:border-b-0">
-                      <td className="px-4 py-2 font-medium text-gray-700">{row.label}</td>
-                      <td className="px-4 py-2 text-gray-500 text-xs">{row.unit}</td>
-                      <td className="px-4 py-2 text-right text-gray-600">{fmt(result.irrigationWater[row.key])}</td>
-                      {isClosed && (
-                        <td className="px-4 py-2 text-right text-blue-600">{fmt(result.addedSolution[row.key])}</td>
-                      )}
-                      <td className="px-4 py-2 text-right font-semibold text-green-700">{fmt(result.dripSolution[row.key])}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<NutrientRow>
+              data={MACRO_ROWS}
+              columns={nutrientColumns(result)}
+              keyExtractor={(row) => row.key}
+              emptyMessage="No records found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
           </div>
 
           {/* Micronutrient Composition */}
@@ -204,32 +221,15 @@ const ResultTab: React.FC = () => {
             <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
               <h3 className="text-sm font-semibold text-gray-800">Micronutrient Composition</h3>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                    <th className="px-4 py-2">Nutrient</th>
-                    <th className="px-4 py-2">Unit</th>
-                    <th className="px-4 py-2 text-right">Irrig. Water</th>
-                    {isClosed && <th className="px-4 py-2 text-right">Added Solution</th>}
-                    <th className="px-4 py-2 text-right">Drip Solution</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {MICRO_ROWS.map((row) => (
-                    <tr key={row.key} className="border-b border-gray-100 last:border-b-0">
-                      <td className="px-4 py-2 font-medium text-gray-700">{row.label}</td>
-                      <td className="px-4 py-2 text-gray-500 text-xs">{row.unit}</td>
-                      <td className="px-4 py-2 text-right text-gray-600">{fmt(result.irrigationWater[row.key])}</td>
-                      {isClosed && (
-                        <td className="px-4 py-2 text-right text-blue-600">{fmt(result.addedSolution[row.key])}</td>
-                      )}
-                      <td className="px-4 py-2 text-right font-semibold text-green-700">{fmt(result.dripSolution[row.key])}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<NutrientRow>
+              data={MICRO_ROWS}
+              columns={nutrientColumns(result)}
+              keyExtractor={(row) => row.key}
+              emptyMessage="No records found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
           </div>
 
           {/* Fertilizer Amounts */}

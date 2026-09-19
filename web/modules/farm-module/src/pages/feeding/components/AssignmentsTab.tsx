@@ -14,7 +14,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useProtocolAssignments,
   useFeedingProtocolsV2,
@@ -557,6 +557,136 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
     await unassign.mutateAsync(assignment.id);
   };
 
+  type AssignmentRow = (typeof assignments)[number];
+  const assignmentRowColumns: DataTableColumn<AssignmentRow>[] = [
+    {
+      key: 'tFeedingv2AssignmentsUnit',
+      header: '{t(\'feedingV2.assignments.unit\')}',
+      render: (_value, assignment) => (
+        <>
+          <div className="font-medium text-gray-900">{assignment.unitName}</div>
+          <div className="text-xs text-gray-500">
+            {assignment.unitCode} · {t(UNIT_TYPE_KEY[assignment.unitType])}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2AssignmentsProtocol',
+      header: '{t(\'feedingV2.assignments.protocol\')}',
+      render: (_value, assignment) => {
+        const protocol = protocolById.get(assignment.protocolId);
+        const overrideCount = assignment.overrides?.fcrOverrides?.length ?? 0;
+        return (
+          <>
+            <div className="text-gray-900">{protocol?.name ?? assignment.protocolId}</div>
+            {overrideCount > 0 && (
+              <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-2 py-0.5 text-xs mt-0.5">
+                {t('feedingV2.assignments.fcrOverride.overridden')} ({overrideCount})
+              </span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'tFeedingv2Statuslabel',
+      header: '{t(\'feedingV2.statusLabel\')}',
+      render: (_value, assignment) => (
+        <>
+          <span
+            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ASSIGNMENT_STATUS_BADGE[assignment.status]}`}
+          >
+            {t(ASSIGNMENT_STATUS_KEY[assignment.status])}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2AssignmentsCurrentfeed',
+      header: '{t(\'feedingV2.assignments.currentFeed\')}',
+      render: (_value, assignment) => currentFeedName(assignment),
+    },
+    {
+      key: 'tFeedingv2AssignmentsTemperature',
+      header: '{t(\'feedingV2.assignments.temperature\')}',
+      render: (_value, assignment) => {
+        const temp = temperatureMap?.get(assignment.unitId);
+        return (
+          <>
+            {temp ? (
+              <div>
+                <span
+                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${TEMP_SOURCE_BADGE[temp.source]}`}
+                  title={
+                    temp.source === 'none'
+                      ? t('feedingV2.assignments.tempNoneHint')
+                      : (temp.measuredAt ?? '')
+                  }
+                >
+                  {t(TEMP_SOURCE_KEY[temp.source])}
+                  {temp.celsius != null ? ` · ${temp.celsius.toFixed(1)}°C` : ''}
+                </span>
+                {temp.source === 'none' && (
+                  <Link
+                    to="/sites/water-chemistry"
+                    className="block text-xs text-blue-600 hover:text-blue-800 mt-0.5"
+                  >
+                    {t('feedingV2.assignments.enterTemperature')}
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <span className="text-gray-400">—</span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, assignment) => (
+        <>
+          {canUpdate && (
+            <>
+              <button
+                onClick={() => setEditAssignment(assignment)}
+                className="text-blue-600 hover:text-blue-800 mr-3"
+              >
+                {t('common.edit')}
+              </button>
+              <button
+                onClick={() => void handleToggleStatus(assignment)}
+                className="text-gray-600 hover:text-gray-800 mr-3"
+              >
+                {assignment.status === 'ACTIVE'
+                  ? t('feedingV2.assignments.pause')
+                  : t('feedingV2.assignments.resume')}
+              </button>
+            </>
+          )}
+          {canTransition && assignment.status === 'ACTIVE' && (
+            <button
+              onClick={() => setTransitionAssignment(assignment)}
+              className="text-amber-700 hover:text-amber-900 mr-3"
+            >
+              {t('feedingV2.assignments.manualTransition')}
+            </button>
+          )}
+          {canUnassign && (
+            <button
+              onClick={() => void handleUnassign(assignment)}
+              className="text-gray-500 hover:text-red-600"
+            >
+              {t('feedingV2.assignments.unassign')}
+            </button>
+          )}
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -589,116 +719,15 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
       )}
 
       {assignments.length > 0 && (
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3">{t('feedingV2.assignments.unit')}</th>
-                <th className="px-4 py-3">{t('feedingV2.assignments.protocol')}</th>
-                <th className="px-4 py-3">{t('feedingV2.statusLabel')}</th>
-                <th className="px-4 py-3">{t('feedingV2.assignments.currentFeed')}</th>
-                <th className="px-4 py-3">{t('feedingV2.assignments.temperature')}</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {assignments.map((assignment) => {
-                const protocol = protocolById.get(assignment.protocolId);
-                const temp = temperatureMap?.get(assignment.unitId);
-                const overrideCount = assignment.overrides?.fcrOverrides?.length ?? 0;
-                return (
-                  <tr key={assignment.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{assignment.unitName}</div>
-                      <div className="text-xs text-gray-500">
-                        {assignment.unitCode} · {t(UNIT_TYPE_KEY[assignment.unitType])}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-gray-900">{protocol?.name ?? assignment.protocolId}</div>
-                      {overrideCount > 0 && (
-                        <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-2 py-0.5 text-xs mt-0.5">
-                          {t('feedingV2.assignments.fcrOverride.overridden')} ({overrideCount})
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ASSIGNMENT_STATUS_BADGE[assignment.status]}`}
-                      >
-                        {t(ASSIGNMENT_STATUS_KEY[assignment.status])}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{currentFeedName(assignment)}</td>
-                    <td className="px-4 py-3">
-                      {temp ? (
-                        <div>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${TEMP_SOURCE_BADGE[temp.source]}`}
-                            title={
-                              temp.source === 'none'
-                                ? t('feedingV2.assignments.tempNoneHint')
-                                : (temp.measuredAt ?? '')
-                            }
-                          >
-                            {t(TEMP_SOURCE_KEY[temp.source])}
-                            {temp.celsius != null ? ` · ${temp.celsius.toFixed(1)}°C` : ''}
-                          </span>
-                          {temp.source === 'none' && (
-                            <Link
-                              to="/sites/water-chemistry"
-                              className="block text-xs text-blue-600 hover:text-blue-800 mt-0.5"
-                            >
-                              {t('feedingV2.assignments.enterTemperature')}
-                            </Link>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {canUpdate && (
-                        <>
-                          <button
-                            onClick={() => setEditAssignment(assignment)}
-                            className="text-blue-600 hover:text-blue-800 mr-3"
-                          >
-                            {t('common.edit')}
-                          </button>
-                          <button
-                            onClick={() => void handleToggleStatus(assignment)}
-                            className="text-gray-600 hover:text-gray-800 mr-3"
-                          >
-                            {assignment.status === 'ACTIVE'
-                              ? t('feedingV2.assignments.pause')
-                              : t('feedingV2.assignments.resume')}
-                          </button>
-                        </>
-                      )}
-                      {canTransition && assignment.status === 'ACTIVE' && (
-                        <button
-                          onClick={() => setTransitionAssignment(assignment)}
-                          className="text-amber-700 hover:text-amber-900 mr-3"
-                        >
-                          {t('feedingV2.assignments.manualTransition')}
-                        </button>
-                      )}
-                      {canUnassign && (
-                        <button
-                          onClick={() => void handleUnassign(assignment)}
-                          className="text-gray-500 hover:text-red-600"
-                        >
-                          {t('feedingV2.assignments.unassign')}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<AssignmentRow>
+          data={assignments}
+          columns={assignmentRowColumns}
+          keyExtractor={(assignment) => assignment.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {assignModalOpen && (

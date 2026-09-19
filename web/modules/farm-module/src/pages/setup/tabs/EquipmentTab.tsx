@@ -33,6 +33,7 @@ import {
 } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 import { SubEquipmentSection } from '../components/SubEquipmentSection';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // Equipment categories for two-stage selection.
 // Values match GraphQL enum wire values; normalizeCategory accepts legacy
@@ -612,6 +613,156 @@ export const EquipmentTab: React.FC = () => {
     setEquipmentToDelete(null);
   };
 
+  type EqRow = (typeof filteredEquipment)[number];
+  const eqRowColumns: DataTableColumn<EqRow>[] = [
+    {
+      key: 'equipment',
+      header: 'Equipment',
+      render: (_value, eq) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{eq.name}</div>
+          <div className="text-sm text-gray-500">{eq.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, eq) => eq.equipmentType?.name || '-',
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (_value, eq) => eq.department?.name || '-',
+    },
+    {
+      key: 'systems',
+      header: 'Systems',
+      render: (_value, eq) => (
+        <>
+          {(eq.systemIds && eq.systemIds.length > 0) ||
+          (eq.systems && eq.systems.length > 0) ? (
+            <span className="text-gray-500">
+              {eq.systems?.map((s) => s.systemName).join(', ') ||
+                `${eq.systemIds?.length || 0} system(s)`}
+            </span>
+          ) : (
+            <span className="flex items-center text-red-600">
+              <svg
+                className="w-4 h-4 mr-1"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
+              </svg>
+              Not associated
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'hierarchy',
+      header: 'Hierarchy',
+      render: (_value, eq) => (
+        <>
+          {eq.parentEquipment ? (
+            <span
+              className="flex items-center text-blue-600"
+              title={`Parent: ${eq.parentEquipment.name}`}
+            >
+              <svg
+                className="w-3 h-3 mr-1"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 10l7-7m0 0l7 7m-7-7v18"
+                />
+              </svg>
+              {eq.parentEquipment.code}
+            </span>
+          ) : (eq.subEquipmentCount || 0) > 0 ? (
+            <span
+              className="flex items-center text-green-600"
+              title={`${eq.subEquipmentCount} sub-equipment`}
+            >
+              <svg
+                className="w-3 h-3 mr-1"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                />
+              </svg>
+              {eq.subEquipmentCount}
+            </span>
+          ) : (
+            <span className="text-gray-400">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, eq) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}
+          >
+            {eq.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'model',
+      header: 'Model',
+      render: (_value, eq) => (
+        <>
+          {eq.manufacturer || ''} {eq.model || '-'}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, eq) => (
+        <>
+          <button
+            onClick={() => handleEdit(eq)}
+            className="text-blue-600 hover:text-blue-900 mr-3"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => handleDelete(eq)}
+            className="text-red-600 hover:text-red-900"
+          >
+            Delete
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div>
       {/* Toolbar */}
@@ -956,157 +1107,15 @@ export const EquipmentTab: React.FC = () => {
 
       {/* Equipment Table View */}
       {!isLoading && !error && viewMode === 'table' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Equipment
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Location
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Systems
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Hierarchy
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Model
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredEquipment.map((eq) => (
-                <tr
-                  key={eq.id}
-                  className={`${
-                    (eq.systemIds && eq.systemIds.length > 0) ||
-                    (eq.systems && eq.systems.length > 0)
-                      ? 'hover:bg-blue-50 border-l-4 border-l-blue-500'
-                      : 'bg-red-50 border-l-4 border-l-red-500'
-                  }`}
-                >
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{eq.name}</div>
-                    <div className="text-sm text-gray-500">{eq.code}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.equipmentType?.name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.department?.name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {(eq.systemIds && eq.systemIds.length > 0) ||
-                    (eq.systems && eq.systems.length > 0) ? (
-                      <span className="text-gray-500">
-                        {eq.systems?.map((s) => s.systemName).join(', ') ||
-                          `${eq.systemIds?.length || 0} system(s)`}
-                      </span>
-                    ) : (
-                      <span className="flex items-center text-red-600">
-                        <svg
-                          className="w-4 h-4 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                          />
-                        </svg>
-                        Not associated
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.parentEquipment ? (
-                      <span
-                        className="flex items-center text-blue-600"
-                        title={`Parent: ${eq.parentEquipment.name}`}
-                      >
-                        <svg
-                          className="w-3 h-3 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 10l7-7m0 0l7 7m-7-7v18"
-                          />
-                        </svg>
-                        {eq.parentEquipment.code}
-                      </span>
-                    ) : (eq.subEquipmentCount || 0) > 0 ? (
-                      <span
-                        className="flex items-center text-green-600"
-                        title={`${eq.subEquipmentCount} sub-equipment`}
-                      >
-                        <svg
-                          className="w-3 h-3 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                          />
-                        </svg>
-                        {eq.subEquipmentCount}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {eq.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.manufacturer || ''} {eq.model || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(eq)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(eq)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<EqRow>
+          data={filteredEquipment}
+          columns={eqRowColumns}
+          keyExtractor={(eq) => eq.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* Empty State */}

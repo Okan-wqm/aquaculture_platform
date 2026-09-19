@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Drawer } from '@aquaculture/shared-ui';
+import { Drawer, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   X,
   Check,
@@ -16,7 +16,11 @@ import {
   AlertTriangle,
   Ban,
 } from 'lucide-react';
-import { VfdChangeSet, VfdChangeSetStatus } from '../../types/vfd.types';
+import {
+  VfdChangeSet,
+  VfdChangeSetStatus,
+  VfdChangeSetItem,
+} from '../../types/vfd.types';
 
 // ============================================================================
 // Props
@@ -53,6 +57,42 @@ export function VfdChangeSetDetail({
   if (!changeSet) return null;
 
   const cs = changeSet;
+
+  const vfdChangeSetItemColumns: DataTableColumn<VfdChangeSetItem>[] = [
+    {
+      key: 'parameter',
+      header: 'Parameter',
+      render: (_value, item) => item.parameterName,
+    },
+    {
+      key: 'previous',
+      header: 'Previous',
+      render: (_value, item) => item.previousValue ?? '-',
+    },
+    {
+      key: 'requested',
+      header: 'Requested',
+      render: (_value, item) => item.requestedValue,
+    },
+    {
+      key: 'applied',
+      header: 'Applied',
+      render: (_value, item) => item.appliedValue ?? '-',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => (
+        <>
+          {item.errorMessage ? (
+            <span className="text-red-600" title={item.errorMessage}>Error</span>
+          ) : (
+            item.status || '-'
+          )}
+        </>
+      ),
+    }
+  ];
 
   return (
     <Drawer
@@ -120,36 +160,16 @@ export function VfdChangeSetDetail({
       {/* Items table */}
       <div>
         <h3 className="mb-2 text-sm font-medium text-gray-900">Parameter Changes</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b text-left text-gray-500">
-                <th className="pb-2 pr-3">Parameter</th>
-                <th className="pb-2 pr-3">Previous</th>
-                <th className="pb-2 pr-3">Requested</th>
-                <th className="pb-2 pr-3">Applied</th>
-                <th className="pb-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cs.items.map((item) => (
-                <tr key={item.id} className="border-b border-gray-100">
-                  <td className="py-2 pr-3 font-mono font-medium">{item.parameterName}</td>
-                  <td className="py-2 pr-3 text-gray-600">{item.previousValue ?? '-'}</td>
-                  <td className="py-2 pr-3 font-medium text-indigo-700">{item.requestedValue}</td>
-                  <td className="py-2 pr-3">{item.appliedValue ?? '-'}</td>
-                  <td className="py-2">
-                    {item.errorMessage ? (
-                      <span className="text-red-600" title={item.errorMessage}>Error</span>
-                    ) : (
-                      item.status || '-'
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<VfdChangeSetItem>
+          data={cs.items}
+          columns={vfdChangeSetItemColumns}
+          keyExtractor={(item) => item.id}
+          emptyMessage="No items"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+        />
       </div>
 
       {/* Rejection form */}

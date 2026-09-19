@@ -20,6 +20,7 @@ import {
   CreateDepartmentInput,
 } from '../../../hooks/useDepartments';
 import { useSiteList } from '../../../hooks/useSites';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 const typeLabels: Record<string, string> = {
   HATCHERY: 'Hatchery',
@@ -243,6 +244,106 @@ export const DepartmentsTab: React.FC = () => {
     setDeptToDelete(null);
   };
 
+  type DeptRow = (typeof filteredDepartments)[number];
+  const deptRowColumns: DataTableColumn<DeptRow>[] = [
+    {
+      key: 'department',
+      header: 'Department',
+      render: (_value, dept) => (
+        <div>
+          <div className="text-sm font-medium text-gray-900">{dept.name}</div>
+          <div className="text-sm text-gray-500">{dept.code}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, dept) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[dept.type || ''] || 'bg-gray-100 text-gray-800'}`}
+          >
+            {typeLabels[dept.type || ''] || dept.type || '-'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'site',
+      header: 'Site',
+      render: (_value, dept) => (
+        <>
+          {/* WHY: render the site name from the department's OWN fetched
+            `site { id name }` (useDepartments query), NOT a second
+            useSiteList() join. The join falsely showed "Not associated
+            with any site" whenever that list was loading / empty / past
+            its limit — even though dept.siteId + dept.site were set. */}
+          {dept.site?.name ? (
+            <span className="text-gray-500">{dept.site.name}</span>
+          ) : (
+            <span className="text-red-600 italic font-medium">
+              Not associated with any site
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'capacity',
+      header: 'Capacity',
+      render: (_value, dept) => {
+        const loadPercentage = getLoadPercentage(dept.currentLoad || 0, dept.capacity || 0);
+        return (
+          <>
+            {dept.capacity ? (
+              <>
+                <div className="flex items-center">
+                  <div className="flex-1 max-w-[100px]">
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full ${getLoadColor(loadPercentage)} rounded-full transition-all`}
+                        style={{ width: `${loadPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                  <span className="ml-2 text-sm text-gray-500">{loadPercentage}%</span>
+                </div>
+                <div className="text-xs text-gray-400 mt-1">
+                  {(dept.currentLoad || 0).toLocaleString()} /{' '}
+                  {dept.capacity.toLocaleString()}
+                </div>
+              </>
+            ) : (
+              <span className="text-sm text-gray-400">-</span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, dept) => (
+        <>
+          <button
+            onClick={() => handleEdit(dept)}
+            className="text-blue-600 hover:text-blue-900 mr-3"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => handleDelete(dept)}
+            className="text-red-600 hover:text-red-900"
+          >
+            Delete
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div>
       {/* Toolbar */}
@@ -347,103 +448,15 @@ export const DepartmentsTab: React.FC = () => {
       {/* Departments Table */}
       {!isLoading && !error && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Department
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Site
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Capacity
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredDepartments.map((dept) => {
-                const loadPercentage = getLoadPercentage(dept.currentLoad || 0, dept.capacity || 0);
-                return (
-                  <tr
-                    key={dept.id}
-                    className={!dept.siteId ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-gray-50'}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>
-                        <div className="text-sm font-medium text-gray-900">{dept.name}</div>
-                        <div className="text-sm text-gray-500">{dept.code}</div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeColors[dept.type || ''] || 'bg-gray-100 text-gray-800'}`}
-                      >
-                        {typeLabels[dept.type || ''] || dept.type || '-'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {/* WHY: render the site name from the department's OWN fetched
-                        `site { id name }` (useDepartments query), NOT a second
-                        useSiteList() join. The join falsely showed "Not associated
-                        with any site" whenever that list was loading / empty / past
-                        its limit — even though dept.siteId + dept.site were set. */}
-                      {dept.site?.name ? (
-                        <span className="text-gray-500">{dept.site.name}</span>
-                      ) : (
-                        <span className="text-red-600 italic font-medium">
-                          Not associated with any site
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {dept.capacity ? (
-                        <>
-                          <div className="flex items-center">
-                            <div className="flex-1 max-w-[100px]">
-                              <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                                <div
-                                  className={`h-full ${getLoadColor(loadPercentage)} rounded-full transition-all`}
-                                  style={{ width: `${loadPercentage}%` }}
-                                />
-                              </div>
-                            </div>
-                            <span className="ml-2 text-sm text-gray-500">{loadPercentage}%</span>
-                          </div>
-                          <div className="text-xs text-gray-400 mt-1">
-                            {(dept.currentLoad || 0).toLocaleString()} /{' '}
-                            {dept.capacity.toLocaleString()}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-sm text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => handleEdit(dept)}
-                        className="text-blue-600 hover:text-blue-900 mr-3"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(dept)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <DataTable<DeptRow>
+            data={filteredDepartments}
+            columns={deptRowColumns}
+            keyExtractor={(dept) => dept.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
           {/* Empty State */}
           {filteredDepartments.length === 0 && (

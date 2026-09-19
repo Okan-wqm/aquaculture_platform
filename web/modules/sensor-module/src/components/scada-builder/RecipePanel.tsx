@@ -30,6 +30,23 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import type { TagValueBus } from '../../engine/tags/TagValueBus';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+
+type RecipeValueEntry = [string, number | string | boolean];
+
+const recipeValueColumns: DataTableColumn<RecipeValueEntry>[] = [
+  {
+    key: 'tag',
+    header: 'Tag',
+    render: (_value, [tag]) => <span className="block max-w-[140px] truncate font-mono text-gray-700">{tag}</span>,
+  },
+  {
+    key: 'value',
+    header: 'Value',
+    align: 'right',
+    render: (_value, [, val]) => <span className="font-mono text-gray-600">{String(val)}</span>,
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Types
@@ -382,26 +399,16 @@ export const RecipePanel: React.FC<RecipePanelProps> = ({
                   Created: {new Date(recipe.createdAt).toLocaleString()}
                 </div>
                 <div className="max-h-32 overflow-auto">
-                  <table className="w-full text-[11px]">
-                    <thead>
-                      <tr className="text-gray-500">
-                        <th className="text-left py-0.5">Tag</th>
-                        <th className="text-right py-0.5">Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Object.entries(recipe.values).map(([tag, val]) => (
-                        <tr key={tag} className="border-t border-gray-50">
-                          <td className="py-0.5 font-mono text-gray-700 truncate max-w-[140px]">
-                            {tag}
-                          </td>
-                          <td className="py-0.5 text-right font-mono text-gray-600">
-                            {String(val)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataTable<RecipeValueEntry>
+                    data={Object.entries(recipe.values)}
+                    columns={recipeValueColumns}
+                    keyExtractor={([tag]) => tag}
+                    emptyMessage="No values"
+                    searchable={false}
+                    sortable={false}
+                    stickyHeader={false}
+                    compact
+                  />
                 </div>
               </div>
             )}

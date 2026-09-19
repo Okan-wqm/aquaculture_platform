@@ -32,7 +32,7 @@ import GenerateWorkOrderButton from './components/GenerateWorkOrderButton';
 import CompleteMaintenanceModal from './components/CompleteMaintenanceModal';
 import ProcessAutoGenerateButton from './components/ProcessAutoGenerateButton';
 import UpdateMeterReadingButton from './components/UpdateMeterReadingButton';
-import { useCanMutate, useConfirm } from '@aquaculture/shared-ui';
+import { useCanMutate, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // Status colors
 const statusColors: Record<MaintenanceScheduleStatus, string> = {
@@ -294,6 +294,114 @@ export const MaintenanceSchedulesPage: React.FC = () => {
     );
   }
 
+  type ItemRow = (typeof filteredItems)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'kodSim',
+      header: 'Kod / İsim',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">
+            {item.scheduleCode}
+          </div>
+          <div className="text-sm text-gray-500">{item.name}</div>
+        </>
+      ),
+    },
+    {
+      key: 'kategori',
+      header: 'Kategori',
+      render: (_value, item) => categoryLabels[item.category],
+    },
+    {
+      key: 'tekrar',
+      header: 'Tekrar',
+      render: (_value, item) => recurrenceLabels[item.recurrenceRule.type],
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, item) => (
+        <Badge className={statusColors[item.status]}>
+          {statusLabels[item.status]}
+        </Badge>
+      ),
+    },
+    {
+      key: 'sonrakiTarih',
+      header: 'Sonraki Tarih',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`text-sm ${
+              isOverdue(item.nextDueDate) ? 'text-red-600 font-medium' : 'text-gray-500'
+            }`}
+          >
+            {formatDate(item.nextDueDate)}
+            {isOverdue(item.nextDueDate) && ' (Gecikmiş)'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'alTRma',
+      header: 'Çalıştırma',
+      render: (_value, item) => (
+        <>
+          {item.executionCount} kez
+        </>
+      ),
+    },
+    {
+      key: 'lemler',
+      header: 'İşlemler',
+      align: 'right',
+      render: (_value, item) => (
+        <div className="flex items-center justify-end gap-2">
+          <button
+            onClick={() => handleOpenEdit(item)}
+            className="text-indigo-600 hover:text-indigo-900"
+          >
+            Düzenle
+          </button>
+          {item.status === 'ACTIVE' && (
+            <button
+              onClick={() => handlePause(item.id)}
+              className="text-yellow-600 hover:text-yellow-900"
+            >
+              Duraklat
+            </button>
+          )}
+          {item.status === 'PAUSED' && (
+            <button
+              onClick={() => handleResume(item.id)}
+              className="text-green-600 hover:text-green-900"
+            >
+              Devam Et
+            </button>
+          )}
+          <GenerateWorkOrderButton schedule={item} />
+          <UpdateMeterReadingButton schedule={item} />
+          {canCompleteMaintenance && item.status === 'ACTIVE' && (
+            <button
+              onClick={() => setCompletingSchedule(item)}
+              className="text-emerald-700 hover:text-emerald-900"
+              title="Bu plan döngüsünü kapat (sayaç + notlar)"
+            >
+              Bakımı Kapat
+            </button>
+          )}
+          <button
+            onClick={() => handleDelete(item.id)}
+            className="text-red-600 hover:text-red-900"
+          >
+            Sil
+          </button>
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
@@ -360,122 +468,15 @@ export const MaintenanceSchedulesPage: React.FC = () => {
             <Spinner size="lg" />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Kod / İsim
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Kategori
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tekrar
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Durum
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Sonraki Tarih
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Çalıştırma
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    İşlemler
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      Henüz bakım planı bulunmuyor
-                    </td>
-                  </tr>
-                ) : (
-                  filteredItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {item.scheduleCode}
-                        </div>
-                        <div className="text-sm text-gray-500">{item.name}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {categoryLabels[item.category]}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {recurrenceLabels[item.recurrenceRule.type]}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge className={statusColors[item.status]}>
-                          {statusLabels[item.status]}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`text-sm ${
-                            isOverdue(item.nextDueDate) ? 'text-red-600 font-medium' : 'text-gray-500'
-                          }`}
-                        >
-                          {formatDate(item.nextDueDate)}
-                          {isOverdue(item.nextDueDate) && ' (Gecikmiş)'}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.executionCount} kez
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleOpenEdit(item)}
-                            className="text-indigo-600 hover:text-indigo-900"
-                          >
-                            Düzenle
-                          </button>
-                          {item.status === 'ACTIVE' && (
-                            <button
-                              onClick={() => handlePause(item.id)}
-                              className="text-yellow-600 hover:text-yellow-900"
-                            >
-                              Duraklat
-                            </button>
-                          )}
-                          {item.status === 'PAUSED' && (
-                            <button
-                              onClick={() => handleResume(item.id)}
-                              className="text-green-600 hover:text-green-900"
-                            >
-                              Devam Et
-                            </button>
-                          )}
-                          <GenerateWorkOrderButton schedule={item} />
-                          <UpdateMeterReadingButton schedule={item} />
-                          {canCompleteMaintenance && item.status === 'ACTIVE' && (
-                            <button
-                              onClick={() => setCompletingSchedule(item)}
-                              className="text-emerald-700 hover:text-emerald-900"
-                              title="Bu plan döngüsünü kapat (sayaç + notlar)"
-                            >
-                              Bakımı Kapat
-                            </button>
-                          )}
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Sil
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ItemRow>
+            data={filteredItems}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="Henüz bakım planı bulunmuyor"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
 
         {/* Pagination */}

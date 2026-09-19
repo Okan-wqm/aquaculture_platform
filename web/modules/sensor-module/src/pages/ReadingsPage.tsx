@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { MultiParameterTrendCard } from '../components/charts/MultiParameterTrendCard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -200,6 +201,93 @@ const DeviceGroupCard: React.FC<{
   const protocolConfig = parent.protocolConfiguration as Record<string, unknown> | undefined;
   const mqttTopic = protocolConfig?.topic as string | undefined;
 
+  const registeredSensorColumns: DataTableColumn<RegisteredSensor>[] = [
+    {
+      key: 'veriKanal',
+      header: 'Veri Kanalı',
+      render: (_value, child) => {
+        const type = child.type?.toLowerCase() || 'other';
+        return (
+          <div className="flex items-center gap-2">
+            <TypeIcon type={type} />
+            <span className="font-medium text-gray-900">{child.name}</span>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'tip',
+      header: 'Tip',
+      render: (_value, child) => {
+        const type = child.type?.toLowerCase() || 'other';
+        const typeName = TYPE_NAMES[type] || child.type || 'Bilinmiyor';
+        return (
+          <>
+            {typeName}
+          </>
+        );
+      },
+    },
+    {
+      key: 'dataPath',
+      header: 'Data Path',
+      render: (_value, child) => (
+        <code className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">
+          {child.dataPath || '-'}
+        </code>
+      ),
+    },
+    {
+      key: 'deEr',
+      header: 'Değer',
+      align: 'right',
+      render: (_value, child) => {
+        const reading = readings.get(child.id);
+        return (
+          <>
+            {reading ? (
+              <span className="font-semibold text-gray-900">
+                {(reading.value ?? 0).toFixed(2)} <span className="text-gray-500 font-normal">{reading.unit}</span>
+              </span>
+            ) : (
+              <span className="text-gray-500">-</span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'trend',
+      header: 'Trend',
+      align: 'center',
+      render: (_value, child) => {
+        const reading = readings.get(child.id);
+        return (
+          <>
+            {reading && <TrendIcon trend={reading.trend} />}
+          </>
+        );
+      },
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      align: 'center',
+      render: (_value, child) => {
+        const reading = readings.get(child.id);
+        return (
+          <>
+            {reading ? (
+              <StatusBadge status={reading.status} />
+            ) : (
+              <span className="text-gray-500 text-sm">Veri yok</span>
+            )}
+          </>
+        );
+      },
+    }
+  ];
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
       {/* Device Header */}
@@ -270,63 +358,15 @@ const DeviceGroupCard: React.FC<{
           />
         </div>
         <div className="border-t border-gray-100">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Veri Kanalı</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Tip</th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase">Data Path</th>
-                <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase">Değer</th>
-                <th className="text-center px-6 py-3 text-xs font-medium text-gray-500 uppercase">Trend</th>
-                <th className="text-center px-6 py-3 text-xs font-medium text-gray-500 uppercase">Durum</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {children.map((child) => {
-                const reading = readings.get(child.id);
-                const type = child.type?.toLowerCase() || 'other';
-                const typeName = TYPE_NAMES[type] || child.type || 'Bilinmiyor';
-
-                return (
-                  <tr key={child.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <TypeIcon type={type} />
-                        <span className="font-medium text-gray-900">{child.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {typeName}
-                    </td>
-                    <td className="px-6 py-4">
-                      <code className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-600">
-                        {child.dataPath || '-'}
-                      </code>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {reading ? (
-                        <span className="font-semibold text-gray-900">
-                          {(reading.value ?? 0).toFixed(2)} <span className="text-gray-500 font-normal">{reading.unit}</span>
-                        </span>
-                      ) : (
-                        <span className="text-gray-500">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {reading && <TrendIcon trend={reading.trend} />}
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      {reading ? (
-                        <StatusBadge status={reading.status} />
-                      ) : (
-                        <span className="text-gray-500 text-sm">Veri yok</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <DataTable<RegisteredSensor>
+            data={children}
+            columns={registeredSensorColumns}
+            keyExtractor={(child) => child.id}
+            emptyMessage="Veri kanalı yok"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
         </>
       )}

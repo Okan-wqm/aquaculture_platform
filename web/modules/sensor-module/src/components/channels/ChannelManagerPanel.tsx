@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { useConfirm } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { Plus, Edit, Trash2, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import { useChannelManagement, SensorDataChannel, CreateChannelInput, UpdateChannelInput } from '../../hooks/useChannelManagement';
 import { ChannelEditorModal } from '../registration/ChannelEditorModal';
@@ -239,6 +239,94 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
     );
   }
 
+  const sensorDataChannelColumns: DataTableColumn<SensorDataChannel>[] = [
+    {
+      key: 'kanalAnahtari',
+      header: 'Kanal Anahtari',
+      render: (_value, ch) => ch.channelKey,
+    },
+    {
+      key: 'etiket',
+      header: 'Etiket',
+      render: (_value, ch) => ch.displayLabel,
+    },
+    {
+      key: 'tip',
+      header: 'Tip',
+      render: (_value, ch) => ch.dataType,
+    },
+    {
+      key: 'birim',
+      header: 'Birim',
+      render: (_value, ch) => ch.unit || '-',
+    },
+    {
+      key: 'aralik',
+      header: 'Aralik',
+      render: (_value, ch) => (
+        <>
+          {ch.minValue != null || ch.maxValue != null
+            ? `${ch.minValue ?? '...'} - ${ch.maxValue ?? '...'}`
+            : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, ch) => (
+        <>
+          {ch.isEnabled ? (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+              Aktif
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
+              Devre Disi
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'kaynak',
+      header: 'Kaynak',
+      render: (_value, ch) => getSourceBadge(ch.discoverySource),
+    },
+    {
+      key: 'islemler',
+      header: 'Islemler',
+      align: 'right',
+      render: (_value, ch) => (
+        <div className="flex items-center justify-end gap-1">
+          {/* L3: aria-label */}
+          <button
+            onClick={() => handleEditChannel(ch)}
+            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors"
+            aria-label="Kanali duzenle"
+            title="Kanali duzenle"
+          >
+            <Edit className="w-4 h-4" />
+          </button>
+          {/* L3: aria-label */}
+          <button
+            onClick={() => handleDeleteChannel(ch.id, ch.channelKey)}
+            disabled={deletingId === ch.id}
+            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+            aria-label="Kanali sil"
+            title="Kanali sil"
+          >
+            {deletingId === ch.id ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Trash2 className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
       {/* Header */}
@@ -298,79 +386,15 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
         </div>
       ) : (
         /* Channel table */
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200">
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Kanal Anahtari</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Etiket</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Tip</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Birim</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Aralik</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Durum</th>
-                <th className="text-left py-3 px-2 font-medium text-gray-500">Kaynak</th>
-                <th className="text-right py-3 px-2 font-medium text-gray-500">Islemler</th>
-              </tr>
-            </thead>
-            <tbody>
-              {channels.map((ch) => (
-                <tr
-                  key={ch.id}
-                  className="border-b border-gray-50 hover:bg-gray-50 transition-colors"
-                >
-                  <td className="py-3 px-2 font-mono text-xs text-gray-800">{ch.channelKey}</td>
-                  <td className="py-3 px-2 text-gray-900">{ch.displayLabel}</td>
-                  <td className="py-3 px-2 text-gray-600 capitalize">{ch.dataType}</td>
-                  <td className="py-3 px-2 text-gray-600">{ch.unit || '-'}</td>
-                  <td className="py-3 px-2 text-gray-600">
-                    {ch.minValue != null || ch.maxValue != null
-                      ? `${ch.minValue ?? '...'} - ${ch.maxValue ?? '...'}`
-                      : '-'}
-                  </td>
-                  <td className="py-3 px-2">
-                    {ch.isEnabled ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                        Aktif
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
-                        Devre Disi
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-3 px-2">{getSourceBadge(ch.discoverySource)}</td>
-                  <td className="py-3 px-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {/* L3: aria-label */}
-                      <button
-                        onClick={() => handleEditChannel(ch)}
-                        className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors"
-                        aria-label="Kanali duzenle"
-                        title="Kanali duzenle"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      {/* L3: aria-label */}
-                      <button
-                        onClick={() => handleDeleteChannel(ch.id, ch.channelKey)}
-                        disabled={deletingId === ch.id}
-                        className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
-                        aria-label="Kanali sil"
-                        title="Kanali sil"
-                      >
-                        {deletingId === ch.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<SensorDataChannel>
+          data={channels}
+          columns={sensorDataChannelColumns}
+          keyExtractor={(ch) => ch.id}
+          emptyMessage="Kanal yok"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* Channel Editor Modal (L6: onSave accepts async) */}

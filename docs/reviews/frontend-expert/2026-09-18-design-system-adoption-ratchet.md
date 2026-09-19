@@ -219,7 +219,49 @@ table), the labour-cost ledger as a definition list (label/value lines, no
 header — never a grid). `DataTable`'s rows-per-page select renders only
 when a page can act on it; before, every paginated page showed an inert
 one. hr 8 → 3: the weekly schedule and team overview are calendar grids and
-the print schedule is a print document. **Owner:** okan ·
+the print schedule is a print document. Batch 14: sensor-module (37 → 15)
+— the PLC connection and feeding-parameter lists, process and SCADA package
+lists, automation programs (its row component folds into columns), edge
+devices (its select-all header cell and row checkboxes become `DataTable`
+selection), the edge device I/O channel table, LoRa devices, the channel
+manager, the tag registry (its loading/error/empty rows become `loading`,
+an error banner and a node `emptyMessage`), readings, VFD change sets
+(list, detail, create dialog) and the VFD audit log, the automation
+editor's I/O bindings and deployment history, the CSV export preview, the
+dashboard table widget, the PID faceplate's connection points and recipe
+values; the faceplate's property ledger is a definition list. The 15 that
+stay are the SCADA runtime grids (`RuntimeTable` ×3, `DataTableRenderer`,
+the heatmap), the dark operator alarm and simulation panels, the
+calibration and threshold pages (their row components hold per-row edit
+state, which has to move up to the page first), the automation editor's
+variable table (same), the translations matrix and CSV import mapping
+(language / column-keyed dynamic columns), tag watch, variable sync and the
+grouped auto-detect results. Batch 15: farm-module (59 → 33) — cleaner-fish
+batches, environment values, FCR analysis, the feeding summary's feed-type
+breakdown (its currency threads into the columns), growth-forecast feed
+requirements, harvest plans, a batch's feed assignments, batch input,
+growth measurements, the cleaner-fish and sea-lice report cage rows, feeder
+calibration, sub-equipment, chemicals, consumables, departments, equipment,
+a feed's feeding curve, fish-health chemicals, slaughter facilities,
+workers, purchase-order lines, delivery receipts, on-demand steps and
+recent water-chemistry entries. Rows that had no identity of their own
+(form arrays keyed by position) needed `DataTable`'s `keyExtractor` to see
+the row index, which it now does. Batch 16: hydroponics (10 → 2) and the rest
+of farm-module's fixed-column lists (33 → 23, three of them HTML strings in
+report exports) — the dynamic tank table,
+nutrient profiles, the current-formula, drainage-composition and
+previous-drainage parameter grids, the result tab's macro and micro
+nutrient grids (one column set reads the calculation for both), user-option
+targets; feeding assignments and protocols, health events, maintenance
+schedules, spare parts, work orders, feeding records, inventory-count
+lines, parameter configs and the finance overview's category tables (a
+column factory takes the currency). What stays raw now has a structural
+reason: dynamic column sets (the water-chemistry history and translation
+matrices, the feeding-record and CSV column pickers), rows that span
+several `<tr>` (protocol bands), matrix editors (feeding matrix, meal
+board), row components with their own state (calibration, thresholds,
+water analysis, alarm and simulation panels), the storage and task tabs'
+row components, and the SCADA runtime grids. **Owner:** okan ·
 **Expiry:** 2027-06-30.
 
 ## Enforcement
@@ -233,8 +275,8 @@ the print schedule is a print document. **Owner:** okan ·
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 114 remain after batch 13 (admin-panel 3,
-  tenant-admin 1, hr 3, shell 1, then hydroponics 10, sensor 37, farm 59).
+- Raw `<table>` → `DataTable`: 48 remain after batch 16 (admin-panel 3,
+  tenant-admin 1, hr 3, shell 1, hydroponics 2, sensor 15, farm 23).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

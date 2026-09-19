@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, Spinner, PageHeader, severityClasses } from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
   Bell,
@@ -45,10 +45,10 @@ import {
 // ============================================================================
 
 const SEVERITY_CONFIG: Record<string, { label: string; icon: React.FC<{ className?: string }>; color: string; borderColor: string }> = {
-  EMERGENCY: { label: 'Acil', icon: AlertOctagon, color: 'bg-red-100 text-red-800 border-red-300', borderColor: 'border-l-red-600' },
-  CRITICAL: { label: 'Kritik', icon: AlertTriangle, color: 'bg-red-50 text-red-700 border-red-200', borderColor: 'border-l-red-500' },
-  WARNING: { label: 'Uyari', icon: Bell, color: 'bg-yellow-100 text-yellow-800 border-yellow-300', borderColor: 'border-l-yellow-500' },
-  INFO: { label: 'Bilgi', icon: Info, color: 'bg-blue-100 text-blue-800 border-blue-200', borderColor: 'border-l-blue-400' },
+  EMERGENCY: { label: 'Acil', icon: AlertOctagon, color: severityClasses('critical'), borderColor: severityClasses('critical', 'bar') },
+  CRITICAL: { label: 'Kritik', icon: AlertTriangle, color: severityClasses('critical'), borderColor: severityClasses('critical', 'bar') },
+  WARNING: { label: 'Uyari', icon: Bell, color: severityClasses('warning'), borderColor: severityClasses('warning', 'bar') },
+  INFO: { label: 'Bilgi', icon: Info, color: severityClasses('info'), borderColor: severityClasses('info', 'bar') },
 };
 
 const SOURCE_LABELS: Record<string, string> = {

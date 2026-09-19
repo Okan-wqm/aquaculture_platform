@@ -57648,6 +57648,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/scada-operator/__tests__/AlarmAnnouncer.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/scada-operator/AlarmAnnouncer.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/scada-operator/AlarmPanel.tsx",
       "prettier_managed": true
     },
@@ -60876,6 +60888,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/__tests__/QualityIndicator.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/QualityIndicator.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/SandboxedHtmlPreview/__tests__/SandboxedHtmlPreview.spec.tsx",
       "prettier_managed": true
     },
@@ -60889,6 +60919,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/SandboxedHtmlPreview/SandboxedHtmlPreview.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/__tests__/Severity.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/Severity.tsx",
       "prettier_managed": true
     },
     {

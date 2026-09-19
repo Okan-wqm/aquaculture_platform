@@ -81,6 +81,12 @@ export type { DrawerProps, DrawerSide, DrawerSize } from './Drawer';
 export { Tabs, TabPanel, tabId, panelId } from './Tabs';
 export type { TabsProps, TabItem, TabPanelProps } from './Tabs';
 
+// Severity + tag quality — one vocabulary, one palette
+export { SeverityBadge, SEVERITIES, normalizeSeverity, severityClasses, severityColor } from './Severity';
+export type { Severity, SeverityTone, SeverityBadgeProps } from './Severity';
+export { QualityIndicator, normalizeQuality, qualityClasses, qualityColor } from './Quality';
+export type { TagQuality, QualityIndicatorProps } from './Quality';
+
 // Empty / error surfaces
 export { EmptyState, ErrorState } from './EmptyState';
 export type { EmptyStateProps, EmptyStateAction, ErrorStateProps } from './EmptyState';

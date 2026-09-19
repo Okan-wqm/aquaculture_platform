@@ -9,18 +9,19 @@
 
 import React, { Suspense, useMemo, Component, ErrorInfo } from 'react';
 import type { AnimationState } from '../../engine/animation/types';
-import { colors, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors, colors as themeColors, severityColor } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Shared severity color palette for alarm widgets                    */
 /* ------------------------------------------------------------------ */
 
 export const ALARM_SEVERITY_COLORS = {
-  critical: { bg: colors.error[500], text: colors.white },
-  high:     { bg: colors.accent[600], text: colors.white },
-  medium:   { bg: colors.warning[500], text: colors.black },
-  low:      { bg: colors.info[500], text: colors.white },
-  info:     { bg: colors.gray[400], text: colors.white },
+  critical: severityColor('critical'),
+  high: severityColor('high'),
+  medium: severityColor('medium'),
+  warning: severityColor('warning'),
+  low: severityColor('low'),
+  info: severityColor('info'),
 } as const;
 
 /* ------------------------------------------------------------------ */

@@ -22,7 +22,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 
-import { Drawer } from '@aquaculture/shared-ui';
+import { Drawer, severityClasses } from '@aquaculture/shared-ui';
 import type { AlarmStatusSummary } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
 import { AlarmPanel } from './AlarmPanel';
@@ -142,14 +142,12 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
   return (
     <>
       {/* ── Summary Bar ──────────────────────────────────────────── */}
-      <div
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         onClick={handleBarClick}
-        onKeyDown={(e) => e.key === 'Enter' && handleBarClick()}
-        title="Click to open Alarm Panel"
+        aria-label="Open alarm panel"
         className={`
-          flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none
+          w-full text-left flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none
           bg-gray-900 dark:bg-gray-950 border-t-2
           ${hasNewCritical ? 'border-red-600 alarm-critical-blink' : 'border-gray-700'}
           transition-all duration-300
@@ -174,7 +172,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           count={criticalCount}
           label="Critical"
           icon={<AlertCircle className="h-3.5 w-3.5" />}
-          activeClass="bg-red-700 text-white"
+          activeClass={severityClasses('critical', 'solid')}
           mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
@@ -182,7 +180,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           count={highCount}
           label="High"
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
-          activeClass="bg-orange-600 text-white"
+          activeClass={severityClasses('high', 'solid')}
           mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
@@ -190,7 +188,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           count={warningCount}
           label="Warning"
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
-          activeClass="bg-yellow-500 text-gray-900"
+          activeClass={severityClasses('warning', 'solid')}
           mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
@@ -198,7 +196,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           count={infoCount}
           label="Info"
           icon={<Info className="h-3.5 w-3.5" />}
-          activeClass="bg-blue-600 text-white"
+          activeClass={severityClasses('info', 'solid')}
           mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
@@ -218,7 +216,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           <ChevronUp className="h-4 w-4" />
           <span className="hidden sm:inline">Alarms</span>
         </div>
-      </div>
+      </button>
 
       {/* ── AlarmPanel drawer — rises above the bar; the panel keeps its own
           header (counts, ACK all, export, close), the Drawer supplies the

@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ConfirmModal, Modal, useConfirm, colors as themeColors, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useConfirm, colors as themeColors, DataTable, type DataTableColumn, Spinner, PageHeader, qualityColor, normalizeQuality } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -910,14 +910,7 @@ function getAlarmStatus(
 }
 
 const QualityDot: React.FC<{ quality?: string }> = ({ quality }) => {
-  const colorMap: Record<string, string> = {
-    good: themeColors.success[500],
-    uncertain: themeColors.warning[500],
-    bad: themeColors.error[500],
-    comm_failure: themeColors.error[500],
-    not_initialized: themeColors.neutral[400],
-  };
-  const color = quality ? colorMap[quality] ?? themeColors.neutral[400] : themeColors.neutral[400];
+  const color = qualityColor(normalizeQuality(quality));
   return (
     <span
       style={{

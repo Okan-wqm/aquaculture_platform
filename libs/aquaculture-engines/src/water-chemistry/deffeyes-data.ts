@@ -1,3 +1,4 @@
+import { domainScale, sequentialColor } from '@aquaculture/shared-contracts';
 /**
  * Deffeyes Diagram Data Generator
  * Ported from Python PlotCanvas.tanolustur()
@@ -59,19 +60,17 @@ const PH_ISOLINE_VALUES = rangeValues(
   0.25
 );
 
-/** Color palette for pH isolines */
+/**
+ * The isoline's place on the pH ramp, as a colour.
+ *
+ * The bands are half-pH-unit wide from 6.0 up, so the step is the distance
+ * above 5.5 in half units, clamped to the ramp. Indexing an ordered scale
+ * keeps the gradient monotonic by construction: there is no way to reorder
+ * two bands, or to land two of them on the same colour, without the index
+ * arithmetic saying so.
+ */
 function phIsolineColor(pH: number): string {
-  // Gradient from red (low pH) through green (neutral) to purple (high pH)
-  if (pH < 6.0) return '#dc2626';      // red
-  if (pH < 6.5) return '#ef4444';      // light red
-  if (pH < 7.0) return '#f97316';      // orange
-  if (pH < 7.5) return '#eab308';      // yellow
-  if (pH < 8.0) return '#22c55e';      // green
-  if (pH < 8.5) return '#06b6d4';      // cyan
-  if (pH < 9.0) return '#3b82f6';      // blue
-  if (pH < 9.5) return '#6366f1';      // indigo
-  if (pH < 10.0) return '#a855f7';     // purple
-  return '#7c3aed';                      // deep purple
+  return sequentialColor(Math.floor((pH - 5.5) / 0.5));
 }
 
 /**
@@ -440,7 +439,7 @@ export function generateCalciteIsopleth(
   const ksp = calcKspCalcite(tempC, S);
   const points = generateOmegaIsopleth(tempC, S, caMolKg, ksp, maxDIC);
   if (points.length < 2) return null;
-  return { label: 'Ω-Calcite = 1', color: '#2563eb', points };
+  return { label: 'Ω-Calcite = 1', color: domainScale.categorical[0], points };
 }
 
 /**
@@ -457,7 +456,7 @@ export function generateAragoniteIsopleth(
   const ksp = calcKspAragonite(tempC, S);
   const points = generateOmegaIsopleth(tempC, S, caMolKg, ksp, maxDIC);
   if (points.length < 2) return null;
-  return { label: 'Ω-Aragonite = 1', color: '#d946ef', points };
+  return { label: 'Ω-Aragonite = 1', color: domainScale.categorical[9], points };
 }
 
 // ============================================================================

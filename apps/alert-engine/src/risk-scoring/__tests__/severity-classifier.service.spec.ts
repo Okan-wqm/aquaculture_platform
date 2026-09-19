@@ -7,6 +7,7 @@ import {
 } from '../severity-classifier.service';
 import { AlertSeverity } from '../../database/entities/alert-rule.entity';
 import { RiskThresholds } from '../risk-calculator.service';
+import { colors } from '@aquaculture/shared-contracts';
 
 describe('SeverityClassifierService', () => {
   let service: SeverityClassifierService;
@@ -579,16 +580,17 @@ describe('SeverityClassifierService', () => {
   });
 
   describe('getSeverityColor', () => {
-    it('should return red for CRITICAL', () => {
+    it('paints CRITICAL with the error token', () => {
       const color = service.getSeverityColor(AlertSeverity.CRITICAL);
 
-      expect(color).toBe('#dc2626');
+      expect(color).toBe(colors.error[600]);
     });
 
-    it('should return orange for HIGH', () => {
+    it('paints HIGH with the accent token — the product ladder puts it there', () => {
       const color = service.getSeverityColor(AlertSeverity.HIGH);
 
-      expect(color).toBe('#ea580c');
+      expect(color).toBe(colors.accent[600]);
+      expect(color).not.toBe(service.getSeverityColor(AlertSeverity.WARNING));
     });
 
     it('should return different colors for each severity', () => {

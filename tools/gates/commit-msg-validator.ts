@@ -331,6 +331,31 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // main) and the pushed trailer cannot be amended (force-push ban) — the
   // identical situation as 5334a47a above.
   'd6eeb1cf', // fix(aquamobil): restore FAZ 2.4 server-authoritative AI identity (066 -> 150)
+  // 2026-09-19 design rescan wave 30 (PR #1614, FE-MEDIUM-093). Added by
+  // OPERATOR DECISION, not by the author's own judgement, and recorded that
+  // way on purpose — the entry above states why that distinction matters.
+  //
+  // `7bda4ab1` is typed `fix(edge):` and carries no trailer. It is a required
+  // commit: at its parent the branch failed `cargo fmt --check`, because the
+  // `use crate::theme_tokens;` line the wave added to `scada_server.rs` sorts
+  // after `scada_types`, and `mod theme_tokens;` sat above the
+  // `#[cfg(feature = "scada-display")]` its only consumer already carries. It
+  // gates the module and lets rustfmt reorder both. It changes no behaviour,
+  // so `refactor(edge):` — which this gate exempts — was the correct type; the
+  // author wrote `fix(` and pushed before running the trailer gate on the
+  // range.
+  //
+  // Why it cannot be repaired instead of allowlisted: the gate validates
+  // `pull_request.base.sha..head.sha`, so no follow-up commit can satisfy it,
+  // and amending a pushed commit needs a force-push, which CLAUDE.md forbids.
+  // Nor can it legitimately gain a trailer — the only finding it relates to is
+  // FE-MEDIUM-093, which its PR deliberately leaves OPEN, so citing it would
+  // make `finding-registry-closure-drift` wrong on merge.
+  //
+  // The ROOT CAUSE is the same one ORPHAN-HIGH-441 named: a commit-msg hook
+  // that is not bound writes the wrong type unchallenged. `npm run
+  // hooks:install` exists; the author had not run it in this session.
+  '7bda4ab1', // fix(edge): the generated token module follows its feature gate
 ]);
 
 interface Commit {

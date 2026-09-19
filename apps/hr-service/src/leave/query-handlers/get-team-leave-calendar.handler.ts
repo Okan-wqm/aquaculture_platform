@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { GetTeamLeaveCalendarQuery } from '../queries/get-team-leave-calendar.query';
 import { LeaveRequest, LeaveRequestStatus } from '../entities/leave-request.entity';
 import { ObjectType, Field, ID } from '@nestjs/graphql';
+import { colors } from '@aquaculture/shared-contracts';
 
 @ObjectType()
 export class LeaveCalendarEntry {
@@ -83,7 +84,7 @@ export class GetTeamLeaveCalendarHandler implements IQueryHandler<GetTeamLeaveCa
         ? `${lr.employee.firstName} ${lr.employee.lastName}`
         : 'Unknown',
       leaveTypeName: lr.leaveType?.name || 'Unknown',
-      leaveTypeColor: lr.leaveType?.color || '#6B7280',
+      leaveTypeColor: lr.leaveType?.color || colors.gray[400],
       startDate: lr.startDate,
       endDate: lr.endDate,
       totalDays: Number(lr.totalDays),

@@ -102,6 +102,14 @@ JUDGMENT_PIPELINE_DEFAULTS: dict[str, Any] = {
     "judge_batch_size": 1,
     "judge_batch_runtimes": ["zai"],
     "judge_batch_max_input_tokens": 24000,
+    # Typed-judgment plan Phase 5 (ARIA-HIGH-167/173) — when a judge's
+    # confidence is `calibrated` (judge_calibration.calibration_status).
+    "calibration_min_samples": 100,
+    "provisional_min_samples": 30,
+    "ece_threshold": 0.10,
+    "high_confidence_floor": 0.80,
+    "high_confidence_accuracy_min": 0.75,
+    "calibration_bins": 10,
 }
 
 

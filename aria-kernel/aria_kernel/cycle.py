@@ -1739,7 +1739,8 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
         from .judge_calibration import score_judges
 
         _judge_weights = judge_weights_from_calibration(
-            score_judges(cycle_id=context.cycle_id, base_dir=context.base_dir)
+            score_judges(cycle_id=context.cycle_id, base_dir=context.base_dir,
+                         **_calibration_knobs(context.workspace_root))
         ) or None
     except (OSError, ValueError, KeyError, TypeError):
         _judge_weights = None
@@ -1790,12 +1791,13 @@ def _phase_judgment_pipeline(context: PhaseContext) -> dict[str, Any]:
                 from .calibrated_intelligence import conformal_threshold
                 from .feedback_store import load_feedback
 
-                _correct_confidences = [
-                    float(row.get("confidence"))
-                    for row in load_feedback(tool_id=tool_id, base_dir=context.base_dir)
-                    if row.get("source_type") == "ai_consensus"
-                    and isinstance(row.get("confidence"), (int, float))
-                ]
+                # ARIA-HIGH-173 — the floor is taken over the consensus rows a
+                # human later agreed with, not over every consensus output.
+                from .judge_calibration import correct_consensus_confidences
+
+                _correct_confidences = correct_consensus_confidences(
+                    load_feedback(tool_id=tool_id, base_dir=context.base_dir)
+                )
                 _conformal_floor = conformal_threshold(_correct_confidences)
             except (OSError, ValueError, KeyError, TypeError):
                 _conformal_floor = None
@@ -1992,11 +1994,26 @@ def _phase_fixture_refresh(context: PhaseContext) -> dict[str, Any]:
     }
 
 
+def _calibration_knobs(repo_root: Any) -> dict[str, Any]:
+    """The judge-calibration thresholds from the judgment_pipeline policy
+    (typed-judgment plan Phase 5); the module defaults when unreadable."""
+    try:
+        from .genesis_policy import judgment_pipeline_policy
+
+        block = judgment_pipeline_policy(repo_root)
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+    keys = ("calibration_min_samples", "provisional_min_samples", "ece_threshold",
+            "high_confidence_floor", "high_confidence_accuracy_min", "calibration_bins")
+    return {key: block[key] for key in keys if key in block}
+
+
 def _phase_judge_calibration(context: PhaseContext) -> dict[str, Any]:
     # Plan 024 §A — score each judge against accumulated ground truth so
     # the cheap-tier judgment is measured, not assumed. Read-only join over
     # the feedback ledger (no LLM).
-    return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir)
+    return compute_judge_calibration(cycle_id=context.cycle_id, base_dir=context.base_dir,
+                                     **_calibration_knobs(context.workspace_root))
 
 
 def _phase_fitness_report(context: PhaseContext) -> dict[str, Any]:

@@ -22,7 +22,7 @@
  * IconButton / min-h-touch, and no label uses sub-12px text.
  */
 import { clsx } from 'clsx';
-import { Camera, ImageOff, Loader2, X } from 'lucide-react';
+import { Camera, ImageOff, X } from 'lucide-react';
 import {
   type ChangeEvent,
   type ReactElement,
@@ -33,6 +33,7 @@ import {
 } from 'react';
 
 import { IconButton } from '@/components/ui/IconButton';
+import { Spinner } from '@/components/ui/Spinner';
 import { useIncidentMediaUpload, type IncidentMediaType } from '@/hooks/useIncidentMediaUpload';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 
@@ -180,7 +181,7 @@ export function PhotoCaptureField({
               )}
             >
               {isUploading ? (
-                <Loader2 size={24} className="animate-spin" />
+                <Spinner size="md" color="inherit" />
               ) : isOnline ? (
                 <Camera size={24} />
               ) : (

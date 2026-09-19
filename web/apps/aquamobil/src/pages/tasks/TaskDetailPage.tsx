@@ -15,6 +15,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Spinner } from '@/components/ui/Spinner';
 import { GET_TASK_DETAIL } from '@/graphql/operations';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTaskActions } from '@/hooks/useTaskActions';
@@ -217,7 +218,7 @@ export function TaskDetailPage(): JSX.Element {
           </div>
         </div>
         <div className="flex items-center justify-center min-h-[50vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
+          <Spinner size="lg" />
         </div>
       </div>
     );
@@ -472,7 +473,7 @@ export function TaskDetailPage(): JSX.Element {
                 className="w-full py-4 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-bold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                 ) : (
                   <>
                     <Play size={20} />
@@ -488,7 +489,7 @@ export function TaskDetailPage(): JSX.Element {
                 className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                 ) : (
                   <>
                     <CheckCircle size={20} />
@@ -506,7 +507,7 @@ export function TaskDetailPage(): JSX.Element {
               className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
               ) : (
                 <>
                   <CheckCircle size={20} />

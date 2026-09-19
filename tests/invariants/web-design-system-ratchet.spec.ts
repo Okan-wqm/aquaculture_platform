@@ -22,12 +22,18 @@
  *      and a reason; every listed file must still contain one, so a migrated
  *      file cannot hold the ceiling up. The ceiling only decreases.
  *
- *   2. **Raw hex, inline style and raw tables are keyed by PACKAGE.** Each web package has
+ *   2. **Raw hex, inline style, raw tables and hand-rolled spinners are keyed by PACKAGE.** Each web package has
  *      an occurrence ceiling; a package not listed must be at zero. Counting is
  *      by occurrence, not by file, so moving colours between files is not
  *      progress and adding one to a listed file is caught. Inline style counts
  *      only STATIC blocks (every value a literal): a runtime value reaching
  *      the DOM (a progress width, a record's colour) is data, not a bypass.
+ *
+ * A hand-rolled spinner (FE-MEDIUM-070) is a lucide loader icon or an inline
+ * `<svg>` spun by `animate-spin`, or a bordered ring `div`/`span` spun the same
+ * way — 365 of them in the survey against 16 uses of shared-ui's `Spinner`.
+ * An icon whose spin is conditional (a refresh arrow while refetching) is an
+ * affordance, not a loading indicator, and is not counted.
  *
  * Detection is deliberately textual and identical to the survey (`git
  * ls-files` + a regex on the raw source, tests and generated code excluded) so
@@ -65,6 +71,25 @@ const RAW_HEX = /#[0-9a-fA-F]{6}\b/g;
  * states, export. Counted per package the same way as raw hex.
  */
 const RAW_TABLE = /<table\b/g;
+
+/** A lucide loader icon spun unconditionally — shared-ui's Spinner is the loading indicator. */
+const LOADER_ICON_SPINNER =
+  /<(?:Loader2|LoaderCircle|Loader)\b[^>]*className="[^"]*\banimate-spin\b/g;
+/** An inline `<svg>` spun unconditionally — the same arc Spinner draws. A conditional spin is an icon affordance. */
+const SVG_SPINNER = /<svg\b[^>]*className="[^"]*\banimate-spin\b/g;
+/** A className literal carrying `animate-spin`; a ring when it also draws a border or a circle. */
+const CLASS_WITH_SPIN =
+  /className=(?:"[^"]*\banimate-spin\b[^"]*"|'[^']*\banimate-spin\b[^']*'|\{`[^`]*\banimate-spin\b[^`]*`\})/g;
+const RING = /\brounded-full\b|\bborder(?:-[tblrxy])?-\d\b/;
+
+function handRolledSpinners(source: string): number {
+  let hits =
+    (source.match(LOADER_ICON_SPINNER) ?? []).length + (source.match(SVG_SPINNER) ?? []).length;
+  for (const match of source.matchAll(CLASS_WITH_SPIN)) {
+    if (RING.test(match[0])) hits += 1;
+  }
+  return hits;
+}
 /**
  * FE-MEDIUM-067 counts STATIC inline style blocks: every value a string or
  * number literal, so the block could have been a utility class or a token. A
@@ -158,6 +183,7 @@ interface Allowlist {
   rawHex: { entries: PackageCeiling[] };
   inlineStyle: { entries: PackageCeiling[] };
   rawTable: { entries: PackageCeiling[] };
+  rawSpinner: { entries: PackageCeiling[] };
 }
 
 /** Tracked source files under ROOTS, tests and generated code excluded (see admin-panel-data-layer.spec.ts on why not a `**` pathspec). */
@@ -210,7 +236,7 @@ function assertGoverned(
   expect(expiryIso(entry.expiry) > today).toBe(true);
 }
 
-describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067): web design-system adoption ratchet', () => {
+describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070): web design-system adoption ratchet', () => {
   const files = sourceFiles();
   const doc = yaml.load(read(ALLOWLIST)) as Allowlist;
   const today = new Date().toISOString().slice(0, 10);
@@ -280,6 +306,38 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067): web design-system adoption
       }
     }
     for (const entry of doc.rawTable.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets hand-rolled loading spinners per package (FE-MEDIUM-070)', () => {
+    const actual = new Map<string, number>();
+    for (const file of files) {
+      if (isPrimitive(file)) continue;
+      const hits = handRolledSpinners(read(file));
+      if (hits === 0) continue;
+      const pkg = packageOf(file);
+      actual.set(pkg, (actual.get(pkg) ?? 0) + hits);
+    }
+    const ceilings = new Map(doc.rawSpinner.entries.map((entry) => [entry.package, entry]));
+
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} hand-rolled spinners, no ceiling` : '').toBe(
+        '',
+      );
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} hand-rolled spinners, ceiling ${entry.ceiling}. Render loading through shared-ui Spinner (aquamobil: components/ui/Spinner); lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawSpinner.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

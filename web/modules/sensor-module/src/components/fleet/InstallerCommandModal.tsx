@@ -6,8 +6,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
-import { Copy, Check, Terminal, Clock, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Copy, Check, Terminal, Clock, AlertCircle, RefreshCw } from 'lucide-react';
 import {
   ProvisionedDeviceResponse,
   RegenerateTokenResponse,
@@ -224,7 +224,7 @@ export function InstallerCommandModal({
           className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-gray-500 disabled:opacity-50 transition-colors"
         >
           {isRegenerating ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <RefreshCw className="w-4 h-4" />
           )}

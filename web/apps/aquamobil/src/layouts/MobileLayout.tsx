@@ -8,6 +8,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 // These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
 // to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
 import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
+import { Spinner } from '@/components/ui/Spinner';
 import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -191,7 +192,7 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
       {/* Syncing indicator */}
       {isSyncing && (
         <div className="bg-gradient-to-r from-ocean-500 to-ocean-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold shadow-md">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+          <Spinner size="sm" color="white" />
           <span>Syncing data...</span>
         </div>
       )}

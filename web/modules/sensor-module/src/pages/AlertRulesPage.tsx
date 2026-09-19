@@ -11,12 +11,11 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { ConfirmModal } from '@aquaculture/shared-ui';
+import { ConfirmModal, Spinner } from '@aquaculture/shared-ui';
 import {
   Plus,
   Edit3,
   Trash2,
-  Loader2,
   XCircle,
   RefreshCw,
   AlertTriangle,
@@ -455,7 +454,7 @@ const RuleForm: React.FC<{
             disabled={isPending || !form.name.trim()}
             className="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50"
           >
-            {isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isPending && <Spinner size="sm" color="inherit" />}
             {mode === 'create' ? 'Oluştur' : 'Kaydet'}
           </button>
         </div>
@@ -565,7 +564,7 @@ const RuleCard: React.FC<{
             } disabled:opacity-50`}
           >
             {isToggling ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : rule.isActive ? (
               <Bell className="w-4 h-4" />
             ) : (
@@ -770,7 +769,7 @@ const AlertRulesPage: React.FC = () => {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
+          <Spinner size="lg" block className="mb-3" />
           <p className="text-gray-500">Alarm kuralları yükleniyor...</p>
         </div>
       </div>

@@ -11,7 +11,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, ChevronDown, ChevronRight, GripVertical, Activity, BarChart2 } from 'lucide-react';
 import { useEquipmentTypes, EquipmentType, CATEGORY_LABELS } from '../../../hooks/useEquipment';
 import { getEquipmentIcon } from '../../equipment-icons';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Spinner } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Template definitions
@@ -651,7 +651,7 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
       <div className="flex-1 overflow-y-auto p-2">
         {isLoading && (
           <div className="flex items-center justify-center py-8">
-            <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" />
+            <Spinner size="md" />
           </div>
         )}
 

@@ -17,11 +17,11 @@ import {
   useClickOutside,
   DataTable,
   type DataTableColumn,
+  Spinner,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
-  Loader2,
   MoreVertical,
   Trash2,
   Edit,
@@ -527,7 +527,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({
             disabled={isLoading}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isLoading && <Spinner size="sm" color="inherit" />}
             {parameter ? 'Güncelle' : 'Oluştur'}
           </button>
         </div>
@@ -859,7 +859,7 @@ const PlcFeedingParamsPage: React.FC = () => {
       {/* Table */}
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <Spinner size="lg" />
         </div>
       ) : parameters && parameters.length > 0 ? (
         <DataTable<FeedingParameter>
@@ -929,7 +929,7 @@ const PlcFeedingParamsPage: React.FC = () => {
                 disabled={mutations.clone.isPending}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {mutations.clone.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {mutations.clone.isPending && <Spinner size="sm" color="inherit" />}
                 Klonla
               </button>
             </>

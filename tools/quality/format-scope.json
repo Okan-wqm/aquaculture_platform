@@ -51375,6 +51375,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Spinner.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/UpdatePrompt.tsx",
       "prettier_managed": true
     },
@@ -62221,6 +62227,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Layout/SuderraSidebar.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Loading/__tests__/Spinner.spec.tsx",
       "prettier_managed": true
     },
     {

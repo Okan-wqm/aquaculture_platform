@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useBatchList, type BatchStatus, type Batch } from '../../../hooks/useBatches';
 import { useSpeciesList } from '../../../hooks/useSpecies';
 import { BatchFormModal } from '../components/BatchFormModal';
-import { ApiError, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { ApiError, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // Status badge colors
 const statusColors: Record<BatchStatus, string> = {
@@ -260,10 +260,7 @@ export const BatchInputTab: React.FC = () => {
       {isLoading && (
         <div className="bg-white shadow rounded-lg p-8">
           <div className="flex flex-col items-center justify-center">
-            <svg className="animate-spin h-8 w-8 text-blue-600 mb-4" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-            </svg>
+            <Spinner size="lg" className="mb-4" />
             <p className="text-gray-500">Loading batches...</p>
           </div>
         </div>

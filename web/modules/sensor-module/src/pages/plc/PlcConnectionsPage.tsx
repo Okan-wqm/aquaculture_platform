@@ -16,12 +16,12 @@ import {
   useClickOutside,
   DataTable,
   type DataTableColumn,
+  Spinner,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
   Filter,
-  Loader2,
   Server,
   Wifi,
   WifiOff,
@@ -288,7 +288,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
                   title="Sunucu endpoint'lerini kesfet"
                 >
                   {discovering ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Spinner size="sm" color="inherit" />
                   ) : (
                     <Radar className="h-4 w-4" />
                   )}
@@ -761,7 +761,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({
             disabled={isLoading}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isLoading && <Spinner size="sm" color="inherit" />}
             {connection ? 'Güncelle' : 'Oluştur'}
           </button>
         </div>
@@ -1144,7 +1144,7 @@ const PlcConnectionsPage: React.FC = () => {
       {/* Table */}
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <Spinner size="lg" />
         </div>
       ) : connections && connections.length > 0 ? (
         <DataTable<PlcConnection>

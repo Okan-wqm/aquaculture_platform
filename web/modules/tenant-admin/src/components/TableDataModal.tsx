@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
-import { Loader2, AlertCircle, ChevronLeft, ChevronRight, Database } from 'lucide-react';
+import { AlertCircle, ChevronLeft, ChevronRight, Database } from 'lucide-react';
 import { TableDataResult } from '../services/tenant-api.service';
-import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 interface TableDataModalProps {
   isOpen: boolean;
@@ -197,7 +197,7 @@ export const TableDataModal: React.FC<TableDataModalProps> = ({
       {/* Loading State */}
       {loading && (
         <div className="flex flex-col items-center justify-center py-12 flex-1">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <Spinner size="lg" />
           <p className="mt-3 text-sm text-gray-500">Loading table data...</p>
         </div>
       )}

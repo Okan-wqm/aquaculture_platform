@@ -10,6 +10,7 @@ import {
   DeletePreviewData,
   AffectedItemGroup,
   useToast,
+  Spinner,
 } from '@aquaculture/shared-ui';
 import {
   useSystemList,
@@ -397,7 +398,7 @@ export const SystemsTab: React.FC = () => {
       {/* Loading State */}
       {isLoading && (
         <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+          <Spinner size="lg" block />
           <p className="mt-2 text-gray-500">Loading systems...</p>
         </div>
       )}

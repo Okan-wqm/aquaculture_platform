@@ -17,10 +17,9 @@ import {
   Clock,
   MoreVertical,
   RefreshCw,
-  Loader2,
   AlertCircle,
 } from 'lucide-react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useMessageThreads,
@@ -219,7 +218,7 @@ const TenantMessagesPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="w-8 h-8 animate-spin text-tenant-600" />
+                <Spinner size="lg" />
               </div>
             ) : filteredThreads.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
@@ -316,7 +315,7 @@ const TenantMessagesPage: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {messagesLoading ? (
                   <div className="flex items-center justify-center h-full">
-                    <Loader2 className="w-8 h-8 animate-spin text-tenant-600" />
+                    <Spinner size="lg" />
                   </div>
                 ) : messages.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-full text-gray-500">
@@ -507,11 +506,7 @@ const NewThreadModal: React.FC<{
             disabled={!subject || !message || submitting}
             className="flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {submitting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <MessageSquare size={18} />
-            )}
+            {submitting ? <Spinner size="sm" color="inherit" /> : <MessageSquare size={18} />}
             {submitting ? 'Creating...' : 'Start Conversation'}
           </button>
         </>

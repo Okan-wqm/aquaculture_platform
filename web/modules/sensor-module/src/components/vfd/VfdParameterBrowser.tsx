@@ -15,7 +15,6 @@ import {
   Eye,
   Plus,
   Columns,
-  Loader2,
 } from 'lucide-react';
 import {
   VfdParameterDefinition,
@@ -23,6 +22,7 @@ import {
   VfdRiskLevel,
 } from '../../types/vfd.types';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -403,7 +403,7 @@ export function VfdParameterBrowser({
         {/* Parameter list */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+            <Spinner size="md" />
             <span className="ml-2 text-sm text-gray-500">Loading parameters...</span>
           </div>
         ) : filtered.length === 0 ? (

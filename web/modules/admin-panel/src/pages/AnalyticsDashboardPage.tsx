@@ -6,7 +6,7 @@
  * Connected to real backend API endpoints.
  */
 
-import { Card, Button, chartChrome, colors } from '@aquaculture/shared-ui';
+import { Card, Button, chartChrome, colors, Spinner } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -476,7 +476,7 @@ const AnalyticsDashboardPage: React.FC = () => {
   if (loading && data === null) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }

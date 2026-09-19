@@ -26,7 +26,7 @@ against 24.070 raw Tailwind defaults; 96 files build their own `fixed inset-0`
 overlay (55 without an accessible close label, 111 stacked on one `z-50`);
 2.136 raw hex colours sit outside `theme.css`; 683 inline `style={{}}` blocks
 bypass tokens; 87 call sites used the browser's `confirm()` / `alert()` /
-`prompt()`.
+`prompt()`; 365 loading spinners were drawn by hand beside `Spinner`.
 
 The first wave closed the browser-dialog class outright (ESLint `no-alert`
 error, `useConfirm`/`usePrompt` + `ConfirmProvider`, Drawer, AquaMobil update
@@ -296,6 +296,32 @@ the toggle), so the protocol bands — a row plus its meal-schedule editor
 under it — and the meal board (one list per day plan, its columns a
 factory over the plan) render through it. farm 7 → 5. **Owner:** okan ·
 **Expiry:** 2027-06-30.
+
+#### FE-MEDIUM-070 — Hand-rolled loading spinners beside `Spinner`
+
+365 loading spinners were written by hand (sensor 155, aquamobil 49,
+tenant-admin 47, farm 44, admin-panel 39, hr 17, shell 6, messaging 2)
+against 16 files using shared-ui's `Spinner`: a lucide `Loader2` spun by
+`animate-spin` (232), a bordered ring `div`/`span` spun the same way (119, in
+25 size-and-colour variants) and an inline `<svg>` arc (16). Three shapes,
+five hues and no accessible name, decided page by page.
+
+**Root cause:** `Spinner` could not sit inside a coloured button (its colours
+were `primary`/`white`/`gray`, never the surrounding text), could not centre
+itself as a block, and had no screen-reader name — so every button and every
+loading block drew its own.
+
+**Fix (this cycle):** `Spinner` gains `color="inherit"` (the surrounding text
+colour, what a spun icon in a button had), `block` (a centred row, what
+`mx-auto` on a ring meant) and `label` (a screen-reader-only name); its
+`primary` is the theme's `primary-500`, not Tailwind's blue. AquaMobil, which
+cannot import shared-ui, gets the same component under `components/ui/`
+(ocean primary). Batch 22: every hand-rolled spinner renders through it,
+365 → 0, and the ratchet gains a per-package `rawSpinner` ceiling: a lucide
+loader icon or an inline `<svg>` spun by a literal `animate-spin`, or a
+bordered ring spun the same way. An icon whose spin is conditional (a refresh
+arrow while refetching) is an affordance, not a loading indicator, and is not
+counted. **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
 

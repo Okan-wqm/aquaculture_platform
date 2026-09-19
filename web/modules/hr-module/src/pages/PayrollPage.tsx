@@ -19,6 +19,7 @@ import {
   DEFAULT_CURRENCY,
   DataTable,
   type DataTableColumn,
+  Spinner,
 } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
@@ -198,9 +199,7 @@ function CreatePayrollModal({
             }
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isSubmitting && (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-            )}
+            {isSubmitting && <Spinner size="sm" color="white" />}
             Create Payroll
           </button>
         </>

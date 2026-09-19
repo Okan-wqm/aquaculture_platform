@@ -53,6 +53,7 @@ import { useWidgetEvents }       from '../../../hooks/useWidgetEvents';
 
 // Existing editor-mode renderers (delegated with isEditing=false)
 import { WidgetRenderer }        from '../../scada-builder/WidgetRenderer';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // Runtime-only components (lazy-loaded for code splitting)
 const RuntimeGauge     = React.lazy(() => import('./RuntimeGauge'));
@@ -123,7 +124,7 @@ const RuntimeSkeleton = memo<{ w: number; h: number }>(({ w, h }) => (
     style={{ width: w, height: h }}
     aria-hidden="true"
   >
-    <div className="w-5 h-5 border-2 border-gray-300 border-t-blue-400 rounded-full animate-spin" />
+    <Spinner size="md" />
   </div>
 ));
 RuntimeSkeleton.displayName = 'RuntimeSkeleton';

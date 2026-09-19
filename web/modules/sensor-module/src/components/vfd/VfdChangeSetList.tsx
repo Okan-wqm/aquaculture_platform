@@ -6,7 +6,13 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { usePrompt, type PromptFn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import {
+  usePrompt,
+  type PromptFn,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+} from '@aquaculture/shared-ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -15,7 +21,6 @@ import {
   Clock,
   RotateCcw,
   Play,
-  Loader2,
   AlertTriangle,
   FileText,
   Plus,
@@ -71,7 +76,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.Reac
   [VfdChangeSetStatus.APPLYING]: {
     bg: 'bg-indigo-100',
     text: 'text-indigo-800',
-    icon: <Loader2 className="h-3 w-3 animate-spin" />,
+    icon: <Spinner size="sm" color="inherit" />,
   },
   [VfdChangeSetStatus.APPLIED]: {
     bg: 'bg-green-100',
@@ -242,7 +247,7 @@ export function VfdChangeSetList({
       {/* List */}
       {loading && changeSets.length === 0 ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          <Spinner size="md" />
         </div>
       ) : filteredSets.length === 0 ? (
         <div className="py-12 text-center">
@@ -358,11 +363,7 @@ export function VfdChangeSetList({
             disabled={loading}
             className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ChevronDown className="h-4 w-4" />
-            )}
+            {loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
             Load More
           </button>
         </div>

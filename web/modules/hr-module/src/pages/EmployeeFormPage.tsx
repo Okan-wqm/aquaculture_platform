@@ -34,6 +34,7 @@ import type {
   PersonnelCategory,
   Department,
 } from '../types';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -250,7 +251,7 @@ const EmployeeFormPage: React.FC = () => {
   if (isEditing && loadingEmployee) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -756,7 +757,7 @@ const EmployeeFormPage: React.FC = () => {
             className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <Spinner size="sm" color="white" />
             ) : (
               <Save className="w-4 h-4" />
             )}

@@ -9,7 +9,7 @@
  * at submit time.
  */
 import React, { useState } from 'react';
-import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 import {
   SlaughterFacility,
@@ -203,7 +203,7 @@ export const SlaughterFacilitiesTab: React.FC = () => {
 
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 

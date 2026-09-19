@@ -3,6 +3,7 @@ import type { JSX } from 'react';
 import { useState, useCallback, useEffect, type ChangeEvent, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import { useAuth } from '@/hooks/useAuth';
 import {
   isWebAuthnSupported,
@@ -243,7 +244,7 @@ export function LoginPage(): JSX.Element | null {
             >
               {isLoading ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   Signing in...
                 </>
               ) : (
@@ -273,7 +274,7 @@ export function LoginPage(): JSX.Element | null {
               >
                 {isBiometricLoading ? (
                   <>
-                    <span className="animate-spin rounded-full h-5 w-5 border-2 border-ocean-500 border-t-transparent" />
+                    <Spinner size="md" />
                     Verifying...
                   </>
                 ) : (

@@ -6,7 +6,7 @@
  * Includes an overwrite checkbox to control whether existing params are replaced.
  */
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import { useParameterTemplates, ParameterTemplate } from '../../../hooks/useParameterConfigs';
 
 // ============================================================================
@@ -65,7 +65,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
       {/* Content */}
       {isLoading && (
         <div className="flex items-center justify-center h-48">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+          <Spinner size="xl" />
         </div>
       )}
 

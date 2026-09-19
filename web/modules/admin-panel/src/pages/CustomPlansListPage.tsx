@@ -16,6 +16,7 @@ import {
   Modal,
   useConfirm,
   type DataTableColumn,
+  Spinner,
 } from '@aquaculture/shared-ui';
 import { billingApi, CustomPlan, CustomPlanStatus, PlanTier } from '../services/adminApi';
 import type { PaginatedResult } from '../services/types/common';
@@ -278,7 +279,7 @@ const CustomPlansListPage: React.FC = () => {
   if (loading && plans.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }

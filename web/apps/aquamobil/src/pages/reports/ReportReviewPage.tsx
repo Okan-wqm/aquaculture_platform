@@ -14,6 +14,7 @@ import { ArrowLeft, CheckCircle2, CloudOff, FileText, ShieldAlert } from 'lucide
 import { type JSX, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import type {
   MobileApproveAndSubmitReportDraftMutation,
   MobileReportDraftsQuery,
@@ -154,7 +155,7 @@ export function ReportReviewPage(): JSX.Element {
 
         {isOnline && draftsQuery.isLoading && (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto" />
+            <Spinner size="lg" block />
           </div>
         )}
 
@@ -265,7 +266,7 @@ export function ReportReviewPage(): JSX.Element {
             >
               {approveMutation.isPending ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   Submitting…
                 </>
               ) : (

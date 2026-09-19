@@ -14,6 +14,7 @@ import { X, Download, ChevronLeft, ChevronRight, FileText, AlertCircle } from 'l
 import { useState, useCallback, useRef, useEffect, useMemo, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import { useMessages } from '@/hooks/useMessages';
 import type { Message, MessageAttachment } from '@/types/messaging';
 import { getUserDisplayName, isSafeUrl } from '@/utils/messaging-helpers';
@@ -359,7 +360,7 @@ export function MediaViewerPage(): JSX.Element {
       >
         {loading ? (
           <div className="flex flex-col items-center gap-3">
-            <div className="animate-spin rounded-full h-10 w-10 border-2 border-white border-t-transparent" />
+            <Spinner size="xl" color="white" />
             <p className="text-sm text-white/75">Loading media...</p>
           </div>
         ) : error ? (

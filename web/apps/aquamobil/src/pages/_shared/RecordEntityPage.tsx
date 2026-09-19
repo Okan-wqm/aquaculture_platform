@@ -28,6 +28,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Spinner } from '@/components/ui/Spinner';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type { OperationType, QueuedPayload } from '@/types';
@@ -310,7 +311,7 @@ export function RecordEntityPage<
           >
             {isSubmitting ? (
               <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
                 {submittingLabel}
               </>
             ) : (

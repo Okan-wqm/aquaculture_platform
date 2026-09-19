@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Spinner } from '@/components/ui/Spinner';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { LeaveType, QueuedPayload } from '@/types';
@@ -266,7 +267,7 @@ export function LeaveRequestPage(): JSX.Element {
         >
           {isSubmitting ? (
             <>
-              <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+              <Spinner size="md" color="white" />
               Submitting...
             </>
           ) : (

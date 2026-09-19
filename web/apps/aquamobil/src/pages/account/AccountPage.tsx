@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { Spinner } from '@/components/ui/Spinner';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import type { DarkModePreference } from '@/hooks/useDarkMode';
@@ -347,7 +348,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
           >
             {isRegistering ? (
               <>
-                <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                <Spinner size="sm" color="white" />
                 Setting up...
               </>
             ) : (

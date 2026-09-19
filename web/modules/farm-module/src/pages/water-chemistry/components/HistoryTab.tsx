@@ -35,7 +35,7 @@ import {
 import { useTanksList } from '../../../hooks/useTanks';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
-import { colors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -675,7 +675,7 @@ export const HistoryTab: React.FC = () => {
           <h3 className="text-lg font-medium text-gray-900 mb-4">Water Quality Trends</h3>
           {chartQuery.isLoading ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              <Spinner size="xl" />
             </div>
           ) : chartData.length === 0 ? (
             <div className="flex items-center justify-center h-64 text-gray-500">
@@ -740,7 +740,7 @@ export const HistoryTab: React.FC = () => {
       <div className="bg-white shadow rounded-lg overflow-hidden">
         {listQuery.isLoading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <Spinner size="xl" />
           </div>
         ) : listQuery.error ? (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 m-4">

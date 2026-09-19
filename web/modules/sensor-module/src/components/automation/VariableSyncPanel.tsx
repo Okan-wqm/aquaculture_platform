@@ -19,14 +19,13 @@ import {
   ChevronDown,
   ChevronRight,
   Code,
-  Loader2,
   Plus,
   RefreshCw,
   Trash2,
   Zap,
 } from 'lucide-react';
 import { parseStVariables, type ParsedVariable } from '../../utils/st-variable-parser';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 type DetectedVariable = ParsedVariable;
 
@@ -414,7 +413,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                 className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
                 {isItemAdding ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <Plus className="h-3 w-3" />
                 )}
@@ -428,7 +427,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                 className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 transition-colors"
               >
                 {isItemRemoving ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <Trash2 className="h-3 w-3" />
                 )}
@@ -529,7 +528,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
                 {isAdding ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <Plus className="h-3 w-3" />
                 )}
@@ -543,7 +542,7 @@ const VariableSyncPanel: React.FC<VariableSyncPanelProps> = ({
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
               >
                 {isSyncing ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <RefreshCw className="h-3 w-3" />
                 )}

@@ -7,6 +7,7 @@
 
 import React, { Suspense, lazy } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // All pages are lazy-loaded to minimize initial chunk size (PERF-010)
 const HRDashboardPage = lazy(() => import('./pages/HRDashboardPage'));
@@ -34,7 +35,7 @@ const HRFinancePage = lazy(() => import('./pages/finance/HRFinancePage'));
 function PageLoader() {
   return (
     <div className="flex h-64 items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+      <Spinner size="lg" />
     </div>
   );
 }

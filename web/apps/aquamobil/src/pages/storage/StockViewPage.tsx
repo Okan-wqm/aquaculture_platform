@@ -13,11 +13,12 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { ArrowLeft, Package, AlertCircle, Loader2, RefreshCw, MapPin } from 'lucide-react';
+import { ArrowLeft, Package, AlertCircle, RefreshCw, MapPin } from 'lucide-react';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import { STOCK_AT_LOCATION, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -247,7 +248,7 @@ export function StockViewPage(): JSX.Element {
         </p>
         {locationsLoading ? (
           <div className="flex items-center gap-2 py-3">
-            <Loader2 size={16} className="animate-spin text-cyan-600" />
+            <Spinner size="sm" />
             <span className="text-sm text-gray-500">Loading locations...</span>
           </div>
         ) : (
@@ -292,7 +293,7 @@ export function StockViewPage(): JSX.Element {
 
         {selectedLocationId && stockLoading && (
           <div className="flex items-center justify-center py-12">
-            <Loader2 size={28} className="animate-spin text-cyan-600" />
+            <Spinner size="lg" />
             <span className="ml-2 text-gray-500 text-sm">Loading stock...</span>
           </div>
         )}
@@ -310,7 +311,7 @@ export function StockViewPage(): JSX.Element {
             {/* Pull-to-refresh indicator */}
             {isRefreshing && (
               <div className="flex items-center justify-center py-2 mb-2">
-                <Loader2 size={16} className="animate-spin text-cyan-600" />
+                <Spinner size="sm" />
                 <span className="ml-2 text-xs text-gray-500">Refreshing...</span>
               </div>
             )}

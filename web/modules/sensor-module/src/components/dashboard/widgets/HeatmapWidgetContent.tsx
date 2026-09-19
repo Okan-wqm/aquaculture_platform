@@ -10,7 +10,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { WidgetConfig, TimeRange } from '../types';
 import { useWidgetData, HistoryPoint } from '../../../hooks/useWidgetData';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Spinner } from '@aquaculture/shared-ui';
 
 interface HeatmapWidgetContentProps {
   config: WidgetConfig;
@@ -459,7 +459,7 @@ export const HeatmapWidgetContent: React.FC<HeatmapWidgetContentProps> = ({ conf
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="md" />
       </div>
     );
   }

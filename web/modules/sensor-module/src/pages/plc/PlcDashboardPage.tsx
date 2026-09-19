@@ -41,6 +41,7 @@ import {
   PlcAlarmStats,
   TelemetrySummary,
 } from '../../hooks/usePlcControl';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Status Helpers
@@ -248,7 +249,7 @@ const PlcDashboardPage: React.FC = () => {
 
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <Spinner size="lg" />
         </div>
       ) : (
         <div className="space-y-6">

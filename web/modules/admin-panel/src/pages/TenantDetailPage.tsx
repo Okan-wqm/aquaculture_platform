@@ -5,17 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  Card,
-  Button,
-  Badge,
-  Input,
-  Select,
-  Modal,
-  Alert,
-  formatDate,
-  formatNumber,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Modal, Alert, formatDate, formatNumber, Spinner } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -329,7 +319,7 @@ const TenantDetailPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+        <Spinner size="lg" />
       </div>
     );
   }

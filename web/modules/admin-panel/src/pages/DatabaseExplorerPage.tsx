@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Badge, Alert, Modal, DataTable, type DataTableColumn, type SortConfig } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Badge, Alert, Modal, DataTable, type DataTableColumn, type SortConfig, Spinner } from '@aquaculture/shared-ui';
 import { databaseApi } from '../services/adminApi';
 import { saveBlob } from '../services/blob-client';
 import { useAdminQuery, useAdminMutation, adminKeys } from '../hooks';
@@ -630,7 +630,7 @@ const DatabaseExplorerPage: React.FC = () => {
                   disabled={exportTable.isPending}
                 >
                   {exportTable.isPending ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                    <Spinner size="sm" color="gray" className="mr-2" />
                   ) : (
                     <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -714,7 +714,7 @@ const DatabaseExplorerPage: React.FC = () => {
             </div>
           ) : loading && !tableData ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+              <Spinner size="lg" />
             </div>
           ) : tableData ? (
             <>

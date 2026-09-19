@@ -18,7 +18,6 @@ import {
   Clock,
   Filter,
   XCircle,
-  Loader2,
   RefreshCw,
   ChevronLeft,
   ChevronRight,
@@ -30,6 +29,7 @@ import {
   AlertSeverity,
   AlertStatusFilter,
 } from '../hooks/useAlerts';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -173,7 +173,7 @@ const AlertCard: React.FC<{
               className="flex items-center gap-1.5 px-4 py-2 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-lg transition-colors disabled:opacity-50"
             >
               {isMutating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <Clock className="w-4 h-4" />
               )}
@@ -186,7 +186,7 @@ const AlertCard: React.FC<{
             className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
           >
             {isMutating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <CheckCircle className="w-4 h-4" />
             )}
@@ -232,7 +232,7 @@ const AlertsPage: React.FC = () => {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
+          <Spinner size="lg" block className="mb-3" />
           <p className="text-gray-500">Uyarılar yükleniyor...</p>
         </div>
       </div>
@@ -443,7 +443,7 @@ const AlertsPage: React.FC = () => {
       {/* Loading overlay for background refresh */}
       {loading && alerts.length > 0 && (
         <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
-          <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
+          <Spinner size="md" />
           <span className="text-sm text-gray-700">Güncelleniyor...</span>
         </div>
       )}

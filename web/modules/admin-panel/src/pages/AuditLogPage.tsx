@@ -16,7 +16,7 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { Card, Button, Input, Select, Badge, Table, Modal } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Select, Badge, Table, Modal, Spinner } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminQuery, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
@@ -690,7 +690,7 @@ const AuditLogPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <Card className="p-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
+          <Spinner size="lg" block />
           <p className="mt-4 text-gray-500">Loading...</p>
         </Card>
       )}

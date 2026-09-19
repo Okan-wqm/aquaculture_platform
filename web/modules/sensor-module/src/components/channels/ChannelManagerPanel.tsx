@@ -6,8 +6,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
-import { Plus, Edit, Trash2, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { useConfirm, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Plus, Edit, Trash2, AlertCircle, Sparkles } from 'lucide-react';
 import {
   useChannelManagement,
   SensorDataChannel,
@@ -330,7 +330,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
             title="Kanali sil"
           >
             {deletingId === ch.id ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <Trash2 className="w-4 h-4" />
             )}

@@ -3,6 +3,7 @@ import { ArrowLeft, CalendarOff, Plus, Clock } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { Spinner } from '@/components/ui/Spinner';
 import {
   useMyLeaveBalances,
   useMyLeaveRequests,
@@ -111,7 +112,7 @@ export function MyLeavesPage(): JSX.Element {
         <div className="px-4 mt-4 space-y-3">
           {balancesLoading && (
             <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500" />
+              <Spinner size="lg" />
             </div>
           )}
           {balances.map((balance: LeaveBalance) => (
@@ -180,7 +181,7 @@ export function MyLeavesPage(): JSX.Element {
         <div className="px-4 mt-4 space-y-3">
           {requestsLoading && (
             <div className="flex justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-500" />
+              <Spinner size="lg" />
             </div>
           )}
           {requests.map((request: LeaveRequest) => (

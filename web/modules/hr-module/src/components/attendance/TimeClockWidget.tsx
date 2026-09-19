@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Clock, LogIn, LogOut, MapPin, AlertCircle, ShieldCheck } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Spinner } from '@aquaculture/shared-ui';
 import { useClockIn, useClockOut, useTodaysAttendance } from '../../hooks';
 import { ClockMethod, AttendanceStatus, ATTENDANCE_STATUS_CONFIG } from '../../types';
 import { StatusBadge } from '../common/StatusBadge';
@@ -260,7 +260,7 @@ export function TimeClockWidget({
             )}
           >
             {isProcessing ? (
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <Spinner size="md" color="white" />
             ) : (
               <LogOut className="h-5 w-5" />
             )}
@@ -277,7 +277,7 @@ export function TimeClockWidget({
             )}
           >
             {isProcessing ? (
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <Spinner size="md" color="white" />
             ) : (
               <LogIn className="h-5 w-5" />
             )}

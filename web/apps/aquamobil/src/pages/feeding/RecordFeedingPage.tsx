@@ -27,6 +27,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { Spinner } from '@/components/ui/Spinner';
 import type { FeedingMethod } from '@/generated/graphql';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTodaysDayPlans, type DayPlanMeal, type MealStatus } from '@/hooks/useTodaysDayPlans';
@@ -522,7 +523,7 @@ export function RecordFeedingPage(): JSX.Element {
             >
               {isSubmitting ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   {t('feeding.recording')}
                 </>
               ) : (

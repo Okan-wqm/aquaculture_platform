@@ -12,7 +12,7 @@
  */
 
 import React, { useState } from 'react';
-import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { databaseApi } from '../services/api/database';
@@ -181,7 +181,7 @@ const ProgressBar: React.FC<{ value: number; max: number; color?: string }> = ({
 const LoadingSpinner: React.FC<{ message?: string }> = ({ message = 'Loading...' }) => (
   <div className="flex items-center justify-center py-12">
     <div className="text-center">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3" />
+      <Spinner size="lg" block className="mb-3" />
       <p className="text-sm text-gray-500">{message}</p>
     </div>
   </div>

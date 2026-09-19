@@ -18,8 +18,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, colors as themeColors } from '@aquaculture/shared-ui';
-import { Download, Image, FileText, Loader2 } from 'lucide-react';
+import { Modal, colors as themeColors, Spinner } from '@aquaculture/shared-ui';
+import { Download, Image, FileText } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -379,11 +379,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
               : 'bg-cyan-600 hover:bg-cyan-700'
           }`}
         >
-          {isExporting ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Download className="w-4 h-4" />
-          )}
+          {isExporting ? <Spinner size="sm" color="inherit" /> : <Download className="w-4 h-4" />}
           {isExporting ? 'Exporting...' : 'Export'}
         </button>
       </div>

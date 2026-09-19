@@ -13,7 +13,7 @@
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
-import { useAuth, useTenantScopedStorage, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { useAuth, useTenantScopedStorage, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import { useEquipmentParameterConfigs } from '../../../hooks/useEquipmentParameters';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useEquipmentList } from '../../../hooks/useEquipment';
@@ -324,7 +324,7 @@ export const RecordTab: React.FC = () => {
       {/* Loading state */}
       {selectedEquipmentId && parameterConfigs.isLoading && (
         <div className="bg-white rounded-lg shadow p-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto" />
+          <Spinner size="lg" block />
           <p className="mt-2 text-sm text-gray-500">Loading parameter configuration...</p>
         </div>
       )}

@@ -9,6 +9,7 @@ import { Search, ChevronDown, ChevronRight, Link2, Check, Package, RefreshCw } f
 import { useAttachableEquipment, AttachableEquipment, CATEGORY_LABELS } from '../../../hooks/useAttachableEquipment';
 import { useProcessStore } from '../../../store/processStore';
 import { getEquipmentIcon } from '../../equipment-icons';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface AttachmentsPanelProps {
   className?: string;
@@ -70,7 +71,7 @@ export const AttachmentsPanel: React.FC<AttachmentsPanelProps> = ({ className = 
   if (isLoading) {
     return (
       <div className={`flex flex-col items-center justify-center h-full ${className}`}>
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full mb-3" />
+        <Spinner size="lg" className="mb-3" />
         <p className="text-sm text-gray-500">Loading equipment...</p>
       </div>
     );

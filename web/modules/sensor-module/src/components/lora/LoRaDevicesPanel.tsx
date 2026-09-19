@@ -5,12 +5,17 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { ConfirmModal, Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import {
+  ConfirmModal,
+  Modal,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+} from '@aquaculture/shared-ui';
 import {
   Plus,
   Trash2,
   Send,
-  Loader2,
   AlertTriangle,
   Radio,
   Eye,
@@ -310,7 +315,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
             disabled={isSubmitting}
             className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
           >
-            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isSubmitting && <Spinner size="sm" color="inherit" />}
             Ekle
           </button>
         </div>
@@ -480,7 +485,7 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
             disabled={isSending}
             className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
           >
-            {isSending && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isSending && <Spinner size="sm" color="inherit" />}
             <Send className="w-4 h-4" />
             Gonder
           </button>
@@ -557,7 +562,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 text-cyan-600 animate-spin" />
+          <Spinner size="md" />
         </div>
       </div>
     );

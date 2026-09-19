@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { AlertTriangle, AlertCircle, Clock, RefreshCw, ChevronRight } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Spinner } from '@aquaculture/shared-ui';
 import { useExpiringCertifications, useExpiredCertifications } from '../../hooks';
 import { getCertificationUrgency, CERTIFICATION_CATEGORY_CONFIG } from '../../types';
 import { EmployeeAvatar } from '../common/EmployeeAvatar';
@@ -70,7 +70,7 @@ export function CertificationExpiryAlert({
     return (
       <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
         <div className="flex items-center justify-center py-8">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-600" />
+          <Spinner size="md" />
         </div>
       </div>
     );

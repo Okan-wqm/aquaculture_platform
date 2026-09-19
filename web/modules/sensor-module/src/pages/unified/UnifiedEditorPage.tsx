@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { useClickOutside } from '@aquaculture/shared-ui';
+import { useClickOutside, Spinner } from '@aquaculture/shared-ui';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -25,7 +25,6 @@ import {
   ZoomOut,
   Maximize2,
   Trash2,
-  Loader2,
   ChevronDown,
   ChevronUp,
   Monitor,
@@ -128,7 +127,7 @@ const LiveTagsPanel: React.FC = () => {
 
       {loading && (
         <div className="flex items-center justify-center p-4">
-          <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
+          <Spinner size="md" />
         </div>
       )}
 
@@ -974,7 +973,7 @@ const UnifiedEditorPage: React.FC = () => {
                 : 'bg-cyan-600 hover:bg-cyan-700'
             }`}
           >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            {isSaving ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}
             {isSaving ? 'Saving...' : 'Save'}
           </button>
         </div>
@@ -1020,7 +1019,7 @@ const UnifiedEditorPage: React.FC = () => {
             {!isCanvasReady && mode !== 'hmi' && mode !== 'runtime' && (
               <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
                 <div className="flex flex-col items-center gap-3">
-                  <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
+                  <Spinner size="lg" />
                   <p className="text-gray-600 text-sm">Loading Canvas...</p>
                 </div>
               </div>

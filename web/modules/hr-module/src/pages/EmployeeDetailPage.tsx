@@ -19,7 +19,7 @@ import {
   GraduationCap,
   AlertTriangle,
 } from 'lucide-react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, Spinner } from '@aquaculture/shared-ui';
 import { useEmployee } from '../hooks';
 import { EmployeeStatus } from '../types/employee.types';
 
@@ -43,7 +43,7 @@ const EmployeeDetailPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center p-6">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+        <Spinner size="lg" />
       </div>
     );
   }

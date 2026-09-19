@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Copy, Check, Key, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Copy, Check, Key, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import { graphqlRequest } from '../../services/tenant-api.service';
 import {
   CREATE_PROVISIONING_KEY_MUTATION,
@@ -230,7 +230,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium text-sm"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+              {loading ? <Spinner size="sm" color="inherit" /> : <Key className="w-4 h-4" />}
               Olu\u015Ftur
             </button>
           </div>

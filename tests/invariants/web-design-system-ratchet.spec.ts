@@ -447,6 +447,18 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
     }
   });
 
+  it('never answers a required-field miss with a toast (FE-HIGH-086)', () => {
+    // farm validated 22 required fields through toasts ("Please enter a
+    // name.") while the form kept no error state; a miss belongs on the
+    // field, as FormField error. A single-field or ||-combined empty check
+    // that opens a toast is that defect exactly.
+    const REQUIRED_FIELD_TOAST = /if \(!formData\.\w+(?: \|\| !formData\.\w+)*\) \{\s*toast\(/g;
+    const offenders = files
+      .filter((file) => !file.startsWith('web/apps/'))
+      .flatMap((file) => (read(file).match(REQUIRED_FIELD_TOAST) ?? []).map(() => file));
+    expect(offenders).toEqual([]);
+  });
+
   it('ratchets hand-rolled loading spinners per package (FE-MEDIUM-070)', () => {
     const actual = new Map<string, number>();
     for (const file of files) {

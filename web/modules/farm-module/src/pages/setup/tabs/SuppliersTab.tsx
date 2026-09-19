@@ -14,7 +14,7 @@ import {
   CreateSupplierInput,
 } from '../../../hooks/useSuppliers';
 import SupplierApprovedSitesSection from '../components/SupplierApprovedSitesSection';
-import { Modal, useConfirm, useToast, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, useConfirm, useToast, Spinner } from '@aquaculture/shared-ui';
 
 // Keys must be UPPERCASE to match GraphQL enum values
 const typeColors: Record<string, string> = {
@@ -171,6 +171,8 @@ export const SuppliersTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<SupplierFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [newProduct, setNewProduct] = useState('');
 
   // Collapsible sections state
@@ -223,14 +225,11 @@ export const SuppliersTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name) {
-      toast({ title: 'Please enter a supplier name.', variant: 'warning' });
-      return;
-    }
-    if (!formData.type) {
-      toast({ title: 'Please select a supplier type.', variant: 'warning' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.name) errors.name = 'Please enter a supplier name.';
+    if (!formData.type) errors.type = 'Please select a supplier type.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     try {
       // Base input fields (without status - status is only for updates)
@@ -269,6 +268,7 @@ export const SuppliersTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save supplier:', err);
@@ -320,6 +320,7 @@ export const SuppliersTab: React.FC = () => {
   const openAddModal = () => {
     setEditingId(null);
     setFormData(initialFormData);
+    setFieldErrors({});
     setOpenSections({
       basic: true,
       contact: true,
@@ -675,6 +676,7 @@ export const SuppliersTab: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name *</label>
+                  <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
                   <input
                     type="text"
                     required
@@ -682,6 +684,7 @@ export const SuppliersTab: React.FC = () => {
                     onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code</label>
@@ -696,6 +699,7 @@ export const SuppliersTab: React.FC = () => {
               <div className="grid grid-cols-2 gap-4 mt-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type *</label>
+                  <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
                   <select
                     required
                     value={formData.type}
@@ -711,6 +715,7 @@ export const SuppliersTab: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>

@@ -9,7 +9,7 @@
  * prescription requirement) ride in the chemical's `usageProtocol`.
  */
 import React, { useState } from 'react';
-import { Modal, useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { FormField, Modal, useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import {
   useChemicalList,
@@ -161,6 +161,8 @@ export const FishHealthChemicalsTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editing, setEditing] = useState<Chemical | null>(null);
   const [formData, setFormData] = useState<FormData>(emptyForm);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Chemical | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -192,6 +194,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
   const openCreate = (): void => {
     setEditing(null);
     setFormData(emptyForm);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -235,18 +238,16 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
-    if (!formData.name || !formData.code) {
-      toast({ title: 'Missing fields', description: 'Name and code are required.', variant: 'error' });
-      return;
-    }
-    if (!formData.type) {
-      toast({ title: 'Missing fields', description: 'Please select a category.', variant: 'error' });
-      return;
-    }
-    if (!editing && !formData.siteId) {
-      toast({ title: 'Missing fields', description: 'Please select a site.', variant: 'error' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    // `type` is read into a const so the empty-string check below narrows it
+    // to ChemicalType for the input objects.
+    const { type } = formData;
+    if (!formData.name) errors.name = 'Please enter a name.';
+    if (!formData.code) errors.code = 'Please enter a code.';
+    if (!type) errors.type = 'Please select a category.';
+    if (!editing && !formData.siteId) errors.siteId = 'Please select a site.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0 || !type) return;
 
     setIsSaving(true);
     try {
@@ -255,7 +256,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
           id: editing.id,
           name: formData.name,
           code: formData.code,
-          type: formData.type,
+          type,
           unit: formData.unit,
           supplierId: formData.supplierId || undefined,
           activeIngredient: formData.activeIngredient || undefined,
@@ -270,7 +271,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
         const input: CreateChemicalInput = {
           name: formData.name,
           code: formData.code,
-          type: formData.type,
+          type,
           siteId: formData.siteId,
           unit: formData.unit,
           supplierId: formData.supplierId || undefined,
@@ -290,6 +291,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
       setIsModalOpen(false);
       setEditing(null);
       setFormData(emptyForm);
+      setFieldErrors({});
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const isDuplicate =
@@ -500,6 +502,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
+                  <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
                   <input
                     type="text"
                     required
@@ -507,9 +510,11 @@ export const FishHealthChemicalsTab: React.FC = () => {
                     onChange={(e) => updateField('name', e.target.value)}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
+                  <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
                   <input
                     type="text"
                     required
@@ -517,12 +522,14 @@ export const FishHealthChemicalsTab: React.FC = () => {
                     onChange={(e) => updateField('code', e.target.value)}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                   />
+                  </FormField>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
+                  <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
                   <select
                     required
                     value={formData.type}
@@ -536,6 +543,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
@@ -566,6 +574,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                       className="mt-1 block w-full border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-md py-2 px-3 text-gray-500 dark:text-gray-400"
                     />
                   ) : (
+                    <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
                     <select
                       required
                       value={formData.siteId}
@@ -579,6 +588,7 @@ export const FishHealthChemicalsTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   )}
                 </div>
                 <div>

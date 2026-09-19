@@ -14,7 +14,7 @@ import {
   CreateConsumableInput,
 } from '../../../hooks/useConsumables';
 import { useSupplierList } from '../../../hooks/useSuppliers';
-import { Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -157,6 +157,8 @@ export const ConsumablesTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<ConsumableFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
   const consumables = consumablesData?.items || [];
@@ -232,10 +234,12 @@ export const ConsumablesTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name || !formData.code || !formData.category) {
-      toast({ title: 'Name, code, and category are required.', variant: 'warning' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.name) errors.name = 'Please enter a name.';
+    if (!formData.code) errors.code = 'Please enter a code.';
+    if (!formData.category) errors.category = 'Please select a category.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     setIsSaving(true);
     try {
@@ -274,6 +278,7 @@ export const ConsumablesTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save consumable:', err);
@@ -496,6 +501,7 @@ export const ConsumablesTab: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
+                    <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
                     <input
                       type="text"
                       required
@@ -503,9 +509,11 @@ export const ConsumablesTab: React.FC = () => {
                       onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                       className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
+                    </FormField>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
+                    <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
                     <input
                       type="text"
                       required
@@ -513,11 +521,13 @@ export const ConsumablesTab: React.FC = () => {
                       onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
                       className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                     />
+                    </FormField>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
+                    <FormField error={formData.category ? undefined : fieldErrors.category} className="mb-0">
                     <select
                       required
                       value={formData.category}
@@ -533,6 +543,7 @@ export const ConsumablesTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>

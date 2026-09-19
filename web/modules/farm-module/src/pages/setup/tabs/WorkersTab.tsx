@@ -11,7 +11,7 @@ import {
   Worker,
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
-import { Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
@@ -57,6 +57,8 @@ export const WorkersTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<WorkerFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
 
   const workerList = workers || [];
@@ -74,6 +76,7 @@ export const WorkersTab: React.FC = () => {
   const openCreate = () => {
     setEditingId(null);
     setFormData(initialFormData);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -106,10 +109,13 @@ export const WorkersTab: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.position) {
-      toast({ title: 'First name, last name, email, and position are required.', variant: 'warning' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.firstName) errors.firstName = 'Please enter a first name.';
+    if (!formData.lastName) errors.lastName = 'Please enter a last name.';
+    if (!formData.email) errors.email = 'Please enter an email address.';
+    if (!formData.position) errors.position = 'Please enter a position.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     setIsSaving(true);
     try {
@@ -137,6 +143,7 @@ export const WorkersTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save worker:', err);
@@ -318,6 +325,7 @@ export const WorkersTab: React.FC = () => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">First Name *</label>
+                <FormField error={formData.firstName ? undefined : fieldErrors.firstName} className="mb-0">
                 <input
                   type="text"
                   required
@@ -325,9 +333,11 @@ export const WorkersTab: React.FC = () => {
                   onChange={(e) => setFormData((prev) => ({ ...prev, firstName: e.target.value }))}
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
+                </FormField>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Last Name *</label>
+                <FormField error={formData.lastName ? undefined : fieldErrors.lastName} className="mb-0">
                 <input
                   type="text"
                   required
@@ -335,10 +345,12 @@ export const WorkersTab: React.FC = () => {
                   onChange={(e) => setFormData((prev) => ({ ...prev, lastName: e.target.value }))}
                   className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
+                </FormField>
               </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email *</label>
+              <FormField error={formData.email ? undefined : fieldErrors.email} className="mb-0">
               <input
                 type="email"
                 required
@@ -346,6 +358,7 @@ export const WorkersTab: React.FC = () => {
                 onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
                 className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
               />
+              </FormField>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
@@ -358,6 +371,7 @@ export const WorkersTab: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Position *</label>
+              <FormField error={formData.position ? undefined : fieldErrors.position} className="mb-0">
               <input
                 type="text"
                 required
@@ -366,6 +380,7 @@ export const WorkersTab: React.FC = () => {
                 placeholder="e.g., Farm Technician, Feed Operator"
                 className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
               />
+              </FormField>
             </div>
             <div>
               <label className="flex items-center gap-2">

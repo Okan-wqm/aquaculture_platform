@@ -20,7 +20,7 @@ import { useSiteList } from '../../../hooks/useSites';
 import { useSystemsBySite } from '../../../hooks/useSystems';
 import { useSupplierList } from '../../../hooks/useSuppliers';
 import { useSensors } from '../../../hooks/useSensors';
-import { Modal, DynamicSpecificationForm, SpecificationSchema, validateSpecifications, getDefaultSpecificationValues, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, DynamicSpecificationForm, SpecificationSchema, validateSpecifications, getDefaultSpecificationValues, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 import { SubEquipmentSection } from '../components/SubEquipmentSection';
 import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
@@ -209,6 +209,8 @@ export const EquipmentTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<EquipmentFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [equipmentToDelete, setEquipmentToDelete] = useState<Equipment | null>(null);
 
@@ -402,30 +404,16 @@ export const EquipmentTab: React.FC = () => {
     e.preventDefault();
 
     // Validate required fields
-    if (!formData.siteId) {
-      toast({ title: 'Validation Error', description: 'Please select a site.', variant: 'error' });
-      return;
-    }
-    if (!formData.departmentId) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please select a department.',
-        variant: 'error',
-      });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.siteId) errors.siteId = 'Please select a site.';
+    if (!formData.departmentId) errors.departmentId = 'Please select a department.';
+    if (!formData.equipmentTypeId) errors.equipmentTypeId = 'Please select an equipment type.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
     if (formData.systemIds.length === 0) {
       toast({
         title: 'Validation Error',
         description: 'Please select at least one system.',
-        variant: 'error',
-      });
-      return;
-    }
-    if (!formData.equipmentTypeId) {
-      toast({
-        title: 'Validation Error',
-        description: 'Please select an equipment type.',
         variant: 'error',
       });
       return;
@@ -511,6 +499,7 @@ export const EquipmentTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
     } catch (err) {
       if (import.meta.env.DEV) console.error('Failed to save equipment:', err);
@@ -858,6 +847,7 @@ export const EquipmentTab: React.FC = () => {
             onClick={() => {
               setEditingId(null);
               setFormData(initialFormData);
+              setFieldErrors({});
               setIsModalOpen(true);
             }}
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
@@ -1189,6 +1179,7 @@ export const EquipmentTab: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type *</label>
+                    <FormField error={formData.equipmentTypeId ? undefined : fieldErrors.equipmentTypeId} className="mb-0">
                     <select
                       value={formData.equipmentTypeId}
                       onChange={(e) => handleTypeChange(e.target.value)}
@@ -1205,6 +1196,7 @@ export const EquipmentTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   </div>
                 </div>
 
@@ -1264,6 +1256,7 @@ export const EquipmentTab: React.FC = () => {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site *</label>
+                    <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
                     <select
                       value={formData.siteId}
                       onChange={(e) => handleSiteChange(e.target.value)}
@@ -1277,9 +1270,11 @@ export const EquipmentTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Department *</label>
+                    <FormField error={formData.departmentId ? undefined : fieldErrors.departmentId} className="mb-0">
                     <select
                       value={formData.departmentId}
                       onChange={(e) => handleDepartmentChange(e.target.value)}
@@ -1302,6 +1297,7 @@ export const EquipmentTab: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    </FormField>
                     {deptError && (
                       <p className="text-xs text-red-500 mt-1">
                         Departmanlar yüklenirken hata oluştu

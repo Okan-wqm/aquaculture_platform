@@ -4,7 +4,7 @@
  * Supports hierarchical parent-child relationships
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner } from '@aquaculture/shared-ui';
 import {
   useSystemList,
   useCreateSystem,
@@ -92,6 +92,8 @@ export const SystemsTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSystem, setEditingSystem] = useState<System | null>(null);
   const [formData, setFormData] = useState<SystemFormData>(emptyFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState('');
   const [filterSiteId, setFilterSiteId] = useState('');
   const [showOrphanedOnly, setShowOrphanedOnly] = useState(false);
@@ -177,6 +179,7 @@ export const SystemsTab: React.FC = () => {
   const handleCreate = () => {
     setEditingSystem(null);
     setFormData(emptyFormData);
+    setFieldErrors({});
     setIsModalOpen(true);
   };
 
@@ -222,18 +225,12 @@ export const SystemsTab: React.FC = () => {
 
   const handleSave = async () => {
     if (!editingSystem) {
-      if (!formData.name) {
-        toast({ title: 'Please enter a name.', variant: 'warning' });
-        return;
-      }
-      if (!formData.code) {
-        toast({ title: 'Please enter a code.', variant: 'warning' });
-        return;
-      }
-      if (!formData.siteId) {
-        toast({ title: 'Please select a site.', variant: 'warning' });
-        return;
-      }
+      const errors: Record<string, string> = {};
+      if (!formData.name) errors.name = 'Please enter a name.';
+      if (!formData.code) errors.code = 'Please enter a code.';
+      if (!formData.siteId) errors.siteId = 'Please select a site.';
+      setFieldErrors(errors);
+      if (Object.keys(errors).length > 0) return;
     }
 
     try {
@@ -677,6 +674,7 @@ export const SystemsTab: React.FC = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+              <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
               <input
                 type="text"
                 value={formData.name}
@@ -684,9 +682,11 @@ export const SystemsTab: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="System name"
               />
+              </FormField>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Code *</label>
+              <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
               <input
                 type="text"
                 value={formData.code}
@@ -694,6 +694,7 @@ export const SystemsTab: React.FC = () => {
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="SYS-001"
               />
+              </FormField>
             </div>
           </div>
 
@@ -730,6 +731,7 @@ export const SystemsTab: React.FC = () => {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site *</label>
+            <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
             <select
               value={formData.siteId}
               onChange={(e) => handleFormChange('siteId', e.target.value)}
@@ -743,6 +745,7 @@ export const SystemsTab: React.FC = () => {
                 </option>
               ))}
             </select>
+            </FormField>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

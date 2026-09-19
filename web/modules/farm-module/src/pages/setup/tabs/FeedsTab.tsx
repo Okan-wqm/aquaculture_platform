@@ -3,7 +3,7 @@
  * Displays list of feeds with comprehensive feed management form
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, formatCurrency, parseMoney, DEFAULT_CURRENCY, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { FormField, Modal, formatCurrency, parseMoney, DEFAULT_CURRENCY, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useFeedList,
   useCreateFeed,
@@ -248,6 +248,8 @@ export const FeedsTab: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<FeedFormData>(initialFormData);
+  // FE-HIGH-086: required-field misses land on the field, not in a toast.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [calculatorWeight, setCalculatorWeight] = useState<number | ''>('');
 
   // Get feeds from API
@@ -277,22 +279,13 @@ export const FeedsTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name) {
-      toast({ title: 'Please enter a name.', variant: 'warning' });
-      return;
-    }
-    if (!formData.code) {
-      toast({ title: 'Please enter a code.', variant: 'warning' });
-      return;
-    }
-    if (!formData.type) {
-      toast({ title: 'Please select a feed type.', variant: 'warning' });
-      return;
-    }
-    if (!formData.siteId) {
-      toast({ title: 'Please select a site.', variant: 'warning' });
-      return;
-    }
+    const errors: Record<string, string> = {};
+    if (!formData.name) errors.name = 'Please enter a name.';
+    if (!formData.code) errors.code = 'Please enter a code.';
+    if (!formData.type) errors.type = 'Please select a feed type.';
+    if (!formData.siteId) errors.siteId = 'Please select a site.';
+    setFieldErrors(errors);
+    if (Object.keys(errors).length > 0) return;
 
     // Build input object
     const input: any = {
@@ -367,6 +360,7 @@ export const FeedsTab: React.FC = () => {
       }
       setIsModalOpen(false);
       setFormData(initialFormData);
+      setFieldErrors({});
       setEditingId(null);
       setCalculatorWeight('');
     } catch (err) {
@@ -620,6 +614,7 @@ export const FeedsTab: React.FC = () => {
           onClick={() => {
             setEditingId(null);
             setFormData(initialFormData);
+            setFieldErrors({});
             setCalculatorWeight('');
             setIsModalOpen(true);
           }}
@@ -895,6 +890,7 @@ export const FeedsTab: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Feed Name *</label>
+                  <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
                   <input
                     type="text"
                     required
@@ -902,9 +898,11 @@ export const FeedsTab: React.FC = () => {
                     onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
+                  <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
                   <input
                     type="text"
                     required
@@ -912,9 +910,11 @@ export const FeedsTab: React.FC = () => {
                     onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
                     className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
+                  <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
                   <select
                     required
                     value={formData.type}
@@ -928,9 +928,11 @@ export const FeedsTab: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site *</label>
+                  <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
                   <select
                     required
                     value={formData.siteId}
@@ -944,6 +946,7 @@ export const FeedsTab: React.FC = () => {
                       </option>
                     ))}
                   </select>
+                  </FormField>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>

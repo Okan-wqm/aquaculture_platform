@@ -16,6 +16,7 @@
 
 import React, { memo, useMemo } from 'react';
 import type { RuntimeWidgetProps } from '../../../types/scada-runtime.types';
+import { colors, chartChrome } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -86,12 +87,12 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
 
   /* ---- active zone color ---- */
   const activeZoneColor = useMemo(() => {
-    if (zones.length === 0) return '#22c55e';
+    if (zones.length === 0) return colors.success[500];
     const sorted = [...zones].sort((a, b) => a.min - b.min);
     for (const z of sorted) {
       if (numVal >= z.min && numVal <= z.max) return z.color;
     }
-    return sorted[sorted.length - 1]?.color ?? '#22c55e';
+    return sorted[sorted.length - 1]?.color ?? colors.success[500];
   }, [zones, numVal]);
 
   /* ---- SVG constants ---- */
@@ -163,7 +164,7 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
           <path
             d={fullArcPath}
             fill="none"
-            stroke="#e5e7eb"
+            stroke={chartChrome.grid}
             strokeWidth={TRACK_WIDTH}
             strokeLinecap="round"
           />
@@ -193,12 +194,12 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
               y1={CY}
               x2={CX + 62}
               y2={CY}
-              stroke="#374151"
+              stroke={colors.neutral[700]}
               strokeWidth={2}
               strokeLinecap="round"
             />
-            <circle cx={CX} cy={CY} r={4} fill="#374151" />
-            <circle cx={CX} cy={CY} r={2} fill="#ffffff" />
+            <circle cx={CX} cy={CY} r={4} fill={colors.neutral[700]} />
+            <circle cx={CX} cy={CY} r={2} fill={colors.white} />
           </g>
 
           {/* Value */}
@@ -208,22 +209,22 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
             textAnchor="middle"
             fontSize={Math.min(height * 0.14, 20)}
             fontWeight={700}
-            fill="#111827"
+            fill={colors.neutral[900]}
           >
             {displayVal}
           </text>
-          <text x={CX} y={CY + 4} textAnchor="middle" fontSize={10} fill="#6b7280">
+          <text x={CX} y={CY + 4} textAnchor="middle" fontSize={10} fill={colors.gray[400]}>
             {unit}
           </text>
-          <text x={CX} y={126} textAnchor="middle" fontSize={9} fill="#9ca3af">
+          <text x={CX} y={126} textAnchor="middle" fontSize={9} fill={colors.neutral[400]}>
             {label}
           </text>
 
           {/* Min / Max */}
-          <text x={26} y={106} textAnchor="middle" fontSize={8} fill="#9ca3af">
+          <text x={26} y={106} textAnchor="middle" fontSize={8} fill={colors.neutral[400]}>
             {min}
           </text>
-          <text x={174} y={106} textAnchor="middle" fontSize={8} fill="#9ca3af">
+          <text x={174} y={106} textAnchor="middle" fontSize={8} fill={colors.neutral[400]}>
             {max}
           </text>
         </svg>
@@ -260,7 +261,7 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
           cy={100}
           r={R}
           fill="none"
-          stroke="#e5e7eb"
+          stroke={chartChrome.grid}
           strokeWidth={TRACK_WIDTH}
         />
 
@@ -316,7 +317,7 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
                 cx={pt.x}
                 cy={pt.y}
                 r={6}
-                fill="#374151"
+                fill={colors.neutral[700]}
                 style={{
                   transition: 'cx 350ms ease-out, cy 350ms ease-out',
                 }}
@@ -332,14 +333,14 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
           textAnchor="middle"
           fontSize={Math.min(height * 0.14, 22)}
           fontWeight={700}
-          fill="#111827"
+          fill={colors.neutral[900]}
         >
           {displayVal}
         </text>
-        <text x={CX} y={112} textAnchor="middle" fontSize={10} fill="#6b7280">
+        <text x={CX} y={112} textAnchor="middle" fontSize={10} fill={colors.gray[400]}>
           {unit}
         </text>
-        <text x={CX} y={128} textAnchor="middle" fontSize={9} fill="#9ca3af">
+        <text x={CX} y={128} textAnchor="middle" fontSize={9} fill={colors.neutral[400]}>
           {label}
         </text>
       </svg>

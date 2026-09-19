@@ -41,6 +41,11 @@ export interface DrawerProps {
   showCloseButton?: boolean;
   /** Kapatma butonunun erişilebilir etiketi */
   closeLabel?: string;
+  /**
+   * Başlıksız çekmecenin erişilebilir adı (içerik kendi başlığını taşıyorsa,
+   * örn. AlarmPanel). `title` verildiğinde yok sayılır.
+   */
+  ariaLabel?: string;
   /** Footer içeriği (örn. Uygula / Vazgeç) */
   footer?: React.ReactNode;
   /** İçerik */
@@ -117,6 +122,7 @@ export const Drawer: React.FC<DrawerProps> = ({
   closeOnEscape = true,
   showCloseButton = true,
   closeLabel = 'Kapat',
+  ariaLabel,
   footer,
   children,
   className = '',
@@ -145,6 +151,7 @@ export const Drawer: React.FC<DrawerProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? titleId : undefined}
+      aria-label={title ? undefined : ariaLabel}
       aria-describedby={description ? descriptionId : undefined}
     >
       {/* Overlay */}

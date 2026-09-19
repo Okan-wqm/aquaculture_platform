@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserPlus, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@aquaculture/shared-ui';
+import { ConfirmModal, useAuth } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
@@ -24,7 +24,6 @@ import {
 } from '../hooks/useTenantData';
 import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import { formatRelativeTime } from '../utils/date-utils';
-import { DeleteConfirmModal } from '../components/common';
 
 // ---------------------------------------------------------------------------
 // Types & helpers
@@ -444,44 +443,50 @@ const TenantUsers: React.FC = () => {
       />
 
       {deletingUser && (
-        <DeleteConfirmModal
+        <ConfirmModal
           isOpen={!!deletingUser}
           onClose={() => setDeletingUser(null)}
           onConfirm={handleConfirmDelete}
           title="Delete User"
           message={`Are you sure you want to delete "${deletingUser.name}"? This action cannot be undone.`}
-          warningMessage={deleteError ?? undefined}
+          warning={deleteError}
+          confirmText="Delete"
+          cancelText="Cancel"
+          variant="danger"
           isLoading={isDeleting}
+          loadingText="Processing..."
         />
       )}
 
       {activatingUser && (
-        <DeleteConfirmModal
+        <ConfirmModal
           isOpen={activatingUser !== null}
           onClose={() => setActivatingUser(null)}
           onConfirm={handleConfirmActivate}
           title="Activate User"
           message={`Activate "${activatingUser.name}"? The user will be able to sign in again.`}
-          warningMessage={lifecycleModalError ?? undefined}
-          confirmLabel="Activate"
-          cancelLabel="Cancel"
+          warning={lifecycleModalError}
+          confirmText="Activate"
+          cancelText="Cancel"
           variant="warning"
           isLoading={activateUserMutation.isPending}
+          loadingText="Processing..."
         />
       )}
 
       {unlockingUser && (
-        <DeleteConfirmModal
+        <ConfirmModal
           isOpen={unlockingUser !== null}
           onClose={() => setUnlockingUser(null)}
           onConfirm={handleConfirmUnlock}
           title="Unlock User"
           message={`Unlock "${unlockingUser.name}"? This clears the failed-login lockout so the user can sign in immediately.`}
-          warningMessage={lifecycleModalError ?? undefined}
-          confirmLabel="Unlock"
-          cancelLabel="Cancel"
+          warning={lifecycleModalError}
+          confirmText="Unlock"
+          cancelText="Cancel"
           variant="warning"
           isLoading={unlockUserMutation.isPending}
+          loadingText="Processing..."
         />
       )}
 

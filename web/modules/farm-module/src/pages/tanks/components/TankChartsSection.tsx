@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { PieChart, LineChart, getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import { PieChart, LineChart, getTenantId, tenantScopedStorageKey, colors } from '@aquaculture/shared-ui';
 import type { PieDataItem, LineDataset } from '@aquaculture/shared-ui';
 import type { TankWithBatch } from '../types';
 
@@ -81,14 +81,14 @@ interface TankAnalyticsData {
 // Default colors for charts
 const CHART_COLORS = {
   category: {
-    TANK: '#06B6D4',   // cyan
-    POND: '#3B82F6',   // blue
-    CAGE: '#8B5CF6',   // purple
+    TANK: colors.primary[400],   // cyan
+    POND: colors.info[500],   // blue
+    CAGE: colors.primary[700],   // purple
   },
   density: {
-    low: '#10B981',    // green (< 50%)
-    medium: '#F59E0B', // yellow (50-80%)
-    high: '#EF4444',   // red (> 80%)
+    low: colors.success[500],    // green (< 50%)
+    medium: colors.warning[500], // yellow (50-80%)
+    high: colors.error[500],   // red (> 80%)
   },
 };
 
@@ -205,7 +205,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       .map(t => ({
         label: t.code || t.name,
         value: t.totalMortality || 0,
-        color: '#EF4444', // red
+        color: colors.error[500], // red
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
@@ -218,7 +218,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       .map(t => ({
         label: t.code || t.name,
         value: t.totalCull || 0,
-        color: '#F97316', // orange
+        color: colors.accent[600], // orange
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
@@ -254,14 +254,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.mortalityCount || 0),
-      color: ['#EF4444', '#F97316', '#F59E0B', '#84CC16', '#10B981'][idx % 5],
+      color: [colors.error[500], colors.accent[600], colors.warning[500], colors.secondary[500], colors.success[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -270,14 +270,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.avgWeightG || 0),
-      color: ['#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4', '#10B981'][idx % 5],
+      color: [colors.info[500], colors.primary[700], colors.accent[500], colors.primary[400], colors.success[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -286,14 +286,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.biomassKg || 0),
-      color: ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444'][idx % 5],
+      color: [colors.success[500], colors.info[500], colors.primary[700], colors.warning[500], colors.error[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -302,14 +302,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.fcr || 0),
-      color: ['#F59E0B', '#EF4444', '#3B82F6', '#10B981', '#8B5CF6'][idx % 5],
+      color: [colors.warning[500], colors.error[500], colors.info[500], colors.success[500], colors.primary[700]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -319,14 +319,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.feedAmountKg || 0),
-      color: ['#8B5CF6', '#EC4899', '#06B6D4', '#F59E0B', '#10B981'][idx % 5],
+      color: [colors.primary[700], colors.accent[500], colors.primary[400], colors.warning[500], colors.success[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -336,14 +336,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.densityKgM3 || 0),
-      color: ['#06B6D4', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'][idx % 5],
+      color: [colors.primary[400], colors.info[500], colors.success[500], colors.warning[500], colors.error[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -353,14 +353,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.fishCount || 0),
-      color: ['#3B82F6', '#8B5CF6', '#10B981', '#EF4444', '#F59E0B'][idx % 5],
+      color: [colors.info[500], colors.primary[700], colors.success[500], colors.error[500], colors.warning[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -370,14 +370,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.sgr || 0),
-      color: ['#10B981', '#06B6D4', '#8B5CF6', '#EC4899', '#F59E0B'][idx % 5],
+      color: [colors.success[500], colors.primary[400], colors.primary[700], colors.accent[500], colors.warning[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 

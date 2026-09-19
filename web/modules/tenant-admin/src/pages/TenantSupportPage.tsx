@@ -36,7 +36,7 @@ import {
   FileText,
   Loader2,
 } from 'lucide-react';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext } from '@aquaculture/shared-ui';
 import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import {
   useSupportTickets,
@@ -141,106 +141,93 @@ const NewTicketModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative min-h-screen flex items-center justify-center p-4">
-        <div className="relative w-full max-w-lg bg-white rounded-xl shadow-xl">
-          <form onSubmit={handleSubmit}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-tenant-100 flex items-center justify-center">
-                  <Ticket className="w-5 h-5 text-tenant-600" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">Create Support Ticket</h3>
-                  <p className="text-sm text-gray-500">Describe your issue or request</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Subject
-                </label>
-                <input
-                  type="text"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="Brief description of your issue"
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Category
-                </label>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value as TicketCategory)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
-                >
-                  <option value="technical">Technical Issue</option>
-                  <option value="billing">Billing</option>
-                  <option value="feature_request">Feature Request</option>
-                  <option value="bug">Bug Report</option>
-                  <option value="general">General Question</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description
-                </label>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Please provide as much detail as possible..."
-                  rows={5}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 resize-none focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
-                  required
-                />
-              </div>
-
-              <div className="flex items-center gap-2 text-sm text-gray-500">
-                <Paperclip className="w-4 h-4" />
-                <button type="button" className="text-tenant-600 hover:underline">
-                  Attach files
-                </button>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg transition-colors"
-              >
-                Create Ticket
-              </button>
-            </div>
-          </form>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title={
+        <span className="flex items-center gap-3">
+          <span className="w-10 h-10 rounded-lg bg-tenant-100 flex items-center justify-center">
+            <Ticket className="w-5 h-5 text-tenant-600" />
+          </span>
+          <span>Create Support Ticket</span>
+        </span>
+      }
+      description="Describe your issue or request"
+      bodyClassName=""
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            form="create-ticket-form"
+            className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg transition-colors"
+          >
+            Create Ticket
+          </button>
+        </>
+      }
+    >
+      <form id="create-ticket-form" onSubmit={handleSubmit} className="p-6 space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Subject
+          </label>
+          <input
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Brief description of your issue"
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            required
+          />
         </div>
-      </div>
-    </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Category
+          </label>
+          <select
+            value={category}
+            onChange={(e) => setCategory(e.target.value as TicketCategory)}
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+          >
+            <option value="technical">Technical Issue</option>
+            <option value="billing">Billing</option>
+            <option value="feature_request">Feature Request</option>
+            <option value="bug">Bug Report</option>
+            <option value="general">General Question</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Description
+          </label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Please provide as much detail as possible..."
+            rows={5}
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 resize-none focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            required
+          />
+        </div>
+
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <Paperclip className="w-4 h-4" />
+          <button type="button" className="text-tenant-600 hover:underline">
+            Attach files
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -259,56 +246,56 @@ const RatingModal: React.FC<{
   if (!isOpen || !ticket) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative min-h-screen flex items-center justify-center p-4">
-        <div className="relative w-full max-w-sm bg-white rounded-xl shadow-xl p-6 text-center">
-          <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">
-            Ticket Resolved
-          </h3>
-          <p className="text-sm text-gray-500 mb-6">
-            How would you rate our support?
-          </p>
-          <div className="flex items-center justify-center gap-2 mb-6">
-            {[1, 2, 3, 4, 5].map((star) => (
-              <button
-                key={star}
-                onMouseEnter={() => setHoveredRating(star)}
-                onMouseLeave={() => setHoveredRating(0)}
-                onClick={() => setRating(star)}
-                className="p-1"
-              >
-                <Star
-                  className={`w-8 h-8 ${
-                    star <= (hoveredRating || rating)
-                      ? 'text-yellow-400 fill-yellow-400'
-                      : 'text-gray-500'
-                  }`}
-                />
-              </button>
-            ))}
-          </div>
-          <div className="flex gap-3">
-            <button
-              onClick={onClose}
-              className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
-            >
-              Skip
-            </button>
-            <button
-              onClick={() => rating > 0 && onSubmit(rating)}
-              disabled={rating === 0}
-              className="flex-1 px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg disabled:opacity-50"
-            >
-              Submit
-            </button>
-          </div>
-        </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="sm"
+      title="Ticket Resolved"
+      description="How would you rate our support?"
+      bodyClassName="p-6"
+      footer={
+        <>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            onClick={() => rating > 0 && onSubmit(rating)}
+            disabled={rating === 0}
+            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg disabled:opacity-50"
+          >
+            Submit
+          </button>
+        </>
+      }
+    >
+      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
+        <CheckCircle className="w-8 h-8 text-green-600" />
       </div>
-    </div>
+      <div className="flex items-center justify-center gap-2">
+        {[1, 2, 3, 4, 5].map((star) => (
+          <button
+            key={star}
+            onMouseEnter={() => setHoveredRating(star)}
+            onMouseLeave={() => setHoveredRating(0)}
+            onClick={() => setRating(star)}
+            className="p-1"
+          >
+            <Star
+              className={`w-8 h-8 ${
+                star <= (hoveredRating || rating)
+                  ? 'text-yellow-400 fill-yellow-400'
+                  : 'text-gray-500'
+              }`}
+            />
+          </button>
+        ))}
+      </div>
+    </Modal>
   );
 };
 

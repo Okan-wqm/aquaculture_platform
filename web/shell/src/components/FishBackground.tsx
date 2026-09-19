@@ -14,7 +14,7 @@ import React, { useEffect, useRef } from 'react';
 // ============================================================================
 
 const SeaBass: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 120 50" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 120 50" className="w-full h-full">
     <defs>
       <linearGradient id={`seabass-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(70,80,90,0.5)" />
@@ -39,7 +39,7 @@ const SeaBass: React.FC<{ fishId: number }> = ({ fishId }) => (
 );
 
 const SeaBream: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 100 60" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 100 60" className="w-full h-full">
     <defs>
       <linearGradient id={`bream-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(80,90,100,0.5)" />
@@ -65,7 +65,7 @@ const SeaBream: React.FC<{ fishId: number }> = ({ fishId }) => (
 );
 
 const Salmon: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 140 55" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 140 55" className="w-full h-full">
     <defs>
       <linearGradient id={`salmon-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(70,90,100,0.5)" />
@@ -95,7 +95,7 @@ const Salmon: React.FC<{ fishId: number }> = ({ fishId }) => (
 );
 
 const Halibut: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 130 40" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 130 40" className="w-full h-full">
     <defs>
       <linearGradient id={`halibut-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(100,80,60,0.5)" />
@@ -120,7 +120,7 @@ const Halibut: React.FC<{ fishId: number }> = ({ fishId }) => (
 );
 
 const Wrasse: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 80 40" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 80 40" className="w-full h-full">
     <defs>
       <linearGradient id={`wrasse-body-${fishId}`} x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stopColor="rgba(60,150,130,0.5)" />
@@ -149,7 +149,7 @@ const Wrasse: React.FC<{ fishId: number }> = ({ fishId }) => (
 // to a silver belly, a tall first dorsal, a sickle pectoral fin, the signature
 // row of yellow finlets toward the tail, and a deep crescent (lunate) caudal.
 const BluefinTuna: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 160 60" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 160 60" className="w-full h-full">
     <defs>
       <linearGradient id={`tuna-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(28,58,108,0.55)" />
@@ -188,7 +188,7 @@ const BluefinTuna: React.FC<{ fishId: number }> = ({ fishId }) => (
 // Shrimp / prawn — an aquaculture species, swims with the school. Front (head,
 // eye, antennae) on the RIGHT to match the fish default orientation.
 const Shrimp: React.FC<{ fishId: number }> = ({ fishId }) => (
-  <svg viewBox="0 0 90 50" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 90 50" className="w-full h-full">
     <defs>
       <linearGradient id={`shrimp-body-${fishId}`} x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stopColor="rgba(255,140,120,0.5)" />
@@ -367,7 +367,7 @@ const Crab: React.FC<{ color: string; x: number; scale?: number }> = ({ color, x
 
 // Drifting jellyfish — used in the ambient layer (not the swim system).
 const Jellyfish: React.FC<{ tint: string }> = ({ tint }) => (
-  <svg viewBox="0 0 60 92" style={{ width: '100%', height: '100%' }}>
+  <svg viewBox="0 0 60 92" className="w-full h-full">
     <path
       d="M6 32 Q6 6 30 6 Q54 6 54 32 Q54 38 48 40 Q42 34 36 40 Q30 34 24 40 Q18 34 12 40 Q6 38 6 32 Z"
       fill={tint}
@@ -390,7 +390,7 @@ const Jellyfish: React.FC<{ tint: string }> = ({ tint }) => (
 );
 
 const SeaFloor: React.FC = () => (
-  <svg className="absolute bottom-0 left-0 w-full" style={{ height: 'clamp(140px, 22vh, 240px)' }} viewBox="0 0 1200 120" preserveAspectRatio="xMidYMax slice">
+  <svg className="absolute bottom-0 left-0 w-full h-[clamp(140px,_22vh,_240px)]" viewBox="0 0 1200 120" preserveAspectRatio="xMidYMax slice">
     <rect x="0" y="100" width="1200" height="20" fill="rgba(194,178,128,0.15)" />
     <ellipse cx="100" cy="105" rx="80" ry="8" fill="rgba(194,178,128,0.1)" />
     <ellipse cx="400" cy="108" rx="120" ry="10" fill="rgba(194,178,128,0.12)" />
@@ -675,15 +675,7 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
       <div
         key={i}
         ref={el => { domRefs.current[i] = el; }}
-        className="swimming-fish"
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          width: 80,
-          height: 40,
-          transition: 'transform 0.5s ease-out',
-        }}
+        className="swimming-fish absolute left-0 top-0 w-20 h-10 transition-transform duration-500 ease-out"
       >
         <FishComponent fishId={i} />
       </div>
@@ -695,10 +687,6 @@ const FishBackground: React.FC<FishBackgroundProps> = ({ fishCount = 20 }) => {
       ref={containerRef}
       className="industrial-reef absolute inset-0 overflow-hidden pointer-events-none"
       aria-hidden="true"
-      style={{
-        background:
-          'radial-gradient(ellipse 80% 50% at 50% -10%, rgba(127, 214, 224, 0.18), transparent 60%), radial-gradient(ellipse 60% 40% at 50% 5%, rgba(200, 240, 238, 0.10), transparent 70%), linear-gradient(180deg, #0b324a 0%, #0a2b40 18%, #061b2c 40%, #04111c 70%, #020a12 100%)',
-      }}
     >
       <div className="industrial-reef-rays" />
       <div className="industrial-reef-snow" />

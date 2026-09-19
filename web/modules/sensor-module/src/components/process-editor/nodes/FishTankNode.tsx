@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { Handle, Position, NodeProps, type Node } from '@xyflow/react';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 interface FishTankNodeData extends Record<string, unknown> {
   label?: string;
@@ -31,7 +32,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
         position: 'relative',
         width,
         height: containerHeight,
-        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        border: selected ? `2px solid ${themeColors.info[500]}` : '2px solid transparent',
         borderRadius: 8,
       }}
     >
@@ -50,7 +51,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           rx={15}
           ry={15}
           fill="none"
-          stroke={data?.tankStroke || '#005678'}
+          stroke={data?.tankStroke || colors.primary[700]}
           strokeWidth={3}
         />
 
@@ -60,7 +61,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           y={height * 0.4}
           width={width}
           height={height * 0.6}
-          fill={data?.waterColor || '#4FB3F6'}
+          fill={data?.waterColor || colors.primary[300]}
           opacity={0.6}
           rx={15}
           ry={15}
@@ -72,8 +73,8 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           cy={height / 2}
           rx={width * 0.05}
           ry={height * 0.07}
-          fill="#FFA07A"
-          stroke="#CD5C5C"
+          fill={colors.accent[500]}
+          stroke={colors.accent[600]}
           strokeWidth={2}
         />
         <polygon
@@ -82,7 +83,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           },${height / 2 - height * 0.05} ${
             width / 2 + width * 0.1
           },${height / 2 + height * 0.05}`}
-          fill="#CD5C5C"
+          fill={colors.accent[600]}
         />
 
         {/* Two vertical pipes under tank, centered */}
@@ -104,7 +105,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
         />
 
         {/* Label at top-left */}
-        <text x={10} y={20} fontSize={16} fill="#003366">
+        <text x={10} y={20} fontSize={16} fill={colors.primary[800]}>
           {label}
         </text>
       </svg>
@@ -119,7 +120,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           left: 0,
           width: 12,
           height: 12,
-          background: '#3b82f6',
+          background: colors.info[500],
           border: '2px solid white',
           borderRadius: '50%',
         }}
@@ -136,7 +137,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           left: 'auto',
           width: 12,
           height: 12,
-          background: '#22c55e',
+          background: colors.success[500],
           border: '2px solid white',
           borderRadius: '50%',
         }}
@@ -152,7 +153,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           top: height + pipeHeight,
           width: 10,
           height: 10,
-          background: '#22c55e',
+          background: colors.success[500],
           border: '2px solid white',
           borderRadius: '50%',
         }}
@@ -166,7 +167,7 @@ const FishTankNode: React.FC<NodeProps<Node<FishTankNodeData>>> = ({ data, selec
           top: height + pipeHeight,
           width: 10,
           height: 10,
-          background: '#22c55e',
+          background: colors.success[500],
           border: '2px solid white',
           borderRadius: '50%',
         }}

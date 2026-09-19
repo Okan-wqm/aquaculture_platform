@@ -22,6 +22,7 @@ import {
   buildFilterId,
   angleToGradientCoords,
 } from '../../../types/scada-svg-properties.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -115,7 +116,7 @@ const FilterDef: React.FC<{
     const dx = filter.shadowX ?? 2;
     const dy = filter.shadowY ?? 2;
     const blur = filter.blurRadius ?? 4;
-    const color = filter.shadowColor ?? '#000000';
+    const color = filter.shadowColor ?? colors.black;
     const opacity = filter.shadowOpacity ?? 0.5;
 
     return (
@@ -137,7 +138,7 @@ const FilterDef: React.FC<{
   // Glow: centered (no offset) blur in the glow color
   if (filter.type === 'glow') {
     const blur = filter.blurRadius ?? 6;
-    const color = filter.shadowColor ?? '#3b82f6';
+    const color = filter.shadowColor ?? colors.info[500];
     const opacity = filter.shadowOpacity ?? 0.8;
 
     return (

@@ -7,7 +7,7 @@
  * dosed once and affects the shared-water system). The gear opens the shared config drawer
  * (member limits + reagents); the checkboxes here are the member opt-out.
  */
-import { buildDeffeyesData, computeWaterChemistryOutputs } from '@aquaculture/shared-ui';
+import { buildDeffeyesData, computeWaterChemistryOutputs, colors } from '@aquaculture/shared-ui';
 import {
   DeffeyesChart,
   ResultsPanel,
@@ -20,7 +20,7 @@ import { sourcesToWaterChemistryInputs } from './engine-adapter';
 import type { WcSystemCard } from './types';
 
 // Stable palette indexed by flow-stage position so a point keeps its color as others toggle.
-const OVERLAY_COLORS = ['#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+const OVERLAY_COLORS = [colors.error[500], colors.success[500], colors.info[500], colors.warning[500], colors.primary[700], colors.accent[500], colors.secondary[600], colors.accent[600]];
 
 const WcSystemView = ({
   system,

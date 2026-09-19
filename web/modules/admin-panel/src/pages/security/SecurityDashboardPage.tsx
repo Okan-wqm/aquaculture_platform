@@ -5,6 +5,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
+import { Modal, chartChrome, colors } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -37,7 +38,6 @@ const XCircle = (p: { className?: string }): React.ReactElement => <Icon path="M
 const Zap = (p: { className?: string }): React.ReactElement => <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />;
 const Target = (p: { className?: string }): React.ReactElement => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
 const Users = (p: { className?: string }): React.ReactElement => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" {...p} />;
-const X = (p: { className?: string }): React.ReactElement => <Icon path="M6 18L18 6M6 6l12 12" {...p} />;
 
 // ============================================================================
 // Types
@@ -413,9 +413,9 @@ const formatDateTime = (dateString: string): string => {
 // Health Score Gauge Component
 const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({ score, status }) => {
   const getColor = (): string => {
-    if (status === 'healthy') return '#22c55e';
-    if (status === 'warning') return '#eab308';
-    return '#ef4444';
+    if (status === 'healthy') return colors.success[500];
+    if (status === 'warning') return colors.warning[500];
+    return colors.error[500];
   };
 
   const circumference = 2 * Math.PI * 45;
@@ -429,7 +429,7 @@ const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'cr
           cx="64"
           cy="64"
           r="45"
-          stroke="#e5e7eb"
+          stroke={chartChrome.grid}
           strokeWidth="10"
           fill="none"
         />
@@ -459,120 +459,117 @@ const EventDetailModal: React.FC<{
   onClose: () => void;
 }> = ({ event, onClose }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {getSeverityIcon(event.severity)}
-              <h2 className="text-xl font-semibold text-gray-900">{event.eventType}</h2>
-            </div>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title={
+        <span className="flex items-center gap-3">
+          {getSeverityIcon(event.severity)}
+          <span>{event.eventType}</span>
+        </span>
+      }
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+        >
+          Close
+        </button>
+      }
+    >
+      {/* Basic Info */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500">Event ID</span>
+          <p className="text-sm text-gray-900 font-mono">{event.id}</p>
         </div>
-        <div className="p-6 space-y-6">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">Event ID</span>
-              <p className="text-sm text-gray-900 font-mono">{event.id}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Timestamp</span>
-              <p className="text-sm text-gray-900">{formatDateTime(event.timestamp)}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Severity</span>
-              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(event.severity)}`}>
-                {getSeverityIcon(event.severity)}
-                {event.severity}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Status</span>
-              <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
-                {event.status}
-              </span>
-            </div>
-          </div>
-
-          {/* Description */}
-          <div>
-            <span className="text-sm font-medium text-gray-500">Description</span>
-            <p className="text-sm text-gray-900 mt-1">{event.description}</p>
-          </div>
-
-          {/* Source Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Source Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-xs text-gray-500">Source</span>
-                <p className="text-sm text-gray-900">{event.source}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Source IP</span>
-                <p className="text-sm text-gray-900 font-mono">{event.sourceIp || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Target Resource</span>
-                <p className="text-sm text-gray-900">{event.targetResource || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Location</span>
-                <p className="text-sm text-gray-900">
-                  {event.geoLocation ? `${event.geoLocation.city}, ${event.geoLocation.country}` : 'N/A'}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* User Info */}
-          {event.userId && (
-            <div className="bg-gray-50 rounded-lg p-4">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <span className="text-xs text-gray-500">User</span>
-                  <p className="text-sm text-gray-900">{event.userName}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500">Tenant</span>
-                  <p className="text-sm text-gray-900">{event.tenantName || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Details */}
-          {event.details && typeof event.details === 'object' && Object.keys(event.details).length > 0 && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">Additional Details</span>
-              <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto mt-1">
-                {JSON.stringify(
-                  // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
-                  Object.fromEntries(
-                    Object.entries(event.details).filter(([, v]) =>
-                      v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
-                    )
-                  )
-                )}
-              </pre>
-            </div>
-          )}
+        <div>
+          <span className="text-sm font-medium text-gray-500">Timestamp</span>
+          <p className="text-sm text-gray-900">{formatDateTime(event.timestamp)}</p>
         </div>
-        <div className="p-6 border-t border-gray-200 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-          >
-            Close
-          </button>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Severity</span>
+          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(event.severity)}`}>
+            {getSeverityIcon(event.severity)}
+            {event.severity}
+          </span>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Status</span>
+          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
+            {event.status}
+          </span>
         </div>
       </div>
-    </div>
+
+      {/* Description */}
+      <div>
+        <span className="text-sm font-medium text-gray-500">Description</span>
+        <p className="text-sm text-gray-900 mt-1">{event.description}</p>
+      </div>
+
+      {/* Source Info */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 mb-3">Source Information</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-xs text-gray-500">Source</span>
+            <p className="text-sm text-gray-900">{event.source}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">Source IP</span>
+            <p className="text-sm text-gray-900 font-mono">{event.sourceIp || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">Target Resource</span>
+            <p className="text-sm text-gray-900">{event.targetResource || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500">Location</span>
+            <p className="text-sm text-gray-900">
+              {event.geoLocation ? `${event.geoLocation.city}, ${event.geoLocation.country}` : 'N/A'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* User Info */}
+      {event.userId && (
+        <div className="bg-gray-50 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <span className="text-xs text-gray-500">User</span>
+              <p className="text-sm text-gray-900">{event.userName}</p>
+            </div>
+            <div>
+              <span className="text-xs text-gray-500">Tenant</span>
+              <p className="text-sm text-gray-900">{event.tenantName || 'N/A'}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Details */}
+      {event.details && typeof event.details === 'object' && Object.keys(event.details).length > 0 && (
+        <div>
+          <span className="text-sm font-medium text-gray-500">Additional Details</span>
+          <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto mt-1">
+            {JSON.stringify(
+              // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
+              Object.fromEntries(
+                Object.entries(event.details).filter(([, v]) =>
+                  v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
+                )
+              )
+            )}
+          </pre>
+        </div>
+      )}
+    </Modal>
   );
 };
 

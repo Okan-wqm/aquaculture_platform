@@ -3,9 +3,9 @@
  * Enterprise-grade layout with sidebar, header, and responsive design
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Sidebar, type UserRole } from '@aquaculture/shared-ui';
+import { Drawer, Sidebar, type UserRole } from '@aquaculture/shared-ui';
 import { adminNavItems, adminNavIcons } from './admin-nav-items';
 
 // Admin panel standalone dev mode runs without auth context. The
@@ -116,85 +116,21 @@ const AdminHeader: React.FC<{
 const MobileSidebarOverlay: React.FC<{
   isOpen: boolean;
   onClose: () => void;
-}> = ({ isOpen, onClose }) => {
-  const overlayRef = useRef<HTMLDivElement>(null);
-
-  // Focus trap and Escape key handling
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-
-      // Focus trap
-      if (e.key === 'Tab' && overlayRef.current) {
-        const focusable = overlayRef.current.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        );
-        if (focusable.length === 0) return;
-
-        const first = focusable[0];
-        const last = focusable[focusable.length - 1];
-
-        if (e.shiftKey) {
-          if (document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          }
-        } else {
-          if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
-        }
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-
-    // Focus the close button on open
-    const closeBtn = overlayRef.current?.querySelector<HTMLElement>('button');
-    closeBtn?.focus();
-
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
-  return (
-    <div ref={overlayRef} className="fixed inset-0 z-40 lg:hidden" role="dialog" aria-modal="true" aria-label="Mobile navigation">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-gray-600/75 transition-opacity"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Sidebar */}
-      <div className="fixed inset-y-0 left-0 flex w-full max-w-xs">
-        <div className="relative flex-1 flex flex-col w-full bg-white">
-          {/* Close button */}
-          <div className="absolute top-0 right-0 -mr-12 pt-2">
-            <button
-              onClick={onClose}
-              aria-label="Close navigation menu"
-              className="ml-1 flex items-center justify-center h-10 w-10 rounded-full focus:outline-hidden focus:ring-2 focus:ring-inset focus:ring-white"
-            >
-              <svg className="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <AdminNavSidebar collapsed={false} />
-        </div>
-      </div>
-    </div>
-  );
-};
+}> = ({ isOpen, onClose }) => (
+  // Escape, focus trap, scroll lock and focus restore come from the shared
+  // dialog behaviour; this component only chooses the edge and the content.
+  <Drawer
+    isOpen={isOpen}
+    onClose={onClose}
+    side="left"
+    size="sm"
+    title="Navigation"
+    closeLabel="Close navigation menu"
+    bodyClassName="flex-1 min-h-0 overflow-y-auto"
+  >
+    <AdminNavSidebar collapsed={false} />
+  </Drawer>
+);
 
 // ============================================================================
 // AdminNavSidebar — thin wrapper around the shared-ui Sidebar with
@@ -234,6 +170,19 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ children }) => {
   useEffect(() => {
     setMobileSidebarOpen(false);
   }, [location.pathname]);
+
+  // The drawer is a phone/tablet surface: once the viewport reaches the
+  // desktop breakpoint the permanent sidebar takes over, so an open drawer
+  // closes instead of covering it.
+  useEffect(() => {
+    if (!mobileSidebarOpen) return;
+    const desktop = window.matchMedia('(min-width: 1024px)');
+    const closeOnDesktop = (event: MediaQueryListEvent): void => {
+      if (event.matches) setMobileSidebarOpen(false);
+    };
+    desktop.addEventListener('change', closeOnDesktop);
+    return () => desktop.removeEventListener('change', closeOnDesktop);
+  }, [mobileSidebarOpen]);
 
   // Load sidebar state from localStorage
   useEffect(() => {

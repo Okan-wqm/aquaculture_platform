@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, useAuth, createTenantQueryKey } from '@aquaculture/shared-ui';
+import { cn, useAuth, createTenantQueryKey, colors } from '@aquaculture/shared-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from '../../hooks/useGraphQL';
 
@@ -38,12 +38,12 @@ type ViewMode = 'daily' | 'weekly' | 'monthly';
 // =====================
 
 const DEFAULT_CATEGORIES: ScheduleCategory[] = [
-  { code: 'D', name: 'Çalışma', color: '#22C55E', textColor: '#FFFFFF', isWorking: true, hours: 9 },
-  { code: 'X', name: 'Off', color: '#9CA3AF', textColor: '#FFFFFF', isWorking: false, hours: 0 },
-  { code: 'P', name: 'Izin', color: '#3B82F6', textColor: '#FFFFFF', isWorking: false, hours: 0 },
-  { code: 'OT', name: 'Fazla Mesai', color: '#F59E0B', textColor: '#FFFFFF', isWorking: true, hours: 4 },
-  { code: 'E', name: 'Egitim', color: '#8B5CF6', textColor: '#FFFFFF', isWorking: true, hours: 8 },
-  { code: 'H', name: 'Hastalık', color: '#EF4444', textColor: '#FFFFFF', isWorking: false, hours: 0 },
+  { code: 'D', name: 'Çalışma', color: colors.success[500], textColor: colors.white, isWorking: true, hours: 9 },
+  { code: 'X', name: 'Off', color: colors.neutral[400], textColor: colors.white, isWorking: false, hours: 0 },
+  { code: 'P', name: 'Izin', color: colors.info[500], textColor: colors.white, isWorking: false, hours: 0 },
+  { code: 'OT', name: 'Fazla Mesai', color: colors.warning[500], textColor: colors.white, isWorking: true, hours: 4 },
+  { code: 'E', name: 'Egitim', color: colors.primary[700], textColor: colors.white, isWorking: true, hours: 8 },
+  { code: 'H', name: 'Hastalık', color: colors.error[500], textColor: colors.white, isWorking: false, hours: 0 },
 ];
 
 /**

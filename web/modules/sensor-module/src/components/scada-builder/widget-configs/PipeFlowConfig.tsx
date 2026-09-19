@@ -1,4 +1,5 @@
 import React from 'react';
+import { colors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -27,13 +28,13 @@ export const PipeFlowConfig: React.FC<WidgetConfigProps> = ({ config, onChange }
     <div className="grid grid-cols-2 gap-2">
       <div>
         <label className="block text-xs text-gray-500 mb-1">Pipe Color</label>
-        <input type="color" value={(config.pipeColor as string) || '#6b7280'}
+        <input type="color" value={(config.pipeColor as string) || colors.gray[400]}
           onChange={(e) => onChange({ pipeColor: e.target.value })}
           className="w-full h-8 rounded border border-gray-300 cursor-pointer" />
       </div>
       <div>
         <label className="block text-xs text-gray-500 mb-1">Flow Color</label>
-        <input type="color" value={(config.flowColor as string) || '#3b82f6'}
+        <input type="color" value={(config.flowColor as string) || colors.info[500]}
           onChange={(e) => onChange({ flowColor: e.target.value })}
           className="w-full h-8 rounded border border-gray-300 cursor-pointer" />
       </div>

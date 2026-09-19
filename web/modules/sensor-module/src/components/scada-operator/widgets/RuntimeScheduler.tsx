@@ -34,6 +34,7 @@ import type {
   RuntimeWidgetProps,
   SchedulerEvent,
 } from '../../../types/scada-runtime.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants & helpers                                                 */
@@ -48,8 +49,8 @@ const MONTH_NAMES = [
 
 // Auto-assign colours to events by tagId
 const COLOR_PALETTE = [
-  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-  '#06b6d4', '#f97316', '#14b8a6', '#ec4899', '#84cc16',
+  themeColors.info[500], themeColors.success[500], themeColors.warning[500], themeColors.error[500], themeColors.primary[700],
+  themeColors.primary[400], themeColors.accent[600], themeColors.secondary[600], themeColors.accent[500], themeColors.secondary[500],
 ];
 
 function getColorForTag(tagId: string, colorMap: Map<string, string>): string {

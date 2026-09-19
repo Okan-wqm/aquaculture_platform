@@ -8,6 +8,7 @@ import type { WidgetRendererProps } from '../WidgetRenderer';
 import { useVfdRealtimeReadings, getVfdStatus } from '../../../hooks/useVfdReadings';
 import type { VfdReading, VfdStatusBits, VfdParameters } from '../../../types/vfd.types';
 import { VfdBrand } from '../../../types/vfd.types';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  CSS keyframes injection (once)                                     */
@@ -47,17 +48,17 @@ function injectVfdStyles(): void {
 /* ------------------------------------------------------------------ */
 
 const BRAND_COLORS: Record<string, { primary: string; accent: string; text: string }> = {
-  [VfdBrand.ABB]:        { primary: '#c00', accent: '#ff3333', text: '#fff' },
-  [VfdBrand.SIEMENS]:    { primary: '#009999', accent: '#00cccc', text: '#fff' },
-  [VfdBrand.DANFOSS]:    { primary: '#b71c1c', accent: '#e53935', text: '#fff' },
-  [VfdBrand.SCHNEIDER]:  { primary: '#3dab2d', accent: '#66cc55', text: '#fff' },
-  [VfdBrand.YASKAWA]:    { primary: '#003e8a', accent: '#1565c0', text: '#fff' },
-  [VfdBrand.DELTA]:      { primary: '#004d99', accent: '#2979ff', text: '#fff' },
-  [VfdBrand.MITSUBISHI]: { primary: '#cc0000', accent: '#ff4444', text: '#fff' },
-  [VfdBrand.ROCKWELL]:   { primary: '#c62828', accent: '#ef5350', text: '#fff' },
+  [VfdBrand.ABB]:        { primary: '#c00', accent: themeColors.error[500], text: '#fff' },
+  [VfdBrand.SIEMENS]:    { primary: themeColors.success[500], accent: themeColors.secondary[500], text: '#fff' },
+  [VfdBrand.DANFOSS]:    { primary: themeColors.error[700], accent: themeColors.error[500], text: '#fff' },
+  [VfdBrand.SCHNEIDER]:  { primary: themeColors.success[600], accent: themeColors.success[500], text: '#fff' },
+  [VfdBrand.YASKAWA]:    { primary: themeColors.primary[700], accent: themeColors.primary[600], text: '#fff' },
+  [VfdBrand.DELTA]:      { primary: themeColors.primary[700], accent: themeColors.info[500], text: '#fff' },
+  [VfdBrand.MITSUBISHI]: { primary: themeColors.error[700], accent: themeColors.error[500], text: '#fff' },
+  [VfdBrand.ROCKWELL]:   { primary: themeColors.error[700], accent: themeColors.error[500], text: '#fff' },
 };
 
-const DEFAULT_BRAND_COLORS = { primary: '#374151', accent: '#6b7280', text: '#fff' };
+const DEFAULT_BRAND_COLORS = { primary: themeColors.neutral[700], accent: themeColors.gray[400], text: '#fff' };
 
 const BRAND_LABELS: Record<string, string> = {
   [VfdBrand.ABB]: 'ABB',
@@ -81,12 +82,12 @@ type VfdWidgetState = 'running' | 'stopped' | 'fault' | 'warning' | 'offline' | 
 /* ------------------------------------------------------------------ */
 
 const STATUS_LED: Record<VfdWidgetState, string> = {
-  running:     '#22c55e',
-  stopped:     '#9ca3af',
-  fault:       '#ef4444',
-  warning:     '#eab308',
-  offline:     '#6b7280',
-  programming: '#3b82f6',
+  running:     themeColors.success[500],
+  stopped:     themeColors.neutral[400],
+  fault:       themeColors.error[500],
+  warning:     themeColors.warning[500],
+  offline:     themeColors.gray[400],
+  programming: themeColors.info[500],
 };
 
 /* ------------------------------------------------------------------ */
@@ -248,7 +249,7 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
   /* ---- Risk level from config (last change set) ---- */
   const riskLevel = (config.riskLevel as string) || 'none';
   const riskColor: Record<string, string> = {
-    low: '#22c55e', medium: '#eab308', high: '#f97316', critical: '#ef4444', none: '#9ca3af',
+    low: themeColors.success[500], medium: themeColors.warning[500], high: themeColors.accent[600], critical: themeColors.error[500], none: themeColors.neutral[400],
   };
 
   return (
@@ -266,7 +267,7 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
         {/* ---- Outer border (fault pulse / programming glow) ---- */}
         <rect
           x={1} y={1} width={vbW - 2} height={vbH - 2}
-          rx={6} fill="#f8fafc" stroke={widgetState === 'fault' ? '#ef4444' : widgetState === 'programming' ? '#3b82f6' : '#d1d5db'}
+          rx={6} fill={themeColors.neutral[50]} stroke={widgetState === 'fault' ? themeColors.error[500] : widgetState === 'programming' ? themeColors.info[500] : themeColors.neutral[300]}
           strokeWidth={2}
           style={
             widgetState === 'fault'
@@ -290,39 +291,39 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
           {/* Background arc */}
           <path
             d="M -40,0 A 40,40 0 0 1 40,0"
-            fill="none" stroke="#e5e7eb" strokeWidth={5} strokeLinecap="round"
+            fill="none" stroke={chartChrome.grid} strokeWidth={5} strokeLinecap="round"
           />
           {/* Value arc */}
           <path
             d="M -40,0 A 40,40 0 0 1 40,0"
-            fill="none" stroke={isRunning ? colors.accent : '#9ca3af'}
+            fill="none" stroke={isRunning ? colors.accent : themeColors.neutral[400]}
             strokeWidth={5} strokeLinecap="round"
             strokeDasharray={`${freqPct * 125.66} 125.66`}
             style={{ transition: 'stroke-dasharray 300ms ease-out' }}
           />
-          <text x={0} y={-6} textAnchor="middle" fontSize={14} fontWeight={700} fill="#111827">
+          <text x={0} y={-6} textAnchor="middle" fontSize={14} fontWeight={700} fill={themeColors.neutral[900]}>
             {freq.toFixed(1)}
           </text>
-          <text x={0} y={6} textAnchor="middle" fontSize={8} fill="#6b7280">Hz</text>
+          <text x={0} y={6} textAnchor="middle" fontSize={8} fill={themeColors.gray[400]}>Hz</text>
         </g>
 
         {/* ---- Drive enclosure ---- */}
         <g transform="translate(70, 70)">
           {/* Enclosure box */}
           <rect x={0} y={0} width={100} height={80} rx={4}
-            fill="#f1f5f9" stroke={colors.primary} strokeWidth={2}
+            fill={themeColors.neutral[100]} stroke={colors.primary} strokeWidth={2}
           />
           {/* Brand color strip */}
           <rect x={0} y={0} width={100} height={8} rx={4} fill={colors.primary} />
           <rect x={0} y={4} width={100} height={4} fill={colors.primary} />
           {/* VFD label */}
-          <text x={50} y={30} textAnchor="middle" fontSize={14} fontWeight={700} fill="#374151">VFD</text>
+          <text x={50} y={30} textAnchor="middle" fontSize={14} fontWeight={700} fill={themeColors.neutral[700]}>VFD</text>
 
           {/* Motor symbol */}
           <g transform="translate(50, 55)">
-            <circle cx={0} cy={0} r={14} fill="none" stroke="#374151" strokeWidth={2} />
+            <circle cx={0} cy={0} r={14} fill="none" stroke={themeColors.neutral[700]} strokeWidth={2} />
             <text
-              x={0} y={5} textAnchor="middle" fontSize={12} fontWeight={600} fill="#374151"
+              x={0} y={5} textAnchor="middle" fontSize={12} fontWeight={600} fill={themeColors.neutral[700]}
               style={
                 isRunning
                   ? { transformOrigin: '0px 0px', animation: 'vfdMotorSpin 1.5s linear infinite' }
@@ -335,14 +336,14 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
         {/* ---- Power flow arrows ---- */}
         {/* Input arrow (left) */}
         <line x1={30} y1={115} x2={68} y2={115}
-          stroke={isRunning ? colors.accent : '#d1d5db'} strokeWidth={3}
+          stroke={isRunning ? colors.accent : themeColors.neutral[300]} strokeWidth={3}
           strokeDasharray="6 4"
           style={isRunning ? { animation: 'vfdFlowPulse 0.8s linear infinite' } : undefined}
           markerEnd="url(#vfdArrow)"
         />
         {/* Output arrow (right) */}
         <line x1={172} y1={115} x2={210} y2={115}
-          stroke={isRunning ? colors.accent : '#d1d5db'} strokeWidth={3}
+          stroke={isRunning ? colors.accent : themeColors.neutral[300]} strokeWidth={3}
           strokeDasharray="6 4"
           style={isRunning ? { animation: 'vfdFlowPulse 0.8s linear infinite' } : undefined}
           markerEnd="url(#vfdArrow)"
@@ -350,29 +351,29 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
         {/* Arrow marker */}
         <defs>
           <marker id="vfdArrow" markerWidth={8} markerHeight={6} refX={7} refY={3} orient="auto">
-            <polygon points="0,0 8,3 0,6" fill={isRunning ? colors.accent : '#d1d5db'} />
+            <polygon points="0,0 8,3 0,6" fill={isRunning ? colors.accent : themeColors.neutral[300]} />
           </marker>
         </defs>
 
         {/* ---- Temperature bar (right side) ---- */}
         {showTemperature && (
           <g transform={`translate(${vbW - 18}, 70)`}>
-            <rect x={0} y={0} width={8} height={80} rx={3} fill="#e5e7eb" />
+            <rect x={0} y={0} width={8} height={80} rx={3} fill={themeColors.neutral[200]} />
             <rect
               x={0}
               y={80 - 80 * tempPct}
               width={8}
               height={80 * tempPct}
               rx={3}
-              fill={tempExceedsWarning ? '#ef4444' : '#22c55e'}
+              fill={tempExceedsWarning ? themeColors.error[500] : themeColors.success[500]}
               style={{ transition: 'height 300ms, y 300ms' }}
             />
-            <text x={4} y={-4} textAnchor="middle" fontSize={7} fill="#6b7280">{temp.toFixed(0)}&#xB0;C</text>
+            <text x={4} y={-4} textAnchor="middle" fontSize={7} fill={themeColors.gray[400]}>{temp.toFixed(0)}&#xB0;C</text>
           </g>
         )}
 
         {/* ---- Separator ---- */}
-        <line x1={10} y1={158} x2={vbW - 10} y2={158} stroke="#e5e7eb" strokeWidth={1} />
+        <line x1={10} y1={158} x2={vbW - 10} y2={158} stroke={chartChrome.grid} strokeWidth={1} />
 
         {/* ---- Parameter display ---- */}
         {(() => {
@@ -385,27 +386,27 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
 
           return paramLines.map((p, i) => (
             <g key={p.label} transform={`translate(14, ${168 + i * 16})`}>
-              <text x={0} y={0} fontSize={fontSize.param} fill="#6b7280">{p.label}:</text>
-              <text x={vbW - 48} y={0} textAnchor="end" fontSize={fontSize.paramVal} fontWeight={600} fill={p.warn ? '#ef4444' : '#111827'}>
+              <text x={0} y={0} fontSize={fontSize.param} fill={themeColors.gray[400]}>{p.label}:</text>
+              <text x={vbW - 48} y={0} textAnchor="end" fontSize={fontSize.paramVal} fontWeight={600} fill={p.warn ? themeColors.error[500] : themeColors.neutral[900]}>
                 {p.value}
               </text>
-              {p.warn && <text x={vbW - 38} y={1} fontSize={10} fill="#ef4444">&#9888;</text>}
+              {p.warn && <text x={vbW - 38} y={1} fontSize={10} fill={themeColors.error[500]}>&#9888;</text>}
             </g>
           ));
         })()}
 
         {/* ---- Separator ---- */}
-        <line x1={10} y1={258} x2={vbW - 10} y2={258} stroke="#e5e7eb" strokeWidth={1} />
+        <line x1={10} y1={258} x2={vbW - 10} y2={258} stroke={chartChrome.grid} strokeWidth={1} />
 
         {/* ---- Status row ---- */}
-        <text x={14} y={274} fontSize={fontSize.status} fill="#6b7280">Status:</text>
+        <text x={14} y={274} fontSize={fontSize.status} fill={themeColors.gray[400]}>Status:</text>
         <text x={54} y={274} fontSize={fontSize.status} fontWeight={700} fill={STATUS_LED[widgetState]}>
           {statusLabel}
         </text>
         <circle cx={vbW - 16} cy={270} r={4} fill={STATUS_LED[widgetState]} />
 
         {/* ---- Separator ---- */}
-        <line x1={10} y1={282} x2={vbW - 10} y2={282} stroke="#e5e7eb" strokeWidth={1} />
+        <line x1={10} y1={282} x2={vbW - 10} y2={282} stroke={chartChrome.grid} strokeWidth={1} />
 
         {/* ---- Quick action buttons ---- */}
         {showQuickActions && (
@@ -416,7 +417,7 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
               style={{ cursor: isEditing ? 'default' : 'pointer' }}
               data-testid="vfd-btn-start"
             >
-              <rect x={0} y={0} width={60} height={20} rx={4} fill="#22c55e" opacity={0.9} />
+              <rect x={0} y={0} width={60} height={20} rx={4} fill={themeColors.success[500]} opacity={0.9} />
               <text x={30} y={14} textAnchor="middle" fontSize={fontSize.btn} fontWeight={600} fill="#fff">Start</text>
             </g>
             {/* Stop */}
@@ -425,7 +426,7 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
               style={{ cursor: isEditing ? 'default' : 'pointer' }}
               data-testid="vfd-btn-stop"
             >
-              <rect x={68} y={0} width={60} height={20} rx={4} fill="#ef4444" opacity={0.9} />
+              <rect x={68} y={0} width={60} height={20} rx={4} fill={themeColors.error[500]} opacity={0.9} />
               <text x={98} y={14} textAnchor="middle" fontSize={fontSize.btn} fontWeight={600} fill="#fff">Stop</text>
             </g>
             {/* Program */}
@@ -434,7 +435,7 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
               style={{ cursor: isEditing ? 'default' : 'pointer' }}
               data-testid="vfd-btn-program"
             >
-              <rect x={136} y={0} width={76} height={20} rx={4} fill="#3b82f6" opacity={0.9} />
+              <rect x={136} y={0} width={76} height={20} rx={4} fill={themeColors.info[500]} opacity={0.9} />
               <text x={174} y={14} textAnchor="middle" fontSize={fontSize.btn} fontWeight={600} fill="#fff">Program</text>
             </g>
           </g>
@@ -443,9 +444,9 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
         {/* ---- Risk level ---- */}
         {riskLevel !== 'none' && (
           <g transform="translate(14, 318)">
-            <text x={0} y={0} fontSize={fontSize.status} fill="#6b7280">Risk:</text>
-            <circle cx={38} cy={-3} r={4} fill={riskColor[riskLevel] || '#9ca3af'} />
-            <text x={46} y={0} fontSize={fontSize.status} fontWeight={600} fill="#374151">
+            <text x={0} y={0} fontSize={fontSize.status} fill={themeColors.gray[400]}>Risk:</text>
+            <circle cx={38} cy={-3} r={4} fill={riskColor[riskLevel] || themeColors.neutral[400]} />
+            <text x={46} y={0} fontSize={fontSize.status} fontWeight={600} fill={themeColors.neutral[700]}>
               {riskLevel.toUpperCase()}
             </text>
           </g>
@@ -454,11 +455,11 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
         {/* ---- Offline overlay ---- */}
         {widgetState === 'offline' && (
           <g>
-            <rect x={1} y={1} width={vbW - 2} height={vbH - 2} rx={6} fill="#f3f4f6" opacity={0.75} />
-            <text x={vbW / 2} y={vbH / 2 - 6} textAnchor="middle" fontSize={13} fontWeight={700} fill="#991b1b">
+            <rect x={1} y={1} width={vbW - 2} height={vbH - 2} rx={6} fill={themeColors.neutral[100]} opacity={0.75} />
+            <text x={vbW / 2} y={vbH / 2 - 6} textAnchor="middle" fontSize={13} fontWeight={700} fill={themeColors.error[700]}>
               No Communication
             </text>
-            <text x={vbW / 2} y={vbH / 2 + 12} textAnchor="middle" fontSize={9} fill="#6b7280">
+            <text x={vbW / 2} y={vbH / 2 + 12} textAnchor="middle" fontSize={9} fill={themeColors.gray[400]}>
               Device offline or not configured
             </text>
           </g>
@@ -467,8 +468,8 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
         {/* ---- Programming overlay ---- */}
         {widgetState === 'programming' && (
           <g>
-            <rect x={1} y={1} width={vbW - 2} height={vbH - 2} rx={6} fill="#eff6ff" opacity={0.6} />
-            <text x={vbW / 2} y={vbH / 2} textAnchor="middle" fontSize={11} fontWeight={700} fill="#1d4ed8">
+            <rect x={1} y={1} width={vbW - 2} height={vbH - 2} rx={6} fill={themeColors.info[50]} opacity={0.6} />
+            <text x={vbW / 2} y={vbH / 2} textAnchor="middle" fontSize={11} fontWeight={700} fill={themeColors.info[700]}>
               Change Set Applying...
             </text>
           </g>

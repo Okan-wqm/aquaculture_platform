@@ -10,6 +10,7 @@ import { Link } from 'react-router-dom';
 import { BarChart3, TrendingUp, Users, Calendar, Award, Clock, Download } from 'lucide-react';
 import { useHRDashboardStats, useDepartments } from '../hooks';
 import { useHrFinanceSummary } from '../hooks/useHrFinance';
+import { colors } from '@aquaculture/shared-ui';
 
 const HRAnalyticsPage: React.FC = () => {
   const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
@@ -148,17 +149,17 @@ const HRAnalyticsPage: React.FC = () => {
                 <div key={dept.id} className="flex items-center gap-4">
                   <div
                     className="h-3 w-3 rounded-full"
-                    style={{ backgroundColor: dept.colorCode || '#6366f1' }}
+                    style={{ backgroundColor: dept.colorCode || colors.primary[500] }}
                   />
                   <span className="w-40 truncate text-sm text-gray-700 dark:text-gray-300">
                     {dept.name}
                   </span>
-                  <div className="flex-1 rounded-full bg-gray-200 dark:bg-gray-700" style={{ height: 6 }}>
+                  <div className="flex-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700">
                     <div
                       className="h-full rounded-full"
                       style={{
                         width: `${widthPct}%`,
-                        backgroundColor: dept.colorCode || '#6366f1',
+                        backgroundColor: dept.colorCode || colors.primary[500],
                       }}
                     />
                   </div>

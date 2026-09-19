@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Handle, useUpdateNodeInternals, NodeProps, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 type HandleType = 'source' | 'target';
 
@@ -27,8 +28,8 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
   const [top, setTop] = useState<HandleType>(data?.top ?? 'target');
   const [bottom, setBottom] = useState<HandleType>(data?.bottom ?? 'source');
 
-  const topColor = top === 'source' ? '#22c55e' : '#3b82f6';
-  const bottomColor = bottom === 'source' ? '#22c55e' : '#3b82f6';
+  const topColor = top === 'source' ? colors.success[500] : colors.info[500];
+  const bottomColor = bottom === 'source' ? colors.success[500] : colors.info[500];
 
   const handleTypeChange = (
     e: React.MouseEvent,
@@ -58,7 +59,7 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
         pointerEvents: 'none',
         transform: `rotate(${rotation}deg)`,
         transformOrigin: 'center center',
-        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        border: selected ? `2px solid ${themeColors.info[500]}` : '2px solid transparent',
         borderRadius: 8,
       }}
     >
@@ -77,10 +78,10 @@ const TankInletNode: React.FC<NodeProps<Node<TankInletNodeData>>> = ({ id, data,
         {/* Water holes and flow arrows */}
         {holeY.map((y, i) => (
           <g key={i}>
-            <circle cx={30} cy={y} r={1.8} fill="#b3d9ff" />
+            <circle cx={30} cy={y} r={1.8} fill={colors.primary[100]} />
             <polygon
               points={`${32},${y} ${42},${y - 4} ${42},${y + 4}`}
-              fill="#1ca3ec"
+              fill={colors.primary[400]}
               opacity={0.8}
             />
           </g>

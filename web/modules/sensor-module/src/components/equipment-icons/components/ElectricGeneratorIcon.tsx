@@ -1,5 +1,6 @@
 import React from 'react';
 import { IconProps } from '../types';
+import { colors } from '@aquaculture/shared-ui';
 
 /**
  * Electric Generator Icon Component
@@ -24,7 +25,7 @@ export const ElectricGeneratorIcon: React.FC<IconProps> = ({
     <path d="M26 26v12" stroke={color} strokeWidth="2"/>
     <path d="M20 32h12" stroke={color} strokeWidth="2"/>
     {/* Lightning bolt */}
-    <path d="M43 28l2-2v4l2-2" stroke="#eab308" strokeWidth="2" fill="none"/>
+    <path d="M43 28l2-2v4l2-2" stroke={colors.warning[500]} strokeWidth="2" fill="none"/>
   </svg>
 );
 

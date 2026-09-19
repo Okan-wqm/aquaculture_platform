@@ -19,6 +19,7 @@ import type { AnimationRule, AnimationRuleType, AnimationOptions, ColorRange } f
 import { TagBrowser } from '../TagBrowser';
 import { RangeColorMapping } from './RangeColorMapping';
 import { TagValueBus } from '../../../engine/tags/TagValueBus';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /**
  * Animation type options extended with FUXA-parity types.
@@ -154,7 +155,7 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
 
   // Color range helpers (used by the inline colorRange type)
   const addColorRange = (animId: string, currentRanges: ColorRange[]) => {
-    const newRange: ColorRange = { min: 0, max: 100, fill: '#22c55e' };
+    const newRange: ColorRange = { min: 0, max: 100, fill: themeColors.success[500] };
     updateAnimationOptions(animId, { ranges: [...currentRanges, newRange] });
   };
 
@@ -368,13 +369,13 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <div className="flex items-center gap-1">
                     <input
                       type="color"
-                      value={anim.options.fillA || '#ef4444'}
+                      value={anim.options.fillA || themeColors.error[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillA: e.target.value })}
                       className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={anim.options.fillA || '#ef4444'}
+                      value={anim.options.fillA || themeColors.error[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillA: e.target.value })}
                       className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
@@ -385,13 +386,13 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                   <div className="flex items-center gap-1">
                     <input
                       type="color"
-                      value={anim.options.fillB || '#22c55e'}
+                      value={anim.options.fillB || themeColors.success[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillB: e.target.value })}
                       className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
                     />
                     <input
                       type="text"
-                      value={anim.options.fillB || '#22c55e'}
+                      value={anim.options.fillB || themeColors.success[500]}
                       onChange={(e) => updateAnimationOptions(anim.id, { fillB: e.target.value })}
                       className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
@@ -569,15 +570,15 @@ export const AnimationsPanel: React.FC<AnimationsPanelProps> = ({
                     x1="32" y1="32"
                     x2={32 + 20 * Math.cos(((anim.options.minAngle ?? 0) - 90) * Math.PI / 180)}
                     y2={32 + 20 * Math.sin(((anim.options.minAngle ?? 0) - 90) * Math.PI / 180)}
-                    stroke="#94a3b8" strokeWidth="2" strokeLinecap="round"
+                    stroke={themeColors.neutral[400]} strokeWidth="2" strokeLinecap="round"
                   />
                   <line
                     x1="32" y1="32"
                     x2={32 + 24 * Math.cos(((anim.options.maxAngle ?? 360) - 90) * Math.PI / 180)}
                     y2={32 + 24 * Math.sin(((anim.options.maxAngle ?? 360) - 90) * Math.PI / 180)}
-                    stroke="#0891b2" strokeWidth="2" strokeLinecap="round"
+                    stroke={themeColors.primary[600]} strokeWidth="2" strokeLinecap="round"
                   />
-                  <circle cx="32" cy="32" r="3" fill="#0891b2" />
+                  <circle cx="32" cy="32" r="3" fill={themeColors.primary[600]} />
                 </svg>
               </div>
             </div>

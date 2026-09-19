@@ -10,6 +10,7 @@ import { getEquipmentSize, ConnectionPointPosition, ConnectionPointType } from '
 import { EquipmentNodeData, IoBinding, useProcessStore } from '../../../store/processStore';
 import { ConnectionPointContextMenu } from '../components/ConnectionPointContextMenu';
 import { EquipmentNodeOverlay } from './EquipmentNodeOverlay';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 // Status colors for equipment
 const statusColors: Record<string, { bg: string; border: string; text: string }> = {
@@ -35,12 +36,12 @@ const getStatusStyle = (status: string) => {
 const getConnectionPointStyle = (type: ConnectionPointType) => {
   if (type === 'input') {
     return {
-      background: '#3b82f6', // blue-500
+      background: themeColors.info[500], // blue-500
       border: '2px solid white',
     };
   }
   return {
-    background: '#22c55e', // green-500
+    background: themeColors.success[500], // green-500
     border: '2px solid white',
   };
 };

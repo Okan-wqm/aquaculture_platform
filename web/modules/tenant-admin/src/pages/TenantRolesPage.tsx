@@ -24,7 +24,7 @@ import {
   type PanelPermissions,
 } from '../hooks/useTenantRoles';
 import { logError } from '../utils/error-handling';
-import { ROLE_COLORS } from '../lib/constants';
+import { DEFAULT_ROLE_COLOR, ROLE_COLORS } from '../lib/constants';
 
 // ============================================================================
 // Sub-Components
@@ -37,7 +37,7 @@ const RoleBadge = memo<{ role: TenantRole }>(({ role }) => {
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
-      style={{ backgroundColor: role.color || '#6366F1' }}
+      style={{ backgroundColor: role.color || DEFAULT_ROLE_COLOR }}
     >
       <Shield className="w-3 h-3" />
       {role.name}
@@ -124,7 +124,7 @@ const RoleModal = memo<RoleModalProps>(({
   const initialFormData = useMemo<RoleFormData>(() => ({
     name: role?.name || '',
     description: role?.description || '',
-    color: role?.color || '#6366F1',
+    color: role?.color || DEFAULT_ROLE_COLOR,
     icon: role?.icon || 'shield',
     level: role?.level || 50,
     isDefault: role?.isDefault || false,

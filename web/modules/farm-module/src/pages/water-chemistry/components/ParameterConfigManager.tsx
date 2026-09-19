@@ -6,7 +6,7 @@
  * delete confirmation, and template picker integration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, chartChrome, colors } from '@aquaculture/shared-ui';
 import {
   useParameterConfigList,
   useCreateParameterConfig,
@@ -103,7 +103,7 @@ function buildFormData(config: ParameterConfig | null): ConfigFormData {
     warningMax: config.warningMax != null ? String(config.warningMax) : '',
     criticalMin: config.criticalMin != null ? String(config.criticalMin) : '',
     criticalMax: config.criticalMax != null ? String(config.criticalMax) : '',
-    chartColor: config.chartColor || '#3B82F6',
+    chartColor: config.chartColor || colors.info[500],
     chartAxisGroup: config.chartAxisGroup || 'left',
     isVisible: config.isVisible,
     isRequired: config.isRequired,

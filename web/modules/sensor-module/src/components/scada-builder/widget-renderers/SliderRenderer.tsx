@@ -4,6 +4,7 @@
 
 import React, { memo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const SliderRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing, onCommand }) => {
   const label = (config.label ?? 'Slider') as string;
@@ -22,7 +23,7 @@ const SliderRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
   return (
     <div style={{ width, height, padding: 8, boxSizing: 'border-box', position: 'relative' }}>
       {/* Label */}
-      <div style={{ textAlign: 'center', fontSize: 10, color: '#6b7280', fontWeight: 500, marginBottom: 2 }}>
+      <div style={{ textAlign: 'center', fontSize: 10, color: colors.gray[400], fontWeight: 500, marginBottom: 2 }}>
         {label}
       </div>
 
@@ -41,7 +42,7 @@ const SliderRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
       </div>
 
       {/* Value display */}
-      <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#111827' }}>
+      <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 600, color: colors.neutral[900] }}>
         {safeValue.toFixed(1)} {unit}
       </div>
     </div>

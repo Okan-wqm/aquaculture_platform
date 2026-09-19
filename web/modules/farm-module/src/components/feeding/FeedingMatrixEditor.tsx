@@ -14,6 +14,7 @@
  *   100              [1.1]  [1.2]  [1.3]  [1.4]
  */
 import React, { useState, useCallback, useMemo } from 'react';
+import { colors } from '@aquaculture/shared-ui';
 
 export interface FeedingMatrix2D {
   temperatures: number[];
@@ -82,11 +83,11 @@ const getFCRColor = (fcr: number): string => {
   // Map FCR (0.7-1.5) to color - lower is better (green), higher is worse (red)
   const normalized = Math.min(Math.max((fcr - 0.7), 0), 0.8) / 0.8;
   if (normalized < 0.33) {
-    return '#22c55e'; // Green - excellent
+    return colors.success[500]; // Green - excellent
   } else if (normalized < 0.66) {
-    return '#eab308'; // Yellow - good
+    return colors.warning[500]; // Yellow - good
   } else {
-    return '#ef4444'; // Red - needs improvement
+    return colors.error[500]; // Red - needs improvement
   }
 };
 

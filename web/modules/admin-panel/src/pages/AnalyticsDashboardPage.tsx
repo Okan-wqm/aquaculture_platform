@@ -6,7 +6,7 @@
  * Connected to real backend API endpoints.
  */
 
-import { Card, Button } from '@aquaculture/shared-ui';
+import { Card, Button, chartChrome, colors } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -206,7 +206,7 @@ interface MiniChartProps {
   color?: string;
 }
 
-const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = '#3B82F6' }) => {
+const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = colors.info[500] }) => {
   if (data.length === 0) return null;
 
   const values = data.map(d => d.value);
@@ -299,7 +299,7 @@ const DonutChart: React.FC<DonutChartProps> = ({
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="#E5E7EB"
+            stroke={chartChrome.grid}
             strokeWidth={strokeWidth}
           />
         ) : data.map((item, index) => {
@@ -626,7 +626,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         {/* Tenant Growth Chart */}
         <Card title="Tenant Growth">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={tenantTrend} height={100} color="#3B82F6" />
+            <MiniChart data={tenantTrend} height={100} color={colors.info[500]} />
             {(tenantTrend.length === 0 || tenantTrend.every(d => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
                 <p className="text-sm text-gray-500">No analytics data available yet</p>
@@ -642,7 +642,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         {/* Revenue Trend Chart */}
         <Card title="Revenue Trend">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={revenueTrend} height={100} color="#8B5CF6" />
+            <MiniChart data={revenueTrend} height={100} color={colors.primary[700]} />
             {(revenueTrend.length === 0 || revenueTrend.every(d => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
                 <p className="text-sm text-gray-500">No analytics data available yet</p>
@@ -657,7 +657,7 @@ const AnalyticsDashboardPage: React.FC = () => {
 
         <Card title="Daily Active Users">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={userTrend} height={100} color="#10B981" />
+            <MiniChart data={userTrend} height={100} color={colors.success[500]} />
             {(userTrend.length === 0 || userTrend.every(d => d.value === 0)) && (
               <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
                 <p className="text-sm text-gray-500">Analytics not yet available</p>
@@ -677,10 +677,10 @@ const AnalyticsDashboardPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <DonutChart
               data={[
-                { label: 'Enterprise', value: tenants?.byPlan?.enterprise || 0, color: '#8B5CF6' },
-                { label: 'Professional', value: tenants?.byPlan?.professional || 0, color: '#10B981' },
-                { label: 'Starter', value: tenants?.byPlan?.starter || 0, color: '#3B82F6' },
-                { label: 'Trial', value: tenants?.byPlan?.trial || 0, color: '#F59E0B' },
+                { label: 'Enterprise', value: tenants?.byPlan?.enterprise || 0, color: colors.primary[700] },
+                { label: 'Professional', value: tenants?.byPlan?.professional || 0, color: colors.success[500] },
+                { label: 'Starter', value: tenants?.byPlan?.starter || 0, color: colors.info[500] },
+                { label: 'Trial', value: tenants?.byPlan?.trial || 0, color: colors.warning[500] },
               ]}
               centerValue={formatNumber(tenants?.total)}
               centerLabel="Total"

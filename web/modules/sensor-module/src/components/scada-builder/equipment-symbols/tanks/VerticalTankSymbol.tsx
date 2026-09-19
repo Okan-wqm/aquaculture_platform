@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const VerticalTankSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -65,14 +66,14 @@ const VerticalTankSymbol: React.FC<EquipmentSymbolProps> = ({
               width={57}
               height={49}
               rx={2}
-              fill="#93c5fd"
+              fill={themeColors.primary[200]}
               fillOpacity={0.4}
             />
             {/* Liquid surface wave */}
             <path
               d="M 22 65 Q 35 61 50 65 Q 65 69 78 65"
               fill="none"
-              stroke="#60a5fa"
+              stroke={themeColors.info[500]}
               strokeWidth={1}
               opacity={0.7}
             />
@@ -162,7 +163,7 @@ const VerticalTankSymbol: React.FC<EquipmentSymbolProps> = ({
             y={137}
             textAnchor="middle"
             fontSize={9}
-            fill="#374151"
+            fill={themeColors.neutral[700]}
             fontFamily="sans-serif"
           >
             {label}

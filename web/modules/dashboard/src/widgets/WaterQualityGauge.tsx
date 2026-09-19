@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Badge, formatRelativeTime } from '@aquaculture/shared-ui';
+import { Card, Badge, chartChrome, colors, formatRelativeTime } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -215,11 +215,11 @@ const CircularGauge: React.FC<CircularGaugeProps> = ({ value, status, size = 80 
   const strokeDashoffset = circumference - (percent / 100) * circumference;
 
   const strokeColor = {
-    OPTIMAL: '#22c55e',
-    ACCEPTABLE: '#3b82f6',
-    WARNING: '#eab308',
-    CRITICAL: '#ef4444',
-    UNKNOWN: '#9ca3af',
+    OPTIMAL: colors.success[500],
+    ACCEPTABLE: colors.info[500],
+    WARNING: colors.warning[500],
+    CRITICAL: colors.error[500],
+    UNKNOWN: colors.neutral[400],
   }[status];
 
   return (
@@ -230,7 +230,7 @@ const CircularGauge: React.FC<CircularGaugeProps> = ({ value, status, size = 80 
         cy={size / 2}
         r={radius}
         fill="none"
-        stroke="#e5e7eb"
+        stroke={chartChrome.grid}
         strokeWidth={strokeWidth}
       />
       {/* Progress circle */}

@@ -2,6 +2,7 @@
  * Utility functions for TrendChartRenderer.
  * Extracted to keep the renderer component under 300 lines.
  */
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -15,8 +16,8 @@ export interface SimPoint {
 export type TimeRangeKey = '1h' | '6h' | '24h' | '7d' | '30d';
 
 export const TRACE_COLORS = [
-  '#3b82f6', '#22c55e', '#f59e0b', '#ef4444',
-  '#8b5cf6', '#ec4899', '#06b6d4', '#f97316',
+  colors.info[500], colors.success[500], colors.warning[500], colors.error[500],
+  colors.primary[700], colors.accent[500], colors.primary[400], colors.accent[600],
 ];
 
 export const TIME_RANGES: { key: TimeRangeKey; label: string; ms: number }[] = [

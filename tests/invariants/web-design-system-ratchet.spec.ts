@@ -14,7 +14,8 @@
  * being fixed. So this spec is a governed ratchet, the same shape as
  * `admin-panel-data-layer.spec.ts`:
  *
- *   1. **Overlays are keyed by FILE.** Every file outside shared-ui that
+ *   1. **Overlays are keyed by FILE.** Every file outside shared-ui (and
+ *      outside AquaMobil's own primitives, see PRIMITIVE_DIRS) that
  *      contains `fixed inset-0` must be listed with a batch (dialog → Modal,
  *      drawer → Drawer, mobile → bottom sheet, runtime → a genuine full-screen
  *      surface that is not a dialog), an owner, a future expiry, the finding
@@ -24,7 +25,9 @@
  *   2. **Raw hex and inline style are keyed by PACKAGE.** Each web package has
  *      an occurrence ceiling; a package not listed must be at zero. Counting is
  *      by occurrence, not by file, so moving colours between files is not
- *      progress and adding one to a listed file is caught.
+ *      progress and adding one to a listed file is caught. Inline style counts
+ *      only STATIC blocks (every value a literal): a runtime value reaching
+ *      the DOM (a progress width, a record's colour) is data, not a bypass.
  *
  * Detection is deliberately textual and identical to the survey (`git
  * ls-files` + a regex on the raw source, tests and generated code excluded) so
@@ -40,9 +43,90 @@ const REPO_ROOT = resolve(__dirname, '../..');
 const ALLOWLIST = '.claude/allowlists/web-design-system-ratchet.yaml';
 const ROOTS = ['web/modules', 'web/shell/src', 'web/apps'];
 
+/**
+ * The standalone PWA cannot import shared-ui (own lockfile, offline-first — see
+ * web/apps/aquamobil/CLAUDE.md), so its one sanctioned overlay primitive,
+ * `BottomSheet`, lives here: the mobile counterpart of shared-ui's Modal and
+ * Drawer and, like them, the surface the ratchet migrates TO, not from. Only the
+ * overlay check skips it; its hex and inline-style counts stay in the package
+ * ceilings.
+ */
+const PRIMITIVE_DIRS = ['web/apps/aquamobil/src/components/ui/'];
+
+function isPrimitive(file: string): boolean {
+  return PRIMITIVE_DIRS.some((dir) => file.startsWith(dir));
+}
+
 const OVERLAY = /fixed inset-0/;
 const RAW_HEX = /#[0-9a-fA-F]{6}\b/g;
-const INLINE_STYLE = /style=\{\{/g;
+/**
+ * FE-MEDIUM-067 counts STATIC inline style blocks: every value a string or
+ * number literal, so the block could have been a utility class or a token. A
+ * block that carries a runtime value (a progress bar's width, a colour read
+ * from a record, a virtualiser's offset) is data reaching the DOM, not a token
+ * bypass, and is not counted.
+ */
+const INLINE_STYLE_OPEN = 'style={{';
+const LITERAL_VALUE = /^\s*(?:'[^'\n]*'|"[^"\n]*"|-?\d+(?:\.\d+)?)\s*$/;
+
+function staticInlineStyleBlocks(source: string): number {
+  let count = 0;
+  let from = 0;
+  for (;;) {
+    const open = source.indexOf(INLINE_STYLE_OPEN, from);
+    if (open < 0) return count;
+    let depth = 2;
+    let cursor = open + INLINE_STYLE_OPEN.length;
+    while (cursor < source.length && depth > 0) {
+      const ch = source[cursor];
+      if (ch === '{') depth += 1;
+      else if (ch === '}') depth -= 1;
+      cursor += 1;
+    }
+    const body = source.slice(open + INLINE_STYLE_OPEN.length, cursor - 2);
+    if (isStaticStyleBody(body)) count += 1;
+    from = cursor;
+  }
+}
+
+/** `key: literal, key: literal` — no template, spread, call or identifier. */
+function isStaticStyleBody(body: string): boolean {
+  const trimmed = body.trim();
+  if (trimmed === '') return true;
+  if (trimmed.includes('${') || trimmed.includes('...')) return false;
+  const pairs: string[] = [];
+  let current = '';
+  let depth = 0;
+  let quote: string | null = null;
+  for (const ch of trimmed) {
+    if (quote !== null) {
+      current += ch;
+      if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === '(' || ch === '[' || ch === '{') depth += 1;
+    if (ch === ')' || ch === ']' || ch === '}') depth -= 1;
+    if (ch === ',' && depth === 0) {
+      pairs.push(current);
+      current = '';
+      continue;
+    }
+    current += ch;
+  }
+  if (current.trim() !== '') pairs.push(current);
+  return pairs.every((pair) => {
+    const colon = pair.indexOf(':');
+    if (colon < 0) return false;
+    const key = pair.slice(0, colon);
+    const value = pair.slice(colon + 1);
+    return /^\s*[A-Za-z][A-Za-z0-9]*\s*$/.test(key) && LITERAL_VALUE.test(value);
+  });
+}
 
 interface OverlayEntry {
   site: string;
@@ -132,7 +216,7 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067): web design-system adoption
   });
 
   it('ratchets every hand-rolled overlay — governed, live, and only shrinking (FE-HIGH-065)', () => {
-    const actual = new Set(files.filter((file) => OVERLAY.test(read(file))));
+    const actual = new Set(files.filter((file) => !isPrimitive(file) && OVERLAY.test(read(file))));
     const listed = new Set(doc.overlays.entries.map((entry) => entry.site));
 
     // A new overlay cannot ship outside shared-ui without being named here.
@@ -175,8 +259,14 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067): web design-system adoption
     }
   });
 
-  it('ratchets inline style={{}} blocks per package (FE-MEDIUM-067)', () => {
-    const actual = countByPackage(files, INLINE_STYLE);
+  it('ratchets static inline style={{}} blocks per package (FE-MEDIUM-067)', () => {
+    const actual = new Map<string, number>();
+    for (const file of files) {
+      const hits = staticInlineStyleBlocks(read(file));
+      if (hits === 0) continue;
+      const pkg = packageOf(file);
+      actual.set(pkg, (actual.get(pkg) ?? 0) + hits);
+    }
     const ceilings = new Map(doc.inlineStyle.entries.map((entry) => [entry.package, entry]));
 
     for (const [pkg, count] of actual) {
@@ -184,7 +274,7 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067): web design-system adoption
       expect(entry === undefined ? `${pkg}: ${count} inline styles, no ceiling` : '').toBe('');
       if (entry && count > entry.ceiling) {
         throw new Error(
-          `${pkg}: ${count} inline style blocks, ceiling ${entry.ceiling}. Prefer utility classes / tokens; lower the ceiling when you remove some.`,
+          `${pkg}: ${count} static inline style blocks, ceiling ${entry.ceiling}. Every value is a literal, so it is a utility class or a token; lower the ceiling when you remove some.`,
         );
       }
     }

@@ -6,6 +6,7 @@
 import React from 'react';
 import { NodeProps, type Node } from '@xyflow/react';
 import BaseNode, { HandleConfig } from './BaseNode';
+import { colors } from '@aquaculture/shared-ui';
 
 interface UVUnitNodeData extends Record<string, unknown> {
   rotation?: number;
@@ -31,11 +32,11 @@ const UVUnitNode: React.FC<NodeProps<Node<UVUnitNodeData>>> = ({ id, selected, d
       render={() => (
         <>
           {/* UV Housing */}
-          <rect x="40" y="30" width="80" height="40" rx="10" fill="#cfd8dc" stroke="#333" strokeWidth="2" />
+          <rect x="40" y="30" width="80" height="40" rx="10" fill={colors.neutral[300]} stroke="#333" strokeWidth="2" />
           {/* UV Lamp */}
-          <rect x="50" y="40" width="60" height="20" fill="#aeefff" stroke="#00bcd4" strokeWidth="1.5" rx="4" />
+          <rect x="50" y="40" width="60" height="20" fill={colors.primary[100]} stroke={colors.primary[400]} strokeWidth="1.5" rx="4" />
           {/* Glow effect */}
-          <rect x="52" y="42" width="56" height="16" fill="#e0ffff" opacity="0.5" rx="3" />
+          <rect x="52" y="42" width="56" height="16" fill={colors.secondary[50]} opacity="0.5" rx="3" />
           {/* Label */}
           <text x="80" y="25" fontSize="12" textAnchor="middle" fill="#000">
             {data?.label || 'UV Unit'}

@@ -52,7 +52,49 @@ sibling, so every side panel rolled its own, (c) nothing detected a new overlay.
 **Fix (this cycle):** `Modal`/`Drawer` accept `ReactNode` title/description and a
 `bodyClassName`; `useDialogBehavior` is the single Escape/focus/scroll-lock
 implementation for both; 17 dialogs migrated (12 sensor-module, 5 tenant-admin)
-and tenant-admin's private `useFocusTrap` deleted. Remaining files are listed
+and tenant-admin's private `useFocusTrap` deleted. Batch 2 (same cycle):
+the super-admin panel — 31 dialogs in 21 files onto `Modal`, and the mobile
+navigation onto `Drawer side="left"`, deleting the third private focus-trap
+implementation with it; overlays 80 → 59. Batch 3 (same cycle): tenant-admin
+(10 files, 14 dialogs — its private `DeleteConfirmModal` is deleted in favour
+of the shared `ConfirmModal`, which gains a `warning` slot for inline retry
+errors), hr-module (4) and the farm storage dropdown, whose invisible
+click-away layer is replaced by the new shared `useClickOutside` hook; the
+fourth private focus trap (hr `CopyWeekModal`) goes with it; overlays
+59 → 44. The hr dialogs carried `dark:` classes that follow the OS colour
+scheme rather than the shell's `data-theme`; they now render on the
+design-system surface, and dark-mode reach stays a Wave 2 item of the design
+map. Batch 4a (same cycle): the ten sensor-module menus that dismissed
+themselves through an invisible full-screen layer (builder toolbar, tab bar,
+scene tree, edge toolbar, operator header, dashboard, devices, PLC pages,
+unified editor) use `useClickOutside`; two private mousedown effects go with
+them; overlays 44 → 39. Batch 4b (same cycle): the remaining sensor-module
+dialogs (sensor picker, edge/sensor/VFD wizards, VFD rule form, FUXA widget
+browser, alert-rule/escalation/PLC/tag/LoRa/I-O/firmware confirmations and
+forms, properties-panel and save-layout dialogs) use `Modal`/`ConfirmModal`;
+the VFD change-set detail and the shell AI assistant use `Drawer`; five
+private Escape listeners, three backdrop handlers and one focus trap go with
+them; overlays 39 → 19. The unified editor's full-screen dark ST editor is
+registered as a runtime surface (needs a Modal theme variant). Batch 5
+(same cycle, AquaMobil): the app cannot import shared-ui (standalone
+lockfile, offline-first) and Konsta's Sheet/Dialog are class maps with no
+dialog semantics, so it gets one local `BottomSheet` primitive (auto/tall/
+full sizes, portal, `useDialogBehavior`: Escape, focus in/trap/restore,
+scroll lock, inert-while-busy) and a `ConfirmSheet` on top of it. Both
+hand-rolled `ConfirmDialog` copies (messaging + AccountPage) are deleted;
+the attachment picker, add-member sheet, forward picker and the message
+long-press menu are sheets; the new-chat "creating" veil is a live-region
+status with the list inert; overlays 19 → 12. Batch 6 (same cycle): the
+four runtime entries marked "re-evaluate" are re-evaluated: the SCADA
+setpoint PIN keypad is a `Modal size=sm`, the PID faceplate a right
+`Drawer`, the operator alarm tray a bottom `Drawer` (headerless — the
+panel keeps its own header, so `Drawer` gained `ariaLabel` for the
+accessible name) and the GDPR consent gate a `Modal` with no dismissal
+path (no close control, Escape or overlay click); overlays 12 → 8. What
+remains is genuinely not a dialog (kiosk, view overlay, camera viewfinder,
+media viewers) or waits on a dark Modal theme variant (the editor's
+export/import dialogs and ST editor). Remaining
+files are listed
 per-file in `.claude/allowlists/web-design-system-ratchet.yaml` with batch
 (dialog/drawer/mobile/runtime), owner, expiry and reason; the ceiling only
 decreases. **Owner:** okan · **Expiry:** 2027-03-31 (runtime surfaces 2027-06-30).
@@ -68,7 +110,30 @@ appear in the module at all.
 default palette before `theme.css` existed and was never re-pointed.
 
 **Fix (this cycle):** per-package occurrence ceilings pinned to the exact live
-count (the spec rejects slack). **Owner:** okan · **Expiry:** 2027-03-31.
+count (the spec rejects slack). Batch 7 (same cycle): `theme.ts` — exported
+from shared-ui as `colors` — carried a _second_ palette (an Ant-Design blue as
+"brand", another grey scale) that nothing consumed while every chart wrote
+raw hex; it now mirrors theme.css token for token, with `chartPalette` and
+`chartChrome` (grid/axis/border) on top, and
+`tests/invariants/web-theme-token-parity.spec.ts` fails the build when the
+two drift. dashboard (38 → 0), admin-panel (13 → 0), tenant-admin (15 → 0:
+role presets and the default role colour are tokens) and the shell's QR code
+and auth spinner (9 → 5; the login artwork's deep-sea gradient stays) read
+`colors` instead of hex. Batch 8 (same cycle): farm-module (128 → 0), hr-module
+(80 → 0) and hydroponics-module (54 → 10) read `colors`/`chartChrome` for
+every chart series, status colour, shift/department preset, print stylesheet
+and report export; Tailwind defaults map to the nearest theme role (blue →
+info, green/emerald → success, amber/yellow → warning, red/rose → error,
+violet/indigo/cyan → primary shades, pink/orange → accent shades, grey →
+neutral). The ten that remain are the pH scale in
+`pid-simulator/engine/deffeyes-calc.ts` — a scientific colour scale, not a
+brand colour, kept as data. Batch 9 (same cycle): sensor-module (1 625 → 0,
+196 files). 217 distinct values: 63 mapped by hand (Tailwind defaults and
+the SCADA alarm reds/greens), the rest by nearest theme token within a
+small RGB distance, all reviewed; border strings become template literals
+over the token; the SCADA engine's own light/dark `ThemeTokens` derive
+from `colors` too, so the operator console's dark mode is the brand
+palette rather than a third one. **Owner:** okan · **Expiry:** 2027-03-31.
 
 #### FE-HIGH-068 — Browser confirm()/alert()/prompt() used for product dialogs
 
@@ -93,6 +158,17 @@ shell, the ToastProvider pattern; throws without a provider instead of hanging);
 
 683 occurrences (sensor-module 531). Legitimate for canvas geometry and gauges;
 not for colours, spacing and typography. Same ratchet shape as FE-HIGH-066.
+
+**Refined (batch 10, same cycle):** the ratchet counts only _static_ blocks —
+every value a string or number literal, so the block could have been a
+utility class or a token. A runtime value reaching the DOM (a progress bar's
+width, a record's colour, a virtualiser's offset) is data, not a token
+bypass; 528 of the 683 were that. Of the 153 static blocks, the 20 outside
+sensor-module are utility classes now (the login artwork's night-ocean
+gradient moved from the component into `index.css`, which also takes the
+shell's raw hex to 0); the 133 that remain are SCADA symbol geometry
+(absolute positions and sizes inside process-node drawings), pinned as
+sensor-module's ceiling until the symbol layer draws with SVG attributes.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
@@ -103,8 +179,9 @@ not for colours, spacing and typography. Same ratchet shape as FE-HIGH-066.
 
 ## Out of this cycle (tracked above, not done)
 
-- Remaining overlay migrations (see allowlist entries).
-- Hex → token mapping; inline-style reduction.
+- Remaining overlay entries (8 runtime surfaces; see allowlist entries).
+- Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
+- Static inline style in SCADA symbol geometry (133).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

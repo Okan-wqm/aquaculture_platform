@@ -8,6 +8,8 @@
  */
 
 import React from 'react';
+
+import { DEFAULT_ROLE_COLOR } from '../../lib/constants';
 import { Shield, Edit, Trash2, Users, Star } from 'lucide-react';
 import type { TenantRole } from '../../hooks/useTenantRoles';
 
@@ -46,7 +48,7 @@ export const RoleBadge: React.FC<RoleBadgeProps> = ({ role }) => {
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
-      style={{ backgroundColor: role.color || '#6366F1' }}
+      style={{ backgroundColor: role.color || DEFAULT_ROLE_COLOR }}
     >
       <Shield className="w-3 h-3" aria-hidden="true" />
       {role.name}
@@ -94,7 +96,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
           >
             <Shield
               className="w-5 h-5"
-              style={{ color: role.color || '#6366F1' }}
+              style={{ color: role.color || DEFAULT_ROLE_COLOR }}
             />
           </div>
           <div>

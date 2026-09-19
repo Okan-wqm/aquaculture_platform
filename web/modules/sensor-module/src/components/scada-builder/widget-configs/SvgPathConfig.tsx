@@ -23,6 +23,7 @@ import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-prope
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
 import type { PathPoint } from '../../../types/scada-path.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -99,7 +100,7 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
               <label className="block text-xs text-gray-500 mb-1">Fill</label>
               <input
                 type="color"
-                value={(config.fill as string) || '#3b82f6'}
+                value={(config.fill as string) || themeColors.info[500]}
                 onChange={(e) => onChange({ fill: e.target.value })}
                 className="w-full h-8 rounded-lg border border-gray-300 cursor-pointer"
                 aria-label="Fill color"
@@ -136,7 +137,7 @@ export const SvgPathConfig: React.FC<WidgetConfigProps> = ({ config, onChange, d
 
       {/* Stroke section */}
       <StrokeConfig
-        stroke={(config.stroke as string) || '#1d4ed8'}
+        stroke={(config.stroke as string) || themeColors.info[700]}
         strokeWidth={(config.strokeWidth as number) ?? 2}
         strokeOpacity={(config.strokeOpacity as number) ?? 1}
         dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'}

@@ -34,6 +34,24 @@ describe('Drawer — görünürlük ve erişilebilirlik', () => {
     expect(dialog.getAttribute('aria-modal')).toBe('true');
   });
 
+  it('başlıksız çekmece ariaLabel ile adlanır; title verilince ariaLabel yok sayılır', () => {
+    const { unmount } = render(
+      <Drawer isOpen onClose={() => {}} ariaLabel="Alarm Management" showCloseButton={false}>
+        <h2>Alarm Management</h2>
+      </Drawer>,
+    );
+    expect(screen.getByRole('dialog', { name: 'Alarm Management' })).toBeTruthy();
+    unmount();
+
+    render(
+      <Drawer isOpen onClose={() => {}} title="Panel" ariaLabel="Yok sayılır">
+        <p>içerik</p>
+      </Drawer>,
+    );
+    expect(screen.getByRole('dialog', { name: 'Panel' })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: 'Yok sayılır' })).toBeNull();
+  });
+
   it('kapatma butonu erişilebilir etiket taşır ve onClose çağırır', () => {
     const onClose = vi.fn();
     render(

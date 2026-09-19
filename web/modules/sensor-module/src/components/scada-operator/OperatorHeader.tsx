@@ -13,7 +13,8 @@
  * alarm panel in the shell when clicked.
  */
 
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import { useShallow } from 'zustand/react/shallow';
 import {
   Menu,
@@ -265,10 +266,12 @@ const UserRoleMenu = memo(() => {
   );
 
   const [open, setOpen] = useState(false);
+  const roleMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(roleMenuRef, () => setOpen(false), open);
   const roleClass = ROLE_BADGE[currentUserRole] ?? ROLE_BADGE.viewer;
 
   return (
-    <div className="relative">
+    <div className="relative" ref={roleMenuRef}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -292,52 +295,44 @@ const UserRoleMenu = memo(() => {
       </button>
 
       {open && (
-        <>
-          {/* Dismiss backdrop */}
-          <div
-            className="fixed inset-0 z-50"
-            onClick={() => setOpen(false)}
-            aria-hidden="true"
-          />
-          <ul
-            className="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl z-50 overflow-hidden py-1"
-            role="listbox"
-            aria-label="Switch HMI role"
-          >
-            <li className="px-3 pt-2 pb-1">
-              <span className="text-[10px] text-gray-500 uppercase font-semibold tracking-wider">
-                Switch Role
-              </span>
+        <ul
+          className="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl z-50 overflow-hidden py-1"
+          role="listbox"
+          aria-label="Switch HMI role"
+        >
+          <li className="px-3 pt-2 pb-1">
+            <span className="text-[10px] text-gray-500 uppercase font-semibold tracking-wider">
+              Switch Role
+            </span>
+          </li>
+          {ALL_ROLES.map((role) => (
+            <li key={role} role="option" aria-selected={role === currentUserRole}>
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentUserRole(role);
+                  setOpen(false);
+                }}
+                className={`
+                  w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors
+                  ${role === currentUserRole
+                    ? 'bg-gray-700 text-gray-100'
+                    : 'text-gray-300 hover:bg-gray-700/60 hover:text-gray-100'}
+                `}
+              >
+                <Shield
+                  size={12}
+                  className={`shrink-0 ${ROLE_BADGE[role].split(' ')[1] ?? 'text-gray-400'}`}
+                  aria-hidden="true"
+                />
+                <span className="capitalize flex-1">{role}</span>
+                {role === currentUserRole && (
+                  <span className="text-[10px] text-blue-400" aria-hidden="true">active</span>
+                )}
+              </button>
             </li>
-            {ALL_ROLES.map((role) => (
-              <li key={role} role="option" aria-selected={role === currentUserRole}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentUserRole(role);
-                    setOpen(false);
-                  }}
-                  className={`
-                    w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors
-                    ${role === currentUserRole
-                      ? 'bg-gray-700 text-gray-100'
-                      : 'text-gray-300 hover:bg-gray-700/60 hover:text-gray-100'}
-                  `}
-                >
-                  <Shield
-                    size={12}
-                    className={`shrink-0 ${ROLE_BADGE[role].split(' ')[1] ?? 'text-gray-400'}`}
-                    aria-hidden="true"
-                  />
-                  <span className="capitalize flex-1">{role}</span>
-                  {role === currentUserRole && (
-                    <span className="text-[10px] text-blue-400" aria-hidden="true">active</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+          ))}
+        </ul>
       )}
     </div>
   );

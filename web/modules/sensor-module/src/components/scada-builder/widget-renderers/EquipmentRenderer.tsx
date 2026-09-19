@@ -12,6 +12,7 @@ import React, { Suspense, useMemo, useCallback, memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
 import type { EquipmentSubType, EquipmentState } from '../../../types/scada-widget.types';
 import { symbolMap } from '../equipment-symbols';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Valve sub-type set for state derivation                            */
@@ -92,8 +93,8 @@ const EquipmentRenderer: React.FC<WidgetRendererProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: '#fef2f2',
-          color: '#991b1b',
+          background: colors.error[50],
+          color: colors.error[700],
           fontSize: 11,
           textAlign: 'center',
           padding: 8,
@@ -116,7 +117,7 @@ const EquipmentRenderer: React.FC<WidgetRendererProps> = ({
       }}
       onClick={handleClick}
     >
-      <Suspense fallback={<div style={{ width, height, background: '#f8fafc' }} />}>
+      <Suspense fallback={<div style={{ width, height, background: colors.neutral[50] }} />}>
         <SymbolComponent
           state={state}
           width={width}

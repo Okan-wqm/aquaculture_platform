@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, colors as themeColors } from '@aquaculture/shared-ui';
 import {
   DataChannelConfig,
   ChannelDataType,
@@ -42,14 +42,14 @@ const WIDGET_TYPE_OPTIONS = [
 ];
 
 const COLOR_PRESETS = [
-  '#3B82F6', // blue
-  '#10B981', // green
-  '#F59E0B', // amber
-  '#EF4444', // red
-  '#8B5CF6', // purple
-  '#06B6D4', // cyan
-  '#EC4899', // pink
-  '#6B7280', // gray
+  themeColors.info[500], // blue
+  themeColors.success[500], // green
+  themeColors.warning[500], // amber
+  themeColors.error[500], // red
+  themeColors.primary[700], // purple
+  themeColors.primary[400], // cyan
+  themeColors.accent[500], // pink
+  themeColors.gray[400], // gray
 ];
 
 export function ChannelEditorModal({
@@ -529,7 +529,7 @@ export function ChannelEditorModal({
                     ))}
                     <input
                       type="color"
-                      value={formData.displaySettings?.color || '#3B82F6'}
+                      value={formData.displaySettings?.color || themeColors.info[500]}
                       onChange={(e) => handleDisplaySettingChange('color', e.target.value)}
                       className="w-8 h-8 rounded cursor-pointer"
                     />

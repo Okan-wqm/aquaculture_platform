@@ -13,7 +13,6 @@ import {
   Plus,
   Eye,
   Check,
-  X,
   Clock,
   AlertTriangle,
   CheckCircle2,
@@ -27,6 +26,7 @@ import {
   FileCheck,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -419,163 +419,18 @@ const DataRequestDetailModal: React.FC<{
   actionError?: string | null;
 }> = ({ request, onClose, onAction, actionLoading = false, actionError = null }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Data Subject Request</h2>
-              <p className="text-sm text-gray-500 mt-1">ID: {request.id}</p>
-            </div>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-        </div>
-        <div className="p-6 space-y-6">
-          {/* Status Banner */}
-          {request.isOverdue && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-              <div>
-                <p className="font-medium text-red-800">This request is overdue</p>
-                <p className="text-sm text-red-600">
-                  Due date was {formatDate(request.dueDate)}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Request Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">Request Type</span>
-              <div className="flex items-center gap-2 mt-1">
-                {getRequestTypeIcon(request.requestType)}
-                <span className="text-sm text-gray-900">
-                  {getRequestTypeLabel(request.requestType)}
-                </span>
-              </div>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Status</span>
-              <span
-                className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
-              >
-                {request.status.replace('_', ' ')}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Submitted</span>
-              <p className="text-sm text-gray-900">{formatDateTime(request.submittedAt)}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Due Date</span>
-              <p className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
-                {formatDate(request.dueDate)}
-              </p>
-            </div>
-          </div>
-
-          {/* Requester Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Requester Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.requesterName}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.requesterEmail}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Globe className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.tenantName}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {request.identityVerified ? (
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                )}
-                <span className="text-sm text-gray-900">
-                  {request.identityVerified ? 'Identity Verified' : 'Identity Not Verified'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Description */}
-          <div>
-            <span className="text-sm font-medium text-gray-500">Description</span>
-            <p className="text-sm text-gray-900 mt-1">{request.description}</p>
-          </div>
-
-          {/* Data Categories */}
-          {request.dataCategories && request.dataCategories.length > 0 && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">Data Categories</span>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {request.dataCategories.map((cat) => (
-                  <span
-                    key={cat}
-                    className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium"
-                  >
-                    {cat}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Assignment */}
-          {request.assignedTo && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">Assigned To</span>
-              <p className="text-sm text-gray-900 mt-1">{request.assignedToName}</p>
-            </div>
-          )}
-
-          {/* Timeline */}
-          <div>
-            <span className="text-sm font-medium text-gray-500 mb-3 block">Timeline</span>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                  <Check className="w-4 h-4 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Request Submitted</p>
-                  <p className="text-xs text-gray-500">{formatDateTime(request.submittedAt)}</p>
-                </div>
-              </div>
-              {request.verifiedAt && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Identity Verified</p>
-                    <p className="text-xs text-gray-500">{formatDateTime(request.verifiedAt)}</p>
-                  </div>
-                </div>
-              )}
-              {request.completedAt && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Request Completed</p>
-                    <p className="text-xs text-gray-500">{formatDateTime(request.completedAt)}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="p-6 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Data Subject Request"
+      description={`ID: ${request.id}`}
+      showCloseButton={!actionLoading}
+      closeOnEscape={!actionLoading}
+      closeOnOverlayClick={!actionLoading}
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <div className="w-full">
           {/* SECURITY: Show error inline so admin can retry without losing context */}
           {actionError && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
@@ -622,8 +477,150 @@ const DataRequestDetailModal: React.FC<{
             </div>
           </div>
         </div>
+      }
+    >
+      {/* Status Banner */}
+      {request.isOverdue && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-600" />
+          <div>
+            <p className="font-medium text-red-800">This request is overdue</p>
+            <p className="text-sm text-red-600">
+              Due date was {formatDate(request.dueDate)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Request Info */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500">Request Type</span>
+          <div className="flex items-center gap-2 mt-1">
+            {getRequestTypeIcon(request.requestType)}
+            <span className="text-sm text-gray-900">
+              {getRequestTypeLabel(request.requestType)}
+            </span>
+          </div>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Status</span>
+          <span
+            className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
+          >
+            {request.status.replace('_', ' ')}
+          </span>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Submitted</span>
+          <p className="text-sm text-gray-900">{formatDateTime(request.submittedAt)}</p>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500">Due Date</span>
+          <p className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
+            {formatDate(request.dueDate)}
+          </p>
+        </div>
       </div>
-    </div>
+
+      {/* Requester Info */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 mb-3">Requester Information</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-900">{request.requesterName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-900">{request.requesterEmail}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-gray-500" />
+            <span className="text-sm text-gray-900">{request.tenantName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {request.identityVerified ? (
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-yellow-600" />
+            )}
+            <span className="text-sm text-gray-900">
+              {request.identityVerified ? 'Identity Verified' : 'Identity Not Verified'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <span className="text-sm font-medium text-gray-500">Description</span>
+        <p className="text-sm text-gray-900 mt-1">{request.description}</p>
+      </div>
+
+      {/* Data Categories */}
+      {request.dataCategories && request.dataCategories.length > 0 && (
+        <div>
+          <span className="text-sm font-medium text-gray-500">Data Categories</span>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {request.dataCategories.map((cat) => (
+              <span
+                key={cat}
+                className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium"
+              >
+                {cat}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Assignment */}
+      {request.assignedTo && (
+        <div>
+          <span className="text-sm font-medium text-gray-500">Assigned To</span>
+          <p className="text-sm text-gray-900 mt-1">{request.assignedToName}</p>
+        </div>
+      )}
+
+      {/* Timeline */}
+      <div>
+        <span className="text-sm font-medium text-gray-500 mb-3 block">Timeline</span>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-4 h-4 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900">Request Submitted</p>
+              <p className="text-xs text-gray-500">{formatDateTime(request.submittedAt)}</p>
+            </div>
+          </div>
+          {request.verifiedAt && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">Identity Verified</p>
+                <p className="text-xs text-gray-500">{formatDateTime(request.verifiedAt)}</p>
+              </div>
+            </div>
+          )}
+          {request.completedAt && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">Request Completed</p>
+                <p className="text-xs text-gray-500">{formatDateTime(request.completedAt)}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 };
 

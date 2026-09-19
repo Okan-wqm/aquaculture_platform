@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
+import { Modal, useAuth, createTenantQueryKey, createTenantInvalidationKey } from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
   Save,
@@ -552,6 +552,10 @@ const AutomationProgramEditorPage: React.FC = () => {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const closeRejectModal = (): void => {
+    setShowRejectModal(false);
+    setRejectReason('');
+  };
   const [showAddTransition, setShowAddTransition] = useState(false);
   const [newTransition, setNewTransition] = useState({
     transitionCode: '',
@@ -1047,27 +1051,20 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Reject Modal */}
       {showRejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Reject Program</h3>
+        <Modal
+          isOpen
+          onClose={closeRejectModal}
+          size="sm"
+          title="Reject Program"
+          showCloseButton={!rejectMutation.isPending}
+          closeOnEscape={!rejectMutation.isPending}
+          closeOnOverlayClick={!rejectMutation.isPending}
+          bodyClassName="p-6"
+          footer={
+            <>
               <button
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
-                className="p-1 rounded hover:bg-gray-100"
-              >
-                <XCircle className="h-5 w-5 text-gray-500" />
-              </button>
-            </div>
-            <textarea
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              placeholder="Enter rejection reason..."
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white mb-4"
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => { setShowRejectModal(false); setRejectReason(''); }}
+                type="button"
+                onClick={closeRejectModal}
                 className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
               >
                 Cancel
@@ -1080,9 +1077,17 @@ const AutomationProgramEditorPage: React.FC = () => {
                 {rejectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin inline mr-1" /> : null}
                 Reject
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <textarea
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            placeholder="Enter rejection reason..."
+            rows={4}
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white mb-4"
+          />
+        </Modal>
       )}
 
       {/* Header */}

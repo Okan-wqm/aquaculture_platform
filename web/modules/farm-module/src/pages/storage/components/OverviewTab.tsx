@@ -2,8 +2,8 @@
  * Storage Overview Tab - Dashboard with stats, low stock alerts, recent movements,
  * and interactive pie/donut charts for category distribution and location fill rates.
  */
-import React, { useState, useMemo } from 'react';
-import { DonutChart, formatCurrency, parseMoney, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import React, { useState, useMemo, useRef } from 'react';
+import { DonutChart, formatCurrency, parseMoney, DEFAULT_CURRENCY, useClickOutside, colors } from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
 import { useStorageOverview, useStockMovements, useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
@@ -20,14 +20,14 @@ const movementTypeBadge: Record<string, string> = {
 };
 
 const CATEGORY_CONFIG: Record<string, { label: string; color: string; bgColor: string; borderColor: string }> = {
-  FEED: { label: 'Feed', color: '#F59E0B', bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
-  feed: { label: 'Feed', color: '#F59E0B', bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
-  CHEMICAL: { label: 'Chemical', color: '#3B82F6', bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
-  chemical: { label: 'Chemical', color: '#3B82F6', bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
-  CONSUMABLE: { label: 'Consumable', color: '#10B981', bgColor: 'bg-green-50', borderColor: 'border-green-200' },
-  consumable: { label: 'Consumable', color: '#10B981', bgColor: 'bg-green-50', borderColor: 'border-green-200' },
-  HEALTHCARE: { label: 'Healthcare', color: '#8B5CF6', bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
-  healthcare: { label: 'Healthcare', color: '#8B5CF6', bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
+  FEED: { label: 'Feed', color: colors.warning[500], bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
+  feed: { label: 'Feed', color: colors.warning[500], bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
+  CHEMICAL: { label: 'Chemical', color: colors.info[500], bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
+  chemical: { label: 'Chemical', color: colors.info[500], bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
+  CONSUMABLE: { label: 'Consumable', color: colors.success[500], bgColor: 'bg-green-50', borderColor: 'border-green-200' },
+  consumable: { label: 'Consumable', color: colors.success[500], bgColor: 'bg-green-50', borderColor: 'border-green-200' },
+  HEALTHCARE: { label: 'Healthcare', color: colors.primary[700], bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
+  healthcare: { label: 'Healthcare', color: colors.primary[700], bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
 };
 
 export const OverviewTab: React.FC = () => {
@@ -45,6 +45,8 @@ export const OverviewTab: React.FC = () => {
   // Storage location filter
   const [selectedLocationIds, setSelectedLocationIds] = useState<Set<string>>(new Set());
   const [locationDropdownOpen, setLocationDropdownOpen] = useState(false);
+  const locationDropdownRef = useRef<HTMLDivElement>(null);
+  useClickOutside(locationDropdownRef, () => setLocationDropdownOpen(false), locationDropdownOpen);
 
   // Drill-down state: when a pie slice is clicked, show that category's items
   const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export const OverviewTab: React.FC = () => {
       .map(cat => ({
         label: CATEGORY_CONFIG[cat.category]?.label || cat.category,
         value: cat.totalQuantity,
-        color: CATEGORY_CONFIG[cat.category]?.color || '#6B7280',
+        color: CATEGORY_CONFIG[cat.category]?.color || colors.gray[400],
       }));
   }, [overview?.categoryTotals, visibleCategories]);
 
@@ -87,7 +89,7 @@ export const OverviewTab: React.FC = () => {
       .map(cat => ({
         label: CATEGORY_CONFIG[cat.category]?.label || cat.category,
         value: parseMoney(cat.totalValueDecimal),
-        color: CATEGORY_CONFIG[cat.category]?.color || '#6B7280',
+        color: CATEGORY_CONFIG[cat.category]?.color || colors.gray[400],
       }));
   }, [overview?.categoryTotals, visibleCategories]);
 
@@ -100,7 +102,7 @@ export const OverviewTab: React.FC = () => {
     return filtered.map(loc => ({
       label: loc.locationName,
       value: loc.usedCapacity,
-      color: loc.fillPercentage > 90 ? '#EF4444' : loc.fillPercentage > 70 ? '#F59E0B' : '#3B82F6',
+      color: loc.fillPercentage > 90 ? colors.error[500] : loc.fillPercentage > 70 ? colors.warning[500] : colors.info[500],
     }));
   }, [overview?.locationFillRates, selectedLocationIds]);
 
@@ -219,7 +221,7 @@ export const OverviewTab: React.FC = () => {
                 />
                 <span
                   className="w-2.5 h-2.5 rounded-full"
-                  style={{ backgroundColor: visibleCategories.has(cat) ? CATEGORY_CONFIG[cat].color : '#D1D5DB' }}
+                  style={{ backgroundColor: visibleCategories.has(cat) ? CATEGORY_CONFIG[cat].color : colors.neutral[300] }}
                 />
                 {CATEGORY_CONFIG[cat].label}
               </label>
@@ -275,7 +277,7 @@ export const OverviewTab: React.FC = () => {
           </div>
 
           {categoryValueChartData.length > 0 && categoryValueChartData.some(d => d.value > 0) ? (
-            <div className="flex justify-center" style={{ marginTop: 36 }}>
+            <div className="flex justify-center mt-9">
               <DonutChart
                 data={categoryValueChartData}
                 size={220}
@@ -421,7 +423,7 @@ export const OverviewTab: React.FC = () => {
 
             {/* Location filter dropdown */}
             {(locations?.items || []).length > 0 && (
-              <div className="relative">
+              <div className="relative" ref={locationDropdownRef}>
                 <button
                   onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}
                   className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1"
@@ -432,30 +434,27 @@ export const OverviewTab: React.FC = () => {
                   </svg>
                 </button>
                 {locationDropdownOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setLocationDropdownOpen(false)} />
-                    <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-lg border border-gray-200 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
-                      {selectedLocationIds.size > 0 && (
-                        <button
-                          onClick={() => { setSelectedLocationIds(new Set()); setLocationDropdownOpen(false); }}
-                          className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
-                        >
-                          Clear selection
-                        </button>
-                      )}
-                      {(locations?.items || []).map((loc: any) => (
-                        <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={selectedLocationIds.has(loc.id)}
-                            onChange={() => toggleLocation(loc.id)}
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-xs text-gray-700">{loc.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </>
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-lg border border-gray-200 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
+                    {selectedLocationIds.size > 0 && (
+                      <button
+                        onClick={() => { setSelectedLocationIds(new Set()); setLocationDropdownOpen(false); }}
+                        className="w-full text-left px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50"
+                      >
+                        Clear selection
+                      </button>
+                    )}
+                    {(locations?.items || []).map((loc: any) => (
+                      <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedLocationIds.has(loc.id)}
+                          onChange={() => toggleLocation(loc.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-xs text-gray-700">{loc.name}</span>
+                      </label>
+                    ))}
+                  </div>
                 )}
               </div>
             )}

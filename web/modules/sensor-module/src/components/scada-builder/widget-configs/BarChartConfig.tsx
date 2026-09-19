@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { colors } from '@aquaculture/shared-ui';
 
 interface BarSource {
   tagName: string;
@@ -20,8 +21,8 @@ interface WidgetConfigProps {
 }
 
 const DEFAULT_COLORS = [
-  '#06b6d4', '#8b5cf6', '#f59e0b', '#ef4444', '#22c55e',
-  '#ec4899', '#3b82f6', '#14b8a6',
+  colors.primary[400], colors.primary[700], colors.warning[500], colors.error[500], colors.success[500],
+  colors.accent[500], colors.info[500], colors.secondary[600],
 ];
 
 export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {

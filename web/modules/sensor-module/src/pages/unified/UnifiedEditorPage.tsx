@@ -14,6 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -250,6 +251,10 @@ const UnifiedEditorPage: React.FC = () => {
 
   // Deploy dropdown + canonical deploy dialog target (6b)
   const [showDeployMenu, setShowDeployMenu] = useState(false);
+  const deviceDropdownRef = useRef<HTMLDivElement>(null);
+  const deployMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(deviceDropdownRef, () => setShowDeviceDropdown(false), showDeviceDropdown);
+  useClickOutside(deployMenuRef, () => setShowDeployMenu(false), showDeployMenu);
   const [deployTarget, setDeployTarget] = useState<'process' | 'scada' | null>(null);
   // Automation-program deploy modal (6c parity with ProcessEditorPage)
   const [isAutomationDeployOpen, setIsAutomationDeployOpen] = useState(false);
@@ -720,7 +725,7 @@ const UnifiedEditorPage: React.FC = () => {
 
           {/* Device Selector */}
           <div className="h-5 w-px bg-gray-300" />
-          <div className="relative">
+          <div className="relative" ref={deviceDropdownRef}>
             <button
               onClick={() => setShowDeviceDropdown(!showDeviceDropdown)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-gray-700 bg-gray-50 border border-gray-300 rounded-lg hover:bg-gray-100"
@@ -742,36 +747,33 @@ const UnifiedEditorPage: React.FC = () => {
             </button>
 
             {showDeviceDropdown && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setShowDeviceDropdown(false)} />
-                <div className="absolute left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1 max-h-60 overflow-y-auto">
+              <div className="absolute left-0 mt-1 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1 max-h-60 overflow-y-auto">
+                <button
+                  onClick={() => { setTargetDeviceId(null); setShowDeviceDropdown(false); }}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50"
+                >
+                  No device
+                </button>
+                {devices.map((device) => (
                   <button
-                    onClick={() => { setTargetDeviceId(null); setShowDeviceDropdown(false); }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-500 hover:bg-gray-50"
+                    key={device.id}
+                    onClick={() => { setTargetDeviceId(device.id); setShowDeviceDropdown(false); }}
+                    className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
+                      targetDeviceId === device.id ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700'
+                    }`}
                   >
-                    No device
+                    <span className="truncate">{device.deviceName}</span>
+                    <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                      <span className="text-xs text-gray-500">{device.deviceCode}</span>
+                      {device.isOnline ? (
+                        <span className="w-2 h-2 rounded-full bg-green-500" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-gray-300" />
+                      )}
+                    </span>
                   </button>
-                  {devices.map((device) => (
-                    <button
-                      key={device.id}
-                      onClick={() => { setTargetDeviceId(device.id); setShowDeviceDropdown(false); }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center justify-between ${
-                        targetDeviceId === device.id ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700'
-                      }`}
-                    >
-                      <span className="truncate">{device.deviceName}</span>
-                      <span className="flex items-center gap-1.5 flex-shrink-0 ml-2">
-                        <span className="text-xs text-gray-500">{device.deviceCode}</span>
-                        {device.isOnline ? (
-                          <span className="w-2 h-2 rounded-full bg-green-500" />
-                        ) : (
-                          <span className="w-2 h-2 rounded-full bg-gray-300" />
-                        )}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -852,7 +854,7 @@ const UnifiedEditorPage: React.FC = () => {
             </span>
           )}
           {/* Deploy dropdown */}
-          <div className="relative">
+          <div className="relative" ref={deployMenuRef}>
             <button
               onClick={() => setShowDeployMenu(!showDeployMenu)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
@@ -861,29 +863,26 @@ const UnifiedEditorPage: React.FC = () => {
               <ChevronDown className="w-3 h-3" />
             </button>
             {showDeployMenu && (
-              <>
-                <div className="fixed inset-0 z-30" onClick={() => setShowDeployMenu(false)} />
-                <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1">
-                  <button
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => { setShowDeployMenu(false); setDeployTarget('process'); }}
-                  >
-                    Proses (P&amp;ID) → Edge
-                  </button>
-                  <button
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => { setShowDeployMenu(false); setDeployTarget('scada'); }}
-                  >
-                    SCADA Paketi → Edge
-                  </button>
-                  <button
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    onClick={() => { setShowDeployMenu(false); setIsAutomationDeployOpen(true); }}
-                  >
-                    Otomasyon Programı → Edge
-                  </button>
-                </div>
-              </>
+              <div className="absolute right-0 mt-1 w-52 bg-white rounded-lg shadow-lg border border-gray-200 z-40 py-1">
+                <button
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  onClick={() => { setShowDeployMenu(false); setDeployTarget('process'); }}
+                >
+                  Proses (P&amp;ID) → Edge
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  onClick={() => { setShowDeployMenu(false); setDeployTarget('scada'); }}
+                >
+                  SCADA Paketi → Edge
+                </button>
+                <button
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  onClick={() => { setShowDeployMenu(false); setIsAutomationDeployOpen(true); }}
+                >
+                  Otomasyon Programı → Edge
+                </button>
+              </div>
             )}
           </div>
 

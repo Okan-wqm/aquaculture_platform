@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, colors } from '@aquaculture/shared-ui';
 import {
   ChildSensorConfig,
   SensorType,
@@ -47,14 +47,14 @@ const WIDGET_TYPES = [
 ];
 
 const COLORS = [
-  { value: '#3B82F6', label: 'Blue' },
-  { value: '#10B981', label: 'Green' },
-  { value: '#F59E0B', label: 'Orange' },
-  { value: '#EF4444', label: 'Red' },
-  { value: '#8B5CF6', label: 'Purple' },
-  { value: '#EC4899', label: 'Pink' },
-  { value: '#06B6D4', label: 'Cyan' },
-  { value: '#6B7280', label: 'Gray' },
+  { value: colors.info[500], label: 'Blue' },
+  { value: colors.success[500], label: 'Green' },
+  { value: colors.warning[500], label: 'Orange' },
+  { value: colors.error[500], label: 'Red' },
+  { value: colors.primary[700], label: 'Purple' },
+  { value: colors.accent[500], label: 'Pink' },
+  { value: colors.primary[400], label: 'Cyan' },
+  { value: colors.gray[400], label: 'Gray' },
 ];
 
 export function ChildSensorFormModal({
@@ -84,7 +84,7 @@ export function ChildSensorFormModal({
         displaySettings: sensor.displaySettings || {
           showOnDashboard: true,
           widgetType: 'gauge',
-          color: '#3B82F6',
+          color: colors.info[500],
         },
       });
     } else {

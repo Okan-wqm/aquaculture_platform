@@ -3,6 +3,7 @@
  * Pure div-based (no SVG), compact horizontal bars
  */
 import React from 'react';
+import { colors } from '@aquaculture/shared-ui';
 
 interface PumpBarsProps {
   acidPump: number;
@@ -23,7 +24,7 @@ const PumpBar: React.FC<{
       <div className="flex items-center gap-1.5 w-[80px]">
         <div
           className="w-2 h-2 rounded-full flex-shrink-0"
-          style={{ backgroundColor: isOn ? color : '#d1d5db' }}
+          style={{ backgroundColor: isOn ? color : colors.neutral[300] }}
         />
         <span className="text-[11px] text-gray-600 truncate">{label}</span>
       </div>
@@ -48,10 +49,20 @@ const PumpBars: React.FC<PumpBarsProps> = ({ acidPump, basePump, nutPump, dilPum
   <div className="bg-white rounded-lg border border-gray-200 p-3">
     <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Pumps</h4>
     <div className="space-y-1.5">
-      <PumpBar label="ACID" value={acidPump} color="#e11d48" bgColor="#fce7f3" />
-      <PumpBar label="BASE" value={basePump} color="#16a34a" bgColor="#dcfce7" />
-      <PumpBar label="NUTRIENT" value={nutPump} color="#ea580c" bgColor="#fff7ed" />
-      <PumpBar label="DILUTE" value={dilPump} color="#2563eb" bgColor="#eff6ff" />
+      <PumpBar label="ACID" value={acidPump} color={colors.error[500]} bgColor={colors.error[50]} />
+      <PumpBar
+        label="BASE"
+        value={basePump}
+        color={colors.success[600]}
+        bgColor={colors.success[50]}
+      />
+      <PumpBar
+        label="NUTRIENT"
+        value={nutPump}
+        color={colors.warning[600]}
+        bgColor={colors.warning[50]}
+      />
+      <PumpBar label="DILUTE" value={dilPump} color={colors.info[600]} bgColor={colors.info[50]} />
     </div>
   </div>
 );

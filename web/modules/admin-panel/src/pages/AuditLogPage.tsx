@@ -16,7 +16,7 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { Card, Button, Input, Select, Badge, Table } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Select, Badge, Table, Modal } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminQuery, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
@@ -235,62 +235,50 @@ interface LogDetailModalProps {
 }
 
 const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
-  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-    <Card className="w-full max-w-2xl max-h-[90vh] overflow-auto">
-      <div className="p-6">
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900">Log Details</h2>
-            <p className="text-sm text-gray-500">ID: {log.id}</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </Button>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <DetailField label="Date" value={formatDateTime(log.createdAt)} />
-            <DetailField label="Action">
-              <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>
-            </DetailField>
-            <DetailField label="Entity Type" value={log.entityType} />
-            <DetailField label="Entity ID" value={log.entityId} mono />
-            <DetailField label="User" value={log.performedByEmail} subtitle={log.performedBy} />
-            <DetailField label="Severity">
-              <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>
-            </DetailField>
-            <DetailField label="IP Address" value={log.ipAddress} mono />
-            <DetailField label="Tenant ID" value={log.tenantId || '-'} mono />
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-500">User Agent</label>
-            <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded break-all">
-              {log.userAgent || '-'}
-            </p>
-          </div>
-
-          {log.details && Object.keys(log.details).length > 0 && (
-            <div>
-              {/* `details` is the column (audit.entity.ts). The hand-written
-                  type called it `metadata`, so this block never rendered. */}
-              <label className="text-xs text-gray-500">Details</label>
-              <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
-                {JSON.stringify(log.details, null, 2)}
-              </pre>
-            </div>
-          )}
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <Button onClick={onClose}>Close</Button>
-        </div>
+  <Modal
+    isOpen
+    onClose={onClose}
+    size="lg"
+    title="Log Details"
+    description={`ID: ${log.id}`}
+    bodyClassName="p-6"
+    footer={<Button onClick={onClose}>Close</Button>}
+  >
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <DetailField label="Date" value={formatDateTime(log.createdAt)} />
+        <DetailField label="Action">
+          <Badge variant={getActionBadgeVariant(log.action)}>{log.action}</Badge>
+        </DetailField>
+        <DetailField label="Entity Type" value={log.entityType} />
+        <DetailField label="Entity ID" value={log.entityId} mono />
+        <DetailField label="User" value={log.performedByEmail} subtitle={log.performedBy} />
+        <DetailField label="Severity">
+          <Badge variant={getSeverityBadgeVariant(log.severity)}>{log.severity}</Badge>
+        </DetailField>
+        <DetailField label="IP Address" value={log.ipAddress} mono />
+        <DetailField label="Tenant ID" value={log.tenantId || '-'} mono />
       </div>
-    </Card>
-  </div>
+
+      <div>
+        <label className="text-xs text-gray-500">User Agent</label>
+        <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded break-all">
+          {log.userAgent || '-'}
+        </p>
+      </div>
+
+      {log.details && Object.keys(log.details).length > 0 && (
+        <div>
+          {/* `details` is the column (audit.entity.ts). The hand-written
+              type called it `metadata`, so this block never rendered. */}
+          <label className="text-xs text-gray-500">Details</label>
+          <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
+            {JSON.stringify(log.details, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  </Modal>
 );
 
 interface DetailFieldProps {

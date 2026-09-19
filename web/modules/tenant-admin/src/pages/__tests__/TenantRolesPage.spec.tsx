@@ -25,6 +25,8 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
   // The dialogs under test render through the real shared-ui Modal (portal,
   // focus trap, Escape); only the auth/session seams are faked.
   Modal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Modal,
+  // ROLE_COLORS / DEFAULT_ROLE_COLOR are theme tokens (FE-HIGH-066).
+  colors: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).colors,
   useAuth: () => ({
     hasPermission: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: 'TENANT_ADMIN' },

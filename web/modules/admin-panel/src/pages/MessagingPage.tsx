@@ -6,13 +6,13 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Modal } from '@aquaculture/shared-ui';
 import {
   MessageSquare,
   Send,
   Users,
   Search,
   Archive,
-  X,
   MoreVertical,
   Paperclip,
   Clock,
@@ -664,74 +664,23 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">Bulk Message</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-            <X size={24} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {/* Subject */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Subject
-            </label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter message subject..."
-            />
-          </div>
-
-          {/* Content */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Message Content
-            </label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              rows={6}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
-              placeholder="Enter your message..."
-            />
-          </div>
-
-          {/* Options */}
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={sendEmail}
-                onChange={(e) => setSendEmail(e.target.checked)}
-                className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700">Send email notification</span>
-            </label>
-          </div>
-
-          {/* Preview */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="text-sm text-gray-500 mb-2">Preview</div>
-            <div className="text-sm text-gray-700">
-              This message will be sent to <strong>all active tenants</strong>.
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Bulk Message"
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={!subject || !content}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -739,9 +688,58 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
             <Send size={18} />
             Send to All
           </button>
+        </>
+      }
+    >
+      {/* Subject */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Subject
+        </label>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter message subject..."
+        />
+      </div>
+
+      {/* Content */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Message Content
+        </label>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={6}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+          placeholder="Enter your message..."
+        />
+      </div>
+
+      {/* Options */}
+      <div className="flex items-center gap-3">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={sendEmail}
+            onChange={(e) => setSendEmail(e.target.checked)}
+            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+          />
+          <span className="text-sm text-gray-700">Send email notification</span>
+        </label>
+      </div>
+
+      {/* Preview */}
+      <div className="bg-gray-50 rounded-lg p-4">
+        <div className="text-sm text-gray-500 mb-2">Preview</div>
+        <div className="text-sm text-gray-700">
+          This message will be sent to <strong>all active tenants</strong>.
         </div>
       </div>
-    </div>
+    </Modal>
   );
 };
 
@@ -762,67 +760,23 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-900">New Conversation</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-            <X size={24} />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          {/* Tenant ID */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tenant ID
-            </label>
-            <input
-              type="text"
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter tenant ID..."
-            />
-          </div>
-
-          {/* Subject */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Subject
-            </label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter conversation subject..."
-            />
-          </div>
-
-          {/* Initial Message */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Initial Message
-            </label>
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
-              placeholder="Enter your message..."
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      title="New Conversation"
+      bodyClassName="p-6 space-y-4"
+      footer={
+        <>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
           >
             Cancel
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={!tenantId || !subject || !message}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -830,9 +784,51 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
             <MessageSquare size={18} />
             Start Conversation
           </button>
-        </div>
+        </>
+      }
+    >
+      {/* Tenant ID */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Tenant ID
+        </label>
+        <input
+          type="text"
+          value={tenantId}
+          onChange={(e) => setTenantId(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter tenant ID..."
+        />
       </div>
-    </div>
+
+      {/* Subject */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Subject
+        </label>
+        <input
+          type="text"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          placeholder="Enter conversation subject..."
+        />
+      </div>
+
+      {/* Initial Message */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Initial Message
+        </label>
+        <textarea
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          rows={4}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+          placeholder="Enter your message..."
+        />
+      </div>
+    </Modal>
   );
 };
 

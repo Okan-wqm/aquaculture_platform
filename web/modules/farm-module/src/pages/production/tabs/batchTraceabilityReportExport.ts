@@ -18,7 +18,7 @@ import type {
   BatchTraceability,
   BatchTraceabilityEvent,
 } from '../../../hooks/useBatchTraceability';
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, colors } from '@aquaculture/shared-ui';
 
 import { escapeHtml } from '../../water-chemistry/waterChemistryReportExport';
 
@@ -187,9 +187,9 @@ export function buildBatchTraceabilityReportHtml(
       .section-title { font-size: 11px; font-weight: bold; margin-bottom: 3px; border-bottom: 1px solid #333; padding-bottom: 2px; }
       table.pairs { width: 100%; border-collapse: collapse; font-size: 10px; margin-bottom: 10px; }
       table.pairs td { padding: 2px 6px; border: 1px solid #ddd; }
-      table.pairs td.label { background: #f9fafb; font-weight: 500; width: 28%; }
+      table.pairs td.label { background: ${colors.neutral[50]}; font-weight: 500; width: 28%; }
       table.data { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-      table.data th { padding: 2px 6px; border: 1px solid #ddd; background: #f3f4f6; text-align: left; font-weight: 600; }
+      table.data th { padding: 2px 6px; border: 1px solid #ddd; background: ${colors.neutral[100]}; text-align: left; font-weight: 600; }
       table.data td { padding: 2px 6px; border: 1px solid #ddd; }
       table.data td.empty { text-align: center; color: #666; }
       @media print {

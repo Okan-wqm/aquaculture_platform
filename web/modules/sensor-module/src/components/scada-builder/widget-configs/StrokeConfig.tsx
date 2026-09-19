@@ -15,6 +15,7 @@ import {
   LINE_CAP_OPTIONS,
   LINE_JOIN_OPTIONS,
 } from '../../../types/scada-svg-properties.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface StrokeConfigProps {
   stroke: string;
@@ -119,7 +120,7 @@ export const StrokeConfig: React.FC<StrokeConfigProps> = ({
             }
           }}
           maxLength={7}
-          placeholder="#000000"
+          placeholder={themeColors.black}
           className={INPUT_CLASS}
           aria-label="Stroke hex color"
         />

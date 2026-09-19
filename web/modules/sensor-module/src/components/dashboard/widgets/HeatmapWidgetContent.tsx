@@ -10,6 +10,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { WidgetConfig, TimeRange } from '../types';
 import { useWidgetData, HistoryPoint } from '../../../hooks/useWidgetData';
+import { colors } from '@aquaculture/shared-ui';
 
 interface HeatmapWidgetContentProps {
   config: WidgetConfig;
@@ -223,8 +224,8 @@ const FallbackTable: React.FC<{ grid: HeatmapGrid; scale: ColorScale }> = ({ gri
                   key={bucketIdx}
                   className="p-1 text-center"
                   style={{
-                    backgroundColor: normalized !== null ? colorFromScale(normalized, scale) : '#f3f4f6',
-                    color: normalized !== null && normalized > 0.6 ? '#fff' : '#374151',
+                    backgroundColor: normalized !== null ? colorFromScale(normalized, scale) : colors.neutral[100],
+                    color: normalized !== null && normalized > 0.6 ? '#fff' : colors.neutral[700],
                   }}
                 >
                   {cell ? cell.value.toFixed(1) : '—'}
@@ -275,9 +276,9 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
 
     const { sensors, buckets, cells, minValue, maxValue } = grid;
     if (sensors.length === 0 || buckets.length === 0) {
-      ctx.fillStyle = '#f3f4f6';
+      ctx.fillStyle = colors.neutral[100];
       ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = '#9ca3af';
+      ctx.fillStyle = colors.neutral[400];
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'center';
       ctx.fillText('No data in selected range', width / 2, height / 2);
@@ -290,7 +291,7 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
     const cellHeight = Math.max(MIN_CELL_HEIGHT, gridHeight / sensors.length);
 
     // Background
-    ctx.fillStyle = '#f9fafb';
+    ctx.fillStyle = colors.neutral[50];
     ctx.fillRect(0, 0, width, height);
 
     // Build lookup for quick access (also stored in ref for mouse handler)
@@ -311,7 +312,7 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
           const normalized = (cell.value - minValue) / (maxValue - minValue);
           ctx.fillStyle = colorFromScale(normalized, scale);
         } else {
-          ctx.fillStyle = '#e5e7eb'; // empty bucket
+          ctx.fillStyle = colors.neutral[200]; // empty bucket
         }
 
         ctx.fillRect(x + 0.5, y + 0.5, cellWidth - 1, cellHeight - 1);
@@ -319,7 +320,7 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
     }
 
     // Y-axis labels
-    ctx.fillStyle = '#374151';
+    ctx.fillStyle = colors.neutral[700];
     ctx.font = '10px sans-serif';
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
@@ -332,7 +333,7 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
     // X-axis labels (show ~6 evenly spaced)
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillStyle = '#6b7280';
+    ctx.fillStyle = colors.gray[400];
     ctx.font = '9px sans-serif';
     const labelStep = Math.max(1, Math.floor(buckets.length / 6));
     for (let bi = 0; bi < buckets.length; bi += labelStep) {

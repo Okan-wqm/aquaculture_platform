@@ -14,7 +14,7 @@ import {
   XCircle,
   Eye,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Modal } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,
@@ -199,6 +199,11 @@ export function LeavesPage() {
     });
   };
 
+  const closeRejectModal = (): void => {
+    setRejectingId(null);
+    setRejectReason('');
+  };
+
   const handleConfirmReject = () => {
     if (rejectingId && rejectReason.trim()) {
       rejectMutation.mutate(
@@ -212,26 +217,20 @@ export function LeavesPage() {
     <div className="space-y-6 p-6">
       {/* Rejection reason modal — replaces prompt() */}
       {rejectingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
-              Reject Leave Request
-            </h3>
-            <label htmlFor="leave-reject-reason" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Reason <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              id="leave-reject-reason"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              rows={3}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-hidden focus:ring-1 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              placeholder="Enter the reason for rejection..."
-              autoFocus
-            />
-            <div className="mt-4 flex justify-end gap-3">
+        <Modal
+          isOpen
+          onClose={closeRejectModal}
+          size="sm"
+          title="Reject Leave Request"
+          showCloseButton={!rejectMutation.isPending}
+          closeOnEscape={!rejectMutation.isPending}
+          closeOnOverlayClick={!rejectMutation.isPending}
+          bodyClassName="p-6"
+          footer={
+            <>
               <button
-                onClick={() => { setRejectingId(null); setRejectReason(''); }}
+                type="button"
+                onClick={closeRejectModal}
                 className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:ring-gray-600"
               >
                 Cancel
@@ -246,9 +245,22 @@ export function LeavesPage() {
                 )}
                 Confirm Rejection
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <label htmlFor="leave-reject-reason" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Reason <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            id="leave-reject-reason"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            rows={3}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-hidden focus:ring-1 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            placeholder="Enter the reason for rejection..."
+            autoFocus
+          />
+        </Modal>
       )}
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

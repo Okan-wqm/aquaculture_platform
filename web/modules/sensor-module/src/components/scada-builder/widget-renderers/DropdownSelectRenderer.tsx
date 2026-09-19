@@ -13,6 +13,7 @@
 
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, chartChrome, colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -40,8 +41,8 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
   const showLabel = (config.showLabel as boolean) ?? true;
   const label = (config.label as string) ?? 'Selection';
   const configFontSize = (config.fontSize as number) ?? 12;
-  const borderColor = (config.borderColor as string) ?? '#d1d5db';
-  const backgroundColor = (config.backgroundColor as string) ?? '#ffffff';
+  const borderColor = (config.borderColor as string) ?? colors.neutral[300];
+  const backgroundColor = (config.backgroundColor as string) ?? colors.white;
 
   const options: DropdownOption[] = (() => {
     const raw = config.options as DropdownOption[] | undefined;
@@ -187,7 +188,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
     >
       <path
         d="M3 4.5L6 7.5L9 4.5"
-        stroke="#6b7280"
+        stroke={chartChrome.axis}
         strokeWidth={1.5}
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -214,7 +215,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
           style={{
             fontSize: 10,
             fontWeight: 500,
-            color: '#6b7280',
+            color: colors.gray[400],
             marginBottom: 4,
             overflow: 'hidden',
             whiteSpace: 'nowrap',
@@ -244,9 +245,9 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
           gap: 4,
           fontSize: configFontSize,
           fontFamily: 'inherit',
-          color: hasSelection ? '#111827' : '#9ca3af',
+          color: hasSelection ? colors.neutral[900] : colors.neutral[400],
           background: backgroundColor,
-          border: `1px solid ${isOpen ? '#06b6d4' : borderColor}`,
+          border: `1px solid ${isOpen ? colors.primary[400] : borderColor}`,
           borderRadius: 6,
           cursor: isEditing ? 'default' : 'pointer',
           outline: 'none',
@@ -284,8 +285,8 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
             margin: 0,
             padding: 4,
             listStyle: 'none',
-            background: '#ffffff',
-            border: '1px solid #e5e7eb',
+            background: colors.white,
+            border: `1px solid ${themeColors.neutral[200]}`,
             borderRadius: 6,
             boxShadow:
               '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06)',
@@ -308,9 +309,9 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
                 style={{
                   padding: '6px 8px',
                   fontSize: configFontSize - 1,
-                  color: isSelected ? '#06b6d4' : '#374151',
+                  color: isSelected ? colors.primary[400] : colors.neutral[700],
                   fontWeight: isSelected ? 600 : 400,
-                  background: isHighlighted ? '#f0fdfa' : 'transparent',
+                  background: isHighlighted ? colors.success[50] : 'transparent',
                   borderRadius: 4,
                   cursor: 'pointer',
                   display: 'flex',
@@ -324,7 +325,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
                   <svg width={12} height={12} viewBox="0 0 12 12" fill="none">
                     <path
                       d="M2.5 6L5 8.5L9.5 3.5"
-                      stroke="#06b6d4"
+                      stroke={colors.primary[400]}
                       strokeWidth={1.5}
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -349,7 +350,7 @@ const DropdownSelectRenderer: React.FC<WidgetRendererProps> = ({
               style={{
                 padding: '8px',
                 fontSize: 11,
-                color: '#9ca3af',
+                color: colors.neutral[400],
                 textAlign: 'center',
               }}
             >

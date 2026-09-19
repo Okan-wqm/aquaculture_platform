@@ -9,7 +9,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Modal } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -189,6 +189,12 @@ export const ErrorTrackingPage: React.FC = () => {
     } catch {
       // Reported through `ignoreError.error`.
     }
+  };
+
+  // Closing the modal disables the occurrences query; its cache entry stays
+  // keyed by the group id.
+  const closeErrorDetail = (): void => {
+    setSelectedErrorId(null);
   };
 
   const handleAcknowledge = async (): Promise<void> => {
@@ -462,168 +468,148 @@ export const ErrorTrackingPage: React.FC = () => {
 
       {/* Error Detail Modal */}
       {selectedError && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="max-w-5xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              {/* Modal Header */}
-              <div className="flex justify-between items-start mb-6">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-3">
-                    <Badge variant={getSeverityBadge(selectedError.severity)}>
-                      {selectedError.severity.toUpperCase()}
-                    </Badge>
-                    <Badge variant={getStatusBadge(selectedError.status)}>
-                      {selectedError.status.replace('_', ' ')}
-                    </Badge>
-                    {selectedError.isRegression && <Badge variant="error">Regression</Badge>}
-                  </div>
-                  <h2 className="text-xl font-bold text-gray-900 font-mono">
-                    {selectedError.errorType && (
-                      <span className="text-red-600">{selectedError.errorType}: </span>
-                    )}
-                    {selectedError.message}
-                  </h2>
-                </div>
-                <button
-                  onClick={() => {
-                    // Closing the modal disables the occurrences query; its
-                    // cache entry stays keyed by the group id.
-                    setSelectedErrorId(null);
-                  }}
-                  className="ml-4 text-gray-500 hover:text-gray-600 transition-colors"
-                >
-                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+        <Modal
+          isOpen
+          onClose={closeErrorDetail}
+          size="xl"
+          title={
+            <>
+              <span className="flex items-center gap-2 mb-3">
+                <Badge variant={getSeverityBadge(selectedError.severity)}>
+                  {selectedError.severity.toUpperCase()}
+                </Badge>
+                <Badge variant={getStatusBadge(selectedError.status)}>
+                  {selectedError.status.replace('_', ' ')}
+                </Badge>
+                {selectedError.isRegression && <Badge variant="error">Regression</Badge>}
+              </span>
+              <span className="block font-mono">
+                {selectedError.errorType && (
+                  <span className="text-red-600">{selectedError.errorType}: </span>
+                )}
+                {selectedError.message}
+              </span>
+            </>
+          }
+          bodyClassName="p-6"
+          footer={
+            <>
+              {selectedError.status !== 'acknowledged' && (
+                <Button onClick={handleAcknowledge} variant="primary">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                </button>
-              </div>
-
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="text-sm text-gray-500 mb-1">Occurrences</div>
-                  <div className="text-2xl font-bold text-gray-900">
-                    {selectedError.occurrenceCount.toLocaleString()}
-                  </div>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="text-sm text-gray-500 mb-1">Affected Tenants</div>
-                  <div className="text-2xl font-bold text-gray-900">
-                    {selectedError.affectedTenants?.length ?? 0}
-                  </div>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="text-sm text-gray-500 mb-1">Service</div>
-                  <div className="text-lg font-bold text-gray-900">{selectedError.service || 'N/A'}</div>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <div className="text-sm text-gray-500 mb-1">Fingerprint</div>
-                  <div className="text-xs font-mono text-gray-900">{selectedError.fingerprint}</div>
-                </div>
-              </div>
-
-              {/* Timeline */}
-              <div className="mb-6 p-4 bg-blue-50 rounded-lg">
-                <div className="flex justify-between text-sm">
-                  <div>
-                    <span className="text-gray-600">First seen:</span>
-                    <span className="ml-2 font-medium text-gray-900">{formatDate(selectedError.firstSeenAt)}</span>
-                  </div>
-                  <div>
-                    <span className="text-gray-600">Last seen:</span>
-                    <span className="ml-2 font-medium text-gray-900">{formatDate(selectedError.lastSeenAt)}</span>
-                  </div>
-                  {selectedError.assignedTo && (
-                    <div>
-                      <span className="text-gray-600">Assigned to:</span>
-                      <span className="ml-2 font-medium text-gray-900">{selectedError.assignedTo}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Stack Trace */}
-              <div className="mb-6">
-                <h3 className="text-sm font-semibold text-gray-900 mb-3">Recent Stack Trace</h3>
-                {loadingOccurrences ? (
-                  <div className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm animate-pulse">
-                    Loading stack trace...
-                  </div>
-                ) : errorOccurrences.length > 0 && errorOccurrences[0].stackTrace ? (
-                  <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto leading-relaxed">
-                    {errorOccurrences[0].stackTrace}
-                  </pre>
-                ) : (
-                  <div className="bg-gray-100 text-gray-600 p-4 rounded-lg text-sm text-center">
-                    No stack trace available
-                  </div>
-                )}
-              </div>
-
-              {/* Recent Occurrences */}
-              {errorOccurrences.length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-sm font-semibold text-gray-900 mb-3">Recent Occurrences</h3>
-                  <div className="border border-gray-200 rounded-lg divide-y">
-                    {errorOccurrences.slice(0, 5).map((occurrence) => (
-                      <div key={occurrence.id} className="p-3 hover:bg-gray-50">
-                        <div className="flex justify-between items-start text-xs">
-                          <div className="flex-1">
-                            <div className="text-gray-900 font-medium mb-1">
-                              {formatDate(occurrence.timestamp)}
-                            </div>
-                            <div className="flex gap-3 text-gray-500">
-                              {occurrence.tenantId && <span>Tenant: {occurrence.tenantId}</span>}
-                              {occurrence.userId && <span>User: {occurrence.userId}</span>}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex flex-wrap gap-3 pt-4 border-t">
-                {selectedError.status !== 'acknowledged' && (
-                  <Button onClick={handleAcknowledge} variant="primary">
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Acknowledge
-                  </Button>
-                )}
-                {selectedError.status !== 'resolved' && (
-                  <Button onClick={handleResolve} variant="success">
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Mark Resolved
-                  </Button>
-                )}
-                {selectedError.status !== 'ignored' && (
-                  <Button onClick={handleIgnore} variant="secondary">
-                    <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                    </svg>
-                    Ignore
-                  </Button>
-                )}
-                <Button
-                  onClick={() => {
-                    // Closing the modal disables the occurrences query; its
-                    // cache entry stays keyed by the group id.
-                    setSelectedErrorId(null);
-                  }}
-                  variant="secondary"
-                >
-                  Close
+                  Acknowledge
                 </Button>
+              )}
+              {selectedError.status !== 'resolved' && (
+                <Button onClick={handleResolve} variant="success">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Mark Resolved
+                </Button>
+              )}
+              {selectedError.status !== 'ignored' && (
+                <Button onClick={handleIgnore} variant="secondary">
+                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                  </svg>
+                  Ignore
+                </Button>
+              )}
+              <Button onClick={closeErrorDetail} variant="secondary">
+                Close
+              </Button>
+            </>
+          }
+        >
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="text-sm text-gray-500 mb-1">Occurrences</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {selectedError.occurrenceCount.toLocaleString()}
               </div>
             </div>
-          </Card>
-        </div>
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="text-sm text-gray-500 mb-1">Affected Tenants</div>
+              <div className="text-2xl font-bold text-gray-900">
+                {selectedError.affectedTenants?.length ?? 0}
+              </div>
+            </div>
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="text-sm text-gray-500 mb-1">Service</div>
+              <div className="text-lg font-bold text-gray-900">{selectedError.service || 'N/A'}</div>
+            </div>
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <div className="text-sm text-gray-500 mb-1">Fingerprint</div>
+              <div className="text-xs font-mono text-gray-900">{selectedError.fingerprint}</div>
+            </div>
+          </div>
+
+          {/* Timeline */}
+          <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+            <div className="flex justify-between text-sm">
+              <div>
+                <span className="text-gray-600">First seen:</span>
+                <span className="ml-2 font-medium text-gray-900">{formatDate(selectedError.firstSeenAt)}</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Last seen:</span>
+                <span className="ml-2 font-medium text-gray-900">{formatDate(selectedError.lastSeenAt)}</span>
+              </div>
+              {selectedError.assignedTo && (
+                <div>
+                  <span className="text-gray-600">Assigned to:</span>
+                  <span className="ml-2 font-medium text-gray-900">{selectedError.assignedTo}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Stack Trace */}
+          <div className="mb-6">
+            <h3 className="text-sm font-semibold text-gray-900 mb-3">Recent Stack Trace</h3>
+            {loadingOccurrences ? (
+              <div className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm animate-pulse">
+                Loading stack trace...
+              </div>
+            ) : errorOccurrences.length > 0 && errorOccurrences[0].stackTrace ? (
+              <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg text-xs overflow-x-auto leading-relaxed">
+                {errorOccurrences[0].stackTrace}
+              </pre>
+            ) : (
+              <div className="bg-gray-100 text-gray-600 p-4 rounded-lg text-sm text-center">
+                No stack trace available
+              </div>
+            )}
+          </div>
+
+          {/* Recent Occurrences */}
+          {errorOccurrences.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">Recent Occurrences</h3>
+              <div className="border border-gray-200 rounded-lg divide-y">
+                {errorOccurrences.slice(0, 5).map((occurrence) => (
+                  <div key={occurrence.id} className="p-3 hover:bg-gray-50">
+                    <div className="flex justify-between items-start text-xs">
+                      <div className="flex-1">
+                        <div className="text-gray-900 font-medium mb-1">
+                          {formatDate(occurrence.timestamp)}
+                        </div>
+                        <div className="flex gap-3 text-gray-500">
+                          {occurrence.tenantId && <span>Tenant: {occurrence.tenantId}</span>}
+                          {occurrence.userId && <span>User: {occurrence.userId}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Modal>
       )}
 
     </div>

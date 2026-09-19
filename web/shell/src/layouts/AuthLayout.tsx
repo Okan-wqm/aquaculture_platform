@@ -45,7 +45,7 @@ const AuthLayout: React.FC = () => {
     return (
       <div className="industrial-auth-loading min-h-screen flex items-center justify-center">
         <div
-          className="animate-spin w-8 h-8 border-2 border-[#7fd6e1]/35 border-t-[#7fd6e1] rounded-full"
+          className="animate-spin w-8 h-8 border-2 border-primary-300/35 border-t-primary-300 rounded-full"
           role="status"
           aria-label="Loading authentication"
         />

@@ -19,11 +19,11 @@ import {
   ReferenceLine,
   ReferenceDot,
 } from 'recharts';
-import { useI18n } from '@aquaculture/shared-ui';
+import { useI18n, chartChrome, colors } from '@aquaculture/shared-ui';
 
 import type { ProtocolFeedForecastView } from '../../../hooks/useProtocolFeeding';
 
-const SERIES_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2'];
+const SERIES_COLORS = [colors.info[600], colors.success[600], colors.warning[600], colors.error[600], colors.primary[800], colors.primary[600]];
 
 function addDays(isoDay: string, days: number): string {
   const date = new Date(`${isoDay}T00:00:00.000Z`);
@@ -96,12 +96,12 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
       </div>
       <ResponsiveContainer width="100%" height={320}>
         <LineChart data={data} margin={{ top: 8, right: 24, bottom: 8, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+          <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
           <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={24} />
           <YAxis tick={{ fontSize: 11 }} unit=" kg" width={72} />
           <Tooltip />
           <Legend />
-          <ReferenceLine y={0} stroke="#9ca3af" strokeWidth={1} />
+          <ReferenceLine y={0} stroke={colors.neutral[400]} strokeWidth={1} />
           {forecast.perFeed.map((feed, index) => (
             <Line
               key={feed.feedId}
@@ -121,7 +121,7 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
                 y={0}
                 r={5}
                 fill={SERIES_COLORS[index % SERIES_COLORS.length]}
-                stroke="#111827"
+                stroke={colors.neutral[900]}
               />
             ) : null,
           )}

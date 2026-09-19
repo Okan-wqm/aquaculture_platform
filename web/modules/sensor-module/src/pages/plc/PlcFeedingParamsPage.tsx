@@ -10,7 +10,8 @@
  * - View history for a connection
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
+import { ConfirmModal, Modal, useClickOutside } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -161,279 +162,278 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="mx-4 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {parameter ? 'Parametreyi Düzenle' : 'Yeni Besleme Parametresi'}
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            {!parameter && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">PLC Bağlantı *</label>
-                <select
-                  required
-                  value={form.plcConnectionId}
-                  onChange={(e) => updateField('plcConnectionId', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="">Bağlantı seçin...</option>
-                  {connections.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="xl"
+      title={parameter ? 'Parametreyi Düzenle' : 'Yeni Besleme Parametresi'}
+      showCloseButton={!isLoading}
+      closeOnEscape={!isLoading}
+      closeOnOverlayClick={!isLoading}
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto"
+    >
+      <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        {/* Basic Info */}
+        <div className="grid grid-cols-2 gap-4">
+          {!parameter && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Adı *</label>
-              <input
-                type="text"
+              <label className="block text-sm font-medium text-gray-700 mb-1">PLC Bağlantı *</label>
+              <select
                 required
-                value={form.name}
-                onChange={(e) => updateField('name', e.target.value)}
+                value={form.plcConnectionId}
+                onChange={(e) => updateField('plcConnectionId', e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                placeholder="Tank-01 Yaz Parametreleri"
-              />
+              >
+                <option value="">Bağlantı seçin...</option>
+                {connections.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Versiyon</label>
-              <input
-                type="text"
-                value={form.version}
-                onChange={(e) => updateField('version', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-
+          )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
-            <textarea
-              value={form.description}
-              onChange={(e) => updateField('description', e.target.value)}
-              rows={2}
+            <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Adı *</label>
+            <input
+              type="text"
+              required
+              value={form.name}
+              onChange={(e) => updateField('name', e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              placeholder="Tank-01 Yaz Parametreleri"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Versiyon</label>
+            <input
+              type="text"
+              value={form.version}
+              onChange={(e) => updateField('version', e.target.value)}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
           </div>
+        </div>
 
-          {/* Core Parameters */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Temel Parametreler</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Biyokutle (kg)</label>
-                <input
-                  type="number"
-                  min={0} max={1000000} step={0.01}
-                  value={form.biomassKg}
-                  onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">FCR</label>
-                <input
-                  type="number"
-                  min={0.1} max={10} step={0.01}
-                  value={form.fcr}
-                  onChange={(e) => updateField('fcr', parseFloat(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Gunluk Hedef (kg)</label>
-                <input
-                  type="number"
-                  min={0} max={100000} step={0.01}
-                  value={form.targetDailyFeedKg}
-                  onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+          <textarea
+            value={form.description}
+            onChange={(e) => updateField('description', e.target.value)}
+            rows={2}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+
+        {/* Core Parameters */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">Temel Parametreler</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Biyokutle (kg)</label>
+              <input
+                type="number"
+                min={0} max={1000000} step={0.01}
+                value={form.biomassKg}
+                onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">FCR</label>
+              <input
+                type="number"
+                min={0.1} max={10} step={0.01}
+                value={form.fcr}
+                onChange={(e) => updateField('fcr', parseFloat(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Gunluk Hedef (kg)</label>
+              <input
+                type="number"
+                min={0} max={100000} step={0.01}
+                value={form.targetDailyFeedKg}
+                onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
             </div>
           </div>
+        </div>
 
-          {/* Schedule */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-gray-900">Besleme Programı</h3>
-              <button
-                type="button"
-                onClick={addScheduleEntry}
-                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
-              >
-                <Plus className="h-3 w-3" />
-                Ekle
-              </button>
-            </div>
-            <div className="space-y-2">
-              {form.schedule.map((entry, i) => (
-                <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-200 p-2 bg-gray-50">
-                  <input
-                    type="time"
-                    value={entry.time}
-                    onChange={(e) => updateScheduleEntry(i, 'time', e.target.value)}
-                    className="rounded border border-gray-300 px-2 py-1 text-sm"
-                  />
-                  <input
-                    type="number"
-                    min={0} step={0.1}
-                    value={entry.amountKg}
-                    onChange={(e) => updateScheduleEntry(i, 'amountKg', parseFloat(e.target.value))}
-                    className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
-                    placeholder="kg"
-                  />
-                  <span className="text-xs text-gray-400">kg</span>
-                  <input
-                    type="text"
-                    value={entry.feedType || ''}
-                    onChange={(e) => updateScheduleEntry(i, 'feedType', e.target.value)}
-                    className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
-                    placeholder="Yem tipi"
-                  />
-                  <input
-                    type="number"
-                    min={0} max={3600}
-                    value={entry.durationSeconds || 0}
-                    onChange={(e) => updateScheduleEntry(i, 'durationSeconds', parseInt(e.target.value))}
-                    className="w-16 rounded border border-gray-300 px-2 py-1 text-sm"
-                    placeholder="sn"
-                  />
-                  <span className="text-xs text-gray-400">sn</span>
-                  <button
-                    type="button"
-                    onClick={() => removeScheduleEntry(i)}
-                    className="text-red-400 hover:text-red-600"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Thresholds */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Eşik Değerleri</h3>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">O2 Min (mg/L)</label>
-                <input type="number" min={0} max={20} step={0.1}
-                  value={form.thresholds.oxygenMin}
-                  onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">O2 Kritik (mg/L)</label>
-                <input type="number" min={0} max={20} step={0.1}
-                  value={form.thresholds.oxygenCritical}
-                  onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Sıcaklık Max (C)</label>
-                <input type="number" min={0} max={50} step={0.1}
-                  value={form.thresholds.tempMax}
-                  onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Sıcaklık Kritik (C)</label>
-                <input type="number" min={0} max={50} step={0.1}
-                  value={form.thresholds.tempCritical}
-                  onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">pH Min</label>
-                <input type="number" min={0} max={14} step={0.1}
-                  value={form.thresholds.phMin || 0}
-                  onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">pH Max</label>
-                <input type="number" min={0} max={14} step={0.1}
-                  value={form.thresholds.phMax || 0}
-                  onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* VFD Settings */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">VFD Ayarları</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Blower Min Hız (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.vfdSettings.blowerMinSpeed}
-                  onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Blower Max Hız (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.vfdSettings.blowerMaxSpeed}
-                  onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Doser Min Hız (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.vfdSettings.doserMinSpeed}
-                  onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Doser Max Hız (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.vfdSettings.doserMaxSpeed}
-                  onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Submit */}
-          <div className="flex justify-end gap-3 pt-2">
+        {/* Schedule */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-900">Besleme Programı</h3>
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              onClick={addScheduleEntry}
+              className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
             >
-              İptal
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {parameter ? 'Güncelle' : 'Oluştur'}
+              <Plus className="h-3 w-3" />
+              Ekle
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+          <div className="space-y-2">
+            {form.schedule.map((entry, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-200 p-2 bg-gray-50">
+                <input
+                  type="time"
+                  value={entry.time}
+                  onChange={(e) => updateScheduleEntry(i, 'time', e.target.value)}
+                  className="rounded border border-gray-300 px-2 py-1 text-sm"
+                />
+                <input
+                  type="number"
+                  min={0} step={0.1}
+                  value={entry.amountKg}
+                  onChange={(e) => updateScheduleEntry(i, 'amountKg', parseFloat(e.target.value))}
+                  className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+                  placeholder="kg"
+                />
+                <span className="text-xs text-gray-400">kg</span>
+                <input
+                  type="text"
+                  value={entry.feedType || ''}
+                  onChange={(e) => updateScheduleEntry(i, 'feedType', e.target.value)}
+                  className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+                  placeholder="Yem tipi"
+                />
+                <input
+                  type="number"
+                  min={0} max={3600}
+                  value={entry.durationSeconds || 0}
+                  onChange={(e) => updateScheduleEntry(i, 'durationSeconds', parseInt(e.target.value))}
+                  className="w-16 rounded border border-gray-300 px-2 py-1 text-sm"
+                  placeholder="sn"
+                />
+                <span className="text-xs text-gray-400">sn</span>
+                <button
+                  type="button"
+                  onClick={() => removeScheduleEntry(i)}
+                  className="text-red-400 hover:text-red-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Thresholds */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">Eşik Değerleri</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">O2 Min (mg/L)</label>
+              <input type="number" min={0} max={20} step={0.1}
+                value={form.thresholds.oxygenMin}
+                onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">O2 Kritik (mg/L)</label>
+              <input type="number" min={0} max={20} step={0.1}
+                value={form.thresholds.oxygenCritical}
+                onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Sıcaklık Max (C)</label>
+              <input type="number" min={0} max={50} step={0.1}
+                value={form.thresholds.tempMax}
+                onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Sıcaklık Kritik (C)</label>
+              <input type="number" min={0} max={50} step={0.1}
+                value={form.thresholds.tempCritical}
+                onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">pH Min</label>
+              <input type="number" min={0} max={14} step={0.1}
+                value={form.thresholds.phMin || 0}
+                onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">pH Max</label>
+              <input type="number" min={0} max={14} step={0.1}
+                value={form.thresholds.phMax || 0}
+                onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* VFD Settings */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 mb-2">VFD Ayarları</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Blower Min Hız (%)</label>
+              <input type="number" min={0} max={100}
+                value={form.vfdSettings.blowerMinSpeed}
+                onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Blower Max Hız (%)</label>
+              <input type="number" min={0} max={100}
+                value={form.vfdSettings.blowerMaxSpeed}
+                onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Doser Min Hız (%)</label>
+              <input type="number" min={0} max={100}
+                value={form.vfdSettings.doserMinSpeed}
+                onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Doser Max Hız (%)</label>
+              <input type="number" min={0} max={100}
+                value={form.vfdSettings.doserMaxSpeed}
+                onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Submit */}
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            İptal
+          </button>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {parameter ? 'Güncelle' : 'Oluştur'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -449,10 +449,16 @@ const PlcFeedingParamsPage: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingParam, setEditingParam] = useState<FeedingParameter | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const openMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(openMenuRef, () => setMenuOpenId(null), menuOpenId !== null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [cloneDialogId, setCloneDialogId] = useState<string | null>(null);
   const [cloneName, setCloneName] = useState('');
   const [sendResult, setSendResult] = useState<{ success: boolean; error?: string; name: string } | null>(null);
+  const closeCloneDialog = (): void => {
+    setCloneDialogId(null);
+    setCloneName('');
+  };
 
   const effectiveFilter: FeedingParameterFilter = {
     search: searchTerm || undefined,
@@ -633,7 +639,7 @@ const PlcFeedingParamsPage: React.FC = () => {
                       {formatDate(param.createdAt)}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <div className="relative">
+                      <div className="relative" ref={menuOpenId === param.id ? openMenuRef : undefined}>
                         <button
                           onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}
                           className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
@@ -719,19 +725,20 @@ const PlcFeedingParamsPage: React.FC = () => {
 
       {/* Clone Dialog */}
       {cloneDialogId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Parametreyi Klonla</h3>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Yeni Ad</label>
-            <input
-              type="text"
-              value={cloneName}
-              onChange={(e) => setCloneName(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
-            <div className="mt-4 flex gap-3">
+        <Modal
+          isOpen
+          onClose={closeCloneDialog}
+          size="sm"
+          title="Parametreyi Klonla"
+          showCloseButton={!mutations.clone.isPending}
+          closeOnEscape={!mutations.clone.isPending}
+          closeOnOverlayClick={!mutations.clone.isPending}
+          bodyClassName="p-6"
+          footer={
+            <>
               <button
-                onClick={() => { setCloneDialogId(null); setCloneName(''); }}
+                type="button"
+                onClick={closeCloneDialog}
                 className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 İptal
@@ -744,69 +751,65 @@ const PlcFeedingParamsPage: React.FC = () => {
                 {mutations.clone.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Klonla
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <label className="block text-sm font-medium text-gray-700 mb-1">Yeni Ad</label>
+          <input
+            type="text"
+            value={cloneName}
+            onChange={(e) => setCloneName(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          />
+        </Modal>
       )}
 
       {/* Send Result */}
       {sendResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl text-center">
-            {sendResult.success ? (
-              <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
-            ) : (
-              <XCircle className="mx-auto h-12 w-12 text-red-500" />
-            )}
-            <h3 className="mt-2 text-lg font-semibold text-gray-900">{sendResult.name}</h3>
-            <p className={`text-sm font-medium ${sendResult.success ? 'text-green-600' : 'text-red-600'}`}>
-              {sendResult.success ? 'Parametreler PLC\'ye başarıyla gönderildi!' : 'Gönderme başarısız'}
-            </p>
-            {sendResult.error && (
-              <p className="mt-2 text-sm text-red-500">{sendResult.error}</p>
-            )}
+        <Modal
+          isOpen
+          onClose={() => setSendResult(null)}
+          size="sm"
+          title={sendResult.name}
+          bodyClassName="p-6 text-center"
+          footer={
             <button
+              type="button"
               onClick={() => setSendResult(null)}
-              className="mt-4 w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+              className="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
             >
               Kapat
             </button>
-          </div>
-        </div>
+          }
+        >
+          {sendResult.success ? (
+            <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
+          ) : (
+            <XCircle className="mx-auto h-12 w-12 text-red-500" />
+          )}
+          <p className={`text-sm font-medium ${sendResult.success ? 'text-green-600' : 'text-red-600'}`}>
+            {sendResult.success ? 'Parametreler PLC\'ye başarıyla gönderildi!' : 'Gönderme başarısız'}
+          </p>
+          {sendResult.error && (
+            <p className="mt-2 text-sm text-red-500">{sendResult.error}</p>
+          )}
+        </Modal>
       )}
 
       {/* Delete Confirmation */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl">
-            <div className="text-center">
-              <AlertTriangle className="mx-auto h-10 w-10 text-red-500" />
-              <h3 className="mt-2 text-lg font-semibold text-gray-900">Parametreyi Sil</h3>
-              <p className="mt-1 text-sm text-gray-500">Bu işlem geri alınamaz.</p>
-            </div>
-            <div className="mt-4 flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                İptal
-              </button>
-              <button
-                onClick={() => handleDelete(deleteConfirm)}
-                disabled={mutations.remove.isPending}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {mutations.remove.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Sil
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Click-away handler */}
-      {menuOpenId && (
-        <div className="fixed inset-0 z-0" onClick={() => setMenuOpenId(null)} />
+        <ConfirmModal
+          isOpen
+          onClose={() => setDeleteConfirm(null)}
+          onConfirm={() => handleDelete(deleteConfirm)}
+          title="Parametreyi Sil"
+          message="Bu işlem geri alınamaz."
+          confirmText="Sil"
+          cancelText="İptal"
+          variant="danger"
+          isLoading={mutations.remove.isPending}
+          loadingText="Siliniyor..."
+        />
       )}
     </div>
   );

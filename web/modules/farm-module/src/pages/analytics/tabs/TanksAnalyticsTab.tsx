@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, KpiCard, useAuth, getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import { Card, KpiCard, useAuth, getTenantId, tenantScopedStorageKey, chartChrome, colors } from '@aquaculture/shared-ui';
 import {
   BarChart,
   Bar,
@@ -35,7 +35,7 @@ import type { ChartVisibility } from '../../tanks/components';
 
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
@@ -44,13 +44,13 @@ const tooltipStyle = {
 // ============================================================================
 
 const STATUS_COLORS: Record<string, string> = {
-  operational: '#22c55e',
-  active: '#22c55e',
-  maintenance: '#f59e0b',
-  fallow: '#94a3b8',
-  quarantine: '#ef4444',
-  inactive: '#6b7280',
-  empty: '#d1d5db',
+  operational: colors.success[500],
+  active: colors.success[500],
+  maintenance: colors.warning[500],
+  fallow: colors.neutral[400],
+  quarantine: colors.error[500],
+  inactive: colors.gray[400],
+  empty: colors.neutral[300],
 };
 
 // ============================================================================
@@ -117,7 +117,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
     return Array.from(statusMap.entries()).map(([name, value]) => ({
       name: name.charAt(0).toUpperCase() + name.slice(1),
       value,
-      color: STATUS_COLORS[name] || '#6b7280',
+      color: STATUS_COLORS[name] || colors.gray[400],
     }));
   }, [tankData]);
 
@@ -251,11 +251,11 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
             {biomassByTank.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={biomassByTank} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" stroke="#6b7280" />
-                  <YAxis dataKey="tank" type="category" stroke="#6b7280" width={80} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                  <XAxis type="number" stroke={chartChrome.axis} />
+                  <YAxis dataKey="tank" type="category" stroke={chartChrome.axis} width={80} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="biomass" name="Biomass (kg)" fill="#0073e6" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="biomass" name="Biomass (kg)" fill={colors.primary[500]} radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

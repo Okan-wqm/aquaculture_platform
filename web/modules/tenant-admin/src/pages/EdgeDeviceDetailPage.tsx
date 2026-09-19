@@ -15,7 +15,6 @@ import {
   Trash2,
   RefreshCw,
   AlertTriangle,
-  X,
 } from 'lucide-react';
 
 import { useDevicePolling } from '../hooks/useDevicePolling';
@@ -30,7 +29,7 @@ import {
 } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
-import { useAuthContext } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext } from '@aquaculture/shared-ui';
 
 type TabId = 'overview' | 'io-config' | 'automation' | 'events';
 
@@ -44,34 +43,27 @@ const DecommissionModal: React.FC<{
   loading: boolean;
 }> = ({ isOpen, onClose, onConfirm, loading }) => {
   const [reason, setReason] = useState('');
-  if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="sm"
+      showCloseButton={!loading}
+      closeOnEscape={!loading}
+      closeOnOverlayClick={!loading}
+      title={
+        <span className="flex items-center gap-3">
+          <span className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
             <AlertTriangle className="w-5 h-5 text-red-600" />
-          </div>
-          <div>
-            <h2 className="text-base font-semibold text-gray-900">Decommission Device</h2>
-            <p className="text-xs text-gray-500">This action is irreversible</p>
-          </div>
-          <button onClick={onClose} className="ml-auto p-1 text-gray-500 hover:text-gray-600">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <p className="text-sm text-gray-700 mb-4">
-          Please provide a reason for decommissioning this device.
-        </p>
-        <textarea
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          placeholder="Reason for decommissioning..."
-          rows={3}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
-        />
-        <div className="flex justify-end gap-3 mt-4">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+          </span>
+          <span>Decommission Device</span>
+        </span>
+      }
+      description="This action is irreversible"
+      bodyClassName="p-6"
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
             Cancel
           </button>
           <button
@@ -82,9 +74,20 @@ const DecommissionModal: React.FC<{
             {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
             Decommission
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="text-sm text-gray-700 mb-4">
+        Please provide a reason for decommissioning this device.
+      </p>
+      <textarea
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        placeholder="Reason for decommissioning..."
+        rows={3}
+        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
+      />
+    </Modal>
   );
 };
 
@@ -97,24 +100,26 @@ const RebootConfirmModal: React.FC<{
   onConfirm: () => void;
   loading: boolean;
 }> = ({ isOpen, onClose, onConfirm, loading }) => {
-  if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="sm"
+      showCloseButton={!loading}
+      closeOnEscape={!loading}
+      closeOnOverlayClick={!loading}
+      title={
+        <span className="flex items-center gap-3">
+          <span className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center">
             <RotateCcw className="w-5 h-5 text-amber-600" />
-          </div>
-          <h2 className="text-base font-semibold text-gray-900">Reboot Device?</h2>
-          <button onClick={onClose} className="ml-auto p-1 text-gray-500 hover:text-gray-600">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <p className="text-sm text-gray-600 mb-4">
-          The device will restart. Active connections will be temporarily interrupted.
-        </p>
-        <div className="flex justify-end gap-3">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+          </span>
+          <span>Reboot Device?</span>
+        </span>
+      }
+      bodyClassName="p-6"
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
             Cancel
           </button>
           <button
@@ -125,9 +130,13 @@ const RebootConfirmModal: React.FC<{
             {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
             Reboot
           </button>
-        </div>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <p className="text-sm text-gray-600 mb-4">
+        The device will restart. Active connections will be temporarily interrupted.
+      </p>
+    </Modal>
   );
 };
 

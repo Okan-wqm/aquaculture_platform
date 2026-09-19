@@ -4,123 +4,161 @@
  */
 
 // ============================================================================
-// Renk Paleti
+// Renk Paleti — theme.css'in TypeScript aynası
 // ============================================================================
 
-export const colors = {
-  // Marka renkleri
-  brand: {
-    50: '#e6f7ff',
-    100: '#bae7ff',
-    200: '#91d5ff',
-    300: '#69c0ff',
-    400: '#40a9ff',
-    500: '#1890ff', // Ana marka rengi
-    600: '#096dd9',
-    700: '#0050b3',
-    800: '#003a8c',
-    900: '#002766',
+/**
+ * WHY a TypeScript mirror: theme.css (`@theme`) is the single source of truth
+ * for colour and every `bg-primary-*` / `text-error-*` utility resolves from
+ * it — but CSS classes cannot reach chart strokes, SVG fills, canvas drawing
+ * or a default role colour. Those places read this object instead of writing
+ * raw hex. It carries exactly the tokens theme.css declares, in the same
+ * scales and steps; `tests/invariants/web-theme-token-parity.spec.ts` fails
+ * the build when the two drift, so "using the tokens" can never mean using a
+ * second palette.
+ */
+type Scale10 = Readonly<Record<50 | 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900, string>>;
+type Scale5 = Readonly<Record<50 | 100 | 500 | 600 | 700, string>>;
+
+export interface ColorTokens {
+  readonly primary: Scale10;
+  readonly secondary: Scale10;
+  readonly accent: Scale10;
+  readonly neutral: Scale10;
+  readonly success: Scale5;
+  readonly warning: Scale5;
+  readonly error: Scale5;
+  readonly info: Scale5;
+  readonly gray: Readonly<Record<400, string>>;
+  readonly white: string;
+  readonly black: string;
+  readonly transparent: string;
+}
+
+// WHY `string` values, not `as const` literals: a token used as a default
+// parameter or a `useState` initial value would otherwise pin that field to
+// ONE hex literal type and reject every other token.
+export const colors: ColorTokens = {
+  /** Primary — Ocean Blue */
+  primary: {
+    50: '#e6f3ff',
+    100: '#b3d9ff',
+    200: '#80bfff',
+    300: '#4da6ff',
+    400: '#1a8cff',
+    500: '#0073e6',
+    600: '#005bb3',
+    700: '#004280',
+    800: '#002a4d',
+    900: '#00111a',
   },
 
-  // Gri tonları
-  // WCAG 2.1 AA: gray.400 bumped from #bfbfbf (1.9:1 on white) to #6b7280
-  // (4.6:1 on white) to meet 4.5:1 minimum for normal text (FE-MEDIUM-024).
+  /** Secondary — Sea Green */
+  secondary: {
+    50: '#e6fff5',
+    100: '#b3ffe0',
+    200: '#80ffcc',
+    300: '#4dffb8',
+    400: '#1affa3',
+    500: '#00e68a',
+    600: '#00b36b',
+    700: '#00804d',
+    800: '#004d2e',
+    900: '#001a10',
+  },
+
+  /** Accent — Coral */
+  accent: {
+    50: '#fff5f2',
+    100: '#ffe0d9',
+    200: '#ffccc0',
+    300: '#ffb8a6',
+    400: '#ffa38d',
+    500: '#ff8f73',
+    600: '#cc7259',
+    700: '#995540',
+    800: '#663926',
+    900: '#331c13',
+  },
+
+  /** Neutral — slate */
+  neutral: {
+    50: '#f8fafc',
+    100: '#f1f5f9',
+    200: '#e2e8f0',
+    300: '#cbd5e1',
+    400: '#94a3b8',
+    500: '#64748b',
+    600: '#475569',
+    700: '#334155',
+    800: '#1e293b',
+    900: '#0f172a',
+  },
+
+  /** Semantic scales (50 / 100 / 500 / 600 / 700, as theme.css declares them) */
+  success: {
+    50: '#ecfdf5',
+    100: '#d1fae5',
+    500: '#10b981',
+    600: '#059669',
+    700: '#047857',
+  },
+  warning: {
+    50: '#fffbeb',
+    100: '#fef3c7',
+    500: '#f59e0b',
+    600: '#d97706',
+    700: '#b45309',
+  },
+  error: {
+    50: '#fef2f2',
+    100: '#fee2e2',
+    500: '#ef4444',
+    600: '#dc2626',
+    700: '#b91c1c',
+  },
+  info: {
+    50: '#eff6ff',
+    100: '#dbeafe',
+    500: '#3b82f6',
+    600: '#2563eb',
+    700: '#1d4ed8',
+  },
+
+  /**
+   * The one Tailwind default theme.css overrides: gray-400 darkened for WCAG
+   * 2.1 AA text contrast (FE-MEDIUM-024). Also the axis/helper-text grey.
+   */
   gray: {
-    50: '#fafafa',
-    100: '#f5f5f5',
-    200: '#e8e8e8',
-    300: '#d9d9d9',
     400: '#6b7280',
-    500: '#8c8c8c',
-    600: '#595959',
-    700: '#434343',
-    800: '#262626',
-    900: '#1f1f1f',
   },
 
-  // Yeşil - Başarı durumları
-  green: {
-    50: '#f6ffed',
-    100: '#d9f7be',
-    200: '#b7eb8f',
-    300: '#95de64',
-    400: '#73d13d',
-    500: '#52c41a', // Başarı rengi
-    600: '#389e0d',
-    700: '#237804',
-    800: '#135200',
-    900: '#092b00',
-  },
-
-  // Kırmızı - Hata durumları
-  red: {
-    50: '#fff1f0',
-    100: '#ffccc7',
-    200: '#ffa39e',
-    300: '#ff7875',
-    400: '#ff4d4f',
-    500: '#f5222d', // Hata rengi
-    600: '#cf1322',
-    700: '#a8071a',
-    800: '#820014',
-    900: '#5c0011',
-  },
-
-  // Sarı - Uyarı durumları
-  yellow: {
-    50: '#fffbe6',
-    100: '#fff1b8',
-    200: '#ffe58f',
-    300: '#ffd666',
-    400: '#ffc53d',
-    500: '#faad14', // Uyarı rengi
-    600: '#d48806',
-    700: '#ad6800',
-    800: '#874d00',
-    900: '#613400',
-  },
-
-  // Mavi - Bilgi durumları
-  blue: {
-    50: '#e6f7ff',
-    100: '#bae7ff',
-    200: '#91d5ff',
-    300: '#69c0ff',
-    400: '#40a9ff',
-    500: '#1890ff', // Bilgi rengi
-    600: '#096dd9',
-    700: '#0050b3',
-    800: '#003a8c',
-    900: '#002766',
-  },
-
-  // Turkuaz - Su teması için özel
-  aqua: {
-    50: '#e6fffb',
-    100: '#b5f5ec',
-    200: '#87e8de',
-    300: '#5cdbd3',
-    400: '#36cfc9',
-    500: '#13c2c2', // Su rengi
-    600: '#08979c',
-    700: '#006d75',
-    800: '#00474f',
-    900: '#002329',
-  },
-
-  // Semantik renkler
-  semantic: {
-    success: '#52c41a',
-    warning: '#faad14',
-    error: '#f5222d',
-    info: '#1890ff',
-  },
-
-  // Temel renkler
   white: '#ffffff',
   black: '#000000',
   transparent: 'transparent',
-} as const;
+};
+
+/**
+ * Ordered categorical palette for chart series (recharts, pies, gauges):
+ * brand first, then the semantic accents, then the deep brand shades.
+ */
+export const chartPalette: readonly string[] = [
+  colors.primary[500],
+  colors.secondary[600],
+  colors.accent[500],
+  colors.warning[500],
+  colors.info[600],
+  colors.error[500],
+  colors.primary[700],
+  colors.accent[700],
+];
+
+/** Chart chrome shared by every chart: grid lines, axis strokes, tooltip borders. */
+export const chartChrome: Readonly<{ grid: string; axis: string; border: string }> = {
+  grid: colors.neutral[200],
+  axis: colors.gray[400],
+  border: colors.neutral[200],
+};
 
 // ============================================================================
 // Tipografi
@@ -299,49 +337,5 @@ export const theme = {
 } as const;
 
 export type Theme = typeof theme;
-
-// ============================================================================
-// Karanlık Tema Renkleri
-// ============================================================================
-
-export const darkColors = {
-  ...colors,
-  // Karanlık tema için ters çevrilmiş gri tonları
-  gray: {
-    50: '#1f1f1f',
-    100: '#262626',
-    200: '#434343',
-    300: '#595959',
-    400: '#8c8c8c',
-    500: '#bfbfbf',
-    600: '#d9d9d9',
-    700: '#e8e8e8',
-    800: '#f5f5f5',
-    900: '#fafafa',
-  },
-} as const;
-
-// ============================================================================
-// CSS Değişkenleri Üreteci
-// ============================================================================
-
-export function generateCSSVariables(isDark = false): string {
-  const colorSet = isDark ? darkColors : colors;
-
-  const cssVars: string[] = [];
-
-  // Renkleri CSS değişkenlerine dönüştür
-  Object.entries(colorSet).forEach(([colorName, colorValues]) => {
-    if (typeof colorValues === 'string') {
-      cssVars.push(`--color-${colorName}: ${colorValues}`);
-    } else {
-      Object.entries(colorValues).forEach(([shade, value]) => {
-        cssVars.push(`--color-${colorName}-${shade}: ${value}`);
-      });
-    }
-  });
-
-  return cssVars.join(';\n');
-}
 
 export default theme;

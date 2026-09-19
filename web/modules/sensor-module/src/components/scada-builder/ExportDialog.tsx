@@ -18,7 +18,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, colors as themeColors } from '@aquaculture/shared-ui';
 import { Download, Image, FileText, Loader2 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ async function captureViewport(
   if (!ctx) throw new Error('Canvas 2D context not available');
 
   // Draw white background
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = themeColors.white;
   ctx.fillRect(0, 0, width, height);
 
   // Use SVG foreignObject approach for accurate DOM rendering

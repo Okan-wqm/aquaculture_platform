@@ -21,6 +21,7 @@
 import React, { useCallback } from 'react';
 import type { ChartLine, HistoricalDataPoint } from '../../types/scada-runtime.types';
 import type { TrendTimeRange } from '../../hooks/useTrendData';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -222,7 +223,7 @@ async function svgToCanvas(
       }
 
       // White background
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = themeColors.white;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
       ctx.scale(2, 2);
@@ -303,7 +304,7 @@ export const ChartExport: React.FC<ChartExportProps> = ({
         disabled={!hasPngTarget}
         className="flex items-center gap-2 w-full text-left px-3 py-2 text-xs text-gray-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
       >
-        <span className="text-base leading-none">&#128247;</span>
+        <span className="text-base leading-none">📷</span>
         Export as PNG
       </button>
 

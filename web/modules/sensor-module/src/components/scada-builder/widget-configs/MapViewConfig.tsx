@@ -10,6 +10,7 @@
 
 import React, { useCallback } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -54,7 +55,7 @@ const SMALL_INPUT_CLASS =
 
 export const MapViewConfig: React.FC<WidgetConfigProps> = ({ config, onChange }) => {
   const title = (config.title ?? 'Site Map') as string;
-  const bgColor = (config.bgColor ?? '#0c4a6e') as string;
+  const bgColor = (config.bgColor ?? themeColors.primary[700]) as string;
   const showGrid = (config.showGrid ?? true) as boolean;
   const markers = (config.markers ?? []) as DeviceMarker[];
 

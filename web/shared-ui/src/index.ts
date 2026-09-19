@@ -171,6 +171,7 @@ export {
 export { useToast, ToastContainer, ToastProvider } from './hooks/useToast';
 export type { ToastOptions, ToastAction } from './hooks/useToast';
 export { useConfirm, usePrompt, ConfirmProvider } from './hooks/useConfirm';
+export { useClickOutside } from './hooks/useClickOutside';
 export type { ConfirmOptions, PromptOptions, ConfirmFn, PromptFn } from './hooks/useConfirm';
 
 // ============================================================================

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { Copy, Check, Terminal, Clock, AlertCircle, RefreshCw } from 'lucide-react';
 import {
   ProvisionedDeviceResponse,
@@ -153,12 +153,7 @@ export function InstallerCommandModal({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Kurulum Komutu
                 </label>
-                <button
-                  onClick={() => setRevealed((r) => !r)}
-                  className="text-xs text-cyan-600 hover:text-cyan-800 underline"
-                >
-                  {revealed ? 'Gizle' : 'Token\'ı Göster'}
-                </button>
+                <Button variant="ghost" size="xs" onClick={() => setRevealed((r) => !r)}>{revealed ? 'Gizle' : 'Token\'ı Göster'}</Button>
               </div>
               <div className="relative">
                 <div className="bg-gray-900 rounded-lg p-4 pr-12 font-mono text-sm text-green-400 overflow-x-auto">
@@ -168,17 +163,11 @@ export function InstallerCommandModal({
                       : maskInstallerCommand(provisioningData.installerCommand)}
                   </code>
                 </div>
-                <button
-                  onClick={handleCopyCommand}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-500 dark:text-gray-400 hover:text-white transition-colors"
-                  title="Kopyala"
-                >
-                  {copied ? (
+                <Button variant="ghost" className="absolute right-2 top-1/2" onClick={handleCopyCommand} title="Kopyala">{copied ? (
                     <Check className="w-5 h-5 text-green-400" />
                   ) : (
                     <Copy className="w-5 h-5" />
-                  )}
-                </button>
+                  )}</Button>
               </div>
               <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                 Bu komutu Linux terminalinizde root olarak çalıştırın (sudo ile)
@@ -194,17 +183,11 @@ export function InstallerCommandModal({
                 <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 pr-12 font-mono text-xs text-gray-600 dark:text-gray-400 overflow-x-auto break-all">
                   {provisioningData.installerUrl}
                 </div>
-                <button
-                  onClick={handleCopyUrl}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                  title="Kopyala"
-                >
-                  {copiedUrl ? (
+                <Button variant="ghost" className="absolute right-2 top-1/2" onClick={handleCopyUrl} title="Kopyala">{copiedUrl ? (
                     <Check className="w-5 h-5 text-green-500" />
                   ) : (
                     <Copy className="w-5 h-5" />
-                  )}
-                </button>
+                  )}</Button>
               </div>
             </div>
 
@@ -222,26 +205,15 @@ export function InstallerCommandModal({
 
           {/* Footer */}
           <div className="flex items-center justify-between px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-            <button
-              onClick={() => {
+            <Button variant="secondary" onClick={() => {
                 regenerateToken(provisioningData.deviceId);
-              }}
-              disabled={isRegenerating}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500 disabled:opacity-50 transition-colors"
-            >
-              {isRegenerating ? (
+              }} disabled={isRegenerating}>{isRegenerating ? (
                 <Spinner size="sm" color="inherit" />
               ) : (
                 <RefreshCw className="w-4 h-4" />
               )}
-              Token Yenile
-            </button>
-            <button
-              onClick={onClose}
-              className="px-5 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 transition-colors"
-            >
-              Tamam
-            </button>
+              Token Yenile</Button>
+            <Button variant="primary" size="lg" onClick={onClose}>Tamam</Button>
           </div>
     </Modal>
   );

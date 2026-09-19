@@ -13,7 +13,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { useIndustryTemplates, useApplyTemplate, IndustryTemplate } from '../../hooks/useIndustryTemplates';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 interface IndustryTemplateSelectorProps {
   onTemplateApplied?: () => void;
@@ -160,13 +160,7 @@ const IndustryTemplateSelector: React.FC<IndustryTemplateSelectorProps> = ({ onT
           Sablonlar yuklenemedi
         </h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">{error.message}</p>
-        <button
-          onClick={refetch}
-          className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Tekrar Dene
-        </button>
+        <Button variant="primary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={refetch}>Tekrar Dene</Button>
       </div>
     );
   }

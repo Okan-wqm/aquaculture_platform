@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
-import { useConfirm, useToast, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { useConfirm, useToast, Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { graphqlFetch } from '../config/api';
 import {
@@ -353,14 +353,7 @@ const DeviceDetailPage: React.FC = () => {
         }
         actions={
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-              Yenile
-            </button>
+            <Button variant="ghost" leftIcon={<RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />} onClick={handleRefresh} disabled={refreshing}>Yenile</Button>
             <Link
               to={`/sensor/devices/${deviceId}/edit`}
               className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
@@ -553,26 +546,14 @@ const DeviceDetailPage: React.FC = () => {
               <Activity className="w-8 h-8 text-blue-600 mb-2" />
               <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Veriler</span>
             </Link>
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="flex flex-col items-center p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-cyan-200 hover:bg-cyan-50 transition-all disabled:opacity-50"
-            >
-              <RefreshCw className={`w-8 h-8 text-cyan-600 mb-2 ${refreshing ? 'animate-spin' : ''}`} />
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Yenile</span>
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="flex flex-col items-center p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 hover:border-red-200 hover:bg-red-50 transition-all disabled:opacity-50"
-            >
-              {deleting ? (
+            <Button variant="secondary" onClick={handleRefresh} disabled={refreshing}><RefreshCw className={`w-8 h-8 text-cyan-600 mb-2 ${refreshing ? 'animate-spin' : ''}`} />
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Yenile</span></Button>
+            <Button variant="secondary" onClick={handleDelete} disabled={deleting}>{deleting ? (
                 <Spinner size="lg" className="mb-2" />
               ) : (
                 <Trash2 className="w-8 h-8 text-red-600 mb-2" />
               )}
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Kaldir</span>
-            </button>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Kaldir</span></Button>
           </div>
 
           {/* VFD Panel — shown when device type is VFD */}

@@ -11,7 +11,7 @@ import React, { useState, useMemo } from 'react';
 import { Search, ChevronDown, ChevronRight, GripVertical, Activity, BarChart2 } from 'lucide-react';
 import { useEquipmentTypes, EquipmentType, CATEGORY_LABELS } from '../../../hooks/useEquipment';
 import { getEquipmentIcon } from '../../equipment-icons';
-import { colors as themeColors, Spinner } from '@aquaculture/shared-ui';
+import { colors as themeColors, Spinner, Button } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Template definitions
@@ -330,14 +330,9 @@ export const EquipmentPanel: React.FC<EquipmentPanelProps> = ({ onDragStart }) =
   };
 
   const CategoryHeader = ({ categoryKey, label, count }: { categoryKey: string; label: string; count: number }) => (
-    <button
-      onClick={() => toggleCategory(categoryKey)}
-      className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-    >
-      {expandedCategories.has(categoryKey) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+    <Button variant="ghost" size="sm" onClick={() => toggleCategory(categoryKey)}>{expandedCategories.has(categoryKey) ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
       <span>{label}</span>
-      <span className="ml-auto text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">{count}</span>
-    </button>
+      <span className="ml-auto text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded-full">{count}</span></Button>
   );
 
   return (

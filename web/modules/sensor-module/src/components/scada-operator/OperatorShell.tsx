@@ -29,7 +29,7 @@ import { OperatorHeader } from './OperatorHeader';
 import { OperatorSidenav } from './OperatorSidenav';
 import { ViewOverlayManager } from './ViewOverlayManager';
 import { AlarmAnnouncer } from './AlarmAnnouncer';
-import { severityClasses, normalizeSeverity } from '@aquaculture/shared-ui';
+import { severityClasses, normalizeSeverity, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -118,14 +118,7 @@ const AlarmPanel = React.memo(() => {
             <AlarmBadgeCount count={warningCount}  severity="warning" />
           </div>
         </div>
-        <button
-          type="button"
-          onClick={toggleAlarmPanel}
-          className="text-gray-400 dark:text-gray-500 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400"
-          aria-label="Close alarm panel"
-        >
-          Close
-        </button>
+        <Button variant="ghost" size="xs" type="button" onClick={toggleAlarmPanel} aria-label="Close alarm panel">Close</Button>
       </div>
 
       {/* Scrollable alarm list */}

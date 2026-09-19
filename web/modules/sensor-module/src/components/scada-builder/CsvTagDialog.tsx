@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useRef, useMemo } from 'react';
-import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
 import { Download, Upload, FileSpreadsheet, AlertCircle, CheckCircle } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
@@ -419,31 +419,14 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
 
         {/* Footer */}
         <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 font-medium transition-colors"
-          >
-            Close
-          </button>
+          <Button variant="secondary" size="lg" className="flex-1" onClick={onClose}>Close</Button>
 
           {tab === 'export' && exportRows.length > 0 && (
-            <button
-              onClick={handleExport}
-              className="flex-1 px-4 py-2.5 text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Download CSV
-            </button>
+            <Button variant="primary" size="lg" className="flex-1 justify-center" leftIcon={<Download className="w-4 h-4" />} onClick={handleExport}>Download CSV</Button>
           )}
 
           {tab === 'import' && importData.length >= 2 && (
-            <button
-              onClick={handleApplyImport}
-              className="flex-1 px-4 py-2.5 text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 font-medium transition-colors flex items-center justify-center gap-2"
-            >
-              <Upload className="w-4 h-4" />
-              Apply
-            </button>
+            <Button variant="primary" size="lg" className="flex-1 justify-center" leftIcon={<Upload className="w-4 h-4" />} onClick={handleApplyImport}>Apply</Button>
           )}
         </div>
     </Modal>

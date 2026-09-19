@@ -41,7 +41,7 @@ import {
   PlcAlarmStats,
   TelemetrySummary,
 } from '../../hooks/usePlcControl';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Status Helpers
@@ -234,13 +234,7 @@ const PlcDashboardPage: React.FC = () => {
         description="PLC bağlantıları, telemetri ve alarm durumuna genel bakış"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => refetchConnections()}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Yenile
-            </button>
+            <Button variant="secondary" size="sm" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => refetchConnections()}>Yenile</Button>
           </div>
         }
         className="mb-6"

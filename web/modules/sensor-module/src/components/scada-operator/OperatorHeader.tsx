@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
-import { useClickOutside } from '@aquaculture/shared-ui';
+import { useClickOutside, Button } from '@aquaculture/shared-ui';
 import { useShallow } from 'zustand/react/shallow';
 import {
   Menu,
@@ -272,27 +272,14 @@ const UserRoleMenu = memo(() => {
 
   return (
     <div className="relative" ref={roleMenuRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="
-          flex items-center gap-1.5 px-2 py-1.5 rounded text-xs
-          text-gray-300 hover:bg-gray-700 transition-colors
-          focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
-        "
-        aria-label="User role menu"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-      >
-        <User size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
+      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen((v) => !v)} aria-label="User role menu" aria-expanded={open} aria-haspopup="listbox"><User size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
         <span
           className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${roleClass}`}
           title={`Current role: ${currentUserRole}`}
         >
           {currentUserRole}
         </span>
-        <ChevronDown size={12} className="text-gray-500 dark:text-gray-400 shrink-0" aria-hidden="true" />
-      </button>
+        <ChevronDown size={12} className="text-gray-500 dark:text-gray-400 shrink-0" aria-hidden="true" /></Button>
 
       {open && (
         <ul
@@ -370,19 +357,7 @@ export const OperatorHeader = memo<OperatorHeaderProps>(
       >
         {/* ── Hamburger ── */}
         {showHamburger && (
-          <button
-            type="button"
-            onClick={toggleSidenav}
-            aria-label={sidenavOpen ? 'Close navigation sidebar' : 'Open navigation sidebar'}
-            aria-expanded={sidenavOpen}
-            className="
-              p-1.5 rounded shrink-0
-              text-gray-400 hover:text-gray-100 hover:bg-gray-700
-              transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
-            "
-          >
-            <Menu size={18} aria-hidden="true" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly className="shrink-0" type="button" onClick={toggleSidenav} aria-label={sidenavOpen ? 'Close navigation sidebar' : 'Open navigation sidebar'} aria-expanded={sidenavOpen}><Menu size={18} aria-hidden="true" /></Button>
         )}
 
         {/* ── Logo / title ── */}

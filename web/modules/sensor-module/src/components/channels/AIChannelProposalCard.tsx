@@ -6,6 +6,7 @@
  */
 
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Check, X, Edit, AlertTriangle } from 'lucide-react';
 
 // ============================================================================
@@ -144,27 +145,9 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
 
       {/* Action buttons */}
       <div className="flex items-center gap-2">
-        <button
-          onClick={onApprove}
-          className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-xs font-medium"
-        >
-          <Check className="w-3.5 h-3.5" />
-          Onayla
-        </button>
-        <button
-          onClick={onEdit}
-          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-xs font-medium"
-        >
-          <Edit className="w-3.5 h-3.5" />
-          Düzenle
-        </button>
-        <button
-          onClick={onReject}
-          className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-xs font-medium"
-        >
-          <X className="w-3.5 h-3.5" />
-          Reddet
-        </button>
+        <Button variant="primary" size="xs" leftIcon={<Check className="w-3.5 h-3.5" />} onClick={onApprove}>Onayla</Button>
+        <Button variant="primary" size="xs" leftIcon={<Edit className="w-3.5 h-3.5" />} onClick={onEdit}>Düzenle</Button>
+        <Button variant="danger" size="xs" leftIcon={<X className="w-3.5 h-3.5" />} onClick={onReject}>Reddet</Button>
       </div>
     </div>
   );

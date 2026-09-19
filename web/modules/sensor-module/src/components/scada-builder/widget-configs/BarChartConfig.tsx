@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Button, Input, Select } from '@aquaculture/shared-ui';
 
 interface BarSource {
   tagName: string;
@@ -54,26 +54,13 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
       {/* Label */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Bar Chart"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Bar Chart" />
       </div>
 
       {/* Orientation */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Orientation</label>
-        <select
-          value={(config.orientation as string) || 'vertical'}
-          onChange={(e) => onChange({ orientation: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        >
-          <option value="vertical">Vertical</option>
-          <option value="horizontal">Horizontal</option>
-        </select>
+        <Select fullWidth options={[{ value: 'vertical', label: 'Vertical' }, { value: 'horizontal', label: 'Horizontal' }]} value={(config.orientation as string) || 'vertical'} onChange={(e) => onChange({ orientation: e.target.value })} />
       </div>
 
       {/* Y Axis range */}
@@ -93,21 +80,11 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Y Min</label>
-            <input
-              type="number"
-              value={(config.yAxisMin as number) ?? 0}
-              onChange={(e) => onChange({ yAxisMin: Number(e.target.value) })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-            />
+            <Input fullWidth type="number" value={(config.yAxisMin as number) ?? 0} onChange={(e) => onChange({ yAxisMin: Number(e.target.value) })} />
           </div>
           <div>
             <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Y Max</label>
-            <input
-              type="number"
-              value={(config.yAxisMax as number) ?? 100}
-              onChange={(e) => onChange({ yAxisMax: Number(e.target.value) })}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-            />
+            <Input fullWidth type="number" value={(config.yAxisMax as number) ?? 100} onChange={(e) => onChange({ yAxisMax: Number(e.target.value) })} />
           </div>
         </div>
       )}
@@ -155,50 +132,27 @@ export const BarChartConfig: React.FC<WidgetConfigProps> = ({ config, onChange, 
       {/* Bar spacing */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bar Spacing (px)</label>
-        <input
-          type="number"
-          min={0}
-          max={20}
-          value={(config.barSpacing as number) ?? 4}
-          onChange={(e) => onChange({ barSpacing: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="number" min={0} max={20} value={(config.barSpacing as number) ?? 4} onChange={(e) => onChange({ barSpacing: Number(e.target.value) })} />
       </div>
 
       {/* Data sources */}
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Data Sources</label>
-          <button
-            onClick={addSource}
-            className="text-xs text-cyan-600 hover:text-cyan-700"
-          >
-            + Add Source
-          </button>
+          <Button variant="ghost" size="xs" onClick={addSource}>+ Add Source</Button>
         </div>
         <div className="space-y-2">
           {sources.map((source, i) => (
             <div key={i} className="p-2 border border-gray-200 dark:border-gray-700 rounded-md space-y-1.5">
               <div className="flex items-center gap-1">
-                <input
-                  type="text"
-                  value={source.label}
-                  onChange={(e) => updateSource(i, 'label', e.target.value)}
-                  placeholder="Label"
-                  className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                />
+                <Input type="text" value={source.label} onChange={(e) => updateSource(i, 'label', e.target.value)} placeholder="Label" />
                 <input
                   type="color"
                   value={source.color}
                   onChange={(e) => updateSource(i, 'color', e.target.value)}
                   className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                 />
-                <button
-                  onClick={() => removeSource(i)}
-                  className="text-red-400 hover:text-red-600 text-xs px-1"
-                >
-                  X
-                </button>
+                <Button variant="ghost" size="xs" onClick={() => removeSource(i)}>X</Button>
               </div>
               <TagBrowser
                 deviceId={deviceId || null}

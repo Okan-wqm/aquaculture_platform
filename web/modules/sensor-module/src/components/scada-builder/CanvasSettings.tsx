@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Grid3X3, Magnet, ZoomIn, ZoomOut, Maximize2, Image, X, Moon, Sun } from 'lucide-react';
 import { useThemeSafe } from '../../engine/theme/useThemeSafe';
 
@@ -126,44 +127,16 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
       {/* Zoom Controls */}
       <span className="text-gray-600 dark:text-gray-400 flex items-center gap-0.5">
         {/* Zoom Out */}
-        <button
-          onClick={() => onZoomChange(Math.max(0.2, zoom - 0.1))}
-          className="w-6 h-6 rounded hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-center"
-          aria-label="Zoom Out"
-          title="Zoom Out"
-        >
-          <ZoomOut className="w-3.5 h-3.5" />
-        </button>
+        <Button variant="ghost" iconOnly className="w-6 h-6 justify-center" onClick={() => onZoomChange(Math.max(0.2, zoom - 0.1))} aria-label="Zoom Out" title="Zoom Out"><ZoomOut className="w-3.5 h-3.5" /></Button>
 
         {/* Zoom Percentage (click to reset to 100%) */}
-        <button
-          onClick={() => onZoomChange(1)}
-          className="w-12 text-center font-mono hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-1 py-0.5"
-          aria-label="Reset Zoom"
-          title="Reset Zoom"
-        >
-          {Math.round(zoom * 100)}%
-        </button>
+        <Button variant="ghost" className="w-12" onClick={() => onZoomChange(1)} aria-label="Reset Zoom" title="Reset Zoom">{Math.round(zoom * 100)}%</Button>
 
         {/* Zoom In */}
-        <button
-          onClick={() => onZoomChange(Math.min(2, zoom + 0.1))}
-          className="w-6 h-6 rounded hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-center"
-          aria-label="Zoom In"
-          title="Zoom In"
-        >
-          <ZoomIn className="w-3.5 h-3.5" />
-        </button>
+        <Button variant="ghost" iconOnly className="w-6 h-6 justify-center" onClick={() => onZoomChange(Math.min(2, zoom + 0.1))} aria-label="Zoom In" title="Zoom In"><ZoomIn className="w-3.5 h-3.5" /></Button>
 
         {/* Fit View */}
-        <button
-          onClick={onFitView}
-          className="w-6 h-6 rounded hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center justify-center"
-          aria-label="Fit View"
-          title="Fit View"
-        >
-          <Maximize2 className="w-3.5 h-3.5" />
-        </button>
+        <Button variant="ghost" iconOnly className="w-6 h-6 justify-center" onClick={onFitView} aria-label="Fit View" title="Fit View"><Maximize2 className="w-3.5 h-3.5" /></Button>
       </span>
 
       {/* Theme Toggle */}
@@ -216,14 +189,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                 className="w-16 h-4 accent-cyan-600"
                 title={`Opacity: ${Math.round((backgroundOpacity ?? 0.3) * 100)}%`}
               />
-              <button
-                onClick={() => onBackgroundImageChange(null)}
-                className="w-6 h-6 rounded hover:bg-red-100 flex items-center justify-center text-red-400 hover:text-red-600"
-                aria-label="Remove Background"
-                title="Remove Background"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
+              <Button variant="ghost" iconOnly className="w-6 h-6 justify-center" onClick={() => onBackgroundImageChange(null)} aria-label="Remove Background" title="Remove Background"><X className="w-3.5 h-3.5" /></Button>
             </>
           )}
           {/* Arkaplan gorseli hata mesaji -- dosya boyutu asiminda gosterilir */}

@@ -13,7 +13,7 @@ import {
   Filter,
 } from 'lucide-react';
 import { VfdParameterAuditLog, VfdRiskLevel } from '../../types/vfd.types';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -169,15 +169,8 @@ export function VfdAuditLogViewer({
       {/* Load more */}
       {hasMore && (
         <div className="mt-4 text-center">
-          <button
-            type="button"
-            onClick={onLoadMore}
-            disabled={loading}
-            className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-          >
-            {loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
-            Load More
-          </button>
+          <Button variant="secondary" type="button" onClick={onLoadMore} disabled={loading}>{loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
+            Load More</Button>
         </div>
       )}
     </div>

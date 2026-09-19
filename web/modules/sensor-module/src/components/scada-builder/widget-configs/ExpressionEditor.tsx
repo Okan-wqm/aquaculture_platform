@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { Textarea } from '@aquaculture/shared-ui';
 import { CheckCircle2, XCircle, Tag } from 'lucide-react';
 import { useDeviceTags, TagInfo } from '../../../hooks/useDeviceTags';
 import { FunctionReference } from './FunctionReference';
@@ -158,18 +159,7 @@ export const ExpressionEditor: React.FC<ExpressionEditorProps> = ({
   return (
     <div className="space-y-1.5">
       <div className="relative">
-        <textarea
-          ref={textareaRef}
-          data-testid="expression-textarea"
-          value={expression}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          onSelect={checkAutocomplete}
-          placeholder={placeholder}
-          rows={3}
-          spellCheck={false}
-          className="w-full px-3 py-2 text-sm font-mono border border-gray-300 dark:border-gray-600 rounded-lg resize-y focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Textarea className="font-mono resize-y" fullWidth ref={textareaRef} data-testid="expression-textarea" value={expression} onChange={handleChange} onKeyDown={handleKeyDown} onSelect={checkAutocomplete} placeholder={placeholder} rows={3} spellCheck={false} />
         <div className="absolute top-2 right-2">
           <FunctionReference />
         </div>

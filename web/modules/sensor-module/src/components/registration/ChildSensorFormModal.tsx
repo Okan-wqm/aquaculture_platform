@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, colors } from '@aquaculture/shared-ui';
+import { Modal, colors, Button, Input } from '@aquaculture/shared-ui';
 import {
   ChildSensorConfig,
   SensorType,
@@ -220,13 +220,7 @@ export function ChildSensorFormModal({
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Data Name <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    value={formData.name}
-                    onChange={(e) => handleChange('name', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    required
-                  />
+                  <Input fullWidth type="text" value={formData.name} onChange={(e) => handleChange('name', e.target.value)} required />
                 </div>
 
                 <div>
@@ -275,13 +269,7 @@ export function ChildSensorFormModal({
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Unit</label>
-                    <input
-                      type="text"
-                      value={formData.unit || ''}
-                      onChange={(e) => handleChange('unit', e.target.value || undefined)}
-                      placeholder="e.g., °C, mg/L, pH"
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="text" value={formData.unit || ''} onChange={(e) => handleChange('unit', e.target.value || undefined)} placeholder="e.g., °C, mg/L, pH" />
                   </div>
                 </div>
 
@@ -313,23 +301,11 @@ export function ChildSensorFormModal({
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Min Value</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={formData.minValue ?? ''}
-                      onChange={(e) => handleChange('minValue', e.target.value ? parseFloat(e.target.value) : undefined)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="any" value={formData.minValue ?? ''} onChange={(e) => handleChange('minValue', e.target.value ? parseFloat(e.target.value) : undefined)} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Value</label>
-                    <input
-                      type="number"
-                      step="any"
-                      value={formData.maxValue ?? ''}
-                      onChange={(e) => handleChange('maxValue', e.target.value ? parseFloat(e.target.value) : undefined)}
-                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                    />
+                    <Input fullWidth type="number" step="any" value={formData.maxValue ?? ''} onChange={(e) => handleChange('maxValue', e.target.value ? parseFloat(e.target.value) : undefined)} />
                   </div>
                 </div>
               </div>
@@ -355,26 +331,14 @@ export function ChildSensorFormModal({
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Multiplier
                       </label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={formData.calibrationMultiplier}
-                        onChange={(e) => handleChange('calibrationMultiplier', parseFloat(e.target.value) || 1)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                      />
+                      <Input fullWidth type="number" step="any" value={formData.calibrationMultiplier} onChange={(e) => handleChange('calibrationMultiplier', parseFloat(e.target.value) || 1)} />
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Multiplied with raw value</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                         Offset
                       </label>
-                      <input
-                        type="number"
-                        step="any"
-                        value={formData.calibrationOffset}
-                        onChange={(e) => handleChange('calibrationOffset', parseFloat(e.target.value) || 0)}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
-                      />
+                      <Input fullWidth type="number" step="any" value={formData.calibrationOffset} onChange={(e) => handleChange('calibrationOffset', parseFloat(e.target.value) || 0)} />
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Added after multiplication</p>
                     </div>
                     <div className="col-span-2 text-sm text-gray-600 dark:text-gray-400">
@@ -397,23 +361,11 @@ export function ChildSensorFormModal({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Low</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={formData.alertThresholds?.warning?.low ?? ''}
-                          onChange={(e) => handleAlertChange('warning', 'low', e.target.value)}
-                          className="w-full px-2 py-1 text-sm border border-yellow-300 rounded focus:ring-yellow-500 focus:border-yellow-500"
-                        />
+                        <Input fullWidth type="number" step="any" value={formData.alertThresholds?.warning?.low ?? ''} onChange={(e) => handleAlertChange('warning', 'low', e.target.value)} />
                       </div>
                       <div>
                         <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">High</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={formData.alertThresholds?.warning?.high ?? ''}
-                          onChange={(e) => handleAlertChange('warning', 'high', e.target.value)}
-                          className="w-full px-2 py-1 text-sm border border-yellow-300 rounded focus:ring-yellow-500 focus:border-yellow-500"
-                        />
+                        <Input fullWidth type="number" step="any" value={formData.alertThresholds?.warning?.high ?? ''} onChange={(e) => handleAlertChange('warning', 'high', e.target.value)} />
                       </div>
                     </div>
                   </div>
@@ -424,23 +376,11 @@ export function ChildSensorFormModal({
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Low</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={formData.alertThresholds?.critical?.low ?? ''}
-                          onChange={(e) => handleAlertChange('critical', 'low', e.target.value)}
-                          className="w-full px-2 py-1 text-sm border border-red-300 rounded focus:ring-red-500 focus:border-red-500"
-                        />
+                        <Input fullWidth type="number" step="any" value={formData.alertThresholds?.critical?.low ?? ''} onChange={(e) => handleAlertChange('critical', 'low', e.target.value)} />
                       </div>
                       <div>
                         <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">High</label>
-                        <input
-                          type="number"
-                          step="any"
-                          value={formData.alertThresholds?.critical?.high ?? ''}
-                          onChange={(e) => handleAlertChange('critical', 'high', e.target.value)}
-                          className="w-full px-2 py-1 text-sm border border-red-300 rounded focus:ring-red-500 focus:border-red-500"
-                        />
+                        <Input fullWidth type="number" step="any" value={formData.alertThresholds?.critical?.high ?? ''} onChange={(e) => handleAlertChange('critical', 'high', e.target.value)} />
                       </div>
                     </div>
                   </div>
@@ -451,19 +391,8 @@ export function ChildSensorFormModal({
 
             {/* Footer */}
             <div className="flex items-center justify-end px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 space-x-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-                Save Configuration
-              </button>
+              <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+              <Button variant="primary" type="submit">Save Configuration</Button>
             </div>
           </form>
     </Modal>

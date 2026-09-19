@@ -11,6 +11,7 @@
  */
 
 import React, { useCallback, useRef, useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { TransformConfig } from './TransformConfig';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
 import type { SvgTransform } from '../../../types/scada-transform.types';
@@ -121,15 +122,7 @@ export const RasterImageConfig: React.FC<WidgetConfigProps> = ({ config, onChang
             alt={(config.altText as string) || (config.alt as string) || 'Widget image'}
             className="w-full h-24 object-contain rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
           />
-          <button
-            type="button"
-            onClick={handleRemoveImage}
-            className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white rounded-full text-xs flex items-center justify-center hover:bg-red-600"
-            aria-label="Remove image"
-            title="Remove image"
-          >
-            X
-          </button>
+          <Button variant="danger" size="xs" className="absolute top-1 right-1 w-5 h-5 justify-center" type="button" onClick={handleRemoveImage} aria-label="Remove image" title="Remove image">X</Button>
         </div>
       )}
 

@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { MultiParameterTrendCard } from '../components/charts/MultiParameterTrendCard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
-import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -294,13 +294,11 @@ const DeviceGroupCard: React.FC<{
         className="flex items-center gap-4 p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         onClick={() => setIsExpanded(!isExpanded)}
       >
-        <button className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-          {isExpanded ? (
+        <Button variant="ghost" size="sm">{isExpanded ? (
             <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           ) : (
             <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-          )}
-        </button>
+          )}</Button>
 
         <div className="p-2 bg-cyan-50 rounded-lg">
           <Server className="w-5 h-5 text-cyan-600" />
@@ -545,10 +543,7 @@ const ReadingsPage: React.FC = () => {
               <RefreshCw className={`w-4 h-4 ${isAutoRefresh ? 'animate-spin' : ''}`} />
               {isAutoRefresh ? 'Otomatik (30s)' : 'Manuel'}
             </button>
-            <button className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
-              <Download className="w-4 h-4" />
-              Dışa Aktar
-            </button>
+            <Button variant="primary" leftIcon={<Download className="w-4 h-4" />}>Dışa Aktar</Button>
           </div>
         }
       />
@@ -635,42 +630,13 @@ const ReadingsPage: React.FC = () => {
           {/* Type Filter */}
           <div className="flex items-center gap-2">
             <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <select
-              value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value)}
-              className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-            >
-              <option value="all">Tüm Tipler</option>
-              <option value="temperature">Sıcaklık</option>
-              <option value="dissolved_oxygen">Çözünmüş Oksijen</option>
-              <option value="ph">pH</option>
-              <option value="salinity">Tuzluluk</option>
-              <option value="turbidity">Bulanıklık</option>
-              <option value="ammonia">Amonyak</option>
-              <option value="conductivity">İletkenlik</option>
-              <option value="water_level">Su Seviyesi</option>
-              <option value="flow_rate">Akış Hızı</option>
-              <option value="pressure">Basınç</option>
-              <option value="voltage">Voltaj</option>
-              <option value="current">Akım</option>
-              <option value="power">Güç</option>
-            </select>
+            <Select options={[{ value: 'all', label: 'Tüm Tipler' }, { value: 'temperature', label: 'Sıcaklık' }, { value: 'dissolved_oxygen', label: 'Çözünmüş Oksijen' }, { value: 'ph', label: 'pH' }, { value: 'salinity', label: 'Tuzluluk' }, { value: 'turbidity', label: 'Bulanıklık' }, { value: 'ammonia', label: 'Amonyak' }, { value: 'conductivity', label: 'İletkenlik' }, { value: 'water_level', label: 'Su Seviyesi' }, { value: 'flow_rate', label: 'Akış Hızı' }, { value: 'pressure', label: 'Basınç' }, { value: 'voltage', label: 'Voltaj' }, { value: 'current', label: 'Akım' }, { value: 'power', label: 'Güç' }]} value={selectedType} onChange={(e) => setSelectedType(e.target.value)} />
           </div>
 
           {/* Period Filter */}
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            <select
-              value={selectedPeriod}
-              onChange={(e) => setSelectedPeriod(e.target.value)}
-              className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-            >
-              <option value="1h">Son 1 Saat</option>
-              <option value="6h">Son 6 Saat</option>
-              <option value="24h">Son 24 Saat</option>
-              <option value="7d">Son 7 Gün</option>
-              <option value="30d">Son 30 Gün</option>
-            </select>
+            <Select options={[{ value: '1h', label: 'Son 1 Saat' }, { value: '6h', label: 'Son 6 Saat' }, { value: '24h', label: 'Son 24 Saat' }, { value: '7d', label: 'Son 7 Gün' }, { value: '30d', label: 'Son 30 Gün' }]} value={selectedPeriod} onChange={(e) => setSelectedPeriod(e.target.value)} />
           </div>
         </div>
       </div>

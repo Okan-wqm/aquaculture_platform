@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import type { WidgetPermissions } from '../../../types/scada-widget.types';
 
 /* ------------------------------------------------------------------ */
@@ -73,15 +74,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2 mt-3" data-testid="permissions-section">
       {/* Collapsible header -- matches TransformConfig chevron pattern */}
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
-        aria-expanded={open}
-        aria-label="Permissions settings"
-        data-testid="permissions-toggle"
-      >
-        <span className="flex items-center gap-1.5">
+      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Permissions settings" data-testid="permissions-toggle"><span className="flex items-center gap-1.5">
           Permissions
           {hasAnyRestriction && (
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400" title="Role restrictions active" />
@@ -94,8 +87,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
           viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+        </svg></Button>
 
       {open && (
         <div className="space-y-4 mt-2" data-testid="permissions-content">
@@ -145,14 +137,7 @@ export const WidgetPermissionsSection: React.FC<WidgetPermissionsSectionProps> =
 
           {/* Reset button -- only visible when restrictions are active */}
           {hasAnyRestriction && (
-            <button
-              type="button"
-              onClick={handleReset}
-              className="w-full py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 border border-gray-200 dark:border-gray-700 hover:border-red-200 rounded-lg transition-colors"
-              data-testid="permissions-reset"
-            >
-              Clear All Restrictions
-            </button>
+            <Button variant="secondary" size="xs" type="button" onClick={handleReset} data-testid="permissions-reset">Clear All Restrictions</Button>
           )}
         </div>
       )}

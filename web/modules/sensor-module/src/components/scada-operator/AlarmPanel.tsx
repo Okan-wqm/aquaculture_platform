@@ -41,7 +41,7 @@ import type {
   AlarmHistoryFilter,
 } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
-import { DataTable, type DataTableColumn, severityClasses } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, severityClasses, Button, Input } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -337,15 +337,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         header: 'ACK',
         render: (_value, alarm) =>
           alarm.status !== 'acknowledged' ? (
-            <button
-              onClick={() => acknowledgeAlarm(alarm.id)}
-              title="Acknowledge alarm"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium
-                         bg-green-600 hover:bg-green-700 text-white transition-colors"
-            >
-              <CheckCircle className="h-3.5 w-3.5" />
-              ACK
-            </button>
+            <Button variant="primary" size="xs" leftIcon={<CheckCircle className="h-3.5 w-3.5" />} onClick={() => acknowledgeAlarm(alarm.id)} title="Acknowledge alarm">ACK</Button>
           ) : null,
       });
     }
@@ -376,38 +368,15 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         <div className="flex items-center gap-2">
           {/* ACK All */}
           {tab === 'active' && activeAlarms.some((a) => a.status !== 'acknowledged') && (
-            <button
-              onClick={acknowledgeAll}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium
-                         bg-green-600 hover:bg-green-700 text-white transition-colors"
-            >
-              <CheckCheck className="h-3.5 w-3.5" />
-              ACK All
-            </button>
+            <Button variant="primary" size="xs" leftIcon={<CheckCheck className="h-3.5 w-3.5" />} onClick={acknowledgeAll}>ACK All</Button>
           )}
 
           {/* Export */}
-          <button
-            onClick={handleExport}
-            title="Export to CSV"
-            className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100
-                       dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800
-                       transition-colors"
-          >
-            <Download className="h-4 w-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Export to CSV" onClick={handleExport} title="Export to CSV"><Download className="h-4 w-4" /></Button>
 
           {/* Close */}
           {onClose && (
-            <button
-              onClick={onClose}
-              title="Close"
-              className="p-1.5 rounded text-gray-500 hover:text-gray-700 hover:bg-gray-100
-                         dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800
-                         transition-colors"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={onClose} title="Close"><X className="h-4 w-4" /></Button>
           )}
         </div>
       </div>
@@ -435,35 +404,19 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         {/* Text search */}
         <div className="relative flex-1 min-w-40">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
-          <input
-            type="text"
-            placeholder="Search alarms…"
-            value={textSearch}
-            onChange={(e) => setTextSearch(e.target.value)}
-            className="w-full pl-7 pr-2 py-1 text-sm rounded border border-gray-200 dark:border-gray-600
-                       bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
-                       focus:outline-hidden focus:ring-1 focus:ring-blue-500"
-          />
+          <Input fullWidth type="text" placeholder="Search alarms…" value={textSearch} onChange={(e) => setTextSearch(e.target.value)} />
         </div>
 
         {/* Severity filter */}
         <div className="relative">
-          <button
-            onClick={() => setShowSeverityDropdown((v) => !v)}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-sm rounded border
-                       border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800
-                       text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700
-                       transition-colors"
-          >
-            <Filter className="h-3.5 w-3.5" />
+          <Button variant="secondary" size="sm" onClick={() => setShowSeverityDropdown((v) => !v)}><Filter className="h-3.5 w-3.5" />
             Severity
             {selectedSeverities.size > 0 && (
               <span className="ml-1 px-1 rounded bg-blue-500 text-white text-xs">
                 {selectedSeverities.size}
               </span>
             )}
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
+            <ChevronDown className="h-3.5 w-3.5" /></Button>
 
           {showSeverityDropdown && (
             <div
@@ -488,12 +441,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
                 </label>
               ))}
               <div className="border-t border-gray-100 dark:border-gray-700 px-3 py-1">
-                <button
-                  onClick={() => { setSelectedSeverities(new Set()); setShowSeverityDropdown(false); }}
-                  className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-                >
-                  Clear filter
-                </button>
+                <Button variant="ghost" size="xs" onClick={() => { setSelectedSeverities(new Set()); setShowSeverityDropdown(false); }}>Clear filter</Button>
               </div>
             </div>
           )}
@@ -520,30 +468,10 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
         {/* History date range */}
         {tab === 'history' && (
           <>
-            <input
-              type="datetime-local"
-              value={historyFrom}
-              onChange={(e) => setHistoryFrom(e.target.value)}
-              className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600
-                         bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-            />
+            <Input type="datetime-local" value={historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} />
             <span className="text-gray-400 dark:text-gray-500 text-xs">to</span>
-            <input
-              type="datetime-local"
-              value={historyTo}
-              onChange={(e) => setHistoryTo(e.target.value)}
-              className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600
-                         bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
-            />
-            <button
-              onClick={() => void handleHistoryQuery()}
-              disabled={isLoading}
-              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs rounded
-                         bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              Query
-            </button>
+            <Input type="datetime-local" value={historyTo} onChange={(e) => setHistoryTo(e.target.value)} />
+            <Button variant="primary" size="xs" leftIcon={<RefreshCw className={`h-3.5 w-3.5 ${isLoading ? 'animate-spin' : ''}`} />} onClick={() => void handleHistoryQuery()} disabled={isLoading}>Query</Button>
           </>
         )}
       </div>

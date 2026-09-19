@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { ConfirmModal, Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 import {
   Plus,
   Trash2,
@@ -202,14 +202,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
               maxLength={32}
               required
             />
-            <button
-              type="button"
-              onClick={() => setShowAppKey(!showAppKey)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              aria-label={showAppKey ? 'Gizle' : 'Goster'}
-            >
-              {showAppKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-            </button>
+            <Button variant="ghost" size="sm" className="absolute right-2 top-1/2" type="button" onClick={() => setShowAppKey(!showAppKey)} aria-label={showAppKey ? 'Gizle' : 'Goster'}>{showAppKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</Button>
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{appKey.length}/32 hex karakter</p>
         </div>
@@ -298,21 +291,9 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Iptal
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
-          >
-            {isSubmitting && <Spinner size="sm" color="inherit" />}
-            Ekle
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Iptal</Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting}>{isSubmitting && <Spinner size="sm" color="inherit" />}
+            Ekle</Button>
         </div>
       </form>
     </Modal>
@@ -467,22 +448,10 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Iptal
-          </button>
-          <button
-            type="submit"
-            disabled={isSending}
-            className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
-          >
-            {isSending && <Spinner size="sm" color="inherit" />}
+          <Button variant="secondary" type="button" onClick={onClose}>Iptal</Button>
+          <Button variant="primary" type="submit" disabled={isSending}>{isSending && <Spinner size="sm" color="inherit" />}
             <Send className="w-4 h-4" />
-            Gonder
-          </button>
+            Gonder</Button>
         </div>
       </form>
     </Modal>
@@ -577,13 +546,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-sm mx-auto">
             LoRaWAN end-device ekleyerek kablosuz sensor verilerini toplamaya baslayabilirsiniz.
           </p>
-          <button
-            onClick={() => setAddDialogOpen(true)}
-            className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Cihaz Ekle
-          </button>
+          <Button variant="primary" size="lg" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setAddDialogOpen(true)}>Cihaz Ekle</Button>
         </div>
 
         <AddDeviceDialog
@@ -661,24 +624,10 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
         <div className="flex items-center justify-end gap-1">
           {/* Downlink gonder */}
           {dev.isJoined && (
-            <button
-              onClick={() => setDownlinkTarget(dev)}
-              className="p-1.5 hover:bg-cyan-50 rounded-lg text-gray-500 dark:text-gray-400 hover:text-cyan-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
-              title="Downlink gonder"
-              aria-label={`${dev.name} cihazina downlink gonder`}
-            >
-              <Send className="w-3.5 h-3.5" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly onClick={() => setDownlinkTarget(dev)} title="Downlink gonder" aria-label={`${dev.name} cihazina downlink gonder`}><Send className="w-3.5 h-3.5" /></Button>
           )}
           {/* Sil */}
-          <button
-            onClick={() => setDeleteTarget(dev)}
-            className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 dark:text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
-            title="Sil"
-            aria-label={`${dev.name} cihazini sil`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly onClick={() => setDeleteTarget(dev)} title="Sil" aria-label={`${dev.name} cihazini sil`}><Trash2 className="w-3.5 h-3.5" /></Button>
         </div>
       ),
     }
@@ -692,13 +641,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">LoRa Cihazlar</h3>
           <span className="text-sm text-gray-500 dark:text-gray-400">{devices.length} cihaz</span>
         </div>
-        <button
-          onClick={() => setAddDialogOpen(true)}
-          className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          Cihaz Ekle
-        </button>
+        <Button variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />} onClick={() => setAddDialogOpen(true)}>Cihaz Ekle</Button>
       </div>
 
       {/* Cihaz tablosu */}

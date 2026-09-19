@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Modal, colors as themeColors } from '@aquaculture/shared-ui';
+import { Modal, colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 import { X, Check, Gauge, TrendingUp, BarChart3, Table, Activity, ChevronDown, ChevronRight, Target, Grid, GitBranch, AreaChart, GitFork } from 'lucide-react';
 import {
   WidgetConfig,
@@ -368,13 +368,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Widget Title
                   </label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Enter widget title"
-                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                  />
+                  <Input fullWidth type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Enter widget title" />
                 </div>
 
                 {/* Process Selection (for process-view widget) */}
@@ -548,15 +542,10 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                               style={{ backgroundColor: getChannelColor(ch.channelKey) }}
                             />
                             {ch.displayLabel}
-                            <button
-                              onClick={() => handleChannelToggle(
+                            <Button variant="ghost" iconOnly aria-label="Close" className="ml-1" onClick={() => handleChannelToggle(
                                 { id: ch.id, channelKey: ch.channelKey, displayLabel: ch.displayLabel } as DataChannel,
                                 ch.sensorName
-                              )}
-                              className="ml-1 hover:text-cyan-600"
-                            >
-                              <X size={12} />
-                            </button>
+                              )}><X size={12} /></Button>
                           </span>
                         ))}
                       </div>
@@ -588,37 +577,19 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                             Min Value
                           </label>
-                          <input
-                            type="number"
-                            value={yAxisMin}
-                            onChange={(e) => setYAxisMin(e.target.value)}
-                            placeholder="Auto"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                          />
+                          <Input fullWidth type="number" value={yAxisMin} onChange={(e) => setYAxisMin(e.target.value)} placeholder="Auto" />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                             Max Value
                           </label>
-                          <input
-                            type="number"
-                            value={yAxisMax}
-                            onChange={(e) => setYAxisMax(e.target.value)}
-                            placeholder="Auto"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                          />
+                          <Input fullWidth type="number" value={yAxisMax} onChange={(e) => setYAxisMax(e.target.value)} placeholder="Auto" />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                             Axis Label
                           </label>
-                          <input
-                            type="text"
-                            value={yAxisLabel}
-                            onChange={(e) => setYAxisLabel(e.target.value)}
-                            placeholder="e.g., Temperature (°C)"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
-                          />
+                          <Input fullWidth type="text" value={yAxisLabel} onChange={(e) => setYAxisLabel(e.target.value)} placeholder="e.g., Temperature (°C)" />
                         </div>
                       </div>
                     )}
@@ -669,21 +640,11 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
           <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
             <div>
               {step === 'config' && (
-                <button
-                  onClick={() => setStep('type')}
-                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
-                >
-                  Change widget type
-                </button>
+                <Button variant="ghost" onClick={() => setStep('type')}>Change widget type</Button>
               )}
             </div>
             <div className="flex items-center gap-3">
-              <button
-                onClick={onClose}
-                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                Cancel
-              </button>
+              <Button variant="ghost" onClick={onClose}>Cancel</Button>
               {step === 'config' && (
                 <button
                   onClick={handleSave}

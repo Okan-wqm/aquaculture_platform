@@ -44,7 +44,7 @@ import type {
   AddIoConfigInput,
 } from '../../hooks/useEdgeDevices';
 import { IoType, IoDataType } from '../../hooks/useEdgeDevices';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -318,13 +318,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
           </div>
           <PlatformBadge platform={scanResult.platform} />
         </div>
-        <button
-          onClick={onClose}
-          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          aria-label="Kapat"
-        >
-          <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
-        </button>
+        <Button variant="ghost" size="sm" iconOnly onClick={onClose} aria-label="Kapat"><X className="w-4 h-4 text-gray-500 dark:text-gray-400" /></Button>
       </div>
 
       {/* Import result feedback */}
@@ -347,30 +341,18 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
 
       {/* Action bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
-        <button
-          onClick={toggleAll}
-          className="flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
-          disabled={selectableChannels.length === 0}
-        >
-          {allSelected ? (
+        <Button variant="ghost" size="xs" onClick={toggleAll} disabled={selectableChannels.length === 0}>{allSelected ? (
             <CheckSquare className="w-3.5 h-3.5 text-cyan-600" />
           ) : (
             <Square className="w-3.5 h-3.5" />
           )}
-          {allSelected ? 'Hepsini Kaldır' : 'Hepsini Seç'}
-        </button>
-        <button
-          onClick={handleImport}
-          disabled={selectedTags.size === 0 || isImporting || !!importResult}
-          className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {isImporting ? (
+          {allSelected ? 'Hepsini Kaldır' : 'Hepsini Seç'}</Button>
+        <Button variant="primary" size="xs" onClick={handleImport} disabled={selectedTags.size === 0 || isImporting || !!importResult}>{isImporting ? (
             <Spinner size="sm" color="inherit" />
           ) : (
             <Download className="w-3.5 h-3.5" />
           )}
-          Import ({selectedTags.size})
-        </button>
+          Import ({selectedTags.size})</Button>
       </div>
 
       {/* Channel table */}

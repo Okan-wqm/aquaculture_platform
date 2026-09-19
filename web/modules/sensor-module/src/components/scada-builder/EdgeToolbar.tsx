@@ -4,7 +4,7 @@
  */
 
 import React, { type JSX, useState, useRef } from 'react';
-import { useClickOutside } from '@aquaculture/shared-ui';
+import { useClickOutside, Button } from '@aquaculture/shared-ui';
 import { CONNECTION_TYPES, type ConnectionType } from '../../config/connectionTypes';
 import type { ScadaEdgeType } from '../../types/scada-edge.types';
 
@@ -94,12 +94,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
       <div className="relative" ref={connectionTypesRef}>
         <div className="flex flex-col gap-0.5">
           <span className="text-[9px] text-gray-500 dark:text-gray-400 font-medium leading-none px-0.5">Connection Type</span>
-          <button
-            onClick={() => setShowConnectionTypes(!showConnectionTypes)}
-            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-xs font-medium text-gray-700 dark:text-gray-300"
-            title="Connection Type"
-          >
-            <svg width="24" height="8" viewBox="0 0 24 8">
+          <Button variant="ghost" size="xs" onClick={() => setShowConnectionTypes(!showConnectionTypes)} title="Connection Type"><svg width="24" height="8" viewBox="0 0 24 8">
               <line
                 x1="0" y1="4" x2="24" y2="4"
                 stroke={activeConnection.color}
@@ -110,8 +105,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
             <span className="max-w-[80px] truncate">{activeConnection.label}</span>
             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M2 3.5 L5 6.5 L8 3.5" />
-            </svg>
-          </button>
+            </svg></Button>
         </div>
 
         {showConnectionTypes && (

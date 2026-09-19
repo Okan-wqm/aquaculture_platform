@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   ProtocolInfo,
   ConnectionTestResult,
@@ -49,12 +50,7 @@ function Section({
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b">
         <h3 className="font-medium text-gray-900 dark:text-gray-100">{title}</h3>
-        <button
-          onClick={() => onEdit(stepIndex)}
-          className="text-sm text-blue-600 hover:text-blue-800"
-        >
-          Edit
-        </button>
+        <Button variant="ghost" onClick={() => onEdit(stepIndex)}>Edit</Button>
       </div>
       <div className="p-4">{children}</div>
     </div>

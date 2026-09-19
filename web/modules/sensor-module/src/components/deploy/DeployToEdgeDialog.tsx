@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { Monitor, Wifi, WifiOff, Upload, CheckCircle, AlertCircle } from 'lucide-react';
 import { useEdgeDevices, EdgeDevice, formatLastSeen } from '../../hooks/useEdgeDevices';
 
@@ -256,12 +256,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
 
         {/* Footer */}
         <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
-          <button
-            onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 font-medium transition-colors"
-          >
-            {deploySuccess ? 'Close' : 'Cancel'}
-          </button>
+          <Button variant="secondary" size="lg" className="flex-1" onClick={onClose}>{deploySuccess ? 'Close' : 'Cancel'}</Button>
           {!deploySuccess && (
             <button
               onClick={handleDeploy}

@@ -43,7 +43,7 @@ import type {
 import { useDataProvider } from '../../../providers';
 import { useOperatorStore } from '../../../store/scada/operatorStore';
 import { useTagWrite } from '../../../hooks/useTagWrite';
-import { QualityIndicator } from '@aquaculture/shared-ui';
+import { QualityIndicator, Button, Input } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Local types                                                         */
@@ -346,30 +346,13 @@ const HistoryModeTable = memo<HistoryModeProps>(({ tagIds, pageSize }) => {
       <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
         <label className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
           <span>From</span>
-          <input
-            type="datetime-local"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
-          />
+          <Input type="datetime-local" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
         </label>
         <label className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
           <span>To</span>
-          <input
-            type="datetime-local"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className="border border-gray-300 dark:border-gray-600 rounded px-1 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
-          />
+          <Input type="datetime-local" value={toDate} onChange={(e) => setToDate(e.target.value)} />
         </label>
-        <button
-          type="button"
-          onClick={() => void fetchHistory()}
-          disabled={loading}
-          className="px-2 py-0.5 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 transition-colors"
-        >
-          {loading ? 'Loading…' : 'Fetch'}
-        </button>
+        <Button variant="primary" type="button" onClick={() => void fetchHistory()} disabled={loading}>{loading ? 'Loading…' : 'Fetch'}</Button>
       </div>
 
       {/* Table */}
@@ -591,16 +574,7 @@ const AlarmsModeTable = memo<{ pageSize: number }>(({ pageSize }) => {
                   </td>
                   <td className="px-2 py-1.5">
                     {alarm && alarm.status !== 'acknowledged' && (
-                      <button
-                        type="button"
-                        disabled={ackingId === row.id}
-                        onClick={() => void handleAck(row.id, alarm.ruleId)}
-                        aria-label={`Acknowledge alarm ${alarm.ruleName}`}
-                        className="flex items-center gap-1 px-2 py-0.5 text-[10px] bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 transition-colors"
-                      >
-                        <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
-                        ACK
-                      </button>
+                      <Button variant="primary" leftIcon={<CheckCircle2 className="w-3 h-3" aria-hidden="true" />} type="button" disabled={ackingId === row.id} onClick={() => void handleAck(row.id, alarm.ruleId)} aria-label={`Acknowledge alarm ${alarm.ruleName}`}>ACK</Button>
                     )}
                   </td>
                 </tr>
@@ -632,27 +606,11 @@ const Paginator = memo<{
     role="navigation"
     aria-label="Table pagination"
   >
-    <button
-      type="button"
-      disabled={page === 0}
-      onClick={() => onPageChange(page - 1)}
-      aria-label="Previous page"
-      className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
-    >
-      <ChevronLeft className="w-3 h-3" />
-    </button>
+    <Button variant="ghost" size="sm" iconOnly type="button" disabled={page === 0} onClick={() => onPageChange(page - 1)} aria-label="Previous page"><ChevronLeft className="w-3 h-3" /></Button>
     <span className="text-xs text-gray-600 dark:text-gray-400">
       {page + 1} / {totalPages}
     </span>
-    <button
-      type="button"
-      disabled={page >= totalPages - 1}
-      onClick={() => onPageChange(page + 1)}
-      aria-label="Next page"
-      className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
-    >
-      <ChevronRight className="w-3 h-3" />
-    </button>
+    <Button variant="ghost" size="sm" iconOnly type="button" disabled={page >= totalPages - 1} onClick={() => onPageChange(page + 1)} aria-label="Next page"><ChevronRight className="w-3 h-3" /></Button>
   </div>
 ));
 Paginator.displayName = 'Paginator';

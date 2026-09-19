@@ -12,7 +12,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Modal, useAuth, createTenantQueryKey, createTenantInvalidationKey, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, useAuth, createTenantQueryKey, createTenantInvalidationKey, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   ArrowLeft,
   Save,
@@ -225,12 +225,7 @@ const StepCard: React.FC<{
           )}
         </div>
       </div>
-      <button
-        onClick={onRemove}
-        className="p-1.5 rounded hover:bg-red-100 text-red-500"
-      >
-        <Trash2 className="h-4 w-4" />
-      </button>
+      <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={onRemove}><Trash2 className="h-4 w-4" /></Button>
     </div>
     {step.stepType === 'initial' && (
       <span className="mt-2 inline-block text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
@@ -462,12 +457,7 @@ const IoTagAnalysisPanel: React.FC<{
                     <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[10px]">Partial</span>
                   )}
                 </div>
-                <button
-                  onClick={() => onApplySuggestion(s.variableName, s.suggestedTag)}
-                  className="px-2 py-0.5 text-xs bg-indigo-600 text-white rounded hover:bg-indigo-700"
-                >
-                  Apply
-                </button>
+                <Button variant="primary" size="xs" onClick={() => onApplySuggestion(s.variableName, s.suggestedTag)}>Apply</Button>
               </div>
             ))}
           </div>
@@ -1053,13 +1043,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       render: (_value, dep, idx) => (
         <>
           {idx === 0 && dep.status === 'success' && (
-            <button
-              className="inline-flex items-center gap-1 text-xs px-2 py-1 text-indigo-600 hover:bg-indigo-50 rounded"
-              title="Roll back to this version"
-            >
-              <Undo2 className="h-3 w-3" />
-              Rollback
-            </button>
+            <Button variant="ghost" size="xs" leftIcon={<Undo2 className="h-3 w-3" />} title="Roll back to this version">Rollback</Button>
           )}
         </>
       ),
@@ -1089,9 +1073,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       key: 'actions',
       header: '',
       render: (_value, variable) => (
-        <button onClick={() => removeVariableMutation.mutate(variable.id)} className="p-1.5 rounded hover:bg-red-100 text-red-500">
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <Button variant="ghost" size="sm" iconOnly aria-label="Delete" onClick={() => removeVariableMutation.mutate(variable.id)}><Trash2 className="h-4 w-4" /></Button>
       ),
     },
   ];
@@ -1105,13 +1087,7 @@ const AutomationProgramEditorPage: React.FC = () => {
             <AlertCircle className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">{errorMessage}</span>
           </div>
-          <button
-            onClick={() => setErrorMessage(null)}
-            className="text-red-500 hover:text-red-700 text-sm font-medium px-2"
-            aria-label="Dismiss error"
-          >
-            Close
-          </button>
+          <Button variant="ghost" onClick={() => setErrorMessage(null)} aria-label="Dismiss error">Close</Button>
         </div>
       )}
 
@@ -1122,13 +1098,7 @@ const AutomationProgramEditorPage: React.FC = () => {
             <CheckCircle className="h-4 w-4 flex-shrink-0" />
             <span className="text-sm">{successMessage}</span>
           </div>
-          <button
-            onClick={() => setSuccessMessage(null)}
-            className="text-green-500 hover:text-green-700 text-sm font-medium px-2"
-            aria-label="Dismiss success"
-          >
-            Close
-          </button>
+          <Button variant="ghost" onClick={() => setSuccessMessage(null)} aria-label="Dismiss success">Close</Button>
         </div>
       )}
 
@@ -1145,31 +1115,13 @@ const AutomationProgramEditorPage: React.FC = () => {
           bodyClassName="p-6"
           footer={
             <>
-              <button
-                type="button"
-                onClick={closeRejectModal}
-                className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => rejectReason.trim() && rejectMutation.mutate(rejectReason.trim())}
-                disabled={!rejectReason.trim() || rejectMutation.isPending}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
-              >
-                {rejectMutation.isPending ? <Spinner size="sm" color="inherit" className="inline mr-1" /> : null}
-                Reject
-              </button>
+              <Button variant="secondary" type="button" onClick={closeRejectModal}>Cancel</Button>
+              <Button variant="danger" onClick={() => rejectReason.trim() && rejectMutation.mutate(rejectReason.trim())} disabled={!rejectReason.trim() || rejectMutation.isPending}>{rejectMutation.isPending ? <Spinner size="sm" color="inherit" className="inline mr-1" /> : null}
+                Reject</Button>
             </>
           }
         >
-          <textarea
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Enter rejection reason..."
-            rows={4}
-            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 mb-4"
-          />
+          <Textarea fullWidth value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Enter rejection reason..." rows={4} />
         </Modal>
       )}
 
@@ -1199,50 +1151,25 @@ const AutomationProgramEditorPage: React.FC = () => {
         actions={
           <div className="flex items-center gap-2">
             {program?.status === ProgramStatus.DRAFT && (
-              <button
-                onClick={() => submitForReviewMutation.mutate()}
-                disabled={submitForReviewMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                <Send className="h-4 w-4" />
-                Submit for Review
-              </button>
+              <Button variant="secondary" leftIcon={<Send className="h-4 w-4" />} onClick={() => submitForReviewMutation.mutate()} disabled={submitForReviewMutation.isPending}>Submit for Review</Button>
             )}
             {program?.status === ProgramStatus.PENDING_REVIEW && (
               <>
-                <button
-                  onClick={() => approveMutation.mutate()}
-                  disabled={approveMutation.isPending}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
-                >
-                  {approveMutation.isPending ? (
+                <Button variant="primary" onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending}>{approveMutation.isPending ? (
                     <Spinner size="sm" color="inherit" />
                   ) : (
                     <CheckCircle className="h-4 w-4" />
                   )}
-                  Approve
-                </button>
-                <button
-                  onClick={() => setShowRejectModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
-                >
-                  <XCircle className="h-4 w-4" />
-                  Reject
-                </button>
+                  Approve</Button>
+                <Button variant="danger" leftIcon={<XCircle className="h-4 w-4" />} onClick={() => setShowRejectModal(true)}>Reject</Button>
               </>
             )}
-            <button
-              onClick={handleSave}
-              disabled={createMutation.isPending || updateMutation.isPending}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {(createMutation.isPending || updateMutation.isPending) ? (
+            <Button variant="primary" onClick={handleSave} disabled={createMutation.isPending || updateMutation.isPending}>{(createMutation.isPending || updateMutation.isPending) ? (
                 <Spinner size="sm" color="inherit" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
-              Save
-            </button>
+              Save</Button>
           </div>
         }
         className="mb-6"
@@ -1364,26 +1291,13 @@ const AutomationProgramEditorPage: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Code *
               </label>
-              <input
-                type="text"
-                value={formData.programCode}
-                onChange={(e) => setFormData({ ...formData, programCode: e.target.value })}
-                disabled={!isNew}
-                placeholder="PRG_001"
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 disabled:bg-gray-100 dark:disabled:bg-gray-800"
-              />
+              <Input fullWidth type="text" value={formData.programCode} onChange={(e) => setFormData({ ...formData, programCode: e.target.value })} disabled={!isNew} placeholder="PRG_001" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Name *
               </label>
-              <input
-                type="text"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="Feeding Automation"
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-              />
+              <Input fullWidth type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="Feeding Automation" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -1397,13 +1311,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Description
               </label>
-              <textarea
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows={3}
-                placeholder="Program description..."
-                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
-              />
+              <Textarea fullWidth value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} rows={3} placeholder="Program description..." />
             </div>
           </div>
         </div>
@@ -1443,63 +1351,24 @@ const AutomationProgramEditorPage: React.FC = () => {
           )}
 
           <div className="flex justify-end">
-            <button
-              onClick={() => setShowAddVariable(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-            >
-              <Plus className="h-4 w-4" />
-              Add Variable
-            </button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowAddVariable(true)}>Add Variable</Button>
           </div>
 
           {showAddVariable && (
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h3 className="font-medium mb-3">New Variable</h3>
               <div className="grid grid-cols-4 gap-4">
-                <input
-                  type="text"
-                  value={newVariable.varName}
-                  onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })}
-                  placeholder="Variable name"
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                />
-                <select
-                  value={newVariable.dataType}
-                  onChange={(e) => setNewVariable({ ...newVariable, dataType: e.target.value })}
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                >
-                  <option value="BOOL">BOOL</option>
-                  <option value="INT">INT</option>
-                  <option value="REAL">REAL</option>
-                  <option value="TIME">TIME</option>
-                  <option value="STRING">STRING</option>
-                </select>
-                <input
-                  type="text"
-                  value={newVariable.initialValue}
-                  onChange={(e) => setNewVariable({ ...newVariable, initialValue: e.target.value })}
-                  placeholder="Initial value"
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                />
-                <select
-                  value={newVariable.scope}
-                  onChange={(e) => {
-                    const scope = e.target.value;
-                    // Clear I/O binding when switching away from an I/O-capable scope
-                    setNewVariable({ ...newVariable, scope, ioTagName: '', ioConfigId: '' });
-                    if (!isIoScope(scope)) {
-                      setIoDeviceId('');
-                    }
-                  }}
-                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
-                >
-                  <option value="LOCAL">LOCAL</option>
-                  <option value="INPUT">INPUT</option>
-                  <option value="OUTPUT">OUTPUT</option>
-                  <option value="INOUT">INOUT</option>
-                  <option value="RETAIN">RETAIN</option>
-                  <option value="CONSTANT">CONSTANT</option>
-                </select>
+                <Input type="text" value={newVariable.varName} onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })} placeholder="Variable name" />
+                <Select options={[{ value: 'BOOL', label: 'BOOL' }, { value: 'INT', label: 'INT' }, { value: 'REAL', label: 'REAL' }, { value: 'TIME', label: 'TIME' }, { value: 'STRING', label: 'STRING' }]} value={newVariable.dataType} onChange={(e) => setNewVariable({ ...newVariable, dataType: e.target.value })} />
+                <Input type="text" value={newVariable.initialValue} onChange={(e) => setNewVariable({ ...newVariable, initialValue: e.target.value })} placeholder="Initial value" />
+                <Select options={[{ value: 'LOCAL', label: 'LOCAL' }, { value: 'INPUT', label: 'INPUT' }, { value: 'OUTPUT', label: 'OUTPUT' }, { value: 'INOUT', label: 'INOUT' }, { value: 'RETAIN', label: 'RETAIN' }, { value: 'CONSTANT', label: 'CONSTANT' }]} value={newVariable.scope} onChange={(e) => {
+          const scope = e.target.value;
+          // Clear I/O binding when switching away from an I/O-capable scope
+          setNewVariable({ ...newVariable, scope, ioTagName: '', ioConfigId: '' });
+          if (!isIoScope(scope)) {
+           setIoDeviceId('');
+          }
+         }} />
               </div>
               {/* I/O Tag Binding -- only INPUT/OUTPUT/IN_OUT variables can be bound to physical tags */}
               {showIoTagPicker && (
@@ -1566,22 +1435,11 @@ const AutomationProgramEditorPage: React.FC = () => {
                 </div>
               )}
               <div className="flex justify-end gap-2 mt-4">
-                <button
-                  onClick={() => {
+                <Button variant="secondary" onClick={() => {
                     setShowAddVariable(false);
                     setIoDeviceId('');
-                  }}
-                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleAddVariable}
-                  disabled={addVariableMutation.isPending}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-                >
-                  Add
-                </button>
+                  }}>Cancel</Button>
+                <Button variant="primary" onClick={handleAddVariable} disabled={addVariableMutation.isPending}>Add</Button>
               </div>
             </div>
           )}
@@ -1713,22 +1571,16 @@ const AutomationProgramEditorPage: React.FC = () => {
                   ? `Will deploy to ${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} target`
                   : 'Program must be approved before deployment'}
               </p>
-              <button
-                onClick={handleDeploy}
-                disabled={
+              <Button variant="primary" onClick={handleDeploy} disabled={
                   program?.status !== ProgramStatus.APPROVED ||
                   !selectedDeviceId ||
                   deployMutation.isPending
-                }
-                className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {deployMutation.isPending ? (
+                }>{deployMutation.isPending ? (
                   <Spinner size="sm" color="inherit" />
                 ) : (
                   <Upload className="h-4 w-4" />
                 )}
-                Start Deployment
-              </button>
+                Start Deployment</Button>
               {program?.status !== ProgramStatus.APPROVED && (
                 <p className="mt-2 text-xs text-amber-600">
                   Program must be approved for deployment.

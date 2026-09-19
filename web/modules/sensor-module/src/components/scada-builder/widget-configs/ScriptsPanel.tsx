@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { Plus, ChevronDown, ChevronRight, Code2 } from 'lucide-react';
 import type { ScadaScript, ScriptTrigger } from '../../../engine/events/types';
 import { ScriptEditor } from './ScriptEditor';
@@ -107,14 +108,7 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
           <Code2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           Scripts
         </h4>
-        <button
-          onClick={addScript}
-          className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
-          data-testid="add-script-btn"
-        >
-          <Plus className="w-3 h-3" />
-          Add Script
-        </button>
+        <Button variant="ghost" size="xs" leftIcon={<Plus className="w-3 h-3" />} onClick={addScript} data-testid="add-script-btn">Add Script</Button>
       </div>
 
       {/* Empty state */}
@@ -135,12 +129,7 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
             data-testid={`script-card-${script.id}`}
           >
             {/* Collapsed header -- always visible */}
-            <button
-              onClick={() => toggleExpanded(script.id)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              data-testid={`script-toggle-${script.id}`}
-            >
-              {isExpanded ? (
+            <Button variant="ghost" size="sm" onClick={() => toggleExpanded(script.id)} data-testid={`script-toggle-${script.id}`}>{isExpanded ? (
                 <ChevronDown className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" />
               ) : (
                 <ChevronRight className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" />
@@ -160,8 +149,7 @@ export const ScriptsPanel: React.FC<ScriptsPanelProps> = ({
                   script.enabled ? 'bg-green-500' : 'bg-gray-300'
                 }`}
                 title={script.enabled ? 'Enabled' : 'Disabled'}
-              />
-            </button>
+              /></Button>
 
             {/* Expanded body -- editor + trigger config */}
             {isExpanded && (

@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ConfirmModal, Modal, useConfirm, colors as themeColors, DataTable, type DataTableColumn, Spinner, PageHeader, qualityColor, normalizeQuality } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useConfirm, colors as themeColors, DataTable, type DataTableColumn, Spinner, PageHeader, qualityColor, normalizeQuality, Button } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -829,21 +829,9 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            İptal
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting || !form.tagName.trim()}
-            className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
-          >
-            {isSubmitting && <Spinner size="sm" color="inherit" />}
-            {isEdit ? 'Güncelle' : 'Ekle'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>İptal</Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting || !form.tagName.trim()}>{isSubmitting && <Spinner size="sm" color="inherit" />}
+            {isEdit ? 'Güncelle' : 'Ekle'}</Button>
         </div>
       </form>
     </Modal>
@@ -1088,13 +1076,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
               )}
               Auto-Detect I/O
             </button>
-            <button
-              onClick={openAdd}
-              className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Manuel Ekle
-            </button>
+            <Button variant="primary" size="lg" leftIcon={<Plus className="w-4 h-4" />} onClick={openAdd}>Manuel Ekle</Button>
           </div>
 
           {/* Auto-detect error feedback */}
@@ -1254,22 +1236,8 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
                 {(live?.value === true || live?.value === 1) ? 'ON' : 'OFF'}
               </button>
             )}
-            <button
-              onClick={() => openEdit(io)}
-              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-400 hover:text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Düzenle"
-              aria-label={`${io.tagName} kanalini duzenle`}
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setDeleteTarget(io)}
-              className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 dark:text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-              title="Sil"
-              aria-label={`${io.tagName} kanalini sil`}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <Button variant="ghost" size="sm" iconOnly onClick={() => openEdit(io)} title="Düzenle" aria-label={`${io.tagName} kanalini duzenle`}><Pencil className="w-3.5 h-3.5" /></Button>
+            <Button variant="ghost" size="sm" iconOnly onClick={() => setDeleteTarget(io)} title="Sil" aria-label={`${io.tagName} kanalini sil`}><Trash2 className="w-3.5 h-3.5" /></Button>
           </div>
         );
       },
@@ -1312,13 +1280,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             )}
             Auto-Detect
           </button>
-          <button
-            onClick={openAdd}
-            className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Kanal Ekle
-          </button>
+          <Button variant="primary" size="sm" leftIcon={<Plus className="w-4 h-4" />} onClick={openAdd}>Kanal Ekle</Button>
         </div>
       </div>
 
@@ -1614,14 +1576,8 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
 
       {/* Update button */}
       <div className="mt-4">
-        <button
-          onClick={() => setShowConfirm(true)}
-          disabled={!selectedVersion || selectedVersion === currentVersion || updateMutation.isPending}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 transition-colors"
-        >
-          {updateMutation.isPending && <Spinner size="sm" color="inherit" />}
-          Güncelle
-        </button>
+        <Button variant="primary" className="justify-center" onClick={() => setShowConfirm(true)} disabled={!selectedVersion || selectedVersion === currentVersion || updateMutation.isPending}>{updateMutation.isPending && <Spinner size="sm" color="inherit" />}
+          Güncelle</Button>
       </div>
 
       {/* Confirmation modal */}
@@ -1645,12 +1601,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
           bodyClassName="p-6"
           footer={
             <>
-              <button
-                onClick={() => setShowConfirm(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                İptal
-              </button>
+              <Button variant="secondary" onClick={() => setShowConfirm(false)}>İptal</Button>
               <button
                 onClick={handleUpdate}
                 disabled={updateMutation.isPending}
@@ -1819,30 +1770,10 @@ const EdgeDeviceDetailPage: React.FC = () => {
         }
         actions={
           <div className="flex items-center gap-2">
-            <button
-              onClick={handlePing}
-              disabled={pingMutation.isPending}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
-            >
-              <Activity className={`w-4 h-4 ${pingMutation.isPending ? 'animate-pulse' : ''}`} />
-              Ping
-            </button>
-            <button
-              onClick={() => refetch()}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Yenile
-            </button>
+            <Button variant="ghost" size="sm" leftIcon={<Activity className={`w-4 h-4 ${pingMutation.isPending ? 'animate-pulse' : ''}`} />} onClick={handlePing} disabled={pingMutation.isPending}>Ping</Button>
+            <Button variant="ghost" size="sm" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={() => refetch()}>Yenile</Button>
             {device.lifecycleState === DeviceLifecycleState.PENDING_APPROVAL && (
-              <button
-                onClick={() => void handleApprove()}
-                disabled={approveMutation.isPending}
-                className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
-              >
-                <CheckCircle className="w-4 h-4" />
-                Onayla
-              </button>
+              <Button variant="primary" size="sm" leftIcon={<CheckCircle className="w-4 h-4" />} onClick={() => void handleApprove()} disabled={approveMutation.isPending}>Onayla</Button>
             )}
           </div>
         }

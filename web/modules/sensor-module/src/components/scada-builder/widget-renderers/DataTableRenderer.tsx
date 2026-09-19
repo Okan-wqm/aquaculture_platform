@@ -17,7 +17,7 @@
 
 import React, { memo, useState, useMemo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -338,10 +338,7 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
             Page {safeCurrentPage + 1} of {totalPages}
           </span>
           <div className="flex gap-1">
-            <button
-              onClick={() => setCurrentPage(Math.max(0, safeCurrentPage - 1))}
-              disabled={safeCurrentPage === 0}
-              style={{
+            <Button variant="ghost" onClick={() => setCurrentPage(Math.max(0, safeCurrentPage - 1))} disabled={safeCurrentPage === 0} style={{
                 padding: '2px 8px',
                 border: `1px solid ${themeColors.neutral[300]}`,
                 borderRadius: 3,
@@ -349,15 +346,8 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
                 cursor: safeCurrentPage === 0 ? 'not-allowed' : 'pointer',
                 color: safeCurrentPage === 0 ? themeColors.neutral[400] : themeColors.neutral[700],
                 fontSize: fontSize - 2,
-              }}
-              data-testid="page-prev"
-            >
-              Prev
-            </button>
-            <button
-              onClick={() => setCurrentPage(Math.min(totalPages - 1, safeCurrentPage + 1))}
-              disabled={safeCurrentPage >= totalPages - 1}
-              style={{
+              }} data-testid="page-prev">Prev</Button>
+            <Button variant="ghost" onClick={() => setCurrentPage(Math.min(totalPages - 1, safeCurrentPage + 1))} disabled={safeCurrentPage >= totalPages - 1} style={{
                 padding: '2px 8px',
                 border: `1px solid ${themeColors.neutral[300]}`,
                 borderRadius: 3,
@@ -365,11 +355,7 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
                 cursor: safeCurrentPage >= totalPages - 1 ? 'not-allowed' : 'pointer',
                 color: safeCurrentPage >= totalPages - 1 ? themeColors.neutral[400] : themeColors.neutral[700],
                 fontSize: fontSize - 2,
-              }}
-              data-testid="page-next"
-            >
-              Next
-            </button>
+              }} data-testid="page-next">Next</Button>
           </div>
         </div>
       )}

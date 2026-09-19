@@ -17,7 +17,7 @@ import React, { useState, useCallback } from 'react';
 import type { SvgFilterConfig, SvgFilterType } from '../../../types/scada-svg-properties.types';
 import { SVG_FILTER_TYPE_OPTIONS } from '../../../types/scada-svg-properties.types';
 import { ColorAlphaInput } from './ColorAlphaInput';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Button } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -116,14 +116,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
-        aria-expanded={open}
-        aria-label="Filter settings"
-      >
-        <span>Filter</span>
+      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Filter settings"><span>Filter</span>
         <svg
           className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
           fill="none"
@@ -131,8 +124,7 @@ export const SvgFilterEditor: React.FC<SvgFilterEditorProps> = ({
           viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+        </svg></Button>
 
       {open && (
         <div className="space-y-3 mt-2">

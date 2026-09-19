@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useRef } from 'react';
-import { useClickOutside, Spinner } from '@aquaculture/shared-ui';
+import { useClickOutside, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -114,14 +114,7 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
           <span>Back</span>
         </Link>
         <div className="h-5 w-px bg-gray-300" />
-        <input
-          type="text"
-          value={packageName}
-          onChange={(e) => onPackageNameChange(e.target.value)}
-          placeholder="Package Name"
-          aria-label="Package name"
-          className="text-base font-medium text-gray-900 dark:text-gray-100 border-none bg-transparent focus:outline-hidden focus:ring-0 w-56"
-        />
+        <Input type="text" value={packageName} onChange={(e) => onPackageNameChange(e.target.value)} placeholder="Package Name" aria-label="Package name" />
         {isDirty && (
           <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
             Unsaved
@@ -164,15 +157,10 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
 
           {showDeviceDropdown && (
             <div className="absolute left-0 mt-1 w-64 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1 max-h-64 overflow-y-auto">
-              <button
-                onClick={() => {
+              <Button variant="ghost" size="sm" onClick={() => {
                   onTargetDeviceChange(null);
                   setShowDeviceDropdown(false);
-                }}
-                className="w-full text-left px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                No Device
-              </button>
+                }}>No Device</Button>
               {devices.map((device) => (
                 <button
                   key={device.id}
@@ -250,36 +238,15 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
 
         {/* Load Demo Template */}
         {onLoadDemo && (
-          <button
-            onClick={onLoadDemo}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-teal-600 rounded-lg hover:bg-teal-700 transition-colors"
-            title="Load RAS Demo Template"
-          >
-            <FlaskConical className="w-4 h-4" />
-            Demo
-          </button>
+          <Button variant="primary" size="sm" leftIcon={<FlaskConical className="w-4 h-4" />} onClick={onLoadDemo} title="Load RAS Demo Template">Demo</Button>
         )}
 
         {/* CSV Tag Import/Export */}
-        <button
-          onClick={onCsvDialogOpen}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          title="CSV Tag Import/Export"
-        >
-          <FileSpreadsheet className="w-4 h-4" />
-          CSV
-        </button>
+        <Button variant="secondary" size="sm" leftIcon={<FileSpreadsheet className="w-4 h-4" />} onClick={onCsvDialogOpen} title="CSV Tag Import/Export">CSV</Button>
 
         {/* PNG/PDF Export */}
         {onExportDialogOpen && (
-          <button
-            onClick={onExportDialogOpen}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            title="Export as PNG/PDF"
-          >
-            <ImageDown className="w-4 h-4" />
-            Export
-          </button>
+          <Button variant="secondary" size="sm" leftIcon={<ImageDown className="w-4 h-4" />} onClick={onExportDialogOpen} title="Export as PNG/PDF">Export</Button>
         )}
 
         <button
@@ -346,30 +313,14 @@ export const ScadaBuilderToolbar: React.FC<ScadaBuilderToolbarProps> = ({
         </div>
 
         <div className="relative" ref={deployMenuRef}>
-          <button
-            onClick={() => setShowDeployMenu(!showDeployMenu)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
-          >
-            Deploy
-            <ChevronDown className="w-3.5 h-3.5" />
-          </button>
+          <Button variant="primary" size="sm" rightIcon={<ChevronDown className="w-3.5 h-3.5" />} onClick={() => setShowDeployMenu(!showDeployMenu)}>Deploy</Button>
           {showDeployMenu && (
             <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1">
-              <button
-                className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                onClick={() => {
+              <Button variant="ghost" size="sm" onClick={() => {
                   setShowDeployMenu(false);
                   onDeployClick();
-                }}
-              >
-                Deploy to Edge Device
-              </button>
-              <button
-                className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                onClick={() => setShowDeployMenu(false)}
-              >
-                Publish to Cloud
-              </button>
+                }}>Deploy to Edge Device</Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowDeployMenu(false)}>Publish to Cloud</Button>
             </div>
           )}
         </div>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import {
   VfdBrandInfo,
   VfdProtocol,
@@ -214,11 +215,7 @@ function ReviewSection({ title, stepIndex, onEdit, children }: ReviewSectionProp
     <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <h4 className="font-medium text-gray-900 dark:text-gray-100">{title}</h4>
-        <button
-          onClick={() => onEdit(stepIndex)}
-          className="text-sm text-blue-600 hover:text-blue-700 flex items-center"
-        >
-          <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <Button variant="ghost" onClick={() => onEdit(stepIndex)}><svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -226,8 +223,7 @@ function ReviewSection({ title, stepIndex, onEdit, children }: ReviewSectionProp
               d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
             />
           </svg>
-          Düzenle
-        </button>
+          Düzenle</Button>
       </div>
       <div className="p-4">{children}</div>
     </div>

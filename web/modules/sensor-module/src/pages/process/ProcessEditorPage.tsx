@@ -35,7 +35,7 @@ import {
 
 import { useProcessStore, EquipmentNodeData, ProcessEdgeData } from '../../store/processStore';
 import type { Edge } from '@xyflow/react';
-import { useAuth, Spinner } from '@aquaculture/shared-ui';
+import { useAuth, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { EquipmentPanel } from '../../components/process-editor/panels/EquipmentPanel';
 import { PropertiesPanel } from '../../components/process-editor/panels/PropertiesPanel';
 import { AttachmentsPanel } from '../../components/process-editor/panels/AttachmentsPanel';
@@ -445,13 +445,7 @@ const ProcessEditorPage: React.FC = () => {
 
           <div className="h-6 w-px bg-gray-300" />
 
-          <input
-            type="text"
-            value={processName}
-            onChange={(e) => setProcessName(e.target.value)}
-            placeholder="Process Name"
-            className="text-lg font-medium text-gray-900 dark:text-gray-100 border-none bg-transparent focus:outline-hidden focus:ring-0 w-64"
-          />
+          <Input type="text" value={processName} onChange={(e) => setProcessName(e.target.value)} placeholder="Process Name" />
 
           {isDirty && (
             <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-1 rounded">
@@ -462,70 +456,23 @@ const ProcessEditorPage: React.FC = () => {
 
         {/* Center Section - Controls */}
         <div className="flex items-center gap-2">
-          <button
-            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
-            title="Undo"
-            disabled={!isCanvasReady}
-            onClick={() => sendToCanvas('undo')}
-          >
-            <Undo className="w-4 h-4" />
-          </button>
-          <button
-            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
-            title="Redo"
-            disabled={!isCanvasReady}
-            onClick={() => sendToCanvas('redo')}
-          >
-            <Redo className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Undo" title="Undo" disabled={!isCanvasReady} onClick={() => sendToCanvas('undo')}><Undo className="w-4 h-4" /></Button>
+          <Button variant="ghost" iconOnly aria-label="Redo" title="Redo" disabled={!isCanvasReady} onClick={() => sendToCanvas('redo')}><Redo className="w-4 h-4" /></Button>
           <div className="h-6 w-px bg-gray-300 mx-2" />
-          <button
-            onClick={handleZoomOut}
-            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
-            title="Zoom Out"
-            disabled={!isCanvasReady}
-          >
-            <ZoomOut className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleZoomIn}
-            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
-            title="Zoom In"
-            disabled={!isCanvasReady}
-          >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleFitView}
-            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
-            title="Fit View"
-            disabled={!isCanvasReady}
-          >
-            <Maximize2 className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" iconOnly aria-label="Zoom Out" onClick={handleZoomOut} title="Zoom Out" disabled={!isCanvasReady}><ZoomOut className="w-4 h-4" /></Button>
+          <Button variant="ghost" iconOnly aria-label="Zoom In" onClick={handleZoomIn} title="Zoom In" disabled={!isCanvasReady}><ZoomIn className="w-4 h-4" /></Button>
+          <Button variant="ghost" iconOnly aria-label="Fit View" onClick={handleFitView} title="Fit View" disabled={!isCanvasReady}><Maximize2 className="w-4 h-4" /></Button>
           {selectedNodeId && (
             <>
               <div className="h-6 w-px bg-gray-300 mx-2" />
-              <button
-                onClick={handleDeleteNode}
-                className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg"
-                title="Delete Selected"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" iconOnly aria-label="Delete Selected" onClick={handleDeleteNode} title="Delete Selected"><Trash2 className="w-4 h-4" /></Button>
             </>
           )}
         </div>
 
         {/* Right Section */}
         <div className="flex items-center gap-3">
-          <button
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-            disabled={!isCanvasReady}
-          >
-            <Play className="w-4 h-4" />
-            Test
-          </button>
+          <Button variant="secondary" leftIcon={<Play className="w-4 h-4" />} disabled={!isCanvasReady}>Test</Button>
 
           {/* Deploy menüsü — otomasyon programı, proses diyagramı ve SCADA
               paketi girişleri tek yerde */}
@@ -542,43 +489,21 @@ const ProcessEditorPage: React.FC = () => {
             </button>
             {isDeployMenuOpen && (
               <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-30 py-1">
-                <button
-                  onClick={() => {
+                <Button variant="ghost" leftIcon={<Cpu className="w-4 h-4 text-indigo-600" />} onClick={() => {
                     setIsDeployMenuOpen(false);
                     setIsDeployModalOpen(true);
-                  }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-indigo-50 text-left"
-                  title="Deploy automation program to edge device"
-                >
-                  <Cpu className="w-4 h-4 text-indigo-600" />
-                  Otomasyon Programi Deploy Et
-                </button>
-                <button
-                  onClick={() => {
+                  }} title="Deploy automation program to edge device">Otomasyon Programi Deploy Et</Button>
+                <Button variant="ghost" leftIcon={<Monitor className="w-4 h-4 text-cyan-600" />} onClick={() => {
                     setIsDeployMenuOpen(false);
                     setIsEdgeDeployOpen(true);
-                  }}
-                  disabled={!processId || processId === 'new'}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-cyan-50 text-left disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="SCADA proses diyagramini edge device'a deploy et"
-                >
-                  <Monitor className="w-4 h-4 text-cyan-600" />
-                  Edge'e Deploy
-                </button>
+                  }} disabled={!processId || processId === 'new'} title="SCADA proses diyagramini edge device'a deploy et">Edge'e Deploy</Button>
                 <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
-                <button
-                  onClick={() => {
+                <Button variant="ghost" leftIcon={<Monitor className="w-4 h-4 text-purple-600" />} onClick={() => {
                     setIsDeployMenuOpen(false);
                     navigate(
                       `/sensor/scada-builder/new${processId && processId !== 'new' ? `?processId=${processId}` : ''}`,
                     );
-                  }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-purple-50 text-left"
-                  title="SCADA Paketi Olustur"
-                >
-                  <Monitor className="w-4 h-4 text-purple-600" />
-                  SCADA Paketi Olustur
-                </button>
+                  }} title="SCADA Paketi Olustur">SCADA Paketi Olustur</Button>
               </div>
             )}
           </div>

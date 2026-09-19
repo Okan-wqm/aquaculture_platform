@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { TagBrowser } from '../TagBrowser';
 
 /* ------------------------------------------------------------------ */
@@ -54,14 +55,7 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2" data-testid="svg-tag-binding-section">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
-        aria-expanded={open}
-        aria-label="Data binding settings"
-      >
-        <span className="flex items-center gap-1.5">
+      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Data binding settings"><span className="flex items-center gap-1.5">
           Data Binding
           {tagName && (
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-500" title="Tag bound" />
@@ -74,8 +68,7 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
           viewBox="0 0 24 24"
         >
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
+        </svg></Button>
 
       {open && (
         <div className="space-y-2 mt-2">
@@ -91,15 +84,7 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
 
           {/* Show clear button only when a tag is bound */}
           {tagName && (
-            <button
-              type="button"
-              onClick={handleClear}
-              className="w-full py-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-red-500 border border-gray-200 dark:border-gray-700 hover:border-red-200 rounded-lg transition-colors"
-              aria-label="Clear tag binding"
-              data-testid="clear-tag-binding"
-            >
-              Clear Binding
-            </button>
+            <Button variant="secondary" size="sm" type="button" onClick={handleClear} aria-label="Clear tag binding" data-testid="clear-tag-binding">Clear Binding</Button>
           )}
 
           {!deviceId && (

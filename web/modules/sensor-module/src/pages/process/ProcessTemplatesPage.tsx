@@ -14,7 +14,7 @@ import {
   AlertTriangle,
   Cog,
 } from 'lucide-react';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Button } from '@aquaculture/shared-ui';
 
 interface Template {
   id: string;
@@ -169,12 +169,7 @@ const ProcessTemplatesPage: React.FC = () => {
 
               {/* Template Footer */}
               <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
-                <button
-                  onClick={() => handleUseTemplate(template.id)}
-                  className="w-full px-4 py-2 text-sm font-medium text-blue-600 bg-white dark:bg-gray-900 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
-                >
-                  Use This Template
-                </button>
+                <Button variant="secondary" onClick={() => handleUseTemplate(template.id)}>Use This Template</Button>
               </div>
             </div>
           );

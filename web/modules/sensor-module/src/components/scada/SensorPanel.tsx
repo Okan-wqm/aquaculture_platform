@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { X, Settings, Bell, History, Gauge, BarChart3 } from 'lucide-react';
 import { useScadaViewerStore, useEquipmentReadings, SensorReading } from '../../store/scadaViewerStore';
 import { getEquipmentIcon } from '../equipment-icons';
@@ -93,12 +94,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
               <p className="text-xs text-gray-500 dark:text-gray-400">{equipmentData.equipmentCode}</p>
             </div>
           </div>
-          <button
-            onClick={handleClose}
-            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-          >
-            <X size={20} className="text-gray-500 dark:text-gray-400" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Close" onClick={handleClose}><X size={20} className="text-gray-500 dark:text-gray-400" /></Button>
         </div>
 
         {/* Status */}
@@ -198,18 +194,9 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
       {/* Footer actions */}
       <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center gap-2">
-          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <History size={16} />
-            Geçmiş
-          </button>
-          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <Bell size={16} />
-            Alarmlar
-          </button>
-          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <Settings size={16} />
-            Ayarlar
-          </button>
+          <Button variant="secondary" size="sm" className="flex-1 justify-center" leftIcon={<History size={16} />}>Geçmiş</Button>
+          <Button variant="secondary" size="sm" className="flex-1 justify-center" leftIcon={<Bell size={16} />}>Alarmlar</Button>
+          <Button variant="secondary" size="sm" className="flex-1 justify-center" leftIcon={<Settings size={16} />}>Ayarlar</Button>
         </div>
       </div>
     </div>

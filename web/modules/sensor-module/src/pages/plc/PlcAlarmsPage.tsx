@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal, Spinner, PageHeader, severityClasses } from '@aquaculture/shared-ui';
+import { Modal, Spinner, PageHeader, severityClasses, Button, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
   Bell,
@@ -134,32 +134,14 @@ const AcknowledgeDialog: React.FC<{
       bodyClassName="p-6"
       footer={
         <>
-          <button
-            onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Iptal
-          </button>
-          <button
-            onClick={() => onConfirm(notes || undefined)}
-            disabled={isLoading}
-            className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {isLoading && <Spinner size="sm" color="inherit" />}
-            Onayla
-          </button>
+          <Button variant="secondary" className="flex-1" onClick={onClose}>Iptal</Button>
+          <Button variant="primary" className="flex-1 justify-center" onClick={() => onConfirm(notes || undefined)} disabled={isLoading}>{isLoading && <Spinner size="sm" color="inherit" />}
+            Onayla</Button>
         </>
       }
     >
       <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notlar (opsiyonel)</label>
-      <textarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        rows={3}
-        maxLength={1000}
-        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-        placeholder="Alarm hakkinda notlariniz..."
-      />
+      <Textarea fullWidth value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} maxLength={1000} placeholder="Alarm hakkinda notlariniz..." />
     </Modal>
   );
 };
@@ -248,21 +230,9 @@ const PlcAlarmsPage: React.FC = () => {
         actions={
           <div className="flex items-center gap-3">
             {selectedIds.size > 0 && unacknowledgedSelected > 0 && (
-              <button
-                onClick={() => setShowBulkAck(true)}
-                className="inline-flex items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-yellow-600"
-              >
-                <CheckSquare className="h-4 w-4" />
-                {unacknowledgedSelected} Alarm Onayla
-              </button>
+              <Button variant="warning" leftIcon={<CheckSquare className="h-4 w-4" />} onClick={() => setShowBulkAck(true)}>{unacknowledgedSelected} Alarm Onayla</Button>
             )}
-            <button
-              onClick={() => refetch()}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Yenile
-            </button>
+            <Button variant="secondary" size="sm" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => refetch()}>Yenile</Button>
           </div>
         }
         className="mb-6"
@@ -283,17 +253,7 @@ const PlcAlarmsPage: React.FC = () => {
             className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
-        <select
-          value={severityFilter}
-          onChange={(e) => setSeverityFilter(e.target.value as AlarmSeverity | '')}
-          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm"
-        >
-          <option value="">Tum Seviyeler</option>
-          <option value="EMERGENCY">Acil</option>
-          <option value="CRITICAL">Kritik</option>
-          <option value="WARNING">Uyari</option>
-          <option value="INFO">Bilgi</option>
-        </select>
+        <Select options={[{ value: '', label: 'Tum Seviyeler' }, { value: 'EMERGENCY', label: 'Acil' }, { value: 'CRITICAL', label: 'Kritik' }, { value: 'WARNING', label: 'Uyari' }, { value: 'INFO', label: 'Bilgi' }]} value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value as AlarmSeverity | '')} />
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value as AlarmSource | '')}
@@ -431,21 +391,9 @@ const PlcAlarmsPage: React.FC = () => {
 
           {/* Pagination */}
           <div className="flex items-center justify-between pt-4">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-            >
-              Onceki
-            </button>
+            <Button variant="secondary" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Onceki</Button>
             <span className="text-sm text-gray-500 dark:text-gray-400">Sayfa {page}</span>
-            <button
-              onClick={() => setPage((p) => p + 1)}
-              disabled={alarms.length < 50}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-            >
-              Sonraki
-            </button>
+            <Button variant="secondary" size="sm" onClick={() => setPage((p) => p + 1)} disabled={alarms.length < 50}>Sonraki</Button>
           </div>
         </div>
       ) : (

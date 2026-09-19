@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { Modal, useClickOutside, Spinner } from '@aquaculture/shared-ui';
+import { Modal, useClickOutside, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -115,13 +115,7 @@ const LiveTagsPanel: React.FC = () => {
     <div className="flex flex-col h-full">
       <div className="p-3 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Live Tags</h3>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Tag ara..."
-          className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded-md focus:outline-hidden focus:ring-1 focus:ring-cyan-500"
-        />
+        <Input fullWidth type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tag ara..." />
       </div>
 
       {loading && (
@@ -133,7 +127,7 @@ const LiveTagsPanel: React.FC = () => {
       {error && (
         <div className="p-3 text-xs text-red-600 bg-red-50 border-b border-red-100">
           <span className="block mb-1">{error}</span>
-          <button onClick={refetch} className="text-red-700 underline">Tekrar Dene</button>
+          <Button variant="ghost" onClick={refetch}>Tekrar Dene</Button>
         </div>
       )}
 
@@ -702,13 +696,7 @@ const UnifiedEditorPage: React.FC = () => {
 
           <div className="h-5 w-px bg-gray-300" />
 
-          <input
-            type="text"
-            value={processName}
-            onChange={(e) => setProcessName(e.target.value)}
-            placeholder="Project Name"
-            className="text-base font-medium text-gray-900 dark:text-gray-100 border-none bg-transparent focus:outline-hidden focus:ring-0 w-48"
-          />
+          <Input type="text" value={processName} onChange={(e) => setProcessName(e.target.value)} placeholder="Project Name" />
 
           {(isDirty || scadaDirty) && (
             <span className="text-xs text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded">
@@ -746,12 +734,7 @@ const UnifiedEditorPage: React.FC = () => {
 
             {showDeviceDropdown && (
               <div className="absolute left-0 mt-1 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1 max-h-60 overflow-y-auto">
-                <button
-                  onClick={() => { setTargetDeviceId(null); setShowDeviceDropdown(false); }}
-                  className="w-full text-left px-3 py-2 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
-                >
-                  No device
-                </button>
+                <Button variant="ghost" size="sm" onClick={() => { setTargetDeviceId(null); setShowDeviceDropdown(false); }}>No device</Button>
                 {devices.map((device) => (
                   <button
                     key={device.id}
@@ -795,49 +778,23 @@ const UnifiedEditorPage: React.FC = () => {
               <div className="h-5 w-px bg-gray-300 mx-1" />
             </>
           )}
-          <button
-            onClick={() => (mode === 'hmi' ? scadaUndo() : sendToCanvas('undo'))}
-            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
-            title="Undo"
-            disabled={mode === 'hmi' ? simulationMode || !scadaCanUndo : !isCanvasReady || !isCanvasEditable}
-          >
-            <Undo className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => (mode === 'hmi' ? scadaRedo() : sendToCanvas('redo'))}
-            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
-            title="Redo"
-            disabled={mode === 'hmi' ? simulationMode || !scadaCanRedo : !isCanvasReady || !isCanvasEditable}
-          >
-            <Redo className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Undo" onClick={() => (mode === 'hmi' ? scadaUndo() : sendToCanvas('undo'))} title="Undo" disabled={mode === 'hmi' ? simulationMode || !scadaCanUndo : !isCanvasReady || !isCanvasEditable}><Undo className="w-4 h-4" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Redo" onClick={() => (mode === 'hmi' ? scadaRedo() : sendToCanvas('redo'))} title="Redo" disabled={mode === 'hmi' ? simulationMode || !scadaCanRedo : !isCanvasReady || !isCanvasEditable}><Redo className="w-4 h-4" /></Button>
           <div className="h-5 w-px bg-gray-300 mx-1" />
-          <button onClick={handleZoomOut} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50" title="Zoom Out" disabled={!isCanvasReady}>
-            <ZoomOut className="w-4 h-4" />
-          </button>
-          <button onClick={handleZoomIn} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50" title="Zoom In" disabled={!isCanvasReady}>
-            <ZoomIn className="w-4 h-4" />
-          </button>
-          <button onClick={handleFitView} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50" title="Fit View" disabled={!isCanvasReady}>
-            <Maximize2 className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Zoom Out" onClick={handleZoomOut} title="Zoom Out" disabled={!isCanvasReady}><ZoomOut className="w-4 h-4" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Zoom In" onClick={handleZoomIn} title="Zoom In" disabled={!isCanvasReady}><ZoomIn className="w-4 h-4" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Fit View" onClick={handleFitView} title="Fit View" disabled={!isCanvasReady}><Maximize2 className="w-4 h-4" /></Button>
           {selectedNodeId && isCanvasEditable && (
             <>
               <div className="h-5 w-px bg-gray-300 mx-1" />
-              <button onClick={handleDeleteNode} className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg" title="Delete Selected">
-                <Trash2 className="w-4 h-4" />
-              </button>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Delete Selected" onClick={handleDeleteNode} title="Delete Selected"><Trash2 className="w-4 h-4" /></Button>
             </>
           )}
 
           {/* Panel toggles */}
           <div className="h-5 w-px bg-gray-300 mx-1" />
-          <button onClick={toggleLeftPanel} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg" title="Toggle Left Panel">
-            {leftPanelVisible ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-          </button>
-          <button onClick={toggleRightPanel} className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg" title="Toggle Right Panel">
-            {rightPanelVisible ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
-          </button>
+          <Button variant="ghost" size="sm" onClick={toggleLeftPanel} title="Toggle Left Panel">{leftPanelVisible ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}</Button>
+          <Button variant="ghost" size="sm" onClick={toggleRightPanel} title="Toggle Right Panel">{rightPanelVisible ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}</Button>
         </div>
 
         {/* Right Section */}
@@ -853,33 +810,12 @@ const UnifiedEditorPage: React.FC = () => {
           )}
           {/* Deploy dropdown */}
           <div className="relative" ref={deployMenuRef}>
-            <button
-              onClick={() => setShowDeployMenu(!showDeployMenu)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
-            >
-              Deploy
-              <ChevronDown className="w-3 h-3" />
-            </button>
+            <Button variant="primary" size="xs" rightIcon={<ChevronDown className="w-3 h-3" />} onClick={() => setShowDeployMenu(!showDeployMenu)}>Deploy</Button>
             {showDeployMenu && (
               <div className="absolute right-0 mt-1 w-52 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-40 py-1">
-                <button
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  onClick={() => { setShowDeployMenu(false); setDeployTarget('process'); }}
-                >
-                  Proses (P&amp;ID) → Edge
-                </button>
-                <button
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  onClick={() => { setShowDeployMenu(false); setDeployTarget('scada'); }}
-                >
-                  SCADA Paketi → Edge
-                </button>
-                <button
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-                  onClick={() => { setShowDeployMenu(false); setIsAutomationDeployOpen(true); }}
-                >
-                  Otomasyon Programı → Edge
-                </button>
+                <Button variant="ghost" size="sm" onClick={() => { setShowDeployMenu(false); setDeployTarget('process'); }}>Proses (P&amp;ID) → Edge</Button>
+                <Button variant="ghost" size="sm" onClick={() => { setShowDeployMenu(false); setDeployTarget('scada'); }}>SCADA Paketi → Edge</Button>
+                <Button variant="ghost" size="sm" onClick={() => { setShowDeployMenu(false); setIsAutomationDeployOpen(true); }}>Otomasyon Programı → Edge</Button>
               </div>
             )}
           </div>
@@ -992,9 +928,7 @@ const UnifiedEditorPage: React.FC = () => {
                     <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
                       {mode === 'debug' ? 'Console' : 'Output'}
                     </span>
-                    <button onClick={toggleBottomPanel} className="p-0.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                      <ChevronDown className="w-4 h-4" />
-                    </button>
+                    <Button variant="ghost" iconOnly aria-label="Expand" onClick={toggleBottomPanel}><ChevronDown className="w-4 h-4" /></Button>
                   </div>
                   <div className="flex-1 p-3 overflow-auto">
                     <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">

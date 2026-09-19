@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { ChevronDown, Search, X } from 'lucide-react';
 import { useDeviceTags, TagInfo } from '../../hooks/useDeviceTags';
 import { IoType } from '../../hooks/useEdgeDevices';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 interface TagBrowserProps {
   deviceId: string | null;
@@ -191,13 +191,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
               className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-cyan-50 text-cyan-700 border border-cyan-200 rounded-full"
             >
               {tag}
-              <button
-                type="button"
-                onClick={() => handleRemoveTag(tag)}
-                className="hover:text-red-500 transition-colors"
-              >
-                <X className="w-3 h-3" />
-              </button>
+              <Button variant="ghost" iconOnly aria-label="Close" type="button" onClick={() => handleRemoveTag(tag)}><X className="w-3 h-3" /></Button>
             </span>
           ))}
         </div>
@@ -222,13 +216,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
             }`}
           />
         </div>
-        <button
-          type="button"
-          onClick={handleToggle}
-          className="absolute right-0 top-0 h-full px-2.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-        >
-          <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
-        </button>
+        <Button variant="ghost" iconOnly aria-label="Expand" className="absolute right-0 top-0" type="button" onClick={handleToggle}><ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} /></Button>
       </div>
 
       {/* Dropdown */}

@@ -6,7 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -31,45 +31,22 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       {/* Label */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
-        <input
-          type="text"
-          value={(config.label as string) || ''}
-          onChange={(e) => onChange({ label: e.target.value })}
-          placeholder="Knob"
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="text" value={(config.label as string) || ''} onChange={(e) => onChange({ label: e.target.value })} placeholder="Knob" />
       </div>
 
       {/* Value range */}
       <div className="grid grid-cols-3 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
-          <input
-            type="number"
-            value={(config.min as number) ?? 0}
-            onChange={(e) => onChange({ min: Number(e.target.value) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="number" value={(config.min as number) ?? 0} onChange={(e) => onChange({ min: Number(e.target.value) })} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
-          <input
-            type="number"
-            value={(config.max as number) ?? 100}
-            onChange={(e) => onChange({ max: Number(e.target.value) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="number" value={(config.max as number) ?? 100} onChange={(e) => onChange({ max: Number(e.target.value) })} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Step</label>
-          <input
-            type="number"
-            value={(config.step as number) ?? 1}
-            onChange={(e) => onChange({ step: Number(e.target.value) })}
-            min={0.01}
-            step={0.1}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="number" value={(config.step as number) ?? 1} onChange={(e) => onChange({ step: Number(e.target.value) })} min={0.01} step={0.1} />
         </div>
       </div>
 
@@ -77,39 +54,18 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       <div className="grid grid-cols-2 gap-2">
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Angle</label>
-          <input
-            type="number"
-            value={(config.startAngle as number) ?? 30}
-            onChange={(e) => onChange({ startAngle: Number(e.target.value) })}
-            min={0}
-            max={180}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="number" value={(config.startAngle as number) ?? 30} onChange={(e) => onChange({ startAngle: Number(e.target.value) })} min={0} max={180} />
         </div>
         <div>
           <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Angle</label>
-          <input
-            type="number"
-            value={(config.endAngle as number) ?? 330}
-            onChange={(e) => onChange({ endAngle: Number(e.target.value) })}
-            min={180}
-            max={360}
-            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-          />
+          <Input fullWidth type="number" value={(config.endAngle as number) ?? 330} onChange={(e) => onChange({ endAngle: Number(e.target.value) })} min={180} max={360} />
         </div>
       </div>
 
       {/* Tick count */}
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tick Count</label>
-        <input
-          type="number"
-          value={(config.tickCount as number) ?? 11}
-          onChange={(e) => onChange({ tickCount: Number(e.target.value) })}
-          min={2}
-          max={25}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-        />
+        <Input fullWidth type="number" value={(config.tickCount as number) ?? 11} onChange={(e) => onChange({ tickCount: Number(e.target.value) })} min={2} max={25} />
       </div>
 
       {/* Display toggles */}

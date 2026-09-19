@@ -10,7 +10,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { Upload, CheckCircle, AlertCircle } from 'lucide-react';
 
 import { graphqlFetch } from '../../config/api';
@@ -195,12 +195,7 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2 bg-gray-50 dark:bg-gray-800 rounded-b-lg">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            {deployResult?.success ? 'Close' : 'Cancel'}
-          </button>
+          <Button variant="secondary" onClick={onClose}>{deployResult?.success ? 'Close' : 'Cancel'}</Button>
           {!deployResult?.success && (
             <button
               onClick={handleDeploy}

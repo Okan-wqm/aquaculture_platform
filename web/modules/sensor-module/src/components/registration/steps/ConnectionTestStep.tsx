@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useProtocolConnectionTest } from '../../../hooks/useConnectionTest';
 import { ConnectionTestResult } from '../../../types/registration.types';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, Button } from '@aquaculture/shared-ui';
 
 interface ConnectionTestStepProps {
   protocolCode: string;
@@ -57,20 +57,14 @@ export function ConnectionTestStep({
       {/* Test button */}
       {!hasTestedOnce && (
         <div className="text-center py-8">
-          <button
-            onClick={handleTest}
-            disabled={loading}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
+          <Button variant="primary" onClick={handleTest} disabled={loading}>{loading ? (
               <span className="flex items-center">
                 <Spinner size="md" color="white" className="-ml-1 mr-3" />
                 Testing Connection...
               </span>
             ) : (
               'Start Connection Test'
-            )}
-          </button>
+            )}</Button>
         </div>
       )}
 

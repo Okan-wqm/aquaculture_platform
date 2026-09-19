@@ -9,7 +9,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Button, Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -105,18 +105,14 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       <div className="pt-1">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Columns</label>
-          <button onClick={addColumn} className="text-xs text-cyan-600 hover:text-cyan-700">
-            + Add Column
-          </button>
+          <Button variant="ghost" size="xs" onClick={addColumn}>+ Add Column</Button>
         </div>
         <div className="space-y-3">
           {columns.map((col, i) => (
             <div key={i} className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Column {i + 1}</span>
-                <button onClick={() => removeColumn(i)} className="text-red-400 hover:text-red-600 text-xs px-1">
-                  X
-                </button>
+                <Button variant="ghost" size="xs" onClick={() => removeColumn(i)}>X</Button>
               </div>
 
               {/* Tag binding */}
@@ -285,43 +281,21 @@ export const DataTableConfig: React.FC<WidgetConfigProps> = ({ config, onChange,
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Row Color Rules</label>
-          <button onClick={addRule} className="text-xs text-cyan-600 hover:text-cyan-700">
-            + Add Rule
-          </button>
+          <Button variant="ghost" size="xs" onClick={addRule}>+ Add Rule</Button>
         </div>
         <div className="space-y-2">
           {rowColorRules.map((rule, i) => (
             <div key={i} className="flex items-center gap-1">
-              <input
-                type="text"
-                value={rule.tagName}
-                onChange={(e) => updateRule(i, 'tagName', e.target.value)}
-                className="w-20 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                placeholder="Tag"
-              />
-              <input
-                type="number"
-                value={rule.min}
-                onChange={(e) => updateRule(i, 'min', Number(e.target.value))}
-                className="w-14 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                placeholder="Min"
-              />
-              <input
-                type="number"
-                value={rule.max}
-                onChange={(e) => updateRule(i, 'max', Number(e.target.value))}
-                className="w-14 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                placeholder="Max"
-              />
+              <Input type="text" value={rule.tagName} onChange={(e) => updateRule(i, 'tagName', e.target.value)} placeholder="Tag" />
+              <Input type="number" value={rule.min} onChange={(e) => updateRule(i, 'min', Number(e.target.value))} placeholder="Min" />
+              <Input type="number" value={rule.max} onChange={(e) => updateRule(i, 'max', Number(e.target.value))} placeholder="Max" />
               <input
                 type="color"
                 value={rule.color}
                 onChange={(e) => updateRule(i, 'color', e.target.value)}
                 className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
-              <button onClick={() => removeRule(i)} className="text-red-400 hover:text-red-600 text-xs px-1">
-                X
-              </button>
+              <Button variant="ghost" size="xs" onClick={() => removeRule(i)}>X</Button>
             </div>
           ))}
         </div>

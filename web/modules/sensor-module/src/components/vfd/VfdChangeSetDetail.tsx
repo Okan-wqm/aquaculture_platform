@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Drawer, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Drawer, DataTable, type DataTableColumn, Button, Textarea } from '@aquaculture/shared-ui';
 import {
   X,
   Check,
@@ -176,36 +176,16 @@ export function VfdChangeSetDetail({
       {showRejectForm && (
         <div className="rounded-md border border-red-200 bg-red-50 p-4 space-y-3">
           <h4 className="text-sm font-medium text-red-800">Reject Change Set</h4>
-          <textarea
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            placeholder="Enter rejection reason..."
-            rows={3}
-            className="w-full rounded-md border border-red-300 px-3 py-2 text-sm focus:border-red-500 focus:ring-red-500"
-            aria-label="Rejection reason"
-          />
+          <Textarea fullWidth value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="Enter rejection reason..." rows={3} aria-label="Rejection reason" />
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={async () => {
+            <Button variant="danger" size="xs" type="button" onClick={async () => {
                 if (rejectReason.trim()) {
                   await onReject(cs.id, rejectReason.trim());
                   setShowRejectForm(false);
                   setRejectReason('');
                 }
-              }}
-              disabled={!rejectReason.trim()}
-              className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-            >
-              Confirm Rejection
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowRejectForm(false)}
-              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Cancel
-            </button>
+              }} disabled={!rejectReason.trim()}>Confirm Rejection</Button>
+            <Button variant="secondary" size="xs" type="button" onClick={() => setShowRejectForm(false)}>Cancel</Button>
           </div>
         </div>
       )}
@@ -214,36 +194,16 @@ export function VfdChangeSetDetail({
       {showRollbackForm && (
         <div className="rounded-md border border-purple-200 bg-purple-50 p-4 space-y-3">
           <h4 className="text-sm font-medium text-purple-800">Rollback Change Set</h4>
-          <textarea
-            value={rollbackReason}
-            onChange={(e) => setRollbackReason(e.target.value)}
-            placeholder="Enter rollback reason..."
-            rows={3}
-            className="w-full rounded-md border border-purple-300 px-3 py-2 text-sm focus:border-purple-500 focus:ring-purple-500"
-            aria-label="Rollback reason"
-          />
+          <Textarea fullWidth value={rollbackReason} onChange={(e) => setRollbackReason(e.target.value)} placeholder="Enter rollback reason..." rows={3} aria-label="Rollback reason" />
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={async () => {
+            <Button variant="primary" size="xs" type="button" onClick={async () => {
                 if (rollbackReason.trim()) {
                   await onRollback(cs.id, rollbackReason.trim());
                   setShowRollbackForm(false);
                   setRollbackReason('');
                 }
-              }}
-              disabled={!rollbackReason.trim()}
-              className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-50"
-            >
-              Confirm Rollback
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowRollbackForm(false)}
-              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Cancel
-            </button>
+              }} disabled={!rollbackReason.trim()}>Confirm Rollback</Button>
+            <Button variant="secondary" size="xs" type="button" onClick={() => setShowRollbackForm(false)}>Cancel</Button>
           </div>
         </div>
       )}
@@ -252,39 +212,15 @@ export function VfdChangeSetDetail({
       <div className="flex flex-wrap gap-2 border-t pt-4">
         {cs.status === VfdChangeSetStatus.DRAFT && (
           <>
-            <button
-              type="button"
-              onClick={() => onSubmitForApproval(cs.id)}
-              className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-            >
-              <Play className="h-4 w-4" /> Submit for Approval
-            </button>
-            <button
-              type="button"
-              onClick={() => onCancel(cs.id)}
-              className="rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-            >
-              Cancel
-            </button>
+            <Button variant="primary" leftIcon={<Play className="h-4 w-4" />} type="button" onClick={() => onSubmitForApproval(cs.id)}>Submit for Approval</Button>
+            <Button variant="secondary" type="button" onClick={() => onCancel(cs.id)}>Cancel</Button>
           </>
         )}
 
         {cs.status === VfdChangeSetStatus.PENDING_APPROVAL && (
           <>
-            <button
-              type="button"
-              onClick={() => onApprove(cs.id)}
-              className="inline-flex items-center gap-1 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
-            >
-              <Check className="h-4 w-4" /> Approve
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowRejectForm(true)}
-              className="inline-flex items-center gap-1 rounded-md border border-red-200 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
-            >
-              <X className="h-4 w-4" /> Reject
-            </button>
+            <Button variant="primary" leftIcon={<Check className="h-4 w-4" />} type="button" onClick={() => onApprove(cs.id)}>Approve</Button>
+            <Button variant="secondary" leftIcon={<X className="h-4 w-4" />} type="button" onClick={() => setShowRejectForm(true)}>Reject</Button>
           </>
         )}
 
@@ -305,24 +241,12 @@ export function VfdChangeSetDetail({
                 ? `Scheduled for ${new Date(cs.scheduledAt).toLocaleString()}`
                 : 'Applying automatically'}
             </span>
-            <button
-              type="button"
-              onClick={() => onCancel(cs.id)}
-              className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
-            >
-              Cancel
-            </button>
+            <Button variant="secondary" type="button" onClick={() => onCancel(cs.id)}>Cancel</Button>
           </>
         )}
 
         {cs.status === VfdChangeSetStatus.APPLIED && (
-          <button
-            type="button"
-            onClick={() => setShowRollbackForm(true)}
-            className="inline-flex items-center gap-1 rounded-md border border-purple-200 px-4 py-2 text-sm font-medium text-purple-600 hover:bg-purple-50"
-          >
-            <RotateCcw className="h-4 w-4" /> Rollback
-          </button>
+          <Button variant="secondary" leftIcon={<RotateCcw className="h-4 w-4" />} type="button" onClick={() => setShowRollbackForm(true)}>Rollback</Button>
         )}
       </div>
     </Drawer>

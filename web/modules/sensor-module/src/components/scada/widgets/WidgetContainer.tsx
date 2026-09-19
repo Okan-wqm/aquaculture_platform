@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { Button } from '@aquaculture/shared-ui';
 import { X, Maximize2, MoreVertical } from 'lucide-react';
 import { SensorReading } from '../../../store/scadaViewerStore';
 import { GaugeWidget } from './GaugeWidget';
@@ -70,22 +71,10 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
           </div>
           <div className="flex items-center gap-1">
             {onExpand && (
-              <button
-                onClick={onExpand}
-                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
-                title="Expand"
-              >
-                <Maximize2 size={14} className="text-gray-500 dark:text-gray-400" />
-              </button>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Expand" onClick={onExpand} title="Expand"><Maximize2 size={14} className="text-gray-500 dark:text-gray-400" /></Button>
             )}
             {onRemove && (
-              <button
-                onClick={onRemove}
-                className="p-1 hover:bg-red-50 rounded transition-colors"
-                title="Remove"
-              >
-                <X size={14} className="text-gray-500 dark:text-gray-400 hover:text-red-500" />
-              </button>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Remove" onClick={onRemove} title="Remove"><X size={14} className="text-gray-500 dark:text-gray-400 hover:text-red-500" /></Button>
             )}
           </div>
         </div>

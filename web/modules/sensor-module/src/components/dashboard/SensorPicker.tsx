@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
@@ -138,13 +138,8 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
   return (
     <>
       {/* Trigger Button */}
-      <button
-        onClick={() => setIsOpen(true)}
-        className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors shadow-sm"
-      >
-        <Plus size={18} />
-        <span>Sensör Ekle</span>
-      </button>
+      <Button variant="primary" onClick={() => setIsOpen(true)}><Plus size={18} />
+        <span>Sensör Ekle</span></Button>
 
       {/* Modal */}
       {isOpen && (
@@ -159,31 +154,15 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
             <div className="flex w-full items-center justify-between">
               {selectedSensor ? (
                 <>
-                  <button
-                    onClick={() => setSelectedSensor(null)}
-                    className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                  >
-                    Geri
-                  </button>
-                  <button
-                    onClick={handleAddSensor}
-                    className="flex items-center gap-2 px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-                  >
-                    <Plus size={18} />
-                    Ekle
-                  </button>
+                  <Button variant="ghost" onClick={() => setSelectedSensor(null)}>Geri</Button>
+                  <Button variant="primary" leftIcon={<Plus size={18} />} onClick={handleAddSensor}>Ekle</Button>
                 </>
               ) : (
                 <>
                   <span className="text-sm text-gray-500 dark:text-gray-400">
                     {sensors.length} sensör mevcut
                   </span>
-                  <button
-                    onClick={handleClose}
-                    className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-                  >
-                    Kapat
-                  </button>
+                  <Button variant="ghost" onClick={handleClose}>Kapat</Button>
                 </>
               )}
             </div>

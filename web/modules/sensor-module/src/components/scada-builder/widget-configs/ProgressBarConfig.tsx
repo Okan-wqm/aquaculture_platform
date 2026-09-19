@@ -14,7 +14,7 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Button, Input } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -214,9 +214,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Color Zones</label>
-          <button onClick={addZone} className="text-xs text-cyan-600 hover:text-cyan-700">
-            + Add Zone
-          </button>
+          <Button variant="ghost" size="xs" onClick={addZone}>+ Add Zone</Button>
         </div>
         <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-2">
           Zones define color ranges by percentage. First matching zone wins.
@@ -224,29 +222,15 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
         <div className="space-y-2">
           {zones.map((zone, i) => (
             <div key={i} className="flex items-center gap-1">
-              <input
-                type="number"
-                value={zone.min}
-                onChange={(e) => updateZone(i, 'min', Number(e.target.value))}
-                className="w-16 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                placeholder="Min %"
-              />
-              <input
-                type="number"
-                value={zone.max}
-                onChange={(e) => updateZone(i, 'max', Number(e.target.value))}
-                className="w-16 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
-                placeholder="Max %"
-              />
+              <Input type="number" value={zone.min} onChange={(e) => updateZone(i, 'min', Number(e.target.value))} placeholder="Min %" />
+              <Input type="number" value={zone.max} onChange={(e) => updateZone(i, 'max', Number(e.target.value))} placeholder="Max %" />
               <input
                 type="color"
                 value={zone.color}
                 onChange={(e) => updateZone(i, 'color', e.target.value)}
                 className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
-              <button onClick={() => removeZone(i)} className="text-red-400 hover:text-red-600 text-xs px-1">
-                X
-              </button>
+              <Button variant="ghost" size="xs" onClick={() => removeZone(i)}>X</Button>
             </div>
           ))}
         </div>

@@ -43,6 +43,7 @@ import type {
 import { useDataProvider } from '../../../providers';
 import { useOperatorStore } from '../../../store/scada/operatorStore';
 import { useTagWrite } from '../../../hooks/useTagWrite';
+import { QualityIndicator } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Local types                                                         */
@@ -249,17 +250,7 @@ const DataModeTable = memo<DataModeProps>(({ columns, tagValues, pageSize }) => 
                     {formatCellValue(row.cells['value'], 'number', 2)}
                   </td>
                   <td className="px-2 py-1.5">
-                    <span
-                      className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                        row.cells['quality'] === 'bad'
-                          ? 'bg-red-100 text-red-700'
-                          : row.cells['quality'] === 'uncertain'
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-green-100 text-green-700'
-                      }`}
-                    >
-                      {String(row.cells['quality'] ?? 'good')}
-                    </span>
+                    <QualityIndicator quality={String(row.cells['quality'] ?? 'good')} size="xs" tone="soft" />
                   </td>
                   <td className="px-2 py-1.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">
                     {row.cells['timestamp']

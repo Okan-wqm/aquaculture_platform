@@ -393,7 +393,7 @@ export function TaskDetailPage(): JSX.Element {
 
       {/* Action buttons */}
       {task.status !== 'COMPLETED' && task.status !== 'CANCELLED' && (
-        <div className="px-4 mt-5 pb-28">
+        <div className="px-4 mt-5">
           {task.status === 'PENDING' || task.status === 'OVERDUE' ? (
             <div className="space-y-3">
               <button
@@ -444,8 +444,6 @@ export function TaskDetailPage(): JSX.Element {
         </div>
       )}
 
-      {/* Bottom spacer if no actions */}
-      {(task.status === 'COMPLETED' || task.status === 'CANCELLED') && <div className="h-24" />}
     </div>
   );
 }

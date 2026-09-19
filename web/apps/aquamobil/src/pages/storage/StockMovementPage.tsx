@@ -28,6 +28,8 @@ import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { JSX } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { Input } from '../../components/ui';
+
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
@@ -473,16 +475,16 @@ export function StockMovementPage(): JSX.Element {
             {/* Search bar + scan-to-find (MOB-MEDIUM-010): a scanned barcode/QR
                 fills the search, matching items by their printed code. */}
             <div className="flex items-stretch gap-2 mb-4">
-              <div className="relative flex-1">
-                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="Search items..."
-                  value={itemSearch}
-                  onChange={(e) => setItemSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
+              <Input
+                label="Search items"
+                hideLabel
+                type="text"
+                placeholder="Search items..."
+                value={itemSearch}
+                onChange={(e) => setItemSearch(e.target.value)}
+                leading={<Search size={18} />}
+                className="flex-1"
+              />
               <BarcodeScanButton onScan={setItemSearch} />
             </div>
             {itemsLoading ? (
@@ -616,29 +618,25 @@ export function StockMovementPage(): JSX.Element {
             </p>
             {needsLot && (
               <div className="mb-5">
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                  Lot / Batch Number {needsLot && <span className="text-red-500">*</span>}
-                </label>
-                <input
+                <Input
                   ref={lotNumberInputRef}
+                  label="Lot / Batch Number"
+                  required={needsLot}
                   type="text"
                   placeholder="e.g. LOT-2026-0328-A"
                   value={lotNumber}
                   onChange={(e) => setLotNumber(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
             )}
             {needsExpiry && (
               <div>
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-                  Expiry Date {needsExpiry && <span className="text-red-500">*</span>}
-                </label>
-                <input
+                <Input
+                  label="Expiry Date"
+                  required={needsExpiry}
                   type="date"
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
             )}

@@ -248,8 +248,6 @@ export function TankDetailPage(): JSX.Element {
         </div>
       )}
 
-      {/* Bottom spacer */}
-      <div className="h-24" />
     </div>
   );
 }

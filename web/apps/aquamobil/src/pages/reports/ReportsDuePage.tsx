@@ -88,7 +88,7 @@ export function ReportsDuePage(): JSX.Element {
         subtitle="Mattilsynet scheduled drafts"
       />
 
-      <div className="px-5 pt-4 space-y-3 pb-28">
+      <div className="px-5 pt-4 space-y-3">
         {!isOnline && (
           <div className="bg-amber-50 dark:bg-amber-900/20 rounded-2xl p-4 border border-amber-200 dark:border-amber-800 flex items-center gap-3">
             <CloudOff size={20} className="text-amber-600 flex-shrink-0" />

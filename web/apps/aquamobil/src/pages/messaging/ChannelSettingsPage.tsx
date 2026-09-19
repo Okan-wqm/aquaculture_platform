@@ -30,6 +30,8 @@ import {
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { IconButton, Switch } from '../../components/ui';
+
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { MemberRow } from '@/components/messaging/MemberRow';
 import { SentimentBadge } from '@/components/messaging/SentimentBadge';
@@ -254,9 +256,9 @@ export function ChannelSettingsPage(): JSX.Element {
               {displayName}
             </h2>
             {canEdit && channel.type === 'group' && (
-              <button className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback">
+              <IconButton aria-label="Rename group" className="rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
                 <Edit3 size={14} className="text-gray-400 dark:text-gray-500" />
-              </button>
+              </IconButton>
             )}
           </div>
           {channel.type === 'group' && (
@@ -408,24 +410,14 @@ export function ChannelSettingsPage(): JSX.Element {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => void toggleConsent()}
+              <Switch
+                label="AI Analysis"
+                hideLabel
+                checked={hasConsented && isAiEnabled}
+                onChange={() => void toggleConsent()}
                 disabled={!isAiEnabled || aiConsentLoading}
-                className={clsx(
-                  'relative w-12 h-7 rounded-full transition-colors duration-200 flex-shrink-0',
-                  hasConsented && isAiEnabled
-                    ? 'bg-purple-500'
-                    : 'bg-gray-200 dark:bg-gray-700',
-                  (!isAiEnabled || aiConsentLoading) && 'opacity-50 cursor-not-allowed',
-                )}
-              >
-                <span
-                  className={clsx(
-                    'absolute top-0.5 left-0.5 w-6 h-6 bg-white dark:bg-gray-900 rounded-full shadow-sm transition-transform duration-200',
-                    hasConsented && isAiEnabled && 'translate-x-5',
-                  )}
-                />
-              </button>
+                tone="violet"
+              />
             </div>
 
             {/* Consent Status */}
@@ -516,8 +508,6 @@ export function ChannelSettingsPage(): JSX.Element {
         </div>
       </div>
 
-      {/* Bottom spacer */}
-      <div className="h-24" />
 
       {/* Confirmation sheets */}
       <ConfirmSheet

@@ -8,7 +8,8 @@
  *
  * Data is cached in IndexedDB for offline viewing so field workers can check
  * stock even without connectivity (common in cold stores and remote sites).
- * Pull-to-refresh re-fetches from the server when online.
+ * The layout's pull-to-refresh re-fetches from the server when online; the
+ * header button does the same on demand.
  */
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -19,10 +20,10 @@ import {
   RefreshCw,
   MapPin,
 } from 'lucide-react';
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import type { JSX } from 'react';
 
-
+import { EmptyState } from '@/components/ui/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { STOCK_AT_LOCATION, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
@@ -106,10 +107,6 @@ export function StockViewPage(): JSX.Element {
   const [selectedLocationId, setSelectedLocationId] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Pull-to-refresh touch tracking
-  const touchStartY = useRef(0);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-
   // ---- Data fetching -------------------------------------------------------
 
   const { data: locationsData, isLoading: locationsLoading } = useQuery<StorageLocation[]>({
@@ -169,7 +166,7 @@ export function StockViewPage(): JSX.Element {
     [locations, selectedLocationId],
   );
 
-  // ---- Pull-to-refresh handler ---------------------------------------------
+  // ---- Manual refresh --------------------------------------------------------
 
   const handleRefresh = useCallback(async () => {
     if (!selectedLocationId || isRefreshing || !isOnline) return;
@@ -182,21 +179,6 @@ export function StockViewPage(): JSX.Element {
       setIsRefreshing(false);
     }
   }, [selectedLocationId, isRefreshing, isOnline, refetchStock, queryClient, tenantId]);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
-  }, []);
-
-  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
-    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
-    const scrollTop = scrollContainerRef.current?.scrollTop ?? 0;
-    // Trigger refresh if user pulls down from top of list
-    if (deltaY > 80 && scrollTop <= 0) {
-      // Fire-and-forget: pull-to-refresh is a UI gesture; errors surface via the
-      // refetch's own error state, so the promise is intentionally not awaited.
-      void handleRefresh();
-    }
-  }, [handleRefresh]);
 
   // ---- Render --------------------------------------------------------------
 
@@ -268,18 +250,9 @@ export function StockViewPage(): JSX.Element {
       </div>
 
       {/* Stock List */}
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 px-4 pt-4 overflow-y-auto"
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-      >
+      <div className="flex-1 px-4 pt-4">
         {!selectedLocationId && (
-          <div className="text-center py-16 text-gray-400 dark:text-gray-500">
-            <MapPin size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">Select a location</p>
-            <p className="text-sm mt-1">Choose a storage location above to view stock</p>
-          </div>
+          <EmptyState icon={MapPin} title="Select a location" description="Choose a storage location above to view stock" className="py-16" />
         )}
 
         {selectedLocationId && stockLoading && (
@@ -290,25 +263,16 @@ export function StockViewPage(): JSX.Element {
         )}
 
         {selectedLocationId && !stockLoading && stock.length === 0 && (
-          <div className="text-center py-16 text-gray-400 dark:text-gray-500">
-            <Package size={48} className="mx-auto mb-3 opacity-30" />
-            <p className="font-medium">No stock at this location</p>
-            {!isOnline && (
-              <p className="text-sm mt-1">You are offline -- showing cached data</p>
-            )}
-          </div>
+          <EmptyState
+            icon={Package}
+            title="No stock at this location"
+            description={!isOnline ? 'You are offline -- showing cached data' : undefined}
+            className="py-16"
+          />
         )}
 
         {selectedLocationId && !stockLoading && stock.length > 0 && (
           <>
-            {/* Pull-to-refresh indicator */}
-            {isRefreshing && (
-              <div className="flex items-center justify-center py-2 mb-2">
-                <Spinner size="sm" />
-                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Refreshing...</span>
-              </div>
-            )}
-
             {/* Offline data age indicator */}
             {!isOnline && (
               <div className="mb-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-2.5 flex items-center gap-2 border border-amber-200 dark:border-amber-800">
@@ -372,8 +336,6 @@ export function StockViewPage(): JSX.Element {
         )}
       </div>
 
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

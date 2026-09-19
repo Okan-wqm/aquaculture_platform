@@ -41,7 +41,7 @@ import type {
   AlarmHistoryFilter,
 } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, severityClasses } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -57,24 +57,24 @@ const SEVERITY_ORDER: AlarmSeverity[] = ['critical', 'high', 'warning', 'info'];
 
 const SEVERITY_STYLES: Record<AlarmSeverity, { badge: string; row: string; icon: React.ReactNode }> = {
   critical: {
-    badge: 'bg-red-600 text-white',
-    row: 'bg-red-50 dark:bg-red-950/20',
-    icon: <AlertCircle className="h-4 w-4 text-red-600" />,
+    badge: severityClasses('critical', 'solid'),
+    row: severityClasses('critical', 'row'),
+    icon: <AlertCircle className={`h-4 w-4 ${severityClasses('critical', 'text')}`} />,
   },
   high: {
-    badge: 'bg-orange-500 text-white',
-    row: 'bg-orange-50 dark:bg-orange-950/20',
-    icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
+    badge: severityClasses('high', 'solid'),
+    row: severityClasses('high', 'row'),
+    icon: <AlertTriangle className={`h-4 w-4 ${severityClasses('high', 'text')}`} />,
   },
   warning: {
-    badge: 'bg-yellow-400 text-gray-900',
-    row: 'bg-yellow-50 dark:bg-yellow-950/20',
-    icon: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
+    badge: severityClasses('warning', 'solid'),
+    row: severityClasses('warning', 'row'),
+    icon: <AlertTriangle className={`h-4 w-4 ${severityClasses('warning', 'text')}`} />,
   },
   info: {
-    badge: 'bg-blue-500 text-white',
-    row: 'bg-blue-50 dark:bg-blue-950/20',
-    icon: <Info className="h-4 w-4 text-blue-500" />,
+    badge: severityClasses('info', 'solid'),
+    row: severityClasses('info', 'row'),
+    icon: <Info className={`h-4 w-4 ${severityClasses('info', 'text')}`} />,
   },
 };
 

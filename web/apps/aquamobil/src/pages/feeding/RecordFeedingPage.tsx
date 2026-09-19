@@ -11,7 +11,6 @@
  * Enum alanları tel üzerinde AD taşır ('SCHEDULED', 'FED', ...).
  */
 import { clsx } from 'clsx';
-import { List, ListInput, BlockTitle } from 'konsta/react';
 import {
   Check,
   Package,
@@ -23,6 +22,8 @@ import {
 } from 'lucide-react';
 import { useState, useEffect, ChangeEvent, type JSX } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+
+import { SectionTitle, Select, Textarea } from '../../components/ui';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
@@ -255,17 +256,17 @@ export function RecordFeedingPage(): JSX.Element {
       {/* Ünite seçimi — bugünün gün planları (protokol atanmış üniteler) */}
       {!tankId && (
         <>
-          <BlockTitle>{t('feeding.selectUnit')}</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput type="select" value={selectedUnitId} onChange={handleUnitChange}>
+          <SectionTitle>{t('feeding.selectUnit')}</SectionTitle>
+          <div className="px-4">
+            <Select label={t('feeding.selectUnit')} hideLabel value={selectedUnitId} onChange={handleUnitChange}>
               <option value="">{t('feeding.selectUnitPlaceholder')}</option>
               {plans.map((plan) => (
                 <option key={plan.unitId} value={plan.unitId}>
                   {plan.unitName} ({plan.unitCode})
                 </option>
               ))}
-            </ListInput>
-          </List>
+            </Select>
+          </div>
           {!plansLoading && plans.length === 0 && (
             <div className="mx-4 mt-2 bg-amber-50 dark:bg-amber-900/20 rounded-xl p-3 border border-amber-200 dark:border-amber-800">
               <p className="text-amber-700 dark:text-amber-300 text-sm font-medium">
@@ -492,19 +493,19 @@ export function RecordFeedingPage(): JSX.Element {
           </div>
 
           {/* Notlar */}
-          <BlockTitle>{t('feeding.notes.title')}</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput
-              type="textarea"
+          <SectionTitle>{t('feeding.notes.title')}</SectionTitle>
+          <div className="px-4">
+            <Textarea
+              label={t('feeding.notes.title')}
+              hideLabel
               placeholder={t('feeding.notes.placeholder')}
               value={notes}
-              onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
-              inputClassName="!h-24"
+              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setNotes(e.target.value)}
             />
-          </List>
+          </div>
 
           {/* Kaydet */}
-          <div className="px-4 pb-28">
+          <div className="px-4">
             <button
               onClick={() => {
                 void handleSubmit();

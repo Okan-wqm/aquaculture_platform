@@ -694,8 +694,6 @@ export function AccountPage(): JSX.Element {
         <p className="text-xs text-gray-400 dark:text-gray-500">Last synced: {lastSyncLabel}</p>
       </div>
 
-      {/* Bottom spacer for the fixed tab bar */}
-      <div className="h-24" />
 
       {/* ================================================================
           Confirmation Dialogs

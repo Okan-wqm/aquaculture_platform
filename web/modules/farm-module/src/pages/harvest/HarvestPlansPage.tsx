@@ -1041,63 +1041,57 @@ const FilterPanel: React.FC<{
 
         {/* Status Filter */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Status
-          </label>
-          <select
+          <Select
+            label="Status"
+            size="sm"
             value={filters.status}
             onChange={(e) =>
               onFilterChange({ ...filters, status: e.target.value as HarvestPlanStatus | '' })
             }
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-          >
-            <option value="">All Statuses</option>
-            {Object.entries(STATUS_CONFIG).map(([value, config]) => (
-              <option key={value} value={value}>
-                {config.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Statuses' },
+              ...Object.entries(STATUS_CONFIG).map(([value, config]) => ({
+                value,
+                label: config.label,
+              })),
+            ]}
+          />
         </div>
 
         {/* Harvest Type Filter */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Harvest Type
-          </label>
-          <select
+          <Select
+            label="Harvest Type"
+            size="sm"
             value={filters.harvestType}
             onChange={(e) =>
               onFilterChange({ ...filters, harvestType: e.target.value as HarvestType | '' })
             }
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-          >
-            <option value="">All Types</option>
-            {Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => (
-              <option key={value} value={value}>
-                {config.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Types' },
+              ...Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => ({
+                value,
+                label: config.label,
+              })),
+            ]}
+          />
         </div>
 
         {/* Batch Filter */}
         <div>
-          <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Batch
-          </label>
-          <select
+          <Select
+            label="Batch"
+            size="sm"
             value={filters.batchId}
             onChange={(e) => onFilterChange({ ...filters, batchId: e.target.value })}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-          >
-            <option value="">All Batches</option>
-            {batches.map((batch) => (
-              <option key={batch.id} value={batch.id}>
-                {batch.batchNumber} - {batch.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Batches' },
+              ...batches.map((batch) => ({
+                value: batch.id,
+                label: `${batch.batchNumber} - ${batch.name}`,
+              })),
+            ]}
+          />
         </div>
 
         {/* Date From */}
@@ -1263,50 +1257,43 @@ const HarvestPlanFormModal: React.FC<{
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Batch *
-                  </label>
-                  <select
+                  <Select
+                    label="Batch"
                     required
+                    size="sm"
                     value={formData.batchId || ''}
                     onChange={(e) => setFormData({ ...formData, batchId: e.target.value })}
-                    className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-                  >
-                    <option value="">Select a batch</option>
-                    {batches.map((batch) => (
-                      <option key={batch.id} value={batch.id}>
-                        {batch.batchNumber} - {batch.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={[
+                      { value: '', label: 'Select a batch' },
+                      ...batches.map((batch) => ({
+                        value: batch.id,
+                        label: `${batch.batchNumber} - ${batch.name}`,
+                      })),
+                    ]}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Harvest Type *
-                    </label>
-                    <select
+                    <Select
+                      label="Harvest Type"
                       required
+                      size="sm"
                       value={formData.harvestType || 'full'}
                       onChange={(e) =>
                         setFormData({ ...formData, harvestType: e.target.value as HarvestType })
                       }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-                    >
-                      {Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => (
-                        <option key={value} value={value}>
-                          {config.label}
-                        </option>
-                      ))}
-                    </select>
+                      options={Object.entries(HARVEST_TYPE_CONFIG).map(([value, config]) => ({
+                        value,
+                        label: config.label,
+                      }))}
+                    />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Harvest Method
-                    </label>
-                    <select
+                    <Select
+                      label="Harvest Method"
+                      size="sm"
                       value={formData.harvestMethod || ''}
                       onChange={(e) =>
                         setFormData({
@@ -1314,25 +1301,23 @@ const HarvestPlanFormModal: React.FC<{
                           harvestMethod: (e.target.value as HarvestMethod) || undefined,
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-                    >
-                      <option value="">Select method</option>
-                      {Object.entries(HARVEST_METHOD_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: '', label: 'Select method' },
+                        ...Object.entries(HARVEST_METHOD_LABELS).map(([value, label]) => ({
+                          value,
+                          label,
+                        })),
+                      ]}
+                    />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                      Product Form *
-                    </label>
-                    <select
+                    <Select
+                      label="Product Form"
                       required
+                      size="sm"
                       value={formData.productForm || 'fresh_whole'}
                       onChange={(e) =>
                         setFormData({
@@ -1340,14 +1325,11 @@ const HarvestPlanFormModal: React.FC<{
                           productForm: e.target.value as ProductForm,
                         })
                       }
-                      className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-                    >
-                      {Object.entries(PRODUCT_FORM_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
+                      options={Object.entries(PRODUCT_FORM_LABELS).map(([value, label]) => ({
+                        value,
+                        label,
+                      }))}
+                    />
                   </div>
 
                   <div>

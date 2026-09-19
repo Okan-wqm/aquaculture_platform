@@ -20,7 +20,14 @@ import {
   Bar,
 } from 'recharts';
 import { useGrowthSimulation, GrowthSimulationInput } from '../../../hooks/useFeeding';
-import { colors, DataTable, type DataTableColumn, Spinner, Input } from '@aquaculture/shared-ui';
+import {
+  colors,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Input,
+  Select,
+} from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -144,38 +151,31 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({ batchI
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Batch Selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Batch
-            </label>
-            <select
+            <Select
+              label="Batch"
               value={selectedBatchId}
               onChange={(e) => setSelectedBatchId(e.target.value)}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-            >
-              {batches.map((batch) => (
-                <option key={batch.id} value={batch.id}>
-                  {batch.batchNumber} - {batch.name || 'Unnamed'}
-                </option>
-              ))}
-            </select>
+              options={batches.map((batch) => ({
+                value: batch.id,
+                label: `${batch.batchNumber} - ${batch.name || 'Unnamed'}`,
+              }))}
+            />
           </div>
 
           {/* Projection Days */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Projection Period
-            </label>
-            <select
+            <Select
+              label="Projection Period"
               value={projectionDays}
               onChange={(e) => setProjectionDays(Number(e.target.value))}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-            >
-              <option value={14}>14 days</option>
-              <option value={30}>30 days</option>
-              <option value={60}>60 days</option>
-              <option value={90}>90 days</option>
-              <option value={120}>120 days</option>
-            </select>
+              options={[
+                { value: 14, label: '14 days' },
+                { value: 30, label: '30 days' },
+                { value: 60, label: '60 days' },
+                { value: 90, label: '90 days' },
+                { value: 120, label: '120 days' },
+              ]}
+            />
           </div>
 
           {/* SGR Override */}

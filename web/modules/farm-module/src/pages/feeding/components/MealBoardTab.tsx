@@ -21,6 +21,7 @@ import {
   type DataTableColumn,
   Button,
   Input,
+  Select,
 } from '@aquaculture/shared-ui';
 import {
   useFeedingDayPlans,
@@ -411,18 +412,20 @@ export function MealBoardTab(): React.ReactElement {
             <span className="text-gray-600 dark:text-gray-400">
               {t('feedingV2.mealBoard.site')}
             </span>
-            <select
+            <Select
               value={siteId}
               onChange={(event) => setSiteId(event.target.value)}
-              className="mt-1 block rounded-md border-gray-300 dark:border-gray-600 text-sm"
-            >
-              <option value="">{t('feedingV2.mealBoard.allSites')}</option>
-              {(sitesPage?.items ?? []).map((site) => (
-                <option key={site.id} value={site.id}>
-                  {site.name}
-                </option>
-              ))}
-            </select>
+              fullWidth={false}
+              size="sm"
+              className="mt-1"
+              options={[
+                { value: '', label: t('feedingV2.mealBoard.allSites') },
+                ...(sitesPage?.items ?? []).map((site) => ({
+                  value: site.id,
+                  label: site.name,
+                })),
+              ]}
+            />
           </label>
         </div>
       </div>

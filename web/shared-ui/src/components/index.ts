@@ -64,6 +64,8 @@ export type { PageHeaderProps } from './Layout/PageHeader';
 export { Modal, ConfirmModal, DeleteConfirmationDialog } from './Modal';
 export type {
   ModalProps,
+  ModalSize,
+  DialogTheme,
   ConfirmModalProps,
   DeleteConfirmationDialogProps,
   DeletePreviewData,

@@ -9,9 +9,35 @@
  * Modal bunu kullanır; Drawer da. İkinci bir overlay bileşeni bu dosyayı
  * kopyalamak yerine bu hook'u çağırır — davranış farkı yapısal olarak
  * imkânsız.
+ *
+ * Açık diyaloglar bir yığında tutulur: Escape ve odak tuzağı yalnızca en
+ * üsttekine işler, scroll kilidi sonuncusu kapanınca kalkar. Böylece bir
+ * diyaloğun içinden açılan ikinci diyalog (ST editörünün dışa aktarma
+ * penceresi, editörün kendi penceresinin içinde) tek başına kapanır.
  */
 
 import { useCallback, useEffect, useRef, type RefObject } from 'react';
+
+// ============================================================================
+// Renk şeması
+// ============================================================================
+
+/**
+ * `auto` kabuğun `<html data-theme>` değerini izler (theme.css `dark:`
+ * varyantını bu öznitelik üzerinden tanımlar — FE-MEDIUM-072); `dark`
+ * diyaloğun kökünde aynı özniteliği sabitler, böylece her zaman koyu olan
+ * bir yüzey kabuk açıkken de kendi ve içeriğinin `dark:` sınıflarını alır.
+ */
+export type DialogTheme = 'auto' | 'dark';
+
+/** Diyalog kökünün renk-şeması öznitelikleri — `dark` için `data-theme="dark"`, `auto` için hiçbiri. */
+export function dialogThemeAttributes(theme: DialogTheme): { 'data-theme'?: 'dark' } {
+  return theme === 'dark' ? { 'data-theme': 'dark' } : {};
+}
+
+// ============================================================================
+// Davranış
+// ============================================================================
 
 export interface DialogBehaviorOptions<T extends HTMLElement> {
   /** Diyalog açık mı */
@@ -26,6 +52,19 @@ export interface DialogBehaviorOptions<T extends HTMLElement> {
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Açık diyaloglar, en dıştaki önce. Klavye yalnızca sonuncusuna (en üsttekine) işler. */
+const openDialogs: symbol[] = [];
+
+function isTopDialog(id: symbol): boolean {
+  return openDialogs[openDialogs.length - 1] === id;
+}
+
+function releaseBodyScrollIfLast(): void {
+  if (openDialogs.length === 0) {
+    document.body.style.overflow = '';
+  }
+}
 
 export function useDialogBehavior<T extends HTMLElement>({
   isOpen,
@@ -67,10 +106,14 @@ export function useDialogBehavior<T extends HTMLElement>({
 
   useEffect(() => {
     if (isOpen) {
+      const id = Symbol('dialog');
+      openDialogs.push(id);
       previousActiveElement.current = document.activeElement as HTMLElement;
       document.body.style.overflow = 'hidden';
 
       listenerRef.current = (event: KeyboardEvent) => {
+        // Altta kalan diyalog üsttekinin tuşlarını görmez: Escape ikisini birden kapatamaz.
+        if (!isTopDialog(id)) return;
         if (event.key === 'Escape' && closeOnEscapeRef.current) {
           onCloseRef.current();
         }
@@ -84,7 +127,8 @@ export function useDialogBehavior<T extends HTMLElement>({
 
       return () => {
         clearTimeout(focusTimer);
-        document.body.style.overflow = '';
+        openDialogs.splice(openDialogs.indexOf(id), 1);
+        releaseBodyScrollIfLast();
         if (listenerRef.current) {
           document.removeEventListener('keydown', listenerRef.current);
           listenerRef.current = null;
@@ -92,7 +136,9 @@ export function useDialogBehavior<T extends HTMLElement>({
       };
     }
 
-    document.body.style.overflow = '';
+    // Kapalı bir diyalog bir başkasının kilidini kaldıramaz (kapalı bağlanan
+    // bir alt diyalog, açık olan üst diyaloğun scroll kilidini bırakmasın).
+    releaseBodyScrollIfLast();
     if (listenerRef.current) {
       document.removeEventListener('keydown', listenerRef.current);
       listenerRef.current = null;

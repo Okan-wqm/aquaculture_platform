@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect, useMemo } from 'react';
-import { useClickOutside, Spinner } from '@aquaculture/shared-ui';
+import { Modal, useClickOutside, Spinner } from '@aquaculture/shared-ui';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -38,7 +38,6 @@ import {
   Paperclip,
   Play,
   Square,
-  X,
 } from 'lucide-react';
 
 import type { Edge } from '@xyflow/react';
@@ -1100,24 +1099,19 @@ const UnifiedEditorPage: React.FC = () => {
           instead of docking to the page bottom. Closing it returns to the
           previous editor mode (programs persist server-side, nothing is
           lost on close). */}
-      {mode === 'plc' && (
-        <div className="fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4 sm:p-8">
-          <div className="w-full max-w-6xl h-[85vh] bg-gray-900 rounded-xl shadow-2xl border border-gray-700 flex flex-col overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700 flex-shrink-0">
-              <span className="text-sm font-medium text-gray-200">ST Program Editörü (PLC)</span>
-              <button
-                onClick={() => setMode(previousMode && previousMode !== 'plc' ? previousMode : 'pid')}
-                className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded"
-                title="Kapat"
-                aria-label="ST editörünü kapat"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <StEditorPanel floating onDeploy={() => setIsAutomationDeployOpen(true)} />
-          </div>
-        </div>
-      )}
+      <Modal
+        isOpen={mode === 'plc'}
+        onClose={() => setMode(previousMode && previousMode !== 'plc' ? previousMode : 'pid')}
+        theme="dark"
+        size="2xl"
+        title="ST Program Editörü (PLC)"
+        closeLabel="ST editörünü kapat"
+        closeOnOverlayClick={false}
+        className="h-[85vh] flex flex-col overflow-hidden"
+        bodyClassName="flex-1 min-h-0 flex flex-col"
+      >
+        <StEditorPanel floating onDeploy={() => setIsAutomationDeployOpen(true)} />
+      </Modal>
 
       {/* Deploy dialogs (6b) — the unified editor owns BOTH artifacts, so one
           canonical DeployToEdgeDialog is bound per artifact, each with its own

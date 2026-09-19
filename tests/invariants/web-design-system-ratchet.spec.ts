@@ -42,6 +42,15 @@
  * band AquaMobil's PageHeader owns (tone, back arrow, icon, actions) —
  * written by hand in a dozen spellings across 169 pages in the survey.
  *
+ * A light-only surface (FE-MEDIUM-072) is a class string that paints
+ * `bg-white`, `bg-gray-50` or `bg-gray-100` with no `dark:` sibling: under the
+ * shell's dark theme the element keeps its light colour. theme.css keys
+ * `dark:` on `[data-theme='dark']` (the shell's toggle, or a dialog pinned
+ * dark), so a surface is dark-aware exactly when every light class it paints
+ * has a dark counterpart — 2,600 did not in the survey. The three shared-ui
+ * primitives a pinned-dark dialog is built from are held to the strict form:
+ * every gray or white class, not only surfaces, pairs with a `dark:` one.
+ *
  * Detection is deliberately textual and identical to the survey (`git
  * ls-files` + a regex on the raw source, tests and generated code excluded) so
  * the numbers in the allowlist mean exactly what the survey meant.
@@ -89,6 +98,34 @@ const RING = /\brounded-full\b|\bborder(?:-[tblrxy])?-\d\b/;
 
 /** A page title written by hand — PageHeader renders the h1. */
 const RAW_PAGE_TITLE = /<h1 className="[^"]*\b(?:text-2xl|text-xl|text-lg)\b[^"]*\bfont-(?:bold|semibold)\b[^"]*"/g;
+
+/**
+ * A string literal — one class attribute, one ternary branch, one map value.
+ * A template that nests another (`${cond ? `…` : ''}`) is read as the chunks
+ * between its backticks; the classes inside the nested one are still checked,
+ * as their own literal.
+ */
+const STRING_LITERAL = /"[^"\n]*"|'[^'\n]*'|`[^`]*`/g;
+/** A surface painted light: the one class that has to change for a dark theme to exist. */
+const LIGHT_SURFACE = /\b(?:bg-white|bg-gray-50|bg-gray-100)\b/;
+/** Every light gray/white class the strict form pairs (surfaces, text, borders, dividers, placeholders). */
+const LIGHT_CLASS = /\b(?:bg-white|(?:bg|text|border|divide|placeholder)-gray-\d{2,3})\b/;
+/** theme.css keys `dark:` on the shell's attribute — the one definition every entry imports. */
+const DARK_VARIANT_DEFINITION = /@custom-variant dark \(&:where\(\[data-theme='dark'\], \[data-theme='dark'\] \*\)\);/;
+/** shared-ui primitives a `theme="dark"` dialog is built from; held to the strict form. */
+const DARK_AWARE_PRIMITIVES = [
+  'web/shared-ui/src/components/DataTable/DataTable.tsx',
+  'web/shared-ui/src/components/Modal/Modal.tsx',
+  'web/shared-ui/src/components/Drawer/Drawer.tsx',
+];
+
+function lightOnlySurfaces(source: string): number {
+  let hits = 0;
+  for (const match of source.matchAll(STRING_LITERAL)) {
+    if (LIGHT_SURFACE.test(match[0]) && !match[0].includes('dark:')) hits += 1;
+  }
+  return hits;
+}
 
 function handRolledSpinners(source: string): number {
   let hits = (source.match(LOADER_ICON_SPINNER) ?? []).length + (source.match(SVG_SPINNER) ?? []).length;
@@ -192,11 +229,12 @@ interface Allowlist {
   rawTable: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
   rawPageTitle: { entries: PackageCeiling[] };
+  darkSurface: { entries: PackageCeiling[] };
 }
 
 /** Tracked source files under ROOTS, tests and generated code excluded (see admin-panel-data-layer.spec.ts on why not a `**` pathspec). */
-function sourceFiles(): string[] {
-  return execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '--', ...ROOTS], { encoding: 'utf8' })
+function sourceFiles(roots: readonly string[] = ROOTS): string[] {
+  return execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '--', ...roots], { encoding: 'utf8' })
     .split('\n')
     .filter(
       (file) =>
@@ -212,9 +250,9 @@ function read(relativePath: string): string {
   return readFileSync(resolve(REPO_ROOT, relativePath), 'utf8');
 }
 
-/** `web/modules/<name>`, `web/shell` or `web/apps/<name>` — the unit a ceiling is granted to. */
+/** `web/modules/<name>`, `web/shell`, `web/apps/<name>` or `web/shared-ui` — the unit a ceiling is granted to. */
 function packageOf(file: string): string {
-  const pkg = /^(web\/modules\/[^/]+|web\/shell|web\/apps\/[^/]+)/.exec(file)?.[1];
+  const pkg = /^(web\/modules\/[^/]+|web\/shell|web\/apps\/[^/]+|web\/shared-ui)/.exec(file)?.[1];
   if (!pkg) throw new Error(`file outside a web package: ${file}`);
   return pkg;
 }
@@ -244,7 +282,7 @@ function assertGoverned(
   expect(expiryIso(entry.expiry) > today).toBe(true);
 }
 
-describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071): web design-system adoption ratchet', () => {
+describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-system adoption ratchet', () => {
   const files = sourceFiles();
   const doc = yaml.load(read(ALLOWLIST)) as Allowlist;
   const today = new Date().toISOString().slice(0, 10);
@@ -367,6 +405,45 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071): web design-system 
       }
     }
     for (const entry of doc.rawPageTitle.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('keys dark: on the shell theme and holds the dark-aware primitives to the strict form (FE-MEDIUM-072)', () => {
+    expect(read('web/shared-ui/src/styles/theme.css')).toMatch(DARK_VARIANT_DEFINITION);
+    for (const file of DARK_AWARE_PRIMITIVES) {
+      const unpaired = [...read(file).matchAll(STRING_LITERAL)]
+        .map((match) => match[0])
+        .filter((literal) => LIGHT_CLASS.test(literal) && !literal.includes('dark:'));
+      expect(unpaired.length === 0 ? '' : `${file}: ${unpaired.join(' | ')}`).toBe('');
+    }
+  });
+
+  it('ratchets light-only surfaces per package, shared-ui included (FE-MEDIUM-072)', () => {
+    const actual = new Map<string, number>();
+    for (const file of [...files, ...sourceFiles(['web/shared-ui/src'])]) {
+      const hits = lightOnlySurfaces(read(file));
+      if (hits === 0) continue;
+      const pkg = packageOf(file);
+      actual.set(pkg, (actual.get(pkg) ?? 0) + hits);
+    }
+    const ceilings = new Map(doc.darkSurface.entries.map((entry) => [entry.package, entry]));
+
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} light-only surfaces, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} light-only surfaces, ceiling ${entry.ceiling}. Pair every bg-white / bg-gray-50 / bg-gray-100 with a dark: class (theme.css keys it on the shell's data-theme); lower the ceiling when you pair some.`,
+        );
+      }
+    }
+    for (const entry of doc.darkSurface.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

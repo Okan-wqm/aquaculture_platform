@@ -167,3 +167,21 @@ describe('Drawer — yerleşim', () => {
     expect(screen.getByRole('button', { name: 'Uygula' })).toBeTruthy();
   });
 });
+
+describe('Drawer — renk şeması', () => {
+  it('theme="dark" çekmece köküne data-theme="dark" koyar; varsayılan kabuğu izler', () => {
+    const { unmount } = render(
+      <Drawer isOpen onClose={() => {}} theme="dark" title="Editör">
+        <p>içerik</p>
+      </Drawer>,
+    );
+    expect(screen.getByRole('dialog').getAttribute('data-theme')).toBe('dark');
+    unmount();
+    render(
+      <Drawer isOpen onClose={() => {}} title="Özellikler">
+        <p>içerik</p>
+      </Drawer>,
+    );
+    expect(screen.getByRole('dialog').getAttribute('data-theme')).toBeNull();
+  });
+});

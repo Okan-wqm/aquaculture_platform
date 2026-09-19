@@ -11,7 +11,7 @@
  * kalan kör noktalar" plan.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 import {
   CreateSubEquipmentInput,
@@ -197,27 +197,18 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
     >
       <div className="space-y-6">
         {mode === 'create' && (
-          <div>
-            <label
-              htmlFor="sub-eq-type"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Type <span className="text-accent-500">*</span>
-            </label>
-            <select
-              id="sub-eq-type"
-              value={form.subEquipmentTypeId}
-              onChange={(e) => set('subEquipmentTypeId', e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
-            >
-              <option value="">— Choose a type —</option>
-              {subEquipmentTypes.data?.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.code})
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="sub-eq-type"
+            label="Type"
+            required
+            placeholder="— Choose a type —"
+            value={form.subEquipmentTypeId}
+            onChange={(e) => set('subEquipmentTypeId', e.target.value)}
+            options={(subEquipmentTypes.data ?? []).map((t) => ({
+              value: t.id,
+              label: `${t.name} (${t.code})`,
+            }))}
+          />
         )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -307,26 +298,13 @@ export const SubEquipmentModal: React.FC<SubEquipmentModalProps> = ({
               onChange={(e) => set('serialNumber', e.target.value)}
             />
           </div>
-          <div>
-            <label
-              htmlFor="sub-eq-status"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Status
-            </label>
-            <select
-              id="sub-eq-status"
-              value={form.status}
-              onChange={(e) => set('status', e.target.value as EquipmentStatus)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-accent-500 focus:ring-accent-500 sm:text-sm"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="sub-eq-status"
+            label="Status"
+            value={form.status}
+            onChange={(e) => set('status', e.target.value as EquipmentStatus)}
+            options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+          />
         </div>
 
         <div>

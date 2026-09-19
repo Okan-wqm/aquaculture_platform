@@ -7,7 +7,14 @@ import { useNavigate } from 'react-router-dom';
 import { useBatchList, type BatchStatus, type Batch } from '../../../hooks/useBatches';
 import { useSpeciesList } from '../../../hooks/useSpecies';
 import { BatchFormModal } from '../components/BatchFormModal';
-import { ApiError, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  ApiError,
+  DataTable,
+  type DataTableColumn,
+  Select,
+  Spinner,
+  Button,
+} from '@aquaculture/shared-ui';
 import { ChartColumn, Layers, Plus, Scale, Search as SearchIcon, Users } from 'lucide-react';
 
 // Status badge colors
@@ -241,18 +248,16 @@ export const BatchInputTab: React.FC = () => {
           </div>
 
           {/* Status Filter */}
-          <select
+          <Select
+            aria-label="Status filter"
+            fullWidth={false}
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as BatchStatus | 'all')}
-            className="block rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            <option value="all">All Status</option>
-            {Object.entries(statusLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Status' },
+              ...Object.entries(statusLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
         </div>
 
         {/* Add Button */}

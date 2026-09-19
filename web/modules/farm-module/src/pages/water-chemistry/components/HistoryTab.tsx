@@ -42,6 +42,7 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
 } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -532,39 +533,36 @@ export const HistoryTab: React.FC = () => {
 
           {/* Tank / System Select */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              {viewMode === 'tank' ? 'Tank' : 'System'}
-            </label>
             {viewMode === 'tank' ? (
-              <select
+              <Select
+                label="Tank"
                 value={selectedTankId}
                 onChange={handleTankChange}
-                className="block w-full min-w-[200px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-              >
-                <option value="">All Tanks</option>
-                {tanks.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name || t.code}
-                  </option>
-                ))}
-              </select>
+                className="min-w-[200px]"
+                options={[
+                  { value: '', label: 'All Tanks' },
+                  ...tanks.map((t) => ({ value: t.id, label: t.name || t.code })),
+                ]}
+              />
             ) : (
-              <select
+              <Select
+                label="System"
                 value={selectedSystemId}
                 onChange={(e) => {
                   setSelectedSystemId(e.target.value);
                   setPage(1);
                 }}
-                className="block w-full min-w-[200px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-              >
-                <option value="">Select System...</option>
-                {systems.map((s: { id: string; name: string; code?: string; type?: string }) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                    {s.type ? ` (${s.type})` : ''}
-                  </option>
-                ))}
-              </select>
+                className="min-w-[200px]"
+                options={[
+                  { value: '', label: 'Select System...' },
+                  ...systems.map(
+                    (s: { id: string; name: string; code?: string; type?: string }) => ({
+                      value: s.id,
+                      label: `${s.name}${s.type ? ` (${s.type})` : ''}`,
+                    }),
+                  ),
+                ]}
+              />
             )}
           </div>
 
@@ -634,20 +632,13 @@ export const HistoryTab: React.FC = () => {
 
           {/* Status Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Status
-            </label>
-            <select
+            <Select
+              label="Status"
               value={statusFilter}
               onChange={handleStatusChange}
-              className="block w-full min-w-[140px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              className="min-w-[140px]"
+              options={STATUS_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+            />
           </div>
         </div>
       </div>

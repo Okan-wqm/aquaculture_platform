@@ -4,6 +4,8 @@
  */
 
 import React from 'react';
+
+import { useI18n } from '../../i18n';
 import type { NotificationType } from '../../types';
 
 // ============================================================================
@@ -131,11 +133,13 @@ export const Alert: React.FC<AlertProps> = ({
   children,
   dismissible = false,
   onDismiss,
-  dismissLabel = 'Kapat',
+  dismissLabel: dismissLabelProp,
   action,
   showIcon = true,
   className = '',
 }) => {
+  const { t } = useI18n();
+  const dismissLabel = dismissLabelProp ?? t('common.close');
   // BUG-006: Warn if dismissible=true but no onDismiss handler is provided
   if (dismissible && !onDismiss && import.meta.env.DEV) {
     console.warn('Alert: dismissible={true} but onDismiss is not provided. The dismiss button will have no effect.');

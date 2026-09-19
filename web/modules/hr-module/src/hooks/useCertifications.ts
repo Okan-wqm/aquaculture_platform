@@ -19,6 +19,7 @@ import {
   GET_MY_TRAINING_ENROLLMENTS,
   GET_MANDATORY_TRAINING_STATUS,
   ADD_EMPLOYEE_CERTIFICATION,
+  CREATE_CERTIFICATION_TYPE,
   VERIFY_CERTIFICATION,
   REVOKE_CERTIFICATION,
   RENEW_CERTIFICATION,
@@ -37,6 +38,7 @@ import type {
   CertificationFilterInput,
   TrainingFilterInput,
   AddEmployeeCertificationInput,
+  CreateCertificationTypeInput,
   VerifyCertificationInput,
   RevokeCertificationInput,
   EnrollInTrainingInput,
@@ -345,6 +347,29 @@ export function useAddEmployeeCertification() {
         queryKey: certificationKeys.employee(data.addEmployeeCertification.employeeId),
       });
       queryClient.invalidateQueries({ queryKey: certificationKeys.compliance() });
+      // The dashboard's paginated list and the expiry windows show the new record too.
+      queryClient.invalidateQueries({ queryKey: certificationKeys.all });
+    },
+  });
+}
+
+/**
+ * Define a certification type (FE-MEDIUM-092 — the dashboard's "Add
+ * Certification Type" control had no action; the mutation existed).
+ */
+export function useCreateCertificationType() {
+  const client = useGraphQLClient();
+  const queryClient = useQueryClient();
+  return useFeedbackMutation({
+    feedback: { success: 'Certification type created' },
+    mutationFn: (input: CreateCertificationTypeInput) =>
+      graphqlRequest<{ createCertificationType: CertificationType }, unknown>(
+        client,
+        CREATE_CERTIFICATION_TYPE,
+        { input }
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: certificationKeys.types() });
     },
   });
 }
@@ -425,7 +450,8 @@ export function useRenewCertification() {
         queryKey: certificationKeys.employee(data.renewCertification.employeeId),
       });
       queryClient.invalidateQueries({ queryKey: createTenantInvalidationKey(tenantId, ...certificationKeys.all, 'expiring') });
-    },
+          queryClient.invalidateQueries({ queryKey: certificationKeys.all });
+},
   });
 }
 

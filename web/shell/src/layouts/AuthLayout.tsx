@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
-import { BRAND, getAccessToken, tokenLifecycle, useAuthContext, useI18n, I18nProvider, Spinner } from '@aquaculture/shared-ui';
+import { BRAND, getAccessToken, tokenLifecycle, useAuthContext, useI18n, Spinner } from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -52,14 +52,10 @@ const AuthLayout: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
-  // The login/auth surface is presented in ENGLISH regardless of the app's
-  // browser-detected locale — a nested provider overrides it for this subtree
-  // only, so the rest of the app keeps its auto-detected language.
-  return (
-    <I18nProvider locale="en">
-      <AuthChrome />
-    </I18nProvider>
-  );
+  // The auth surface speaks the same language as the rest of the shell — the
+  // device preference, then the browser, then Turkish (FE-HIGH-089). It used to
+  // pin English here while <html lang> said Turkish.
+  return <AuthChrome />;
 };
 
 // ============================================================================

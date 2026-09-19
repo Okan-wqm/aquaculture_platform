@@ -121,6 +121,20 @@ const RAW_FIELD = /<(?:input|select|textarea)\b/g;
  * responsive shape is `grid-cols-1 sm:grid-cols-2 lg:grid-cols-N`. AquaMobil
  * is phone-first by construction and is not counted.
  */
+/**
+ * A user-visible string written in the file — JSX text between tags, or a
+ * placeholder / title / aria-label / alt / label attribute — instead of a
+ * message key through useI18n (FE-HIGH-089): the language then follows the
+ * file, not the user. Counted per package, shared-ui included. The
+ * SUPER_ADMIN panel (web/modules/admin-panel) is the declared English-only
+ * surface and is not counted.
+ */
+const HARDCODED_JSX_TEXT = />\s*([^<>{};=]*[A-Za-zÇĞİŞÖÜçğışöü][^<>{};=]*?)\s*</g;
+const HARDCODED_TEXT_ATTRIBUTE = /\b(?:placeholder|title|aria-label|alt|label)="([^"{}]*[A-Za-zÇĞİŞÖÜçğışöü][^"{}]*)"/g;
+const DECLARED_ENGLISH_ONLY = ['web/modules/admin-panel'];
+function hardcodedText(source: string): number {
+  return (source.match(HARDCODED_JSX_TEXT)?.length ?? 0) + (source.match(HARDCODED_TEXT_ATTRIBUTE)?.length ?? 0);
+}
 const CLASS_ATTRIBUTE = /className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
 const FIXED_GRID = /(?<![\w:-])grid-cols-(?:[2-6]|8|9|1[01])(?![\w-])/;
 const RESPONSIVE_GRID = /\b(?:sm|md|lg|xl|2xl):grid-cols-/;
@@ -286,6 +300,7 @@ interface Allowlist {
   rawButton: { entries: PackageCeiling[] };
   rawField: { entries: PackageCeiling[] };
   fixedGrid: { entries: PackageCeiling[] };
+  hardcodedText: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
   rawPageTitle: { entries: PackageCeiling[] };
   darkSurface: { entries: PackageCeiling[] };
@@ -516,6 +531,33 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
       }
     }
     for (const entry of doc.fixedGrid.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets user-visible strings written in the file per package, shared-ui included (FE-HIGH-089)', () => {
+    const actual = countByPackage(
+      [...files, ...sourceFiles(['web/shared-ui/src'])].filter(
+        (file) => file.endsWith('.tsx') && !DECLARED_ENGLISH_ONLY.some((pkg) => file.startsWith(`${pkg}/`)),
+      ),
+      hardcodedText,
+    );
+    const ceilings = new Map(doc.hardcodedText.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} hardcoded strings, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} user-visible strings written in the file, ceiling ${entry.ceiling}. Add a message key to shared-ui's locales (AquaMobil: its own), render it through useI18n().t and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.hardcodedText.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

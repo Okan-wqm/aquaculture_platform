@@ -8,8 +8,8 @@
  * - Equipment qualifications
  */
 
-import React, { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Shield,
   Award,
@@ -20,7 +20,6 @@ import {
   Plus,
   Search,
   Filter,
-  Download,
   Eye,
   RefreshCw,
   Users,
@@ -36,7 +35,12 @@ import {
 } from '../../hooks';
 import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../../components/common';
-import { CertificationExpiryAlert } from '../../components/certification';
+import {
+  CertificationExpiryAlert,
+  AddCertificationModal,
+  AddCertificationTypeModal,
+  RenewCertificationModal,
+} from '../../components/certification';
 import { CertificationRequirement } from '../../types';
 import type {
   CertificationType,
@@ -220,8 +224,15 @@ const CertificationTypeCard: React.FC<{
 // ============================================================================
 
 export function CertificationDashboardPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const renewCertId = searchParams.get('renew');
+
+  // Dialogs (FE-MEDIUM-092): the controls above open these; a `?renew=<id>`
+  // link (the expiry alert) opens the renew dialog for that record.
+  const [showAddCertification, setShowAddCertification] = useState(false);
+  const [showAddType, setShowAddType] = useState(false);
+  const [renewing, setRenewing] = useState<EmployeeCertification | null>(null);
 
   // State
   const [activeTab, setActiveTab] = useState<'overview' | 'certifications' | 'types' | 'compliance'>(
@@ -251,6 +262,21 @@ export function CertificationDashboardPage() {
   );
   const allCertifications = certData?.items || [];
   const certTotal = certData?.total || 0;
+
+  useEffect(() => {
+    if (!renewCertId) return;
+    const target = allCertifications.find((cert) => cert.id === renewCertId) ?? expiring30?.find((cert) => cert.id === renewCertId);
+    if (target) setRenewing(target);
+  }, [renewCertId, allCertifications, expiring30]);
+
+  const closeRenew = (): void => {
+    setRenewing(null);
+    if (renewCertId) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('renew');
+      setSearchParams(next, { replace: true });
+    }
+  };
 
   // Calculate stats
   const totalCertTypes = certTypes?.length || 0;
@@ -375,8 +401,8 @@ export function CertificationDashboardPage() {
       align: 'right',
       render: (_value, row) => (
         <div className="flex items-center justify-end gap-1">
-          <Button variant="ghost" size="sm" iconOnly aria-label="View" title="View"><Eye className="h-4 w-4" /></Button>
-          <Button variant="ghost" size="sm" iconOnly aria-label="Renew" title="Renew"><RefreshCw className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="View employee" title="View employee" onClick={() => navigate(`/hr/employees/${row.employeeId}`)}><Eye className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="Renew" title="Renew" onClick={() => setRenewing(row)}><RefreshCw className="h-4 w-4" /></Button>
         </div>
       ),
     },
@@ -411,8 +437,7 @@ export function CertificationDashboardPage() {
         description="Track and manage employee certifications and compliance"
         actions={
           <div className="flex items-center gap-3">
-            <Button variant="secondary" leftIcon={<Download className="h-4 w-4" />}>Export</Button>
-            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />}>Add Certification</Button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowAddCertification(true)}>Add Certification</Button>
           </div>
         }
       />
@@ -597,6 +622,8 @@ export function CertificationDashboardPage() {
             columns={certificationColumns}
             keyExtractor={(row) => row.id}
             loading={loadingCerts}
+            exportable
+            exportFileName="certifications"
             emptyMessage="No certifications found"
             pagination={derivePaginationMetadataV1(certTotal, pagination.page || 1, pagination.limit || 20)}
             onPageChange={handlePageChange}
@@ -613,7 +640,7 @@ export function CertificationDashboardPage() {
             <p className="text-sm text-gray-600 dark:text-gray-400">
               {certTypes?.length || 0} certification types configured
             </p>
-            <Button variant="ghost" leftIcon={<Plus className="h-4 w-4" />}>Add Certification Type</Button>
+            <Button variant="ghost" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowAddType(true)}>Add Certification Type</Button>
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -778,6 +805,14 @@ export function CertificationDashboardPage() {
           </div>
         </div>
       )}
+      <AddCertificationModal
+        open={showAddCertification}
+        onClose={() => setShowAddCertification(false)}
+        employees={employees?.items ?? []}
+        certificationTypes={certTypes ?? []}
+      />
+      <AddCertificationTypeModal open={showAddType} onClose={() => setShowAddType(false)} />
+      <RenewCertificationModal certification={renewing} onClose={closeRenew} />
     </div>
   );
 }

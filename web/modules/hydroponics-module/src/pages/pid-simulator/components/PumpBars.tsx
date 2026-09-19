@@ -26,7 +26,7 @@ const PumpBar: React.FC<{
           className="w-2 h-2 rounded-full flex-shrink-0"
           style={{ backgroundColor: isOn ? color : colors.neutral[300] }}
         />
-        <span className="text-[11px] text-gray-600 dark:text-gray-400 truncate">{label}</span>
+        <span className="text-xs text-gray-600 dark:text-gray-400 truncate">{label}</span>
       </div>
       <div className="flex-1 h-4 rounded-sm overflow-hidden" style={{ backgroundColor: bgColor }}>
         <div
@@ -38,7 +38,7 @@ const PumpBar: React.FC<{
           }}
         />
       </div>
-      <span className="text-[10px] font-mono text-gray-500 dark:text-gray-400 w-[36px] text-right">
+      <span className="text-xs font-mono text-gray-500 dark:text-gray-400 w-[36px] text-right">
         {value.toFixed(1)}%
       </span>
     </div>

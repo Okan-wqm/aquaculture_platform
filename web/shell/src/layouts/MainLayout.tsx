@@ -12,10 +12,13 @@ import {
   Header,
   Sidebar,
   createTenantInvalidationKey,
+  type I18nContextValue,
+  type MessageKey,
   type NavigationItem,
   type SidebarTheme,
   useAuthContext,
   useAuth,
+  useI18n,
   useTenantContext, SkipToContent } from '@aquaculture/shared-ui';
 import { Sparkles } from 'lucide-react';
 import AiAssistantDrawer from '../components/ai/AiAssistantDrawer';
@@ -23,7 +26,9 @@ import { useQueryClient } from '@tanstack/react-query';
 import React, { useState, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 
+import { ActAsTenantBanner } from '../components/ActAsTenantBanner';
 import ConsentBanner from '../components/ConsentBanner';
+import { UserLocaleSync } from '../components/UserLocaleSync';
 
 import { NotificationPanel } from '@/components/NotificationPanel';
 
@@ -32,113 +37,138 @@ import { NotificationPanel } from '@/components/NotificationPanel';
 // ============================================================================
 
 /**
+ * A navigation entry as the shell declares it: the label is a message key,
+ * localized at render, so the menu follows the user's language rather than
+ * this file's (FE-HIGH-089). An entry may instead carry a literal `label` —
+ * the SUPER_ADMIN billing routes do, as the panel is a declared English-only
+ * surface.
+ */
+type NavigationDefinition = Omit<NavigationItem, 'label' | 'children'> & {
+  children?: NavigationDefinition[];
+} & ({ labelKey: MessageKey; label?: never } | { label: string; labelKey?: never });
+
+function localizeNavigation(items: NavigationDefinition[], t: I18nContextValue['t']): NavigationItem[] {
+  return items.map((item) => ({
+    id: item.id,
+    icon: item.icon,
+    path: item.path,
+    requiredRoles: item.requiredRoles,
+    requiredPermissions: item.requiredPermissions,
+    badge: item.badge,
+    isExternal: item.isExternal,
+    label: item.labelKey !== undefined ? t(item.labelKey) : item.label,
+    ...(item.children ? { children: localizeNavigation(item.children, t) } : {}),
+  }));
+}
+
+/**
  * SUPER_ADMIN navigation - Full System Management
  * Synchronized with AdminSidebar
  */
 const adminBillingNavItems: NavigationItem[] = ADMIN_BILLING_NAV_ITEMS.map((item) => ({ ...item }));
 
-const superAdminNavigation: NavigationItem[] = [
+const superAdminNavigation: NavigationDefinition[] = [
   {
     id: 'admin-dashboard',
-    label: 'Dashboard',
+    labelKey: 'nav.dashboard',
     path: '/admin',
     icon: 'dashboard',
   },
   {
     id: 'admin-analytics',
-    label: 'Analytics',
+    labelKey: 'nav.analytics',
     icon: 'analytics',
     children: [
-      { id: 'analytics-dashboard', label: 'Overview', path: '/admin/analytics' },
-      { id: 'analytics-reports', label: 'Reports', path: '/admin/analytics/reports' },
+      { id: 'analytics-dashboard', labelKey: 'nav.overview', path: '/admin/analytics' },
+      { id: 'analytics-reports', labelKey: 'nav.reports', path: '/admin/analytics/reports' },
     ],
   },
   {
     id: 'admin-tenants',
-    label: 'Tenants',
+    labelKey: 'nav.tenants',
     icon: 'tenants',
     children: [
-      { id: 'tenant-list', label: 'All Tenants', path: '/admin/tenants' },
-      { id: 'tenant-create', label: 'Create Tenant', path: '/admin/tenants/new' },
+      { id: 'tenant-list', labelKey: 'nav.allTenants', path: '/admin/tenants' },
+      { id: 'tenant-create', labelKey: 'nav.createTenant', path: '/admin/tenants/new' },
     ],
   },
   {
     id: 'admin-users',
-    label: 'Users',
+    labelKey: 'nav.users',
     icon: 'users',
     children: [
-      { id: 'user-list', label: 'All Users', path: '/admin/users' },
-      { id: 'user-roles', label: 'Roles & Permissions', path: '/admin/users/roles' },
+      { id: 'user-list', labelKey: 'nav.allUsers', path: '/admin/users' },
+      { id: 'user-roles', labelKey: 'nav.rolesPermissions', path: '/admin/users/roles' },
     ],
   },
   {
     id: 'admin-modules',
-    label: 'Modules',
+    labelKey: 'nav.modules',
     path: '/admin/modules',
     icon: 'modules',
   },
   {
     id: 'admin-billing',
-    label: 'Billing',
+    labelKey: 'nav.billing',
     icon: 'billing',
     children: adminBillingNavItems,
   },
   {
     id: 'admin-support',
-    label: 'Support',
+    labelKey: 'nav.support',
     icon: 'support',
     children: [
-      { id: 'support-tickets', label: 'Tickets', path: '/admin/support/tickets' },
-      { id: 'support-messaging', label: 'Messaging', path: '/admin/support/messaging' },
-      { id: 'support-announcements', label: 'Announcements', path: '/admin/support/announcements' },
-      { id: 'support-onboarding', label: 'Onboarding', path: '/admin/support/onboarding' },
+      { id: 'support-tickets', labelKey: 'nav.tickets', path: '/admin/support/tickets' },
+      { id: 'support-messaging', labelKey: 'nav.messaging', path: '/admin/support/messaging' },
+      { id: 'support-announcements', labelKey: 'nav.announcements', path: '/admin/support/announcements' },
+      { id: 'support-onboarding', labelKey: 'nav.onboarding', path: '/admin/support/onboarding' },
     ],
   },
   {
     id: 'admin-security',
-    label: 'Security',
+    labelKey: 'nav.security',
     icon: 'security',
     children: [
-      { id: 'security-activity', label: 'Activity Logs', path: '/admin/security/activity' },
-      { id: 'security-audit', label: 'Audit Trail', path: '/admin/security/audit' },
-      { id: 'security-compliance', label: 'Compliance', path: '/admin/security/compliance' },
-      { id: 'security-threats', label: 'Threat Detection', path: '/admin/security/threats' },
+      { id: 'security-activity', labelKey: 'nav.activityLogs', path: '/admin/security/activity' },
+      { id: 'security-audit', labelKey: 'nav.auditTrail', path: '/admin/security/audit' },
+      { id: 'security-compliance', labelKey: 'nav.compliance', path: '/admin/security/compliance' },
+      { id: 'security-threats', labelKey: 'nav.threatDetection', path: '/admin/security/threats' },
     ],
   },
   {
     id: 'admin-system',
-    label: 'System',
+    labelKey: 'nav.system',
     icon: 'system',
     children: [
-      { id: 'system-features', label: 'Feature Toggles', path: '/admin/system/features' },
-      { id: 'system-maintenance', label: 'Maintenance', path: '/admin/system/maintenance' },
-      { id: 'system-performance', label: 'Performance', path: '/admin/system/performance' },
-      { id: 'system-errors', label: 'Error Tracking', path: '/admin/system/errors' },
-      { id: 'system-jobs', label: 'Job Queue', path: '/admin/system/jobs' },
+      { id: 'system-features', labelKey: 'nav.featureToggles', path: '/admin/system/features' },
+      { id: 'system-maintenance', labelKey: 'nav.maintenance', path: '/admin/system/maintenance' },
+      { id: 'system-performance', labelKey: 'nav.performance', path: '/admin/system/performance' },
+      { id: 'system-errors', labelKey: 'nav.errorTracking', path: '/admin/system/errors' },
+      { id: 'system-jobs', labelKey: 'nav.jobQueue', path: '/admin/system/jobs' },
     ],
   },
   {
     id: 'admin-database',
-    label: 'Database',
+    labelKey: 'nav.database',
     icon: 'database',
     children: [
-      { id: 'database-management', label: 'Management', path: '/admin/database' },
-      { id: 'database-explorer', label: 'Explorer', path: '/admin/database/explorer' },
+      { id: 'database-management', labelKey: 'nav.management', path: '/admin/database' },
+      { id: 'database-explorer', labelKey: 'nav.explorer', path: '/admin/database/explorer' },
     ],
   },
   {
     id: 'admin-audit',
-    label: 'Audit Logs',
+    labelKey: 'nav.auditLogs',
     path: '/admin/audit',
     icon: 'audit',
   },
   {
     id: 'admin-settings',
-    label: 'Settings',
+    labelKey: 'nav.settings',
     icon: 'settings',
     children: [
-      { id: 'settings-general', label: 'General', path: '/admin/settings' },
-      { id: 'settings-email', label: 'Email Templates', path: '/admin/settings/email' },
+      { id: 'settings-general', labelKey: 'nav.general', path: '/admin/settings' },
+      { id: 'settings-email', labelKey: 'nav.emailTemplates', path: '/admin/settings/email' },
     ],
   },
 ];
@@ -146,30 +176,30 @@ const superAdminNavigation: NavigationItem[] = [
 /**
  * TENANT_ADMIN base navigation - Management items (English)
  */
-const tenantAdminBaseNavigation: NavigationItem[] = [
+const tenantAdminBaseNavigation: NavigationDefinition[] = [
   // ==================== COMPANY (TOP LEVEL) ====================
   {
     id: 'company',
-    label: 'Company',
+    labelKey: 'nav.company',
     path: '/sites/company',
     icon: 'building',
   },
   // ==================== MANAGEMENT ====================
   {
     id: 'tenant-dashboard',
-    label: 'Dashboard',
+    labelKey: 'nav.dashboard',
     path: '/tenant',
     icon: 'dashboard',
   },
   {
     id: 'messaging',
-    label: 'Messages',
+    labelKey: 'nav.messages',
     path: '/messaging',
     icon: 'message',
   },
   {
     id: 'tenant-users',
-    label: 'Users',
+    labelKey: 'nav.users',
     path: '/tenant/users',
     icon: 'users',
   },
@@ -182,53 +212,53 @@ const tenantAdminBaseNavigation: NavigationItem[] = [
     // mounted, and has been removed.) This makes "tenants create their own
     // roles" actually discoverable.
     id: 'tenant-roles',
-    label: 'Roles & Permissions',
+    labelKey: 'nav.rolesPermissions',
     path: '/tenant/roles',
     icon: 'shield',
   },
   {
     id: 'tenant-modules',
-    label: 'Modules',
+    labelKey: 'nav.modules',
     path: '/tenant/modules',
     icon: 'modules',
   },
   {
     id: 'tenant-communication',
-    label: 'Communication',
+    labelKey: 'nav.communication',
     icon: 'messages',
     children: [
-      { id: 'tenant-messages', label: 'Messages', path: '/tenant/messages' },
-      { id: 'tenant-support', label: 'Support Tickets', path: '/tenant/support' },
-      { id: 'tenant-announcements', label: 'Announcements', path: '/tenant/announcements' },
+      { id: 'tenant-messages', labelKey: 'nav.messages', path: '/tenant/messages' },
+      { id: 'tenant-support', labelKey: 'nav.supportTickets', path: '/tenant/support' },
+      { id: 'tenant-announcements', labelKey: 'nav.announcements', path: '/tenant/announcements' },
     ],
   },
   {
     id: 'tenant-database',
-    label: 'Database',
+    labelKey: 'nav.database',
     path: '/tenant/database',
     icon: 'database',
   },
   {
     id: 'tenant-audit-log',
-    label: 'Audit Log',
+    labelKey: 'nav.auditLog',
     path: '/tenant/audit-log',
     icon: 'security',
   },
   {
     id: 'tenant-billing',
-    label: 'Billing',
+    labelKey: 'nav.billing',
     path: '/tenant/billing',
     icon: 'billing',
   },
   {
     id: 'tenant-activity',
-    label: 'Activity',
+    labelKey: 'nav.activity',
     path: '/tenant/activity',
     icon: 'activity',
   },
   {
     id: 'tenant-settings',
-    label: 'Settings',
+    labelKey: 'nav.settings',
     path: '/tenant/settings',
     icon: 'settings',
   },
@@ -250,75 +280,75 @@ const DELEGATABLE_TENANT_NAV: Record<string, string> = {
 /**
  * Module navigation configuration by module code
  */
-const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
+const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
   farm: {
     id: 'farm-module',
-    label: 'Site Management',
+    labelKey: 'nav.siteManagement',
     icon: 'farm',
     children: [
-      { id: 'sites-environment', label: 'Environment', path: '/sites/environment' },
-      { id: 'sites-setup', label: 'Setup', path: '/sites/setup' },
-      { id: 'sites-tanks', label: 'Tanks & Ponds', path: '/sites/tanks' },
-      { id: 'sites-feeding', label: 'Feeding', path: '/sites/feeding' },
-      { id: 'sites-feeding-records', label: 'Feed Records & Inventory', path: '/sites/feeding/records' },
-      { id: 'sites-water-chemistry', label: 'Water Chemistry', path: '/sites/water-chemistry' },
-      { id: 'sites-storage', label: 'Storage & Stock', path: '/sites/storage' },
-      { id: 'sites-tasks', label: 'Tasks', path: '/sites/tasks' },
-{ id: 'sites-health', label: 'Health Events', path: '/sites/health', icon: 'activity' },
-      { id: 'sites-maintenance', label: 'Maintenance', path: '/sites/maintenance', icon: 'settings' },
-      { id: 'sites-harvest', label: 'Harvest', path: '/sites/harvest' },
-      { id: 'sites-reports', label: 'Reports', path: '/sites/reports' },
-      { id: 'sites-finance', label: 'Finance', path: '/sites/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
-      { id: 'sites-analytics', label: 'Analytics', path: '/sites/analytics', icon: 'analytics' },
+      { id: 'sites-environment', labelKey: 'nav.environment', path: '/sites/environment' },
+      { id: 'sites-setup', labelKey: 'nav.setup', path: '/sites/setup' },
+      { id: 'sites-tanks', labelKey: 'nav.tanksPonds', path: '/sites/tanks' },
+      { id: 'sites-feeding', labelKey: 'nav.feeding', path: '/sites/feeding' },
+      { id: 'sites-feeding-records', labelKey: 'nav.feedRecordsInventory', path: '/sites/feeding/records' },
+      { id: 'sites-water-chemistry', labelKey: 'nav.waterChemistry', path: '/sites/water-chemistry' },
+      { id: 'sites-storage', labelKey: 'nav.storageStock', path: '/sites/storage' },
+      { id: 'sites-tasks', labelKey: 'nav.tasks', path: '/sites/tasks' },
+{ id: 'sites-health', labelKey: 'nav.healthEvents', path: '/sites/health', icon: 'activity' },
+      { id: 'sites-maintenance', labelKey: 'nav.maintenance', path: '/sites/maintenance', icon: 'settings' },
+      { id: 'sites-harvest', labelKey: 'nav.harvest', path: '/sites/harvest' },
+      { id: 'sites-reports', labelKey: 'nav.reports', path: '/sites/reports' },
+      { id: 'sites-finance', labelKey: 'nav.finance', path: '/sites/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
+      { id: 'sites-analytics', labelKey: 'nav.analytics', path: '/sites/analytics', icon: 'analytics' },
     ],
   },
   sensor: {
     id: 'sensor-module',
-    label: 'Sensor Monitoring',
+    labelKey: 'nav.sensorMonitoring',
     icon: 'sensor',
     children: [
-      { id: 'sensor-dashboard', label: 'Dashboard', path: '/sensor' },
-      { id: 'sensor-devices', label: 'Devices', path: '/sensor/devices' },
-      { id: 'sensor-readings', label: 'Readings', path: '/sensor/readings' },
-      { id: 'sensor-alerts', label: 'Alerts', path: '/sensor/alerts' },
-      { id: 'sensor-water-chemistry', label: 'Water Chemistry', path: '/sensor/water-chemistry' },
-      { id: 'sensor-automation', label: 'Automation', path: '/sensor/automation', icon: 'cpu' },
-      { id: 'sensor-plc', label: 'PLC Control', path: '/sensor/plc', icon: 'server' },
-      { id: 'sensor-plc-connections', label: 'PLC Connections', path: '/sensor/plc/connections', icon: 'wifi' },
-      { id: 'sensor-plc-feeding', label: 'Feeding Params', path: '/sensor/plc/feeding', icon: 'bar-chart' },
-      { id: 'sensor-plc-alarms', label: 'PLC Alarms', path: '/sensor/plc/alarms', icon: 'bell' },
-      { id: 'sensor-processes', label: 'Process Editor', path: '/sensor/processes' },
-      { id: 'sensor-scada', label: 'SCADA Packages', path: '/sensor/scada-packages', icon: 'monitor' },
+      { id: 'sensor-dashboard', labelKey: 'nav.dashboard', path: '/sensor' },
+      { id: 'sensor-devices', labelKey: 'nav.devices', path: '/sensor/devices' },
+      { id: 'sensor-readings', labelKey: 'nav.readings', path: '/sensor/readings' },
+      { id: 'sensor-alerts', labelKey: 'nav.alerts', path: '/sensor/alerts' },
+      { id: 'sensor-water-chemistry', labelKey: 'nav.waterChemistry', path: '/sensor/water-chemistry' },
+      { id: 'sensor-automation', labelKey: 'nav.automation', path: '/sensor/automation', icon: 'cpu' },
+      { id: 'sensor-plc', labelKey: 'nav.plcControl', path: '/sensor/plc', icon: 'server' },
+      { id: 'sensor-plc-connections', labelKey: 'nav.plcConnections', path: '/sensor/plc/connections', icon: 'wifi' },
+      { id: 'sensor-plc-feeding', labelKey: 'nav.feedingParams', path: '/sensor/plc/feeding', icon: 'bar-chart' },
+      { id: 'sensor-plc-alarms', labelKey: 'nav.plcAlarms', path: '/sensor/plc/alarms', icon: 'bell' },
+      { id: 'sensor-processes', labelKey: 'nav.processEditor', path: '/sensor/processes' },
+      { id: 'sensor-scada', labelKey: 'nav.scadaPackages', path: '/sensor/scada-packages', icon: 'monitor' },
     ],
   },
   hr: {
     id: 'hr-module',
-    label: 'Human Resources',
+    labelKey: 'nav.humanResources',
     icon: 'users',
     children: [
-      { id: 'hr-dashboard', label: 'Dashboard', path: '/hr' },
-      { id: 'hr-employees', label: 'Employees', path: '/hr/employees' },
-      { id: 'hr-departments', label: 'Departments', path: '/hr/departments' },
-      { id: 'hr-scheduling', label: 'Scheduling', path: '/hr/scheduling', icon: 'calendar' },
-      { id: 'hr-crew', label: 'Crew', path: '/hr/crew', icon: 'users' },
-      { id: 'hr-attendance', label: 'Attendance', path: '/hr/attendance' },
-      { id: 'hr-leaves', label: 'Leaves', path: '/hr/leaves', icon: 'calendar-off' },
-      { id: 'hr-training', label: 'Training', path: '/hr/training', icon: 'graduation-cap' },
-      { id: 'hr-payroll', label: 'Payroll', path: '/hr/payroll' },
-      { id: 'hr-finance', label: 'Finance', path: '/hr/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
+      { id: 'hr-dashboard', labelKey: 'nav.dashboard', path: '/hr' },
+      { id: 'hr-employees', labelKey: 'nav.employees', path: '/hr/employees' },
+      { id: 'hr-departments', labelKey: 'nav.departments', path: '/hr/departments' },
+      { id: 'hr-scheduling', labelKey: 'nav.scheduling', path: '/hr/scheduling', icon: 'calendar' },
+      { id: 'hr-crew', labelKey: 'nav.crew', path: '/hr/crew', icon: 'users' },
+      { id: 'hr-attendance', labelKey: 'nav.attendance', path: '/hr/attendance' },
+      { id: 'hr-leaves', labelKey: 'nav.leaves', path: '/hr/leaves', icon: 'calendar-off' },
+      { id: 'hr-training', labelKey: 'nav.training', path: '/hr/training', icon: 'graduation-cap' },
+      { id: 'hr-payroll', labelKey: 'nav.payroll', path: '/hr/payroll' },
+      { id: 'hr-finance', labelKey: 'nav.finance', path: '/hr/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
     ],
   },
   hydroponics: {
     id: 'hydroponics-module',
-    label: 'Hydroponics',
+    labelKey: 'nav.hydroponics',
     icon: 'sprout',
     children: [
-      { id: 'hydroponics-setup', label: 'Setup', path: '/hydroponics/setup' },
-      { id: 'hydroponics-general', label: 'General Options', path: '/hydroponics/solution/general_options' },
-      { id: 'hydroponics-water', label: 'Water Analysis', path: '/hydroponics/solution/water_analysis' },
-      { id: 'hydroponics-user', label: 'User Options', path: '/hydroponics/solution/user_options' },
-      { id: 'hydroponics-result', label: 'Result', path: '/hydroponics/solution/result' },
-      { id: 'hydroponics-pid-sim', label: 'PID Simulator', path: '/hydroponics/pid-simulator' },
+      { id: 'hydroponics-setup', labelKey: 'nav.setup', path: '/hydroponics/setup' },
+      { id: 'hydroponics-general', labelKey: 'nav.generalOptions', path: '/hydroponics/solution/general_options' },
+      { id: 'hydroponics-water', labelKey: 'nav.waterAnalysis', path: '/hydroponics/solution/water_analysis' },
+      { id: 'hydroponics-user', labelKey: 'nav.userOptions', path: '/hydroponics/solution/user_options' },
+      { id: 'hydroponics-result', labelKey: 'nav.result', path: '/hydroponics/solution/result' },
+      { id: 'hydroponics-pid-sim', labelKey: 'nav.pidSimulator', path: '/hydroponics/pid-simulator' },
     ],
   },
   // 'process' module removed: no corresponding route exists in App.tsx
@@ -327,34 +357,34 @@ const MODULE_NAV_CONFIG: Record<string, NavigationItem> = {
 /**
  * MODULE_MANAGER and MODULE_USER navigation - Module based (English)
  */
-const moduleUserBaseNavigation: NavigationItem[] = [
+const moduleUserBaseNavigation: NavigationDefinition[] = [
   {
     id: 'company',
-    label: 'Company',
+    labelKey: 'nav.company',
     path: '/sites/company',
     icon: 'building',
   },
   {
     id: 'dashboard',
-    label: 'Dashboard',
+    labelKey: 'nav.dashboard',
     path: '/dashboard',
     icon: 'dashboard',
   },
   {
     id: 'messaging',
-    label: 'Messages',
+    labelKey: 'nav.messages',
     path: '/messaging',
     icon: 'message',
   },
   {
     id: 'analytics',
-    label: 'Analytics',
+    labelKey: 'nav.analytics',
     path: '/analytics',
     icon: 'reports',
   },
   {
     id: 'reports',
-    label: 'Reports',
+    labelKey: 'nav.reports',
     path: '/reports',
     icon: 'reports',
   },
@@ -373,6 +403,7 @@ const MainLayout: React.FC = () => {
   const queryClient = useQueryClient();
   const { user, logout, modules } = useAuthContext();
   const { tenant } = useTenantContext();
+  const { t } = useI18n();
   // hasPermission is the resource-permission SSoT (useAuthContext exposes only
   // roles); gates the AI assistant trigger by ai_assistant:use.
   const { hasPermission } = useAuth();
@@ -392,12 +423,12 @@ const MainLayout: React.FC = () => {
    * Build module navigation items from tenant's assigned modules.
    * Divider is added only when at least one module has a nav config.
    */
-  const moduleNavigationItems = useMemo((): NavigationItem[] => {
+  const moduleNavigationItems = useMemo((): NavigationDefinition[] => {
     if (!modules || modules.length === 0) {
       return [];
     }
 
-    const items: NavigationItem[] = [];
+    const items: NavigationDefinition[] = [];
     for (const module of modules) {
       const navConfig = MODULE_NAV_CONFIG[module.code];
       if (navConfig) {
@@ -410,7 +441,7 @@ const MainLayout: React.FC = () => {
     }
 
     return [
-      { id: 'divider-modules', label: '── Modules ──', path: '', icon: 'modules' },
+      { id: 'divider-modules', labelKey: 'nav.modulesDivider', path: '', icon: 'modules' },
       ...items,
     ];
   }, [modules]);
@@ -421,10 +452,10 @@ const MainLayout: React.FC = () => {
    */
   const navigationItems = useMemo((): NavigationItem[] => {
     if (userRole === 'SUPER_ADMIN') {
-      return superAdminNavigation;
+      return localizeNavigation(superAdminNavigation, t);
     }
     if (userRole === 'TENANT_ADMIN') {
-      return [...tenantAdminBaseNavigation, ...moduleNavigationItems];
+      return localizeNavigation([...tenantAdminBaseNavigation, ...moduleNavigationItems], t);
     }
     // MT-HIGH-060 delegation: a non-admin tenant user whose custom role grants a
     // delegatable panel capability sees just those tenant items (Users/Roles/
@@ -434,8 +465,8 @@ const MainLayout: React.FC = () => {
       const cap = DELEGATABLE_TENANT_NAV[item.id];
       return cap !== undefined && hasPermission(cap);
     });
-    return [...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems];
-  }, [userRole, moduleNavigationItems, hasPermission]);
+    return localizeNavigation([...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems], t);
+  }, [userRole, moduleNavigationItems, hasPermission, t]);
 
   /**
    * Logo text based on role
@@ -524,14 +555,14 @@ const MainLayout: React.FC = () => {
    */
   const userMenuItems = useMemo(() => [
     {
-      label: 'My Profile',
+      label: t('header.myProfile'),
       onClick: () => navigate('/settings/profile'),
     },
     {
-      label: 'Settings',
+      label: t('header.settings'),
       onClick: () => navigate('/settings'),
     },
-  ], [navigate]);
+  ], [navigate, t]);
 
   /**
    * Search handler — stable reference to avoid Header re-renders.
@@ -553,8 +584,8 @@ const MainLayout: React.FC = () => {
             variant="ghost"
             iconOnly
             onClick={() => setAiDrawerOpen(true)}
-            title="AI Assistant"
-            aria-label="Open AI assistant"
+            title={t('header.aiAssistant')}
+            aria-label={t('header.openAiAssistant')}
             className="text-gray-500 hover:text-primary-600 dark:text-gray-400"
           >
             <Sparkles className="h-5 w-5" />
@@ -563,7 +594,7 @@ const MainLayout: React.FC = () => {
         <NotificationPanel />
       </div>
     ),
-    [canUseAiAssistant],
+    [canUseAiAssistant, t],
   );
 
   /**
@@ -585,7 +616,7 @@ const MainLayout: React.FC = () => {
       variant="ghost"
       iconOnly
       onClick={() => setMobileNavOpen(true)}
-      aria-label="Open navigation"
+      aria-label={t('header.openNavigation')}
       aria-expanded={mobileNavOpen}
       aria-controls={SIDEBAR_ID}
       className="md:hidden text-gray-500 dark:text-gray-400"
@@ -594,11 +625,12 @@ const MainLayout: React.FC = () => {
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
       </svg>
     </Button>
-  ), [mobileNavOpen]);
+  ), [mobileNavOpen, t]);
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex">
       <SkipToContent />
+      <UserLocaleSync />
       {/* Sidebar */}
       <Sidebar
         id={SIDEBAR_ID}
@@ -629,6 +661,7 @@ const MainLayout: React.FC = () => {
           leftContent={leftContent}
           rightContent={notificationPanelElement}
         />
+        <ActAsTenantBanner />
 
         {/* Page Content */}
         <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6 overflow-auto focus:outline-hidden">

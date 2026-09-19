@@ -72,7 +72,7 @@ describe('useConfirm', () => {
       result = confirm('Bu kaydı silmek istediğinize emin misiniz?');
     });
     expect(await screen.findByText('Bu kaydı silmek istediğinize emin misiniz?')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Onayla' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     await expect(result).resolves.toBe(true);
   });
 
@@ -86,10 +86,10 @@ describe('useConfirm', () => {
     });
     expect(await screen.findByText('Birinci')).toBeTruthy();
     expect(screen.queryByText('İkinci')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Onayla' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }));
     await expect(first).resolves.toBe(true);
     expect(await screen.findByText('İkinci')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'İptal' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await expect(second).resolves.toBe(false);
   });
 
@@ -142,7 +142,7 @@ describe('usePrompt', () => {
       result = prompt('Kaç dakika?');
     });
     await screen.findByRole('textbox', { name: 'Kaç dakika?' });
-    fireEvent.click(screen.getByRole('button', { name: 'İptal' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await expect(result).resolves.toBeNull();
   });
 
@@ -155,7 +155,7 @@ describe('usePrompt', () => {
     const input = await screen.findByRole<HTMLInputElement>('textbox', { name: 'Süre' });
     expect(input.value).toBe('30');
     fireEvent.change(input, { target: { value: '' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Tamam' }));
+    fireEvent.click(screen.getByRole('button', { name: 'OK' }));
     await expect(result).resolves.toBe('');
   });
 });

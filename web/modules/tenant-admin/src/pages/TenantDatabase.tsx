@@ -28,7 +28,8 @@ import {
 import type { ColumnInfo, IndexInfo } from '../services/tenant-api.service';
 import { TableSchemaModal } from '../components/TableSchemaModal';
 import { TableDataModal } from '../components/TableDataModal';
-import { DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Badge } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Badge, useFeedbackMutation, downloadJson } from '@aquaculture/shared-ui';
+import { getTableSchema } from '../lib/api';
 
 /**
  * Module table mappings - matches MODULE_SCHEMAS from schema-manager.service.ts
@@ -212,6 +213,33 @@ const TenantDatabase: React.FC = () => {
   // TanStack Query hooks
   const { data: databaseInfo, isLoading: loading, error: dbError } = useTenantDatabase();
   const error = dbError ? (dbError as Error).message : null;
+
+  // Export Schema (FE-MEDIUM-092): every table's columns and indexes, read
+  // through the same query the per-table view uses, written as one JSON file.
+  const exportSchema = useFeedbackMutation({
+    feedback: { success: 'Schema exported' },
+    mutationFn: async () => {
+      if (!databaseInfo) throw new Error('The database information has not loaded yet');
+      const tables = await Promise.all(
+        databaseInfo.tables.map(async (table) => {
+          const schema = await getTableSchema(databaseInfo.schemaName, table.name);
+          return {
+            name: table.name,
+            rowCount: table.rowCount,
+            size: table.size,
+            columns: schema.columns,
+            indexes: schema.indexes,
+          };
+        }),
+      );
+      downloadJson(`${databaseInfo.databaseName}-schema-${new Date().toISOString().slice(0, 10)}`, {
+        database: databaseInfo.databaseName,
+        schema: databaseInfo.schemaName,
+        exportedAt: new Date().toISOString(),
+        tables,
+      });
+    },
+  });
 
   // Schema query - enabled only when a table is selected
   const { data: schemaData, isLoading: schemaLoading, error: schemaQueryError } = useTableSchema(
@@ -460,7 +488,7 @@ const TenantDatabase: React.FC = () => {
         actions={
           <div className="flex items-center gap-3">
             <Button variant="secondary" leftIcon={<RefreshCw className="w-4 h-4" />} onClick={handleRefresh}>Refresh</Button>
-            <Button variant="primary" leftIcon={<Download className="w-4 h-4" />}>Export Schema</Button>
+            <Button variant="primary" leftIcon={<Download className="w-4 h-4" />} onClick={() => exportSchema.mutate()} loading={exportSchema.isPending} disabled={!databaseInfo}>Export Schema</Button>
           </div>
         }
       />

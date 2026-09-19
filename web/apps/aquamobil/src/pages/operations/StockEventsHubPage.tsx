@@ -294,8 +294,6 @@ export function StockEventsHubPage(): JSX.Element {
           </section>
         </main>
 
-        {/* WHY: Bottom spacer prevents content from hiding behind the fixed tab bar. */}
-        <div className="h-24" />
       </div>
     </ErrorBoundary>
   );

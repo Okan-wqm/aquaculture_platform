@@ -102,6 +102,16 @@ export default {
         // elements use `min-h-touch min-w-touch` — enforced by
         // src/__tests__/field-ergonomics.invariant.spec.ts.
         touch: '2.75rem',
+        // FE-MEDIUM-091: the bottom tab bar is `fixed` — 4rem plus the home
+        // indicator. Clearance lives in one place: MobileLayout pads its content
+        // with `pb-nav-gap`, floating elements sit at `bottom-nav-gap`, and a
+        // viewport-locked page is `h-screen-nav`. Pages carry no spacer — the
+        // field-ergonomics invariant keeps h-24/pb-24/pb-28/bottom-20 at zero.
+        nav: 'calc(4rem + env(safe-area-inset-bottom))',
+        'nav-gap': 'calc(5.5rem + env(safe-area-inset-bottom))',
+      },
+      height: {
+        'screen-nav': 'calc(100dvh - 5.5rem - env(safe-area-inset-bottom))',
       },
     },
   },

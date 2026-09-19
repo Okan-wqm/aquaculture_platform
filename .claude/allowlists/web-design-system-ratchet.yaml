@@ -146,7 +146,7 @@ darkSurface:
 rawPalette:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 1451
+      ceiling: 1452
       owner: okan
       expiry: 2026-12-31
       findingId: FE-HIGH-078

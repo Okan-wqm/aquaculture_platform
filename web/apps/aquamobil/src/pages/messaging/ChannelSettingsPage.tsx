@@ -508,8 +508,6 @@ export function ChannelSettingsPage(): JSX.Element {
         </div>
       </div>
 
-      {/* Bottom spacer */}
-      <div className="h-24" />
 
       {/* Confirmation sheets */}
       <ConfirmSheet

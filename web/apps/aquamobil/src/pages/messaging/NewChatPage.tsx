@@ -578,7 +578,7 @@ export function NewChatPage(): JSX.Element {
         <div
           role="status"
           aria-live="polite"
-          className="fixed inset-x-4 bottom-24 z-40 flex items-center justify-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-xl dark:bg-gray-900"
+          className="fixed inset-x-4 bottom-nav-gap z-40 flex items-center justify-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-xl dark:bg-gray-900"
         >
           <Spinner size="md" />
           <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -587,8 +587,6 @@ export function NewChatPage(): JSX.Element {
         </div>
       )}
 
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

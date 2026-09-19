@@ -142,7 +142,7 @@ export function AttendancePage(): JSX.Element {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
       <PageHeader tone={isClockedIn ? 'green' : 'ocean'} icon={MapPin} title="Attendance" />
 

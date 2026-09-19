@@ -215,8 +215,6 @@ export function SyncStatusPage(): JSX.Element {
         </div>
       </section>
 
-      {/* Spacer for bottom nav */}
-      <div className="h-20" />
     </>
   );
 }

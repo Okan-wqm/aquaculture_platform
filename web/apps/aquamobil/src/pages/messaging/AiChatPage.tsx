@@ -454,7 +454,7 @@ export function AiChatPage(): JSX.Element {
 
   return (
     <div
-      className="flex flex-col h-screen bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
+      className="flex flex-col h-screen-nav bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
     >
       {/* AI-specific header — persona-aware */}
       <AiChannelHeader

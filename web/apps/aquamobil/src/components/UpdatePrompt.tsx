@@ -14,7 +14,7 @@ export function UpdatePrompt(): ReactElement | null {
   if (!available || !apply) return null;
 
   return (
-    <div className="fixed bottom-20 left-4 right-4 z-50 animate-slide-up" role="status" aria-live="polite">
+    <div className="fixed bottom-nav-gap left-4 right-4 z-50 animate-slide-up" role="status" aria-live="polite">
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-elevated border border-gray-100 dark:border-gray-800 p-4">
         <div className="flex items-start gap-3">
           <div className="w-12 h-12 bg-ocean-50 dark:bg-ocean-900/20 rounded-xl flex items-center justify-center flex-shrink-0">

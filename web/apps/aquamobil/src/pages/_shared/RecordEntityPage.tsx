@@ -282,7 +282,7 @@ export function RecordEntityPage<
 
         {errors.general && <ErrorBanner message={errors.general} />}
 
-        <div className="px-4 mt-6 space-y-3 pb-28">
+        <div className="px-4 mt-6 space-y-3">
           <button
             onClick={() => { void handleSubmit(); }}
             disabled={isSubmitting}
@@ -392,7 +392,7 @@ export function RecordEntityPage<
       {children}
 
       {/* Review CTA */}
-      <div className="px-4 pt-5 pb-28">
+      <div className="px-4 pt-5">
         <button
           onClick={handleReview}
           disabled={!canReview}

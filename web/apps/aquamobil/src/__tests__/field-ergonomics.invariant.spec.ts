@@ -176,4 +176,30 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
     expect(config).toContain("400: 'rgb(var(--am-gray-400) / <alpha-value>)'");
     expect(config).not.toContain('konsta');
   });
+
+  it('clears the fixed tab bar in one place — the layout, on the nav tokens; no page spacer, no raw bottom offset', () => {
+    // FE-MEDIUM-091: nav clearance was written in four values (h-24, h-20,
+    // pb-24, pb-28) across 30 sites plus bottom-20/bottom-24 on floating
+    // elements, and the one pull-to-refresh lived inside a single page.
+    const config = readFileSync(join(APP_DIR, 'tailwind.config.js'), 'utf8');
+    expect(config).toMatch(/nav: 'calc\(4rem \+ env\(safe-area-inset-bottom\)\)'/);
+    expect(config).toMatch(/'nav-gap': 'calc\(5\.5rem \+ env\(safe-area-inset-bottom\)\)'/);
+    expect(config).toMatch(/'screen-nav': 'calc\(100dvh - 5\.5rem - env\(safe-area-inset-bottom\)\)'/);
+
+    const layout = readFileSync(join(SRC_DIR, 'layouts/MobileLayout.tsx'), 'utf8');
+    expect(layout).toContain('pb-nav-gap');
+    expect(layout).toContain('usePullToRefresh(');
+    expect(layout).toContain('<PullToRefreshIndicator');
+
+    const offenders: string[] = [];
+    for (const file of walkSources(SRC_DIR)) {
+      const source = readFileSync(file, 'utf8');
+      const rel = file.replace(SRC_DIR, 'src');
+      if (/className="h-2[04]"\s*\/>/.test(source)) offenders.push(`${rel}: spacer div`);
+      if (/\bpb-2[48]\b/.test(source)) offenders.push(`${rel}: pb-24/pb-28`);
+      if (/className="[^"]*\bfixed\b[^"]*\bbottom-(?:16|20|24|28)\b/.test(source)) offenders.push(`${rel}: fixed bottom-N`);
+      if (/(?<![-\w])h-screen(?![-\w])/.test(source)) offenders.push(`${rel}: h-screen (h-screen-nav ends above the tab bar)`);
+    }
+    expect(offenders, `nav clearance belongs to MobileLayout:\n${offenders.join('\n')}`).toEqual([]);
+  });
 });

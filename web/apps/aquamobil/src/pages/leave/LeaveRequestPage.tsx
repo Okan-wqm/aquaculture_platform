@@ -129,7 +129,7 @@ export function LeaveRequestPage(): JSX.Element {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
       <PageHeader
         tone="violet"
@@ -241,7 +241,7 @@ export function LeaveRequestPage(): JSX.Element {
       </div>
 
       {/* Submit Button */}
-      <div className="px-4 pb-28">
+      <div className="px-4">
         <button
           onClick={() => { void handleSubmit(); }}
           disabled={!selectedTypeId || !startDate || !endDate || isSubmitting}

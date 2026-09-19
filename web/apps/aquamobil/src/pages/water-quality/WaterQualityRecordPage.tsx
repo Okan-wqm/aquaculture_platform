@@ -317,7 +317,7 @@ export function WaterQualityRecordPage(): JSX.Element {
 
       {/* Offline indicator */}
       {!isOnline && (
-        <div className="fixed bottom-20 left-4 right-4 bg-amber-500 text-white rounded-xl p-3 text-center text-sm font-medium shadow-lg">
+        <div className="fixed bottom-nav-gap left-4 right-4 bg-amber-500 text-white rounded-xl p-3 text-center text-sm font-medium shadow-lg">
           You are offline. Measurements will be synced when connected.
         </div>
       )}

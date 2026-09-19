@@ -244,8 +244,6 @@ export function OperationsHubPage(): JSX.Element {
         )}
       </main>
 
-      {/* Bottom spacer to prevent content from hiding behind the fixed tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

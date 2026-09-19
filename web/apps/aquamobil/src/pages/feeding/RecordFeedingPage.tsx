@@ -505,7 +505,7 @@ export function RecordFeedingPage(): JSX.Element {
           </div>
 
           {/* Kaydet */}
-          <div className="px-4 pb-28">
+          <div className="px-4">
             <button
               onClick={() => {
                 void handleSubmit();

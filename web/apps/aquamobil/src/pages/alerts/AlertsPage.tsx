@@ -168,7 +168,7 @@ export function AlertsPage(): JSX.Element {
       </div>
 
       {/* List */}
-      <div className="px-4 py-4 space-y-3 pb-24">
+      <div className="px-4 py-4 space-y-3">
         {isLoading && alerts.length === 0 && (
           <div className="space-y-3">
             {[0, 1, 2].map((i) => (

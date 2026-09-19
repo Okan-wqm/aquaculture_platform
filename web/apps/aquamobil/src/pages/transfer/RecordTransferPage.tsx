@@ -206,7 +206,7 @@ export function RecordTransferPage(): JSX.Element {
           </div>
         )}
 
-        <div className="px-4 mt-6 space-y-3 pb-28">
+        <div className="px-4 mt-6 space-y-3">
           <button
             onClick={() => { void handleSubmit(); }}
             disabled={isSubmitting}
@@ -401,7 +401,7 @@ export function RecordTransferPage(): JSX.Element {
       </div>
 
       {/* WHY: "Review" button triggers confirmation step — transfer operations affect two tanks simultaneously */}
-      <div className="px-4 pb-28">
+      <div className="px-4">
         <button
           onClick={handleReview}
           disabled={!sourceTankId || !destinationTankId || !quantity}

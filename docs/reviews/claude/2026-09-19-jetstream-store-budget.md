@@ -38,14 +38,15 @@ Its floor was a hand-typed copy of the stream sizes (1920MiB, the events stream 
 with them. A gate whose expected value is a second copy of the thing it checks cannot catch the
 copy going stale.
 
-**Fix.** `max_file_store: 12GB` (telemetry 6GiB + events 1.5GiB + DLQ 256MiB = 7.75GiB, × 1.25
-reserve = 9.69GiB, rounded up). The capacity floor becomes the exact reserve (10401873920 bytes),
-the alert threshold becomes 75% of the store (9663676416 bytes), the two runbooks and the event-bus
-comments stop naming 2GB. `tests/invariants/jetstream-store-budget.spec.ts` reads the three
-`max_bytes` budgets FROM THE EVENT-BUS SOURCE and holds all three derived numbers to them: the
-store must hold the reserve, every single stream must fit the store on its own, the gate's floor
-must equal the reserve exactly, the alert must equal 75% of the store exactly. Falsified: with
-`2GB` restored the spec fails three of five cases.
+**Fix.** PR #1621 (INFRA-HIGH-176, merged 22:34Z the same evening) raised `max_file_store` to
+10GB and pinned "sum of reservations < store" in
+`tests/invariants/nats-jetstream-store-budget.spec.ts`.
+This finding is the rest of the drift: the capacity floor becomes the exact reserve (7.75GiB × 1.25
+= 10401873920 bytes), the alert threshold becomes 75% of the store (8053063680 bytes), the two
+runbooks and the event-bus comments stop naming 2GB, and the merged invariant gains three more
+cases held to the event-bus source: every single stream fits the store on its own (a restart
+recreates them one at a time), the gate's floor equals the reserve exactly, the alert equals 75% of
+the store exactly. Falsified: with the old floor and threshold in place the new cases fail.
 
 **Live recovery.** The droplet's deploy checkout is materialised at the deployed SHA, so this lands
 on the broker through the next deploy (which recreates NATS with the new limit) — or, before that,

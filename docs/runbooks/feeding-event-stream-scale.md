@@ -20,7 +20,7 @@ feeding subjects share the global budget:
 | Setting            | Value                                                       | Where                                                                                           |
 | ------------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `max_age`          | 7 days                                                      | `getStreamConfig()`                                                                             |
-| `max_bytes`        | 1.5 GB                                                      | `getStreamConfig()` (budgeted inside `max_file_store` 12 GB with the telemetry and DLQ streams) |
+| `max_bytes`        | 1.5 GB                                                      | `getStreamConfig()` (budgeted inside `max_file_store` 10 GB with the telemetry and DLQ streams) |
 | `max_msgs`         | 1,000,000                                                   | `getStreamConfig()`                                                                             |
 | `max_msg_size`     | 1 MB                                                        | `getStreamConfig()`                                                                             |
 | `discard`          | `old`                                                       | `getStreamConfig()`                                                                             |
@@ -100,7 +100,7 @@ invisible one against `max_bytes`. In order of preference:
 2. **Shorten global `max_age`** from 7 days if event-store coverage makes the longer window
    redundant.
 3. **Raise `max_bytes`** only after raising `max_file_store` in `nats.conf`, keeping the 25 %
-   reserve over the sum of all declared streams (`tests/invariants/jetstream-store-budget.spec.ts`
+   reserve over the sum of all declared streams (`tests/invariants/nats-jetstream-store-budget.spec.ts`
    computes it).
 
 ## 2. Consumers

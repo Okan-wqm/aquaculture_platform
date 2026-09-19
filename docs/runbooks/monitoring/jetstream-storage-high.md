@@ -4,7 +4,7 @@
 `infrastructure/monitoring/droplet/rules/35-broker-jetstream.yml`
 
 **Meaning.** `nats_server_jetstream_total_storage_bytes` exceeded 75% of the configured
-`max_file_store` (threshold 9GiB against the 12GiB in `infrastructure/docker/nats/nats.conf`)
+`max_file_store` (threshold 7.5GiB against the 10GiB in `infrastructure/docker/nats/nats.conf`)
 for 15 minutes.
 
 **First actions:**
@@ -22,7 +22,7 @@ for 15 minutes.
 **Likely causes:** a stalled consumer (acks stopped → Limits retention never releases), a
 message-size drift beyond the measured 600–750B, or a stream budget raised in the event bus
 without raising `max_file_store` and the threshold together (the invariant
-`tests/invariants/jetstream-store-budget.spec.ts` fails that change at review time).
+`tests/invariants/nats-jetstream-store-budget.spec.ts` fails that change at review time).
 
 **Escalation:** if the store keeps growing toward the cap, the discard policy decides what survives
 — on the events stream that is silent oldest-loss for domain events. Escalate to the platform owner

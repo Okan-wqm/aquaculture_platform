@@ -48255,12 +48255,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "tests/invariants/jetstream-store-budget.spec.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "tests/invariants/js-yaml.d.ts",
       "prettier_managed": true
     },
@@ -48502,6 +48496,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/nats-inbound-binding.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/nats-jetstream-store-budget.spec.ts",
       "prettier_managed": true
     },
     {

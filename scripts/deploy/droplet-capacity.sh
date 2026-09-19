@@ -75,9 +75,9 @@ SELECTIVE_PROJECTED_RESERVE_GIB="${SELECTIVE_PROJECTED_RESERVE_GIB:-10}"
 # 8321499136 bytes, × 1.25 = 10401873920. This gate was written to catch the
 # half-done version of a stream-size change; it did not, because its own floor
 # was a second hand-typed copy of the stream sizes and stayed at 1920MiB when
-# the telemetry stream landed. tests/invariants/jetstream-store-budget.spec.ts
-# now derives all three numbers from the event-bus source and fails when any
-# one of them drifts.
+# the telemetry stream landed. tests/invariants/nats-jetstream-store-budget.spec.ts
+# now derives this floor and the alert threshold from the event-bus source and
+# fails when either drifts.
 NATS_REQUIRED_FILE_STORE_BYTES="${NATS_REQUIRED_FILE_STORE_BYTES:-10401873920}"
 NATS_MIN_MEMORY_BYTES="${NATS_MIN_MEMORY_BYTES:-536870912}"
 NATS_MIN_CPUS="${NATS_MIN_CPUS:-1.0}"

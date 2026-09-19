@@ -1258,9 +1258,11 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
 
   /**
    * ARCH-031: Shared JetStream stream configuration.
-   * max_bytes is budgeted, together with the telemetry and DLQ streams, inside
-   * nats.conf max_file_store (tests/invariants/jetstream-store-budget.spec.ts)
-   * for metadata and potential additional streams.
+   * The three streams' max_bytes are RESERVATIONS: their sum (this 1.5 GiB +
+   * DLQ 256 MiB + telemetry 6 GiB) must fit under nats.conf max_file_store,
+   * or the server refuses to recover one of them after a restart and never
+   * reports healthy. tests/invariants/nats-jetstream-store-budget.spec.ts
+   * pins the conf value against these defaults.
    */
   private getStreamConfig(replicas: number): Partial<StreamConfig> {
     return {
@@ -1268,7 +1270,7 @@ export class NatsEventBus implements IEventBus, OnModuleInit, OnModuleDestroy {
       retention: RetentionPolicy.Limits,
       storage: StorageType.File,
       max_age: 7 * 24 * 60 * 60 * 1_000_000_000, // 7 days in nanoseconds
-      max_bytes: 1536 * 1024 * 1024, // 1.5GB — budgeted inside nats.conf max_file_store
+      max_bytes: 1536 * 1024 * 1024, // 1.5GB reservation (see the store-budget invariant)
       max_msg_size: 1024 * 1024, // 1MB per message
       max_msgs: 1_000_000, // 1M messages safety net
       discard: DiscardPolicy.Old,

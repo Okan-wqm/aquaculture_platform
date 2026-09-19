@@ -17,7 +17,7 @@
  *    or regulatory status)
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, useToast, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, useToast, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useTransferStock,
   StorageItemType,
@@ -228,23 +228,17 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </div>
 
           {/* Item selection — populated from the appropriate list hook */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Item *
-            </label>
-            <select
-              value={selectedItemId}
-              onChange={(e) => setSelectedItemId(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm"
-            >
-              <option value="">Select item...</option>
-              {itemOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.name} {opt.code ? `(${opt.code})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Item"
+            required
+            placeholder="Select item..."
+            value={selectedItemId}
+            onChange={(e) => setSelectedItemId(e.target.value)}
+            options={itemOptions.map((opt) => ({
+              value: opt.id,
+              label: `${opt.name} ${opt.code ? `(${opt.code})` : ''}`,
+            }))}
+          />
 
           {/* Quantity — minimum 0.01 enforced client-side */}
           <div>
@@ -263,42 +257,30 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
           </div>
 
           {/* From Location — source of the stock being transferred */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              From Location *
-            </label>
-            <select
-              value={fromLocationId}
-              onChange={(e) => handleFromLocationChange(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm"
-            >
-              <option value="">Select source location...</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name} ({loc.code})
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="From Location"
+            required
+            placeholder="Select source location..."
+            value={fromLocationId}
+            onChange={(e) => handleFromLocationChange(e.target.value)}
+            options={locations.map((loc) => ({
+              value: loc.id,
+              label: `${loc.name} (${loc.code})`,
+            }))}
+          />
 
           {/* To Location — destination; excludes the selected "from" location */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              To Location *
-            </label>
-            <select
-              value={toLocationId}
-              onChange={(e) => setToLocationId(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm"
-            >
-              <option value="">Select destination location...</option>
-              {toLocationOptions.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name} ({loc.code})
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="To Location"
+            required
+            placeholder="Select destination location..."
+            value={toLocationId}
+            onChange={(e) => setToLocationId(e.target.value)}
+            options={toLocationOptions.map((loc) => ({
+              value: loc.id,
+              label: `${loc.name} (${loc.code})`,
+            }))}
+          />
 
           {/* Lot Number — optional for transfers (traceability already established at receipt) */}
           <div>

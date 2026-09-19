@@ -7,7 +7,7 @@
  * Mutation is TENANT_ADMIN-only on the backend; the form surfaces the
  * authorisation error for non-admins.
  */
-import { useCanMutate, Button } from '@aquaculture/shared-ui';
+import { useCanMutate, Button, Select } from '@aquaculture/shared-ui';
 import React, { useEffect, useState } from 'react';
 
 import { useFinanceSettings, useUpdateFinanceSettings } from '../../../hooks/useFinance';
@@ -82,45 +82,27 @@ export const FinanceSettingsTab: React.FC = () => {
         </div>
 
         <div>
-          <label
-            htmlFor="default-currency"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Default currency
-          </label>
-          <select
+          <Select
             id="default-currency"
+            label="Default currency"
+            fullWidth={false}
+            className="w-40"
             value={currency}
             onChange={(e) => setCurrency(e.target.value)}
-            className="mt-1 block w-40 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            {CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+            options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+          />
         </div>
 
         <div>
-          <label
-            htmlFor="fiscal-month"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Fiscal year starts in
-          </label>
-          <select
+          <Select
             id="fiscal-month"
+            label="Fiscal year starts in"
+            fullWidth={false}
+            className="w-48"
             value={fiscalMonth}
             onChange={(e) => setFiscalMonth(Number(e.target.value))}
-            className="mt-1 block w-48 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            {MONTHS.map((name, index) => (
-              <option key={name} value={index + 1}>
-                {name}
-              </option>
-            ))}
-          </select>
+            options={MONTHS.map((name, index) => ({ value: index + 1, label: name }))}
+          />
         </div>
 
         {message && (

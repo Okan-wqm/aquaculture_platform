@@ -20,7 +20,7 @@
  *    retries do not create duplicate movements — critical for accurate inventory.
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, useToast, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, useToast, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useRecordStockMovement,
   StorageItemType,
@@ -167,6 +167,11 @@ export const RecordStockMovementModal: React.FC<Props> = ({
   const { data: consumablesData } = useConsumableList();
 
   const locations = locationsData?.items ?? [];
+  /** Both location pickers offer the same places; the movement type decides which show. */
+  const locationOptions = locations.map((loc) => ({
+    value: loc.id,
+    label: `${loc.name} (${loc.code})`,
+  }));
 
   /**
    * Regenerate idempotency key each time the modal opens.
@@ -359,23 +364,17 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           )}
 
           {/* Movement Type — determines which fields are visible and required */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Movement Type *
-            </label>
-            <select
-              value={movementType}
-              onChange={(e) => handleMovementTypeChange(e.target.value as MovementType)}
-              disabled={!!defaultMovementType}
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
-            >
-              {MOVEMENT_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label} — {opt.description}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Movement Type"
+            required
+            value={movementType}
+            onChange={(e) => handleMovementTypeChange(e.target.value as MovementType)}
+            disabled={!!defaultMovementType}
+            options={MOVEMENT_TYPE_OPTIONS.map((opt) => ({
+              value: opt.value,
+              label: `${opt.label} — ${opt.description}`,
+            }))}
+          />
 
           {/* Item Type — determines which item list is loaded */}
           <div>
@@ -402,24 +401,18 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           </div>
 
           {/* Item selection — populated from the appropriate list hook based on item type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Item *
-            </label>
-            <select
-              value={selectedItemId}
-              onChange={(e) => setSelectedItemId(e.target.value)}
-              disabled={!!defaultItemId}
-              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
-            >
-              <option value="">Select item...</option>
-              {itemOptions.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.name} {opt.code ? `(${opt.code})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Item"
+            required
+            placeholder="Select item..."
+            value={selectedItemId}
+            onChange={(e) => setSelectedItemId(e.target.value)}
+            disabled={!!defaultItemId}
+            options={itemOptions.map((opt) => ({
+              value: opt.id,
+              label: `${opt.name} ${opt.code ? `(${opt.code})` : ''}`,
+            }))}
+          />
 
           {/* Quantity — minimum 0.01 enforced client-side; backend also validates */}
           <div>
@@ -440,42 +433,24 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           {/* Location fields — shown/hidden based on movement type */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {showFromLocation && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  From Location *
-                </label>
-                <select
-                  value={fromLocationId}
-                  onChange={(e) => setFromLocationId(e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm"
-                >
-                  <option value="">Select location...</option>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name} ({loc.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="From Location"
+                required
+                placeholder="Select location..."
+                value={fromLocationId}
+                onChange={(e) => setFromLocationId(e.target.value)}
+                options={locationOptions}
+              />
             )}
             {showToLocation && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  To Location *
-                </label>
-                <select
-                  value={toLocationId}
-                  onChange={(e) => setToLocationId(e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-info-500 focus:border-info-500 text-sm"
-                >
-                  <option value="">Select location...</option>
-                  {locations.map((loc) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name} ({loc.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <Select
+                label="To Location"
+                required
+                placeholder="Select location..."
+                value={toLocationId}
+                onChange={(e) => setToLocationId(e.target.value)}
+                options={locationOptions}
+              />
             )}
           </div>
 

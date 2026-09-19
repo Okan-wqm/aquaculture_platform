@@ -5,7 +5,7 @@
  * Not for mortality - use MortalityModal for that.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useRemoveCleanerFish,
   useTankCleanerFish,
@@ -146,24 +146,17 @@ export const RemoveModal: React.FC<RemoveModalProps> = ({
 
         {/* Removal Reason */}
         <div>
-          <label
-            htmlFor="reason"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Removal Reason <span className="text-error-500">*</span>
-          </label>
-          <select
+          <Select
             id="reason"
+            label="Removal Reason"
+            required
             value={reason}
             onChange={(e) => setReason(e.target.value as CleanerFishRemovalReason)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            {Object.entries(RemovalReasonLabels).map(([key, label]) => (
-              <option key={key} value={key}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={Object.entries(RemovalReasonLabels).map(([key, label]) => ({
+              value: key,
+              label,
+            }))}
+          />
           <p className={`mt-1 text-xs ${getReasonColor(reason)}`}>
             {reason === 'harvest' && 'Fish are being harvested for sale/consumption'}
             {reason === 'end_of_cycle' && 'Production cycle is ending, fish are being removed'}

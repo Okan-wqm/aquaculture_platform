@@ -7,7 +7,7 @@
  * rejects them defensively as well.
  */
 import React, { useState } from 'react';
-import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 
 import {
   FinanceLineItem,
@@ -95,26 +95,18 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
     >
       <form id={formId} onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label
-            htmlFor="entry-category"
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-          >
-            Category
-          </label>
-          <select
+          <Select
             id="entry-category"
+            label="Category"
+            required
+            placeholder="Select a category…"
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-            required
-          >
-            <option value="">Select a category…</option>
-            {bookableCategories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} {c.kind === 'REVENUE' ? '(revenue)' : ''}
-              </option>
-            ))}
-          </select>
+            options={bookableCategories.map((c) => ({
+              value: c.id,
+              label: `${c.name} ${c.kind === 'REVENUE' ? '(revenue)' : ''}`,
+            }))}
+          />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

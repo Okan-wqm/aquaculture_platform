@@ -5,20 +5,6 @@
 @source '../../../shared-ui/src';
 
 
-/* The messaging module shares the tenant admin's green identity through the
-   design system's green scale (its former private palette was Tailwind's green
-   and slate under other names); no second token block. Gradients read the
-   tokens (v4 has no backgroundImage theme namespace). */
-@utility bg-tenant-gradient {
-  background-image: linear-gradient(135deg, var(--color-green-900) 0%, var(--color-green-800) 50%, var(--color-green-700) 100%);
-}
-@utility bg-tenant-gradient-dark {
-  background-image: linear-gradient(135deg, var(--color-green-950) 0%, var(--color-green-900) 50%, var(--color-green-800) 100%);
-}
-@utility bg-tenant-sidebar {
-  background-image: linear-gradient(180deg, var(--color-green-950) 0%, var(--color-green-900) 100%);
-}
-
 /* v4 defaults border-color to currentColor; restore Tailwind 3's gray-200. */
 @layer base {
   *,
@@ -30,57 +16,6 @@
   }
 }
 
-/* Tenant Admin Custom Styles */
-@layer components {
-  /* Tenant Admin Sidebar */
-  .tenant-sidebar {
-    @apply bg-tenant-sidebar text-white;
-  }
-
-  /* Tenant Admin Card */
-  .tenant-card {
-    @apply bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700;
-  }
-
-  /* Tenant Admin Stat Card */
-  /* v4: @apply only accepts real utilities, not the custom `.tenant-card`
-     component class — inline tenant-card's utilities here. */
-  .tenant-stat-card {
-    @apply bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700 p-6 hover:shadow-md transition-shadow duration-200;
-  }
-
-  /* Tenant Admin Button Primary */
-  .tenant-btn-primary {
-    @apply bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
-  }
-
-  /* Tenant Admin Button Secondary */
-  .tenant-btn-secondary {
-    @apply bg-green-100 hover:bg-green-200 text-green-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
-  }
-
-  /* Tenant Admin Badge */
-  .tenant-badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800;
-  }
-
-  /* Tenant Admin Table */
-  .tenant-table {
-    @apply w-full divide-y divide-gray-200 dark:divide-slate-700;
-  }
-
-  .tenant-table th {
-    @apply px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider bg-gray-50 dark:bg-slate-800;
-  }
-
-  .tenant-table td {
-    @apply px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-slate-100;
-  }
-
-  .tenant-table tbody tr {
-    @apply bg-white dark:bg-slate-900 hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors;
-  }
-}
 
 /* Scrollbar Styling */
 ::-webkit-scrollbar {

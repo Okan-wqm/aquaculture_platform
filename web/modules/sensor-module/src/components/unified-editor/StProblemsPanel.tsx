@@ -105,7 +105,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
       {/* Header */}
       <button
         onClick={onToggleExpand}
-        className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-750 text-xs flex-shrink-0 w-full text-left"
+        className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-xs flex-shrink-0 w-full text-left"
       >
         {isExpanded ? (
           <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />

@@ -268,7 +268,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                   return (
                     <div key={group.type} className="border-b border-gray-100 dark:border-gray-700 last:border-b-0">
                       {/* Group header */}
-                      <div className="flex items-center px-4 py-2 bg-gray-25">
+                      <div className="flex items-center px-4 py-2 bg-gray-50 dark:bg-gray-800">
                         <IconComponent className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                         <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                           {group.label}
@@ -284,7 +284,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                           <li
                             key={item.id}
                             className={`px-4 py-2 flex items-center justify-between ${
-                              item.hasBlocker ? 'bg-yellow-25' : ''
+                              item.hasBlocker ? 'bg-yellow-50 dark:bg-yellow-900/30' : ''
                             }`}
                           >
                             <div className="flex items-center min-w-0">

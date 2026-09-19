@@ -190,7 +190,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           count={warningCount}
           label="Warning"
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
-          activeClass="bg-yellow-500 text-gray-900 dark:text-gray-100"
+          activeClass="bg-yellow-500 text-gray-900"
           mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 

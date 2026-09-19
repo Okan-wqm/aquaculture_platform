@@ -561,7 +561,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
   const assignmentRowColumns: DataTableColumn<AssignmentRow>[] = [
     {
       key: 'tFeedingv2AssignmentsUnit',
-      header: '{t(\'feedingV2.assignments.unit\')}',
+      header: t('feedingV2.assignments.unit'),
       render: (_value, assignment) => (
         <>
           <div className="font-medium text-gray-900 dark:text-gray-100">{assignment.unitName}</div>
@@ -573,7 +573,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
     },
     {
       key: 'tFeedingv2AssignmentsProtocol',
-      header: '{t(\'feedingV2.assignments.protocol\')}',
+      header: t('feedingV2.assignments.protocol'),
       render: (_value, assignment) => {
         const protocol = protocolById.get(assignment.protocolId);
         const overrideCount = assignment.overrides?.fcrOverrides?.length ?? 0;
@@ -591,7 +591,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
     },
     {
       key: 'tFeedingv2Statuslabel',
-      header: '{t(\'feedingV2.statusLabel\')}',
+      header: t('feedingV2.statusLabel'),
       render: (_value, assignment) => (
         <>
           <span
@@ -604,12 +604,12 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
     },
     {
       key: 'tFeedingv2AssignmentsCurrentfeed',
-      header: '{t(\'feedingV2.assignments.currentFeed\')}',
+      header: t('feedingV2.assignments.currentFeed'),
       render: (_value, assignment) => currentFeedName(assignment),
     },
     {
       key: 'tFeedingv2AssignmentsTemperature',
-      header: '{t(\'feedingV2.assignments.temperature\')}',
+      header: t('feedingV2.assignments.temperature'),
       render: (_value, assignment) => {
         const temp = temperatureMap?.get(assignment.unitId);
         return (

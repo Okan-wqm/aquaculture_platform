@@ -279,6 +279,7 @@ export const OperatorShell = React.memo<OperatorShellProps>(
         <div
           className="relative flex flex-col w-screen h-screen overflow-hidden bg-gray-950 text-gray-100"
           role="application"
+          data-theme="dark"
           aria-label="SCADA operator interface"
         >
           {/* ── Top header ── */}

@@ -45,7 +45,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
       closeLabel="Close"
       title={
         <span className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-tenant-600" />
+          <Sparkles className="h-5 w-5 text-primary-600" />
           <span>AI Assistant</span>
         </span>
       }
@@ -66,12 +66,12 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
               rows={1}
               placeholder="Message the assistant…"
               disabled={status === 'offline' || status === 'connecting'}
-              className="max-h-32 flex-1 resize-none rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+              className="max-h-32 flex-1 resize-none rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
             />
             <button
               onClick={handleSend}
               disabled={!draft.trim() || status === 'thinking' || status === 'offline'}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-tenant-600 text-white hover:bg-tenant-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
               title="Send"
             >
               <Send className="h-4 w-4" />
@@ -106,7 +106,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
             <div
               className={
                 m.role === 'user'
-                  ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-tenant-600 px-3 py-2 text-sm text-white'
+                  ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-primary-600 px-3 py-2 text-sm text-white'
                   : m.errorCode
                     ? 'max-w-[85%] rounded-2xl rounded-bl-sm border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800'
                     : 'max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'

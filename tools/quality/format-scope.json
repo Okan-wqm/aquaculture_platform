@@ -54457,6 +54457,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/hr-module/src/components/certification/CertificationDialogs.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/hr-module/src/components/certification/CertificationExpiryAlert.tsx",
       "prettier_managed": true
     },
@@ -54536,6 +54542,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hr-module/src/components/leave/LeaveBalanceWidget.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/hr-module/src/components/leave/NewLeaveRequestModal.tsx",
       "prettier_managed": true
     },
     {
@@ -61175,6 +61187,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/hooks/useActAsContext.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/hooks/useAuth.ts",
       "prettier_managed": true
     },
@@ -61368,6 +61386,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/utils/backend-health-circuit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/utils/csv.ts",
       "prettier_managed": true
     },
     {
@@ -61637,7 +61661,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shell/src/components/__tests__/ActAsTenantBanner.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shell/src/components/__tests__/FishBackground.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/components/ActAsTenantBanner.tsx",
       "prettier_managed": true
     },
     {

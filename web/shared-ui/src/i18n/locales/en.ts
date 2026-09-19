@@ -374,6 +374,12 @@ export const en = {
   'language.tr': 'Türkçe',
   'language.en': 'English',
 
+  // ── SUPER_ADMIN act-as banner (FE-MEDIUM-092) ──
+  'actAs.banner': 'Acting as tenant {tenant}',
+  'actAs.reason': 'Reason',
+  'actAs.ticket': 'Ticket',
+  'actAs.exit': 'Exit tenant',
+
   // ── Navigation (shell MainLayout; localized at render) ──
   'nav.activity': 'Activity',
   'nav.activityLogs': 'Activity Logs',

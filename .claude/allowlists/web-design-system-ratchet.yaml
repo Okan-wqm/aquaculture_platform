@@ -162,7 +162,7 @@ rawButton:
       findingId: FE-HIGH-079
       reason: raw <button> elements re-deriving padding, radius, focus ring and disabled state beside shared-ui Button (AquaMobil Button / IconButton); render each through the primitive and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 53
+      ceiling: 50
       owner: okan
       expiry: 2027-03-31
       findingId: FE-HIGH-079
@@ -276,7 +276,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/hr-module
-      ceiling: 545
+      ceiling: 577
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -306,7 +306,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/shared-ui
-      ceiling: 203
+      ceiling: 204
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089

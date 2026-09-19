@@ -185,8 +185,9 @@ export const chartChrome: Readonly<{ grid: string; axis: string; border: string 
 
 export const typography = {
   fontFamily: {
-    sans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-    mono: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+    sans: "Inter, system-ui, -apple-system, sans-serif",
+    mono: "'Geist Mono', ui-monospace, Consolas, monospace",
+    display: "'Instrument Serif', ui-serif, Georgia, serif",
   },
 
   fontSize: {

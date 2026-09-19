@@ -5,6 +5,8 @@
 
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 
+import { downloadCsv } from '../../utils/csv';
+
 import { useI18n } from '../../i18n';
 
 import { Spinner } from '../Loading/Loading';
@@ -539,36 +541,14 @@ export function DataTable<T>({
         return;
       }
 
-      // Client-side CSV export
+      // Client-side CSV export — the writer shared with every other Export control
       if (format === 'csv') {
-        // SEC-014: Defang formula injection by prefixing formula chars with a single quote
-        const sanitizeCsvCell = (val: string): string => {
-          if (/^[=+\-@\t\r]/.test(val)) return `'${val}`;
-          return val;
-        };
-
         const exportColumns = activeColumns.filter((c) => c.exportable !== false);
-        const headers = exportColumns.map((c) => c.header).join(',');
-        const rows = processedData.map((row) =>
-          exportColumns
-            .map((col) => {
-              const value = (row as Record<string, unknown>)[String(col.key)];
-              const str = sanitizeCsvCell(String(value ?? ''));
-              return str.includes(',') || str.includes('"') ? `"${str.replace(/"/g, '""')}"` : str;
-            })
-            .join(',')
+        downloadCsv(
+          exportFileName,
+          exportColumns.map((c) => c.header),
+          processedData.map((row) => exportColumns.map((col) => (row as Record<string, unknown>)[String(col.key)])),
         );
-        const csv = [headers, ...rows].join('\n');
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${exportFileName}.csv`;
-        // BUG-019: Append to DOM before click — required by Firefox to trigger download
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
       }
     },
     [activeColumns, processedData, selectedRows, onExport, exportFileName]

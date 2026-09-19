@@ -344,7 +344,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
       {/* Legend for reagent lines */}
       <div className="flex flex-wrap gap-3 mt-1 px-2 justify-center">
         {HYDRO_REAGENTS.map(r => (
-          <span key={r.name} className="flex items-center gap-1 text-[10px] text-gray-600 dark:text-gray-400">
+          <span key={r.name} className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
             <span className="inline-block w-3 h-0.5" style={{ backgroundColor: r.color }} />
             {r.formula}
           </span>

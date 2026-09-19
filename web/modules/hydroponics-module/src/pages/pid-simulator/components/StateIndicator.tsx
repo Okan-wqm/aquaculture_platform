@@ -32,7 +32,7 @@ const StateIndicator: React.FC<StateIndicatorProps> = ({ currentState }) => {
           return (
             <div
               key={s}
-              className={`px-2 py-1 rounded text-[10px] font-mono font-semibold transition-colors ${
+              className={`px-2 py-1 rounded text-xs font-mono font-semibold transition-colors ${
                 isActive
                   ? `${info.activeBg} text-white`
                   : `${info.bg} ${info.text}`

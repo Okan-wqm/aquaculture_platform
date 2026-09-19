@@ -9,7 +9,6 @@ import {
   Plus,
   Search,
   Filter,
-  Download,
   Eye,
   Edit,
   Ship,
@@ -237,10 +236,6 @@ export function EmployeesListPage() {
             <Filter className="h-4 w-4" />
             Filters
           </button>
-          <button className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
-            <Download className="h-4 w-4" />
-            Export
-          </button>
         </div>
       </div>
 
@@ -327,6 +322,8 @@ export function EmployeesListPage() {
         columns={columns}
         keyExtractor={keyExtractor}
         loading={isLoading}
+        exportable
+        exportFileName="employees"
         emptyMessage="No employees found"
         pagination={
           employees

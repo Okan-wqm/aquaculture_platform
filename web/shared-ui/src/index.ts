@@ -179,6 +179,7 @@ export {
 } from './hooks/useGraphQL';
 export { useToast, ToastContainer, ToastProvider } from './hooks/useToast';
 export { useFeedbackMutation, DEFAULT_MUTATION_ERROR_TITLE } from './hooks/useFeedbackMutation';
+export { useActAsContext } from './hooks/useActAsContext';
 export type { MutationFeedback, FeedbackMutationOptions } from './hooks/useFeedbackMutation';
 export type { ToastOptions, ToastAction } from './hooks/useToast';
 export { useConfirm, usePrompt, ConfirmProvider } from './hooks/useConfirm';

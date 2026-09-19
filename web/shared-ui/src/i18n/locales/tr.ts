@@ -376,6 +376,12 @@ export const tr: Record<MessageKey, string> = {
   'language.tr': 'Türkçe',
   'language.en': 'English',
 
+  // ── SUPER_ADMIN act-as banner (FE-MEDIUM-092) ──
+  'actAs.banner': '{tenant} kiracısı adına çalışıyorsunuz',
+  'actAs.reason': 'Gerekçe',
+  'actAs.ticket': 'Talep',
+  'actAs.exit': 'Kiracıdan çık',
+
   // ── Navigation (shell MainLayout; localized at render) ──
   'nav.activity': 'Etkinlik',
   'nav.activityLogs': 'Etkinlik Kayıtları',

@@ -26,6 +26,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import React, { useState, useCallback, useMemo } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 
+import { ActAsTenantBanner } from '../components/ActAsTenantBanner';
 import ConsentBanner from '../components/ConsentBanner';
 import { UserLocaleSync } from '../components/UserLocaleSync';
 
@@ -660,6 +661,7 @@ const MainLayout: React.FC = () => {
           leftContent={leftContent}
           rightContent={notificationPanelElement}
         />
+        <ActAsTenantBanner />
 
         {/* Page Content */}
         <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6 overflow-auto focus:outline-hidden">

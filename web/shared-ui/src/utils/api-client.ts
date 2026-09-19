@@ -563,6 +563,22 @@ const ACT_AS_TICKET_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-/#]*$/;
 
 let actAsContext: ActAsContext | null = null;
 
+/**
+ * Listeners for the act-as context (FE-MEDIUM-092): the shell's banner
+ * subscribes so a SUPER_ADMIN always sees which tenant they act on and can
+ * leave it — set, clear and a tenant switch all notify.
+ */
+const actAsListeners = new Set<() => void>();
+function notifyActAsListeners(): void {
+  for (const listener of actAsListeners) listener();
+}
+export function subscribeActAsContext(listener: () => void): () => void {
+  actAsListeners.add(listener);
+  return () => {
+    actAsListeners.delete(listener);
+  };
+}
+
 function readStoredActAsContext(): ActAsContext | null {
   try {
     const raw = sessionStorage.getItem(ACT_AS_STORAGE_KEY);
@@ -608,15 +624,18 @@ export function setActAsContext(context: ActAsContext): void {
   } catch {
     // Session storage unavailable — the in-memory context still applies.
   }
+  notifyActAsListeners();
 }
 
 export function clearActAsContext(): void {
+  const hadContext = actAsContext !== null;
   actAsContext = null;
   try {
     sessionStorage.removeItem(ACT_AS_STORAGE_KEY);
   } catch {
     // Ignore
   }
+  if (hadContext) notifyActAsListeners();
 }
 
 /** The act-as context bound to the ACTIVE tenant, or null when none applies. */

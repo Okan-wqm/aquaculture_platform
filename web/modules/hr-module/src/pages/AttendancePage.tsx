@@ -7,7 +7,7 @@
 
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Clock, Calendar, Users, CheckCircle, Filter, Download, Search } from 'lucide-react';
+import { Clock, Calendar, Users, CheckCircle, Filter, Search } from 'lucide-react';
 import { cn, DataTable, type DataTableColumn, PageHeader, Button, Input, Select } from '@aquaculture/shared-ui';
 import {
   useAttendanceRecords,
@@ -266,10 +266,6 @@ export function AttendancePage() {
                 <Filter className="h-4 w-4" />
                 Filters
               </button>
-              <button className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
-                <Download className="h-4 w-4" />
-                Export
-              </button>
             </div>
           </div>
 
@@ -308,6 +304,8 @@ export function AttendancePage() {
               columns={columns}
               keyExtractor={(row) => row.id}
               loading={loadingRecords}
+              exportable
+              exportFileName="attendance"
               emptyMessage="No attendance records found"
               pagination={
                 records

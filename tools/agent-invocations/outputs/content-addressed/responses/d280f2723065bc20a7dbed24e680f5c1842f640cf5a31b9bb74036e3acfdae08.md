@@ -1,0 +1,160 @@
+{
+  "$schema": "aria/agent-response/v1",
+  "agent_id": "ci-executor:gha-35444645590",
+  "claim_id": "claim_e7cc10a7c9f144d4",
+  "details": {
+    "adapter_precision_note": "For the test-gap-adapter maintainers, not part of the verdict: the securitySensitive classifier (tools/aria-adapters/test-gap-adapter.ts:271) tests raw file text, so it matched the JSDoc comment at health.controller.ts:6 rather than a decorator. A subclass with the same inheritance but no such comment would escape the rule; a subclass with the comment but a different parent would be over-flagged. Resolving the extends clause to the parent's class-level decorators (the parent's own path is already a source unit in the scan) would make the classification depend on behaviour instead of prose.",
+    "agent_contract_hash": "sha256:e691c7f7c8196ae2f3624051fb0d1f2cef45d81280aaeaa90d7b901b005758b3",
+    "agent_dispatch_model": "opus",
+    "agent_subagent_type": "aria-evidence-judge",
+    "agent_text": "`tools/aria-adapters/` is not a self-output prefix, so citing the adapter's classifier source is admissible. Every fact needed for the verdict is now verified against the worktree at `b8febe123`.\n\n**Verdict: `true_positive`, confidence 0.84.** The absence is structural (nothing in the repo imports messaging's `HealthController` except its own module), and the file is the concrete registration of an unauthenticated, unthrottled HTTP surface via inheritance from `@Public() @SkipThrottle()` `StandardHealthController` \u2014 with Redis/NATS probe branches of its own that no test executes. The adapter's classifier fired on a JSDoc comment rather than code; that is a precision weakness in the adapter, noted for its maintainers, but the conclusion it reached about this file is correct on behaviour.\n\n```json\n{\n  \"$schema\": \"aria/agent-response/v1\",\n  \"request_id\": \"AIR-aria-evidence-judge-e340d37a0d97\",\n  \"claim_id\": \"AIR-aria-evidence-judge-e340d37a0d97\",\n  \"agent_id\": \"aria-evidence-judge\",\n  \"role\": \"evidence_judgment\",\n  \"status\": \"submitted\",\n  \"output_path\": \"/home/gharunner/actions-runner/_work/aquaculture_platform/aquaculture_platform/.aria-state-store/tools/agent-invocations/outputs/general/round-na-evidence_judgment-AIR-aria-evidence-judge-e340d37a0d97.md\",\n  \"satisfaction_matrix\": [\n    {\n      \"id\": \"verdict\",\n      \"verdict\": \"satisfied\",\n      \"note\": \"true_positive. Absence verified: apps/messaging-service/src/health/ contains only health.controller.ts and health.module.ts; the sole importer of ./health.controller is health.module.ts:9; no *.spec.ts under apps/messaging-service names HealthController; the seven sibling HealthController specs each import their own ../health.controller (e.g. apps/farm-service/src/health/__tests__/health.controller.spec.ts:12) and cannot exercise messaging's class. Security-sensitivity verified on behaviour: health.controller.ts:25-26 declares @Controller('health') on a subclass of StandardHealthController, which is @Public() @SkipThrottle() at libs/backend-common/src/health/standard-health.controller.ts:111-113, and Public() sets isPublic + skipTenantGuard metadata (libs/backend-common/src/decorators/roles.decorator.ts:149-157). The subclass adds Redis ping and NATS connect probe branches at health.controller.ts:57-78 that no test in the repository runs.\",\n      \"evidence_refs\": [\n        \"apps/messaging-service/src/health/health.controller.ts:6\",\n        \"apps/messaging-service/src/health/health.controller.ts:25\",\n        \"apps/messaging-service/src/health/health.controller.ts:26\",\n        \"apps/messaging-service/src/health/health.controller.ts:53\",\n        \"apps/messaging-service/src/health/health.controller.ts:57\",\n        \"apps/messaging-service/src/health/health.controller.ts:70\",\n        \"apps/messaging-service/src/health/health.module.ts:9\",\n        \"libs/backend-common/src/health/standard-health.controller.ts:111\",\n        \"libs/backend-common/src/health/standard-health.controller.ts:112\",\n        \"libs/backend-common/src/health/standard-health.controller.ts:113\",\n        \"libs/backend-common/src/decorators/roles.decorator.ts:149\",\n        \"libs/backend-common/src/decorators/roles.decorator.ts:156\",\n        \"libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:173\",\n        \"libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:246\",\n        \"apps/farm-service/src/health/__tests__/health.controller.spec.ts:12\",\n        \"apps/farm-service/src/health/__tests__/health.controller.spec.ts:152\",\n        \"tools/aria-adapters/test-gap-adapter.ts:271\",\n        \"tools/aria-adapters/test-gap-adapter.ts:272\",\n        \"tools/aria-adapters/test-gap-adapter.ts:296\",\n        \"tools/aria-adapters/test-gap-adapter.ts:190\"\n      ]\n    }\n  ],\n  \"evidence_refs\": [\n    \"apps/messaging-service/src/health/health.controller.ts\",\n    \"apps/messaging-service/src/health/health.controller.ts:6\",\n    \"apps/messaging-service/src/health/health.controller.ts:21\",\n    \"apps/...",
+    "claude_cli_usage": {
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 119778,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "cache_creation_input_tokens": 119778,
+      "cache_read_input_tokens": 2290676,
+      "inference_geo": "not_available",
+      "input_tokens": 46,
+      "iterations": [
+        {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 664,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 664,
+          "cache_read_input_tokens": 130793,
+          "input_tokens": 2,
+          "output_tokens": 5962,
+          "type": "message"
+        }
+      ],
+      "output_tokens": 34338,
+      "output_tokens_details": {
+        "thinking_tokens": 22717
+      },
+      "server_tool_use": {
+        "web_fetch_requests": 0,
+        "web_search_requests": 0
+      },
+      "service_tier": "standard",
+      "speed": "standard"
+    },
+    "excerpt_verification": "The untrusted excerpt (lines 1-84) was compared line-by-line against apps/messaging-service/src/health/health.controller.ts in the worktree at b8febe123 and matches exactly. The sha256 in the excerpt header could not be recomputed in this runtime (no shell tool is available), so the match is by content, not by digest.",
+    "identity_fields_note": "run_id, judgment_group_id, finding_fingerprint and prompt_hash are left null on purpose: the rendered prompt did not carry them, the kernel stamps them on the request row at mint (aria-kernel/aria_kernel/judge_fanout.py:239-246; aria-kernel/aria_kernel/agent_invocations.py:134), and the bridge reads the request first (aria-kernel/aria_kernel/judgment_bridge.py:208-210, 289, 296). tool_id is derived from the adapter source: the id prefix security-source-without-test: and rule security_source_without_security_test are emitted only by tools/aria-adapters/test-gap-adapter.ts:190-191, whose metadata.adapter and source_tool_id are 'test-gap-adapter'. claim_id is a placeholder the executor overwrites from its lease context (tools/aria-poc/ci_executor.py:2519-2526).",
+    "non_load_bearing_refs": "tests/e2e/v11-compat/forroutes-wildcard.e2e-spec.ts:340 was consulted; it is a comment inside a synthetic ExcludeModule test noting that messaging-service excludes 'health' from wildcard middleware. It corroborates the public-route intent but does not import or exercise messaging's HealthController, so it carries no weight in the verdict.",
+    "runtime_attempt_ledger_hash": "sha256:222bf8c8005d71bc4519fe04a7b00eee7516fe67b92c810e29c459d646e12bf3",
+    "verdict": {
+      "confidence": 0.84,
+      "evidence_refs": [
+        "apps/messaging-service/src/health/health.controller.ts:6",
+        "apps/messaging-service/src/health/health.controller.ts:25",
+        "apps/messaging-service/src/health/health.controller.ts:26",
+        "apps/messaging-service/src/health/health.controller.ts:53",
+        "apps/messaging-service/src/health/health.controller.ts:57",
+        "apps/messaging-service/src/health/health.controller.ts:70",
+        "apps/messaging-service/src/health/health.module.ts:9",
+        "libs/backend-common/src/health/standard-health.controller.ts:111",
+        "libs/backend-common/src/health/standard-health.controller.ts:112",
+        "libs/backend-common/src/health/standard-health.controller.ts:113",
+        "libs/backend-common/src/decorators/roles.decorator.ts:149",
+        "libs/backend-common/src/decorators/roles.decorator.ts:156",
+        "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:173",
+        "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:246",
+        "apps/farm-service/src/health/__tests__/health.controller.spec.ts:12",
+        "apps/farm-service/src/health/__tests__/health.controller.spec.ts:152",
+        "tools/aria-adapters/test-gap-adapter.ts:271",
+        "tools/aria-adapters/test-gap-adapter.ts:272",
+        "tools/aria-adapters/test-gap-adapter.ts:296",
+        "tools/aria-adapters/test-gap-adapter.ts:190"
+      ],
+      "finding_fingerprint": null,
+      "finding_id": "security-source-without-test:apps/messaging-service/src/health/health.controller.ts",
+      "judge_id": "aria-evidence-judge",
+      "judgment_group_id": null,
+      "model": "claude-opus-5",
+      "prompt_hash": null,
+      "rationale": "WHAT THE FINDING CLAIMS AND WHAT WAS CHECKED. The rule asserts two things: (1) the file is security-sensitive and (2) no adjacent or importing test exercises it. Claim (2) is structurally verified against the worktree at b8febe123: apps/messaging-service/src/health/ holds exactly two files (health.controller.ts and health.module.ts); the only importer of ./health.controller anywhere in the repository is apps/messaging-service/src/health/health.module.ts:9; no *.spec.ts under apps/messaging-service names HealthController; and the seven same-named HealthController specs in sibling services each import their own relative ../health.controller (e.g. apps/farm-service/src/health/__tests__/health.controller.spec.ts:12), so they cannot compile or exercise messaging's class. Under the adapter's own matcher (tools/aria-adapters/test-gap-adapter.ts:296-320: same basename, same directory, sibling __tests__, or a resolved import) the match set is empty, which is exactly the condition that emits this rule at lines 187-201. CLAIM (1): WHY THE FILE IS GENUINELY SECURITY-SENSITIVE, NOT A REGEX ACCIDENT. The classifier at test-gap-adapter.ts:271-272 fired on file text, not path: the only matches are the tokens @Public() and TenantGuard inside the JSDoc comment at health.controller.ts:6; the file writes no guard or auth decorator itself. That trigger is fragile, but the conclusion is correct on behaviour: line 25 declares @Controller('health') and line 26 extends StandardHealthController, which is decorated @Controller('health') @Public() @SkipThrottle() at libs/backend-common/src/health/standard-health.controller.ts:111-113. Public() sets the isPublic and skipTenantGuard metadata keys (libs/backend-common/src/decorators/roles.decorator.ts:149-157); NestJS reads class-level metadata through the prototype chain, so this subclass is the concrete registration of an unauthenticated, tenant-guard-bypassing, unthrottled HTTP surface inside messaging-service. On that surface it adds behaviour of its own: the Redis ping() and NATS connect() probes at lines 53-83, with four branches (provider absent -> key omitted; provider present and failing -> 'error') that no test in the repository executes. The parent's spec (libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:171-242) covers the generic getAdditionalChecks() merge with a synthetic subclass, not this one, and its decorator test at line 246 asserts only the route path, never IS_PUBLIC_KEY; the farm-service spec (lines 150-155) does the same. WHY IT MATTERS AND WHAT BREAKS IF SKIPPED. A public probe endpoint is one of the few surfaces reachable without a token, and it is also what the container orchestrator uses to decide whether to kill the pod or route traffic to it. A regression in this file \u2014 an error escaping the try/catch, a wrong aggregation, or a class-level decorator that re-arms a guard or throttle \u2014 would either take messaging-service out of rotation or change what an anonymous caller can learn about Redis/NATS topology, and CI would stay green because nothing imports this class. Downstream surface: messaging-service liveness/readiness plus the anonymous information-disclosure boundary. CALIBRATION. Confidence is 0.84 rather than higher because the classifier matched a comment rather than code (the same gap in a sibling lacking that comment would go undetected \u2014 a precision defect in the adapter, not in this finding); the rule's matcher accepts any adjacent test, so the name 'security test' overstates what it measures; and dedicated health specs exist for seven of the fifteen apps/*/src/health/health.controller.ts files, so messaging is one of eight sharing this gap rather than a lone regression. None of these makes the finding false. CORRECT PATH (architectural tier 3, make it detectable). Add apps/messaging-service/src/health/__tests__/health.controller.spec.ts in the shape of apps/farm-service/src/health/__tests__/health.controller.spec.ts, providing mocks for DataSource, REDIS_CLIENT and NATS_SERVICE, and asserting: 200/'ok' when every check passes; 200/'degraded' with redis:'error' when ping() rejects; 200/'degraded' with nats:'error' when connect() rejects; the redis and nats keys absent when the optional providers are not injected; 503/'not_ready' when every check fails; Reflect.getMetadata('path', HealthController) === 'health'; and Reflect.getMetadata(IS_PUBLIC_KEY, HealthController) === true so the inherited public posture becomes an explicit, pinned security assertion. Do not add the file to the adapter allowlist \u2014 that would suppress the signal instead of closing the gap.",
+      "run_id": null,
+      "severity": "high",
+      "tool_id": "test-gap-adapter",
+      "verdict": "true_positive"
+    }
+  },
+  "evidence_refs": [
+    "apps/messaging-service/src/health/health.controller.ts",
+    "apps/messaging-service/src/health/health.controller.ts:6",
+    "apps/messaging-service/src/health/health.controller.ts:21",
+    "apps/messaging-service/src/health/health.controller.ts:25",
+    "apps/messaging-service/src/health/health.controller.ts:26",
+    "apps/messaging-service/src/health/health.controller.ts:53",
+    "apps/messaging-service/src/health/health.controller.ts:57",
+    "apps/messaging-service/src/health/health.controller.ts:59",
+    "apps/messaging-service/src/health/health.controller.ts:65",
+    "apps/messaging-service/src/health/health.controller.ts:70",
+    "apps/messaging-service/src/health/health.controller.ts:72",
+    "apps/messaging-service/src/health/health.controller.ts:78",
+    "apps/messaging-service/src/health/health.module.ts:9",
+    "apps/messaging-service/src/health/health.module.ts:13",
+    "libs/backend-common/src/health/standard-health.controller.ts:111",
+    "libs/backend-common/src/health/standard-health.controller.ts:112",
+    "libs/backend-common/src/health/standard-health.controller.ts:113",
+    "libs/backend-common/src/health/standard-health.controller.ts:242",
+    "libs/backend-common/src/decorators/roles.decorator.ts:149",
+    "libs/backend-common/src/decorators/roles.decorator.ts:154",
+    "libs/backend-common/src/decorators/roles.decorator.ts:156",
+    "libs/backend-common/src/decorators/roles.decorator.ts:157",
+    "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:171",
+    "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:173",
+    "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:244",
+    "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:246",
+    "apps/farm-service/src/health/__tests__/health.controller.spec.ts:12",
+    "apps/farm-service/src/health/__tests__/health.controller.spec.ts:106",
+    "apps/farm-service/src/health/__tests__/health.controller.spec.ts:150",
+    "apps/farm-service/src/health/__tests__/health.controller.spec.ts:152",
+    "tools/aria-adapters/test-gap-adapter.ts:141",
+    "tools/aria-adapters/test-gap-adapter.ts:168",
+    "tools/aria-adapters/test-gap-adapter.ts:187",
+    "tools/aria-adapters/test-gap-adapter.ts:190",
+    "tools/aria-adapters/test-gap-adapter.ts:194",
+    "tools/aria-adapters/test-gap-adapter.ts:270",
+    "tools/aria-adapters/test-gap-adapter.ts:271",
+    "tools/aria-adapters/test-gap-adapter.ts:272",
+    "tools/aria-adapters/test-gap-adapter.ts:296",
+    "tools/aria-adapters/test-gap-adapter.ts:322",
+    "tests/e2e/v11-compat/forroutes-wildcard.e2e-spec.ts:340"
+  ],
+  "request_id": "AIR-aria-evidence-judge-e340d37a0d97",
+  "role": "evidence_judgment",
+  "satisfaction_matrix": [
+    {
+      "evidence_refs": [
+        "apps/messaging-service/src/health/health.controller.ts:6",
+        "apps/messaging-service/src/health/health.controller.ts:25",
+        "apps/messaging-service/src/health/health.controller.ts:26",
+        "apps/messaging-service/src/health/health.controller.ts:53",
+        "apps/messaging-service/src/health/health.controller.ts:57",
+        "apps/messaging-service/src/health/health.controller.ts:70",
+        "apps/messaging-service/src/health/health.module.ts:9",
+        "libs/backend-common/src/health/standard-health.controller.ts:111",
+        "libs/backend-common/src/health/standard-health.controller.ts:112",
+        "libs/backend-common/src/health/standard-health.controller.ts:113",
+        "libs/backend-common/src/decorators/roles.decorator.ts:149",
+        "libs/backend-common/src/decorators/roles.decorator.ts:156",
+        "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:173",
+        "libs/backend-common/src/health/__tests__/standard-health.controller.spec.ts:246",
+        "apps/farm-service/src/health/__tests__/health.controller.spec.ts:12",
+        "apps/farm-service/src/health/__tests__/health.controller.spec.ts:152",
+        "tools/aria-adapters/test-gap-adapter.ts:271",
+        "tools/aria-adapters/test-gap-adapter.ts:272",
+        "tools/aria-adapters/test-gap-adapter.ts:296",
+        "tools/aria-adapters/test-gap-adapter.ts:190"
+      ],
+      "id": "verdict",
+      "note": "true_positive. Absence verified: apps/messaging-service/src/health/ contains only health.controller.ts and health.module.ts; the sole importer of ./health.controller is health.module.ts:9; no *.spec.ts under apps/messaging-service names HealthController; the seven sibling HealthController specs each import their own ../health.controller (e.g. apps/farm-service/src/health/__tests__/health.controller.spec.ts:12) and cannot exercise messaging's class. Security-sensitivity verified on behaviour: health.controller.ts:25-26 declares @Controller('health') on a subclass of StandardHealthController, which is @Public() @SkipThrottle() at libs/backend-common/src/health/standard-health.controller.ts:111-113, and Public() sets isPublic + skipTenantGuard metadata (libs/backend-common/src/decorators/roles.decorator.ts:149-157). The subclass adds Redis ping and NATS connect probe branches at health.controller.ts:57-78 that no test in the repository runs.",
+      "verdict": "satisfied"
+    }
+  ],
+  "status": "submitted"
+}

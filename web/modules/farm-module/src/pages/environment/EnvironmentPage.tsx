@@ -7,6 +7,7 @@ import {
   type DataTableColumn,
   useCanMutate,
   useI18n,
+  Select,
 } from '@aquaculture/shared-ui';
 
 import {
@@ -820,20 +821,18 @@ const EnvironmentPage: React.FC = () => {
             actions={
               <label className="block min-w-64 text-sm font-medium text-gray-700 dark:text-gray-300">
                 Sea-cage site
-                <select
+                <Select
                   aria-label="Sea-cage site"
                   value={selectedSite.id}
                   onChange={(event) => {
                     navigate(`/sites/environment/${encodeURIComponent(event.target.value)}`);
                   }}
-                  className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-info-500 focus:outline-none focus:ring-2 focus:ring-info-500"
-                >
-                  {eligibleSites.map((site) => (
-                    <option key={site.id} value={site.id}>
-                      {site.name} ({site.code})
-                    </option>
-                  ))}
-                </select>
+                  className="mt-1 [&_select]:min-h-10"
+                  options={eligibleSites.map((site) => ({
+                    value: site.id,
+                    label: `${site.name} (${site.code})`,
+                  }))}
+                />
               </label>
             }
           />
@@ -925,31 +924,30 @@ const EnvironmentPage: React.FC = () => {
               <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 sm:grid-cols-2">
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Metric
-                  <select
+                  <Select
                     aria-label="History metric"
                     value={activeHistoryMetric}
                     onChange={(event) => setSelectedHistoryMetric(event.target.value)}
                     disabled={historyMetricOptions.length === 0}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
-                  >
-                    {historyMetricOptions.map((metric) => (
-                      <option key={metric} value={metric}>
-                        {metricLabel(metric, layers)}
-                      </option>
-                    ))}
-                  </select>
+                    className="mt-1 [&_select]:min-h-10"
+                    options={historyMetricOptions.map((metric) => ({
+                      value: metric,
+                      label: metricLabel(metric, layers),
+                    }))}
+                  />
                 </label>
                 <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Period
-                  <select
+                  <Select
                     aria-label="History period"
                     value={historyDays}
                     onChange={(event) => setHistoryDays(event.target.value === '7' ? 7 : 30)}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
-                  >
-                    <option value={7}>Last 7 days</option>
-                    <option value={30}>Last 30 days</option>
-                  </select>
+                    className="mt-1 [&_select]:min-h-10"
+                    options={[
+                      { value: 7, label: 'Last 7 days' },
+                      { value: 30, label: 'Last 30 days' },
+                    ]}
+                  />
                 </label>
               </div>
               {historyMetricOptions.length === 0 ? (
@@ -972,19 +970,17 @@ const EnvironmentPage: React.FC = () => {
               <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
                 <label className="block max-w-md text-sm font-medium text-gray-700 dark:text-gray-300">
                   Metric
-                  <select
+                  <Select
                     aria-label="Forecast metric"
                     value={activeForecastMetric}
                     onChange={(event) => setSelectedForecastMetric(event.target.value)}
                     disabled={forecastMetricOptions.length === 0}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
-                  >
-                    {forecastMetricOptions.map((metric) => (
-                      <option key={metric} value={metric}>
-                        {metricLabel(metric, layers)}
-                      </option>
-                    ))}
-                  </select>
+                    className="mt-1 [&_select]:min-h-10"
+                    options={forecastMetricOptions.map((metric) => ({
+                      value: metric,
+                      label: metricLabel(metric, layers),
+                    }))}
+                  />
                 </label>
                 <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                   Forecast horizon is capped at seven days. Copernicus Marine values are model
@@ -1020,34 +1016,30 @@ const EnvironmentPage: React.FC = () => {
                   <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 lg:grid-cols-2">
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       Satellite layer
-                      <select
+                      <Select
                         aria-label="Satellite layer"
                         value={selectedLayer?.id ?? ''}
                         onChange={(event) => setSelectedLayerId(event.target.value)}
-                        className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
-                      >
-                        {imageryLayers.map((layer) => (
-                          <option key={layer.id} value={layer.id}>
-                            {layer.name}
-                          </option>
-                        ))}
-                      </select>
+                        className="mt-1 [&_select]:min-h-10"
+                        options={imageryLayers.map((layer) => ({
+                          value: layer.id,
+                          label: layer.name,
+                        }))}
+                      />
                     </label>
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       Real acquisition
-                      <select
+                      <Select
                         aria-label="Sentinel scene"
                         value={selectedScene?.sceneId ?? ''}
                         onChange={(event) => setSelectedSceneId(event.target.value)}
                         disabled={scenes.length === 0}
-                        className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
-                      >
-                        {scenes.map((scene) => (
-                          <option key={scene.id} value={scene.sceneId}>
-                            {sceneLabel(scene)}
-                          </option>
-                        ))}
-                      </select>
+                        className="mt-1 [&_select]:min-h-10"
+                        options={scenes.map((scene) => ({
+                          value: scene.sceneId,
+                          label: sceneLabel(scene),
+                        }))}
+                      />
                     </label>
                   </div>
 

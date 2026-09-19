@@ -60,7 +60,18 @@ The V10.3-A 5-cycle smoke runs in Mode B (acceptable — dry-run, no merges). Th
 
 ### 4. Configure environment
 
-Append to `/root/.config/gh/environment.sh` (the file the operator's session already sources):
+**The lanes (2026-09-18):** `aria-auto-cycle.yml` and `aria-agent-executor.yml`
+read the App from the repository secrets `ARIA_GH_APP_ID`,
+`ARIA_GH_APP_INSTALLATION_ID` and `ARIA_GH_APP_PRIVATE_KEY` (set 2026-08-23):
+each self-hosted job materialises the private key in its own `RUNNER_TEMP`
+for the job's duration and exports `ARIA_GH_APP_PRIVATE_KEY_PATH`; nothing is
+written to the runner's disk and no runner-side variable is needed. Absent
+secrets leave Mode B in force, by name, in the step's own output
+(ARIA-MEDIUM-156: the secrets existed for 26 days and no lane ever received
+them).
+
+**An operator session** that runs the kernel by hand appends to
+`/root/.config/gh/environment.sh` (the file the session already sources):
 
 ```bash
 # Plan ARIA-V9.0-C GitHub App credentials (runbook docs/runbooks/aria-github-app-setup.md)
@@ -75,6 +86,10 @@ export ARIA_GH_APP_PRIVATE_KEY_PATH="$HOME/.config/aria/gh-app-private-key.pem"
 ```
 
 ### 5. Add the required branch protection rules on `snowball`
+
+> **Stale (2026-09-18):** ARIA's implementation PRs target `main`; `snowball`
+> was an earlier staging target. Do not create this rule; the protection that
+> applies is `main`'s (`aria-merge-authority.yml`, ARIA-HIGH-137 D1).
 
 The V9.0-C preflight (`aria_kernel/preflight.py`) asserts 4 rules on `snowball` before allowing the autonomous profile. Configure via the GitHub UI:
 

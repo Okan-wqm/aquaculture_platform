@@ -8,7 +8,7 @@
  */
 
 import React from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import { Shield, ShieldCheck, RefreshCw, AlertCircle, Check, Minus } from 'lucide-react';
 import { useUserEffectivePermissions } from '../../hooks/useTenantData';
 import { sanitizeErrorMessage } from '../../utils/error-handling';
@@ -232,13 +232,7 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-          >
-            Close
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Close</Button>
         </div>
     </Modal>
   );

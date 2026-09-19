@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircle, XCircle } from 'lucide-react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import type { DisplayModule } from './ModuleCard';
 
 /**
@@ -29,13 +29,7 @@ const ModuleDetailsModal: React.FC<{
       description={module.code}
       bodyClassName="px-6 py-4 space-y-4"
       footer={
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        >
-          Close
-        </button>
+        <Button variant="ghost" type="button" onClick={onClose}>Close</Button>
       }
     >
       <div>

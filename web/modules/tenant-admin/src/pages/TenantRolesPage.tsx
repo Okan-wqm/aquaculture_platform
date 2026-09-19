@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useMemo, memo } from 'react';
-import { Modal, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, PageHeader, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { Shield, Plus, Trash2, RefreshCw, AlertCircle, Check, Star, Palette } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
@@ -197,29 +197,14 @@ const RoleModal = memo<RoleModalProps>(({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Role Name *
                 </label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={handleNameChange}
-                  placeholder="e.g., Supervisor, Technician"
-                  required
-                  disabled={role?.isSystem}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
-                />
+                <Input fullWidth type="text" value={formData.name} onChange={handleNameChange} placeholder="e.g., Supervisor, Technician" required disabled={role?.isSystem} />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Priority Level
                 </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="100"
-                  value={formData.level}
-                  onChange={handleLevelChange}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500"
-                />
+                <Input fullWidth type="number" min="1" max="100" value={formData.level} onChange={handleLevelChange} />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Higher = more authority (1-100)
                 </p>
@@ -230,13 +215,7 @@ const RoleModal = memo<RoleModalProps>(({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Description
               </label>
-              <textarea
-                value={formData.description}
-                onChange={handleDescriptionChange}
-                placeholder="Describe what this role is for..."
-                rows={2}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 resize-none"
-              />
+              <Textarea fullWidth value={formData.description} onChange={handleDescriptionChange} placeholder="Describe what this role is for..." rows={2} />
             </div>
 
             {/* Color Selection */}
@@ -303,19 +282,8 @@ const RoleModal = memo<RoleModalProps>(({
               </p>
             )}
             <div className="flex items-center gap-3 ml-auto">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSubmitDisabled}
-                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isLoading ? (
+              <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+              <Button variant="primary" type="submit" disabled={isSubmitDisabled}>{isLoading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     Saving...
@@ -325,8 +293,7 @@ const RoleModal = memo<RoleModalProps>(({
                     <Check className="w-4 h-4" />
                     {isEditing ? 'Update Role' : 'Create Role'}
                   </>
-                )}
-              </button>
+                )}</Button>
             </div>
           </div>
         </form>
@@ -403,26 +370,15 @@ const DeleteModal = memo<DeleteModalProps>(({
         )}
 
         <div className="mt-6 flex items-center justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isLoading || hasActiveHolders}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {isLoading ? (
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="danger" onClick={onConfirm} disabled={isLoading || hasActiveHolders}>{isLoading ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 Deleting...
               </>
             ) : (
               'Delete Role'
-            )}
-          </button>
+            )}</Button>
         </div>
     </Modal>
   );
@@ -552,13 +508,7 @@ const TenantRolesPage: React.FC = () => {
         description="Define custom roles with granular permission control"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={handleRefresh} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
             {/* RBAC-HIGH-004: seed + create require the roles:create capability.
                 RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
                 on a query error `roles` is just the [] default, and offering a
@@ -566,26 +516,14 @@ const TenantRolesPage: React.FC = () => {
             {canCreateRoles && (
               <>
                 {!error && roles.length === 0 && (
-                  <button
-                    onClick={handleSeedRoles}
-                    disabled={seedMutation.isPending}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                  >
-                    {seedMutation.isPending ? (
+                  <Button variant="secondary" onClick={handleSeedRoles} disabled={seedMutation.isPending}>{seedMutation.isPending ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
                     ) : (
                       <Shield className="w-4 h-4" />
                     )}
-                    Seed Default Roles
-                  </button>
+                    Seed Default Roles</Button>
                 )}
-                <button
-                  onClick={handleOpenCreate}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  Create Role
-                </button>
+                <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={handleOpenCreate}>Create Role</Button>
               </>
             )}
           </div>
@@ -602,12 +540,7 @@ const TenantRolesPage: React.FC = () => {
             </p>
             <p className="text-sm text-red-600">{(error as Error).message}</p>
           </div>
-          <button
-            onClick={() => refetch()}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+          <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 
@@ -640,25 +573,13 @@ const TenantRolesPage: React.FC = () => {
           {/* RBAC-HIGH-004: seed + create require the roles:create capability. */}
           {canCreateRoles && (
             <div className="mt-6 flex items-center justify-center gap-3">
-              <button
-                onClick={handleSeedRoles}
-                disabled={seedMutation.isPending}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                {seedMutation.isPending ? (
+              <Button variant="secondary" onClick={handleSeedRoles} disabled={seedMutation.isPending}>{seedMutation.isPending ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
                 ) : (
                   <Shield className="w-4 h-4" />
                 )}
-                Seed Default Roles
-              </button>
-              <button
-                onClick={handleOpenCreate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Create Role
-              </button>
+                Seed Default Roles</Button>
+              <Button variant="primary" leftIcon={<Plus className="w-4 h-4" />} onClick={handleOpenCreate}>Create Role</Button>
             </div>
           )}
         </div>

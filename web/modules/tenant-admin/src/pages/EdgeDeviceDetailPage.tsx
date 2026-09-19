@@ -29,7 +29,7 @@ import {
 } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
-import { Modal, useAuthContext, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext, PageHeader, Button, Textarea } from '@aquaculture/shared-ui';
 
 type TabId = 'overview' | 'io-config' | 'automation' | 'events';
 
@@ -63,30 +63,16 @@ const DecommissionModal: React.FC<{
       bodyClassName="p-6"
       footer={
         <>
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
-            Cancel
-          </button>
-          <button
-            onClick={() => reason.trim() && onConfirm(reason.trim())}
-            disabled={!reason.trim() || loading}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50"
-          >
-            {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
-            Decommission
-          </button>
+          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="danger" onClick={() => reason.trim() && onConfirm(reason.trim())} disabled={!reason.trim() || loading}>{loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+            Decommission</Button>
         </>
       }
     >
       <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
         Please provide a reason for decommissioning this device.
       </p>
-      <textarea
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-        placeholder="Reason for decommissioning..."
-        rows={3}
-        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
-      />
+      <Textarea fullWidth value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for decommissioning..." rows={3} />
     </Modal>
   );
 };
@@ -119,17 +105,9 @@ const RebootConfirmModal: React.FC<{
       bodyClassName="p-6"
       footer={
         <>
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-lg hover:bg-amber-700 disabled:opacity-50"
-          >
-            {loading && <RefreshCw className="w-4 h-4 animate-spin" />}
-            Reboot
-          </button>
+          <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="warning" onClick={onConfirm} disabled={loading}>{loading && <RefreshCw className="w-4 h-4 animate-spin" />}
+            Reboot</Button>
         </>
       }
     >
@@ -209,9 +187,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
     return (
       <div className="p-6 text-center">
         <p className="text-gray-500 dark:text-gray-400">Device not found</p>
-        <button onClick={() => navigate('/tenant/devices')} className="mt-2 text-indigo-600 hover:text-indigo-700 font-medium text-sm">
-          Back to devices
-        </button>
+        <Button variant="ghost" className="mt-2" onClick={() => navigate('/tenant/devices')}>Back to devices</Button>
       </div>
     );
   }
@@ -248,12 +224,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         description={<>{device.deviceCode} · {device.deviceModel} · {device.lifecycleState.replace(/_/g, ' ')}</>}
         leading={
           <>
-            <button
-              onClick={() => navigate('/tenant/devices')}
-              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Back" onClick={() => navigate('/tenant/devices')}><ArrowLeft className="w-5 h-5" /></Button>
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${device.isOnline ? 'bg-emerald-100' : 'bg-gray-100 dark:bg-gray-800'}`}>
               <Cpu className={`w-6 h-6 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500 dark:text-gray-400'}`} />
             </div>
@@ -262,32 +233,11 @@ const EdgeDeviceDetailPage: React.FC = () => {
         actions={
           <div className="flex items-center gap-2">
             {device.lifecycleState === 'pending_approval' && (
-              <button
-                onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })}
-                disabled={!!actionLoading}
-                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                {actionLoading === 'approve' ? 'Approving...' : 'Approve'}
-              </button>
+              <Button variant="primary" size="sm" leftIcon={<CheckCircle2 className="w-4 h-4" />} onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })} disabled={!!actionLoading}>{actionLoading === 'approve' ? 'Approving...' : 'Approve'}</Button>
             )}
-            <button
-              onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })}
-              disabled={!!actionLoading}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium disabled:opacity-50"
-            >
-              <Play className="w-4 h-4" />
-              Ping
-            </button>
+            <Button variant="secondary" size="sm" leftIcon={<Play className="w-4 h-4" />} onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })} disabled={!!actionLoading}>Ping</Button>
             {isTenantAdmin && (
-              <button
-                onClick={() => setShowRebootModal(true)}
-                disabled={!!actionLoading}
-                className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium disabled:opacity-50"
-              >
-                <RotateCcw className="w-4 h-4" />
-                Reboot
-              </button>
+              <Button variant="secondary" size="sm" leftIcon={<RotateCcw className="w-4 h-4" />} onClick={() => setShowRebootModal(true)} disabled={!!actionLoading}>Reboot</Button>
             )}
           </div>
         }
@@ -385,26 +335,12 @@ const EdgeDeviceDetailPage: React.FC = () => {
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">İşlemler</h3>
             <div className="flex flex-wrap gap-3">
-              <button
-                onClick={() => {
+              <Button variant="secondary" size="sm" leftIcon={<Shield className="w-4 h-4" />} onClick={() => {
                   const enabled = device.lifecycleState !== 'maintenance';
                   runAction('maintenance', MAINTENANCE_DEVICE_MUTATION, { id: device.id, enabled });
-                }}
-                disabled={!!actionLoading}
-                className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-sm disabled:opacity-50"
-              >
-                <Shield className="w-4 h-4" />
-                {device.lifecycleState === 'maintenance' ? 'Exit Maintenance' : 'Maintenance Mode'}
-              </button>
+                }} disabled={!!actionLoading}>{device.lifecycleState === 'maintenance' ? 'Exit Maintenance' : 'Maintenance Mode'}</Button>
               {isTenantAdmin && (
-                <button
-                  onClick={() => setShowDecommissionModal(true)}
-                  disabled={!!actionLoading || device.lifecycleState === 'decommissioned'}
-                  className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm disabled:opacity-50"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Decommission
-                </button>
+                <Button variant="secondary" size="sm" leftIcon={<Trash2 className="w-4 h-4" />} onClick={() => setShowDecommissionModal(true)} disabled={!!actionLoading || device.lifecycleState === 'decommissioned'}>Decommission</Button>
               )}
             </div>
           </div>
@@ -447,9 +383,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Device Events</h3>
-            <button onClick={() => refetchEvents()} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
-              Refresh
-            </button>
+            <Button variant="ghost" size="xs" onClick={() => refetchEvents()}>Refresh</Button>
           </div>
           {events.length > 0 ? (
             <div className="space-y-2">

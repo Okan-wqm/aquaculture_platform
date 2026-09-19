@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button, Input } from '@aquaculture/shared-ui';
 import { User, Mail, Phone, Shield, RefreshCw, Check, AlertCircle } from 'lucide-react';
 import type { TenantRole } from '../../hooks/useTenantRoles';
 
@@ -250,18 +250,12 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                 <Phone className="w-4 h-4 inline mr-1" />
                 Phone Number
               </label>
-              <input
-                type="tel"
-                value={formData.phoneNumber}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    phoneNumber: e.target.value,
-                  }))
-                }
-                placeholder="+90 555 123 4567"
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500"
-              />
+              <Input fullWidth type="tel" value={formData.phoneNumber} onChange={(e) =>
+         setFormData((prev) => ({
+          ...prev,
+          phoneNumber: e.target.value,
+         }))
+        } placeholder="+90 555 123 4567" />
             </div>
 
             {/* Role Selection */}
@@ -386,19 +380,8 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
               </p>
             )}
             <div className="flex items-center gap-3 ml-auto">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isLoading || (!isEditing && roles.length === 0 && !rolesLoading)}
-                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isLoading ? (
+              <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+              <Button variant="primary" type="submit" disabled={isLoading || (!isEditing && roles.length === 0 && !rolesLoading)}>{isLoading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
                     {isEditing ? 'Updating...' : 'Creating...'}
@@ -417,8 +400,7 @@ export const AddEditUserModal: React.FC<AddEditUserModalProps> = ({
                       </>
                     )}
                   </>
-                )}
-              </button>
+                )}</Button>
             </div>
           </div>
         </form>

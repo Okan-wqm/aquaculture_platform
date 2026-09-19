@@ -5,7 +5,7 @@
 
 import React, { useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Button } from '@aquaculture/shared-ui';
 import { getWeekMonday, formatDateISO } from '../../hooks/useScheduling';
 
 interface WeekNavigatorProps {
@@ -71,13 +71,7 @@ export function WeekNavigator({
 
   return (
     <nav className={cn('flex items-center gap-2', className)} aria-label="Hafta gezinme">
-      <button
-        onClick={goToPrevWeek}
-        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-        aria-label="Onceki hafta"
-      >
-        <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
-      </button>
+      <Button variant="ghost" iconOnly onClick={goToPrevWeek} aria-label="Onceki hafta"><ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" /></Button>
 
       <div
         className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg min-w-[280px]"
@@ -93,22 +87,10 @@ export function WeekNavigator({
         </div>
       </div>
 
-      <button
-        onClick={goToNextWeek}
-        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-        aria-label="Sonraki hafta"
-      >
-        <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
-      </button>
+      <Button variant="ghost" iconOnly onClick={goToNextWeek} aria-label="Sonraki hafta"><ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" /></Button>
 
       {!isThisWeek && (
-        <button
-          onClick={goToThisWeek}
-          className="ml-2 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-          aria-label="Bu haftaya don"
-        >
-          Bugune don
-        </button>
+        <Button variant="ghost" size="xs" className="ml-2" onClick={goToThisWeek} aria-label="Bu haftaya don">Bugune don</Button>
       )}
     </nav>
   );

@@ -14,7 +14,7 @@ import {
   XCircle,
   Eye,
 } from 'lucide-react';
-import { cn, Modal, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { cn, Modal, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,
@@ -136,41 +136,21 @@ export function LeavesPage() {
         <div className="flex items-center justify-end gap-2">
           {row.status === ('PENDING' as LeaveRequestStatus) && activeTab === 'pending' && (
             <>
-              <button
-                onClick={(e) => {
+              <Button variant="ghost" size="sm" iconOnly aria-label="Approve" onClick={(e) => {
                   e.stopPropagation();
                   approveMutation.mutate({ id: row.id });
-                }}
-                disabled={approveMutation.isPending}
-                className="rounded p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
-                title="Approve"
-              >
-                <CheckCircle className="h-4 w-4" />
-              </button>
-              <button
-                onClick={(e) => {
+                }} disabled={approveMutation.isPending} title="Approve"><CheckCircle className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="sm" iconOnly aria-label="Reject" onClick={(e) => {
                   e.stopPropagation();
                   setRejectingId(row.id);
                   setRejectReason('');
-                }}
-                disabled={rejectMutation.isPending}
-                className="rounded p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                title="Reject"
-              >
-                <XCircle className="h-4 w-4" />
-              </button>
+                }} disabled={rejectMutation.isPending} title="Reject"><XCircle className="h-4 w-4" /></Button>
             </>
           )}
-          <button
-            onClick={(e) => {
+          <Button variant="ghost" size="sm" iconOnly aria-label="View Details" onClick={(e) => {
               e.stopPropagation();
               // Open detail modal
-            }}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
-            title="View Details"
-          >
-            <Eye className="h-4 w-4" />
-          </button>
+            }} title="View Details"><Eye className="h-4 w-4" /></Button>
         </div>
       ),
     },
@@ -225,38 +205,18 @@ export function LeavesPage() {
           bodyClassName="p-6"
           footer={
             <>
-              <button
-                type="button"
-                onClick={closeRejectModal}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:ring-gray-600"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmReject}
-                disabled={!rejectReason.trim() || rejectMutation.isPending}
-                className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {rejectMutation.isPending && (
+              <Button variant="ghost" type="button" onClick={closeRejectModal}>Cancel</Button>
+              <Button variant="danger" onClick={handleConfirmReject} disabled={!rejectReason.trim() || rejectMutation.isPending}>{rejectMutation.isPending && (
                   <Spinner size="sm" color="white" />
                 )}
-                Confirm Rejection
-              </button>
+                Confirm Rejection</Button>
             </>
           }
         >
           <label htmlFor="leave-reject-reason" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Reason <span className="text-red-500">*</span>
           </label>
-          <textarea
-            id="leave-reject-reason"
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.target.value)}
-            rows={3}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-hidden focus:ring-1 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            placeholder="Enter the reason for rejection..."
-            autoFocus
-          />
+          <Textarea fullWidth id="leave-reject-reason" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="Enter the reason for rejection..." autoFocus />
         </Modal>
       )}
       {/* Header */}
@@ -264,10 +224,7 @@ export function LeavesPage() {
         title="Leave Management"
         description="Track and manage employee leave requests"
         actions={
-          <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto">
-            <Plus className="h-4 w-4" />
-            New Request
-          </button>
+          <Button variant="primary" className="justify-center sm:w-auto" leftIcon={<Plus className="h-4 w-4" />}>New Request</Button>
         }
       />
 
@@ -350,18 +307,7 @@ export function LeavesPage() {
               <label htmlFor="leave-filter-status" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Status
               </label>
-              <select
-                id="leave-filter-status"
-                value={filter.status || ''}
-                onChange={(e) => handleFilterChange('status', e.target.value as LeaveRequestStatus)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              >
-                <option value="">All Statuses</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-                <option value="cancelled">Cancelled</option>
-              </select>
+              <Select fullWidth options={[{ value: '', label: 'All Statuses' }, { value: 'pending', label: 'Pending' }, { value: 'approved', label: 'Approved' }, { value: 'rejected', label: 'Rejected' }, { value: 'cancelled', label: 'Cancelled' }]} id="leave-filter-status" value={filter.status || ''} onChange={(e) => handleFilterChange('status', e.target.value as LeaveRequestStatus)} />
             </div>
 
             <div>
@@ -387,36 +333,19 @@ export function LeavesPage() {
               <label htmlFor="leave-filter-startDate" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 Start Date
               </label>
-              <input
-                id="leave-filter-startDate"
-                type="date"
-                value={filter.startDate || ''}
-                onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
+              <Input fullWidth id="leave-filter-startDate" type="date" value={filter.startDate || ''} onChange={(e) => handleFilterChange('startDate', e.target.value)} />
             </div>
 
             <div>
               <label htmlFor="leave-filter-endDate" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                 End Date
               </label>
-              <input
-                id="leave-filter-endDate"
-                type="date"
-                value={filter.endDate || ''}
-                onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
+              <Input fullWidth id="leave-filter-endDate" type="date" value={filter.endDate || ''} onChange={(e) => handleFilterChange('endDate', e.target.value)} />
             </div>
           </div>
 
           <div className="mt-4 flex justify-end">
-            <button
-              onClick={() => setFilter({})}
-              className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-            >
-              Clear all filters
-            </button>
+            <Button variant="ghost" onClick={() => setFilter({})}>Clear all filters</Button>
           </div>
         </div>
       )}

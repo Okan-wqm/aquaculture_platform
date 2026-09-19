@@ -1,4 +1,5 @@
 import React from 'react';
+import { Button, Badge } from '@aquaculture/shared-ui';
 import {
   Users,
   CheckCircle,
@@ -51,36 +52,18 @@ export interface ModuleUsageStatLocal {
  * Status badge component.
  */
 const StatusBadge: React.FC<{ status: DisplayModule['status'] }> = ({ status }) => {
+  // FE-HIGH-079: one badge scale — active is success, pending is warning, inactive is neutral.
   const statusConfig = {
-    active: {
-      bg: 'bg-green-100',
-      text: 'text-green-700',
-      icon: <CheckCircle className="w-3 h-3" />,
-      label: 'Active',
-    },
-    inactive: {
-      bg: 'bg-gray-100 dark:bg-gray-800',
-      text: 'text-gray-700 dark:text-gray-300',
-      icon: <XCircle className="w-3 h-3" />,
-      label: 'Inactive',
-    },
-    pending: {
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-700',
-      icon: <Clock className="w-3 h-3" />,
-      label: 'Pending Setup',
-    },
+    active: { variant: 'success' as const, icon: <CheckCircle className="w-3 h-3" />, label: 'Active' },
+    inactive: { variant: 'default' as const, icon: <XCircle className="w-3 h-3" />, label: 'Inactive' },
+    pending: { variant: 'warning' as const, icon: <Clock className="w-3 h-3" />, label: 'Pending Setup' },
   };
-
   const config = statusConfig[status];
-
   return (
-    <span
-      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${config.bg} ${config.text}`}
-    >
+    <Badge variant={config.variant} size="sm" className="gap-1">
       {config.icon}
       {config.label}
-    </span>
+    </Badge>
   );
 };
 
@@ -123,9 +106,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
               <StatusBadge status={module.status} />
             </div>
           </div>
-          <button className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-            <MoreVertical className="w-4 h-4" />
-          </button>
+          <Button variant="ghost" size="sm" iconOnly aria-label="More actions"><MoreVertical className="w-4 h-4" /></Button>
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-3 line-clamp-2">
           {module.description}
@@ -206,21 +187,10 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
                 <p className="text-xs text-gray-500 dark:text-gray-400">{module.manager.email}</p>
               </div>
             </div>
-            <button
-              onClick={() => onAssignManager(module)}
-              className="text-xs text-green-600 hover:text-green-700 font-medium"
-            >
-              Change
-            </button>
+            <Button variant="ghost" size="xs" onClick={() => onAssignManager(module)}>Change</Button>
           </div>
         ) : (
-          <button
-            onClick={() => onAssignManager(module)}
-            className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
-          >
-            <UserPlus className="w-4 h-4" />
-            Assign Manager
-          </button>
+          <Button variant="secondary" className="mt-3 justify-center" leftIcon={<UserPlus className="w-4 h-4" />} onClick={() => onAssignManager(module)}>Assign Manager</Button>
         )}
       </div>
 
@@ -253,13 +223,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
           View Details
         </button>
         {canOpen ? (
-          <button
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-            onClick={() => onOpenModule(module)}
-            title={`${module.name} Dashboard'a git`}
-          >
-            <ExternalLink className="w-4 h-4" />
-          </button>
+          <Button variant="primary" iconOnly aria-label="Open" className="justify-center" onClick={() => onOpenModule(module)} title={`${module.name} Dashboard'a git`}><ExternalLink className="w-4 h-4" /></Button>
         ) : (
           <button
             className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg cursor-not-allowed"

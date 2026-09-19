@@ -18,7 +18,7 @@ import {
   FileText,
   TrendingUp,
 } from 'lucide-react';
-import { cn, Modal, useAuth, useConfirm, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { cn, Modal, useAuth, useConfirm, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Spinner, PageHeader, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
   usePendingPayrolls,
@@ -188,23 +188,11 @@ function CreatePayrollModal({
       bodyClassName="flex-1 min-h-0 overflow-y-auto"
       footer={
         <>
-          <button
-            onClick={handleClose}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:ring-gray-600 dark:hover:bg-gray-700"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            form="create-payroll-form"
-            disabled={isSubmitting || !employeeId || !payPeriodStart || !payPeriodEnd || baseSalary <= 0}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSubmitting && (
+          <Button variant="ghost" onClick={handleClose}>Cancel</Button>
+          <Button variant="primary" type="submit" form="create-payroll-form" disabled={isSubmitting || !employeeId || !payPeriodStart || !payPeriodEnd || baseSalary <= 0}>{isSubmitting && (
               <Spinner size="sm" color="white" />
             )}
-            Create Payroll
-          </button>
+            Create Payroll</Button>
         </>
       }
     >
@@ -254,46 +242,21 @@ function CreatePayrollModal({
                 <label htmlFor="payroll-currency" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Currency
                 </label>
-                <select
-                  id="payroll-currency"
-                  value={currency}
-                  onChange={(e) => setCurrency(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                >
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                  <option value="GBP">GBP</option>
-                  <option value="TRY">TRY</option>
-                  <option value="NOK">NOK</option>
-                </select>
+                <Select fullWidth options={[{ value: 'USD', label: 'USD' }, { value: 'EUR', label: 'EUR' }, { value: 'GBP', label: 'GBP' }, { value: 'TRY', label: 'TRY' }, { value: 'NOK', label: 'NOK' }]} id="payroll-currency" value={currency} onChange={(e) => setCurrency(e.target.value)} />
               </div>
 
               <div>
                 <label htmlFor="payroll-periodStart" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Period Start <span className="text-red-500">*</span>
                 </label>
-                <input
-                  id="payroll-periodStart"
-                  type="date"
-                  value={payPeriodStart}
-                  onChange={(e) => setPayPeriodStart(e.target.value)}
-                  required
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
+                <Input fullWidth id="payroll-periodStart" type="date" value={payPeriodStart} onChange={(e) => setPayPeriodStart(e.target.value)} required />
               </div>
 
               <div>
                 <label htmlFor="payroll-periodEnd" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Period End <span className="text-red-500">*</span>
                 </label>
-                <input
-                  id="payroll-periodEnd"
-                  type="date"
-                  value={payPeriodEnd}
-                  onChange={(e) => setPayPeriodEnd(e.target.value)}
-                  required
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                />
+                <Input fullWidth id="payroll-periodEnd" type="date" value={payPeriodEnd} onChange={(e) => setPayPeriodEnd(e.target.value)} required />
               </div>
             </div>
           </div>
@@ -317,16 +280,7 @@ function CreatePayrollModal({
                     <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                       {label}
                     </label>
-                    <input
-                      id={fieldId}
-                      type="number"
-                      min="0"
-                      max="744"
-                      step="0.5"
-                      value={value}
-                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    />
+                    <Input fullWidth id={fieldId} type="number" min="0" max="744" step="0.5" value={value} onChange={(e) => setter(parseFloat(e.target.value) || 0)} />
                   </div>
                 );
               })}
@@ -352,15 +306,7 @@ function CreatePayrollModal({
                     <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                       {label}
                     </label>
-                    <input
-                      id={fieldId}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={value}
-                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    />
+                    <Input fullWidth id={fieldId} type="number" min="0" step="0.01" value={value} onChange={(e) => setter(parseFloat(e.target.value) || 0)} />
                   </div>
                 );
               })}
@@ -389,15 +335,7 @@ function CreatePayrollModal({
                     <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                       {label}
                     </label>
-                    <input
-                      id={fieldId}
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={value}
-                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                    />
+                    <Input fullWidth id={fieldId} type="number" min="0" step="0.01" value={value} onChange={(e) => setter(parseFloat(e.target.value) || 0)} />
                   </div>
                 );
               })}
@@ -424,15 +362,7 @@ function CreatePayrollModal({
             <label htmlFor="payroll-notes" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Notes
             </label>
-            <textarea
-              id="payroll-notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={2}
-              maxLength={1000}
-              placeholder="Optional notes..."
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
+            <Textarea fullWidth id="payroll-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} maxLength={1000} placeholder="Optional notes..." />
           </div>
         </div>
       </form>
@@ -649,17 +579,10 @@ const PayrollPage: React.FC = () => {
         render: (_value, row) => (
           <div className="flex items-center justify-end gap-2">
             {row.status === PayrollStatus.PENDING_APPROVAL && (
-              <button
-                onClick={(e) => {
+              <Button variant="ghost" size="sm" iconOnly aria-label="Approve" onClick={(e) => {
                   e.stopPropagation();
                   void handleApprove(row.id);
-                }}
-                disabled={approveMutation.isPending}
-                className="rounded p-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
-                title="Approve"
-              >
-                <CheckCircle className="h-4 w-4" />
-              </button>
+                }} disabled={approveMutation.isPending} title="Approve"><CheckCircle className="h-4 w-4" /></Button>
             )}
           </div>
         ),
@@ -744,13 +667,7 @@ const PayrollPage: React.FC = () => {
         title="Payroll"
         description="Salary and payment management"
         actions={
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            Create Payroll
-          </button>
+          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowCreateModal(true)}>Create Payroll</Button>
         }
       />
 
@@ -883,12 +800,7 @@ const PayrollPage: React.FC = () => {
           </div>
 
           <div className="mt-4 flex justify-end">
-            <button
-              onClick={() => setFilter({ limit: 20, page: 1 })}
-              className="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-            >
-              Clear all filters
-            </button>
+            <Button variant="ghost" onClick={() => setFilter({ limit: 20, page: 1 })}>Clear all filters</Button>
           </div>
         </div>
       )}

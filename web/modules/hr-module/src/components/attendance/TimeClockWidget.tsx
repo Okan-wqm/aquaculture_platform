@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Clock, LogIn, LogOut, MapPin, AlertCircle, ShieldCheck } from 'lucide-react';
-import { cn, Spinner } from '@aquaculture/shared-ui';
+import { cn, Spinner, Button } from '@aquaculture/shared-ui';
 import { useClockIn, useClockOut, useTodaysAttendance } from '../../hooks';
 import { ClockMethod, AttendanceStatus, ATTENDANCE_STATUS_CONFIG } from '../../types';
 import { StatusBadge } from '../common/StatusBadge';
@@ -209,12 +209,7 @@ export function TimeClockWidget({
                 without sharing your location.
               </p>
               <div className="mt-2 flex gap-2">
-                <button
-                  onClick={() => setGpsConsented(true)}
-                  className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
-                >
-                  Allow location
-                </button>
+                <Button variant="primary" size="xs" onClick={() => setGpsConsented(true)}>Allow location</Button>
                 <button
                   onClick={() => setGpsConsented(false)}
                   className="rounded-md bg-white px-3 py-1 text-xs font-medium text-blue-700 ring-1 ring-blue-300 hover:bg-blue-50 dark:bg-transparent dark:text-blue-300 dark:ring-blue-700"

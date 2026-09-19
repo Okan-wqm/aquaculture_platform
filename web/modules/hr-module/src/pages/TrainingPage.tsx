@@ -7,7 +7,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { GraduationCap, Users, Clock, Award, Plus, Shield } from 'lucide-react';
-import { cn, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { cn, Spinner, PageHeader, Button } from '@aquaculture/shared-ui';
 import { useTrainingCourses, useCurrentEmployeeId } from '../hooks';
 const TrainingPage: React.FC = () => {
   const employeeId = useCurrentEmployeeId();
@@ -37,10 +37,7 @@ const TrainingPage: React.FC = () => {
               <Shield className="h-4 w-4" />
               Certifications
             </Link>
-            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-              <Plus className="h-4 w-4" />
-              New Course
-            </button>
+            <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />}>New Course</Button>
           </div>
         }
       />

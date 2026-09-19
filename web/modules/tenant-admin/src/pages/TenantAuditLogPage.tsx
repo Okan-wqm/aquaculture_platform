@@ -26,7 +26,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { useTenantAuditLog, type AuditLogEntry } from '../hooks/useTenantAuditLog';
-import { Modal, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, PageHeader, Button, Input, Select, Badge } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Sub-Components
@@ -36,36 +36,19 @@ import { Modal, DataTable, type DataTableColumn, PageHeader } from '@aquaculture
  * Severity badge with color coding
  */
 const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
-  const config: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
-    info: {
-      bg: 'bg-blue-100',
-      text: 'text-blue-700',
-      icon: <Info className="w-3 h-3" />,
-    },
-    warning: {
-      bg: 'bg-yellow-100',
-      text: 'text-yellow-700',
-      icon: <AlertTriangle className="w-3 h-3" />,
-    },
-    error: {
-      bg: 'bg-red-100',
-      text: 'text-red-700',
-      icon: <XCircle className="w-3 h-3" />,
-    },
-    critical: {
-      bg: 'bg-red-200',
-      text: 'text-red-900',
-      icon: <Zap className="w-3 h-3" />,
-    },
+  // FE-HIGH-079: severity on the shared-ui Badge scale; critical keeps its own icon.
+  const config: Record<string, { variant: 'info' | 'warning' | 'error'; icon: React.ReactNode }> = {
+    info: { variant: 'info', icon: <Info className="w-3 h-3" /> },
+    warning: { variant: 'warning', icon: <AlertTriangle className="w-3 h-3" /> },
+    error: { variant: 'error', icon: <XCircle className="w-3 h-3" /> },
+    critical: { variant: 'error', icon: <Zap className="w-3 h-3" /> },
   };
-
   const c = config[severity] || config.info;
-
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${c.bg} ${c.text}`}>
+    <Badge variant={c.variant} size="sm" className="gap-1">
       {c.icon}
       {severity.charAt(0).toUpperCase() + severity.slice(1)}
-    </span>
+    </Badge>
   );
 };
 
@@ -73,28 +56,17 @@ const SeverityBadge: React.FC<{ severity: string }> = ({ severity }) => {
  * Action badge
  */
 const ActionBadge: React.FC<{ action: string }> = ({ action }) => {
-  // Color-code common actions
-  let bg = 'bg-gray-100 dark:bg-gray-800';
-  let text = 'text-gray-700 dark:text-gray-300';
+  // FE-HIGH-079: creates are success, deletes error, updates info, sign-ins outlined.
   const lower = action.toLowerCase();
-  if (lower.includes('create') || lower.includes('add')) {
-    bg = 'bg-green-100';
-    text = 'text-green-700';
-  } else if (lower.includes('delete') || lower.includes('remove')) {
-    bg = 'bg-red-100';
-    text = 'text-red-700';
-  } else if (lower.includes('update') || lower.includes('edit') || lower.includes('modify')) {
-    bg = 'bg-blue-100';
-    text = 'text-blue-700';
-  } else if (lower.includes('login') || lower.includes('auth')) {
-    bg = 'bg-purple-100';
-    text = 'text-purple-700';
-  }
-
+  let variant: 'default' | 'success' | 'error' | 'info' | 'outline' = 'default';
+  if (lower.includes('create') || lower.includes('add')) variant = 'success';
+  else if (lower.includes('delete') || lower.includes('remove')) variant = 'error';
+  else if (lower.includes('update') || lower.includes('edit') || lower.includes('modify')) variant = 'info';
+  else if (lower.includes('login') || lower.includes('auth')) variant = 'outline';
   return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${bg} ${text}`}>
+    <Badge variant={variant} size="sm">
       {action.replace(/_/g, ' ')}
-    </span>
+    </Badge>
   );
 };
 
@@ -116,13 +88,7 @@ const DetailsModal: React.FC<{
       className="max-h-[80vh] overflow-hidden flex flex-col"
       bodyClassName="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4"
       footer={
-        <button
-          type="button"
-          onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-        >
-          Close
-        </button>
+        <Button variant="secondary" type="button" onClick={onClose}>Close</Button>
       }
     >
       <div className="grid grid-cols-2 gap-4">
@@ -308,16 +274,10 @@ const TenantAuditLogPage: React.FC = () => {
       align: 'right',
       render: (_value, entry) => (
         <>
-          <button
-            onClick={(e) => {
+          <Button variant="ghost" size="sm" iconOnly aria-label="View details" onClick={(e) => {
               e.stopPropagation();
               setSelectedEntry(entry);
-            }}
-            className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
-            title="View details"
-          >
-            <Eye className="w-4 h-4" />
-          </button>
+            }} title="View details"><Eye className="w-4 h-4" /></Button>
         </>
       ),
     }
@@ -331,22 +291,8 @@ const TenantAuditLogPage: React.FC = () => {
         description="Review all actions and changes within your tenant"
         actions={
           <div className="flex items-center gap-3">
-            <button
-              onClick={refresh}
-              disabled={isFetching}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
-              title="Refresh"
-            >
-              <RefreshCw className={`w-5 h-5 text-gray-500 dark:text-gray-400 ${isFetching ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={exportCsv}
-              disabled={entries.length === 0}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={refresh} disabled={isFetching} title="Refresh"><RefreshCw className={`w-5 h-5 text-gray-500 dark:text-gray-400 ${isFetching ? 'animate-spin' : ''}`} /></Button>
+            <Button variant="secondary" leftIcon={<Download className="w-4 h-4" />} onClick={exportCsv} disabled={entries.length === 0}>Export CSV</Button>
             <button
               onClick={() => setShowFilters(!showFilters)}
               className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -373,12 +319,7 @@ const TenantAuditLogPage: React.FC = () => {
             <p className="text-sm font-medium text-red-800">Failed to load audit logs</p>
             <p className="text-sm text-red-600">{(error as Error).message}</p>
           </div>
-          <button
-            onClick={refresh}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+          <Button variant="ghost" size="sm" onClick={refresh}>Retry</Button>
         </div>
       )}
 
@@ -388,66 +329,29 @@ const TenantAuditLogPage: React.FC = () => {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Filter Audit Logs</h3>
             {hasActiveFilters && (
-              <button
-                onClick={resetFilters}
-                className="text-xs text-green-600 hover:text-green-700 font-medium"
-              >
-                Clear all
-              </button>
+              <Button variant="ghost" size="xs" onClick={resetFilters}>Clear all</Button>
             )}
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Start Date</label>
-              <input
-                type="date"
-                value={filters.startDate || ''}
-                onChange={(e) => updateFilters({ startDate: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-              />
+              <Input fullWidth type="date" value={filters.startDate || ''} onChange={(e) => updateFilters({ startDate: e.target.value || null })} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">End Date</label>
-              <input
-                type="date"
-                value={filters.endDate || ''}
-                onChange={(e) => updateFilters({ endDate: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-              />
+              <Input fullWidth type="date" value={filters.endDate || ''} onChange={(e) => updateFilters({ endDate: e.target.value || null })} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Action</label>
-              <input
-                type="text"
-                placeholder="e.g. USER_CREATE"
-                value={filters.action || ''}
-                onChange={(e) => updateFilters({ action: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-              />
+              <Input fullWidth type="text" placeholder="e.g. USER_CREATE" value={filters.action || ''} onChange={(e) => updateFilters({ action: e.target.value || null })} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Severity</label>
-              <select
-                value={filters.severity || ''}
-                onChange={(e) => updateFilters({ severity: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-              >
-                <option value="">All</option>
-                <option value="info">Info</option>
-                <option value="warning">Warning</option>
-                <option value="error">Error</option>
-                <option value="critical">Critical</option>
-              </select>
+              <Select fullWidth options={[{ value: '', label: 'All' }, { value: 'info', label: 'Info' }, { value: 'warning', label: 'Warning' }, { value: 'error', label: 'Error' }, { value: 'critical', label: 'Critical' }]} value={filters.severity || ''} onChange={(e) => updateFilters({ severity: e.target.value || null })} />
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">User</label>
-              <input
-                type="text"
-                placeholder="Email or ID"
-                value={filters.performedBy || ''}
-                onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
-              />
+              <Input fullWidth type="text" placeholder="Email or ID" value={filters.performedBy || ''} onChange={(e) => updateFilters({ performedBy: e.target.value || null })} />
             </div>
           </div>
         </div>
@@ -495,12 +399,7 @@ const TenantAuditLogPage: React.FC = () => {
                     : 'Audit log entries will appear here as actions are performed.'}
                 </p>
                 {hasActiveFilters && (
-                  <button
-                    onClick={resetFilters}
-                    className="mt-4 px-4 py-2 text-sm font-medium text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                  >
-                    Clear Filters
-                  </button>
+                  <Button variant="ghost" className="mt-4" onClick={resetFilters}>Clear Filters</Button>
                 )}
               </div>
             )}
@@ -512,14 +411,7 @@ const TenantAuditLogPage: React.FC = () => {
                 {totalPages > 1 && ` (Page ${page} of ${totalPages})`}
               </p>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={prevPage}
-                  disabled={page <= 1}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Previous
-                </button>
+                <Button variant="ghost" size="sm" leftIcon={<ChevronLeft className="w-4 h-4" />} onClick={prevPage} disabled={page <= 1}>Previous</Button>
 
                 {/* Page numbers */}
                 <div className="hidden sm:flex items-center gap-1">
@@ -550,14 +442,7 @@ const TenantAuditLogPage: React.FC = () => {
                   })}
                 </div>
 
-                <button
-                  onClick={nextPage}
-                  disabled={page >= totalPages}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                <Button variant="ghost" size="sm" rightIcon={<ChevronRight className="w-4 h-4" />} onClick={nextPage} disabled={page >= totalPages}>Next</Button>
               </div>
             </div>
           </>

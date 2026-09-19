@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Button } from '@aquaculture/shared-ui';
 import { AlertCircle, CheckCircle2, MapPin, RefreshCw, ShieldCheck } from 'lucide-react';
 import { getSessionSnapshot, hasSameTenantSessionBoundary, useAuth } from '@aquaculture/shared-ui';
 
@@ -337,13 +337,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
               </div>
             </div>
             <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleClose}
-                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700"
-              >
-                Close
-              </button>
+              <Button variant="primary" type="button" onClick={handleClose}>Close</Button>
             </div>
           </div>
         ) : visiblePendingAction ? (
@@ -372,15 +366,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
             )}
 
             <div className="mt-6 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={cancelConfirmation}
-                disabled={operationPending}
-                autoFocus
-                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Cancel
-              </button>
+              <Button variant="secondary" type="button" onClick={cancelConfirmation} disabled={operationPending} autoFocus>Cancel</Button>
               <button
                 type="button"
                 onClick={handleConfirm}
@@ -437,17 +423,10 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                           ? sanitizeErrorMessage(queryError)
                           : 'Please retry the request.'}
                       </p>
-                      <button
-                        type="button"
-                        onClick={handleRetryAll}
-                        disabled={sitesQuery.isFetching || assignmentsQuery.isFetching}
-                        className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
-                      >
-                        {(sitesQuery.isFetching || assignmentsQuery.isFetching) && (
+                      <Button variant="secondary" size="sm" className="mt-3" type="button" onClick={handleRetryAll} disabled={sitesQuery.isFetching || assignmentsQuery.isFetching}>{(sitesQuery.isFetching || assignmentsQuery.isFetching) && (
                           <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
                         )}
-                        Retry
-                      </button>
+                        Retry</Button>
                     </div>
                   </div>
                 </div>
@@ -478,17 +457,10 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                         <div className="flex-1">
                           <p className="text-sm">{visibleFeedback.message}</p>
                           {visibleFeedback.retryAssignments && (
-                            <button
-                              type="button"
-                              onClick={handleRetryAssignments}
-                              disabled={assignmentsQuery.isFetching}
-                              className="mt-2 inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-white dark:bg-gray-900 px-3 py-1.5 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
-                            >
-                              {assignmentsQuery.isFetching && (
+                            <Button variant="secondary" size="sm" className="mt-2" type="button" onClick={handleRetryAssignments} disabled={assignmentsQuery.isFetching}>{assignmentsQuery.isFetching && (
                                 <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" />
                               )}
-                              Retry access reload
-                            </button>
+                              Retry access reload</Button>
                           )}
                         </div>
                       </div>
@@ -584,13 +556,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
             </div>
 
             <div className="flex justify-end border-t border-gray-100 dark:border-gray-700 px-6 py-4">
-              <button
-                type="button"
-                onClick={handleClose}
-                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 transition-colors hover:bg-gray-50 dark:hover:bg-gray-800"
-              >
-                Done
-              </button>
+              <Button variant="secondary" type="button" onClick={handleClose}>Done</Button>
             </div>
           </>
         )}

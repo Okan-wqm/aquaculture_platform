@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Users, Plus, ChevronRight, Pencil } from 'lucide-react';
-import { Modal, colors, PageHeader } from '@aquaculture/shared-ui';
+import { Modal, colors, PageHeader, Button, Input, Textarea } from '@aquaculture/shared-ui';
 import { useDepartments, useCreateDepartment, useUpdateDepartment } from '../hooks';
 import type { Department, CreateDepartmentInput, UpdateDepartmentInput } from '../types';
 
@@ -93,42 +93,21 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Name <span className="text-red-500">*</span>
           </label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Operations"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            required
-          />
+          <Input fullWidth type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Operations" required />
         </div>
 
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Code <span className="text-red-500">*</span>
           </label>
-          <input
-            type="text"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            placeholder="e.g. OPS"
-            maxLength={20}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            required
-          />
+          <Input fullWidth type="text" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="e.g. OPS" maxLength={20} required />
         </div>
 
         <div>
           <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
             Description
           </label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            placeholder="Brief description of the department"
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-          />
+          <Textarea fullWidth value={description} onChange={(e) => setDescription(e.target.value)} rows={3} placeholder="Brief description of the department" />
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -136,43 +115,19 @@ const DepartmentFormModal: React.FC<DepartmentFormModalProps> = ({ department, o
             <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Budget Code
             </label>
-            <input
-              type="text"
-              value={budgetCode}
-              onChange={(e) => setBudgetCode(e.target.value)}
-              placeholder="e.g. BC-001"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
+            <Input fullWidth type="text" value={budgetCode} onChange={(e) => setBudgetCode(e.target.value)} placeholder="e.g. BC-001" />
           </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
               Cost Center
             </label>
-            <input
-              type="text"
-              value={costCenter}
-              onChange={(e) => setCostCenter(e.target.value)}
-              placeholder="e.g. CC-001"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-            />
+            <Input fullWidth type="text" value={costCenter} onChange={(e) => setCostCenter(e.target.value)} placeholder="e.g. CC-001" />
           </div>
         </div>
 
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isPending}
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-          >
-            {isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}
-          </button>
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" type="submit" disabled={isPending}>{isPending ? 'Saving...' : isEditing ? 'Update' : 'Create'}</Button>
         </div>
       </form>
     </Modal>
@@ -214,13 +169,7 @@ const DepartmentsPage: React.FC = () => {
         title="Departments"
         description={<>{departments?.length ?? '-'} departments</>}
         actions={
-          <button
-            onClick={handleCreate}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            New Department
-          </button>
+          <Button variant="primary" leftIcon={<Plus className="h-4 w-4" />} onClick={handleCreate}>New Department</Button>
         }
       />
 
@@ -275,13 +224,7 @@ const DepartmentsPage: React.FC = () => {
                         </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleEdit(department)}
-                      className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-                      title="Edit department"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
+                    <Button variant="ghost" size="sm" iconOnly aria-label="Edit department" onClick={() => handleEdit(department)} title="Edit department"><Pencil className="h-4 w-4" /></Button>
                   </div>
 
                   {department.description && (
@@ -328,12 +271,7 @@ const DepartmentsPage: React.FC = () => {
         <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-center dark:border-gray-600 dark:bg-gray-800/50">
           <Building2 className="mb-3 h-10 w-10 text-gray-400 dark:text-gray-500" />
           <p className="text-gray-500 dark:text-gray-400">No departments found</p>
-          <button
-            onClick={handleCreate}
-            className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
-          >
-            Create your first department
-          </button>
+          <Button variant="ghost" className="mt-3" onClick={handleCreate}>Create your first department</Button>
         </div>
       )}
 

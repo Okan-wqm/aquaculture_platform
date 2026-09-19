@@ -35,7 +35,7 @@ import {
   type Announcement,
 } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
-import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader, Button, Select } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -252,22 +252,9 @@ export const TenantAnnouncementsPage: React.FC = () => {
           description="Platform updates and important notices"
           actions={
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleRefresh}
-                disabled={loading}
-                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
-                title="Refresh"
-              >
-                <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-              </button>
+              <Button variant="ghost" iconOnly aria-label="Refresh" onClick={handleRefresh} disabled={loading} title="Refresh"><RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} /></Button>
               {unreadCount > 0 && (
-                <button
-                  onClick={handleMarkAllRead}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                >
-                  <CheckCircle className="w-4 h-4" />
-                  Mark all as read
-                </button>
+                <Button variant="ghost" leftIcon={<CheckCircle className="w-4 h-4" />} onClick={handleMarkAllRead}>Mark all as read</Button>
               )}
             </div>
           }
@@ -321,27 +308,8 @@ export const TenantAnnouncementsPage: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
             />
           </div>
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value as AnnouncementType | 'all')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-          >
-            <option value="all">All Types</option>
-            <option value="info">Info</option>
-            <option value="warning">Warning</option>
-            <option value="error">Critical</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="success">Success</option>
-          </select>
-          <select
-            value={readFilter}
-            onChange={(e) => setReadFilter(e.target.value as 'all' | 'unread' | 'requires_ack')}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-          >
-            <option value="all">All Announcements</option>
-            <option value="unread">Unread Only</option>
-            <option value="requires_ack">Needs Acknowledgment</option>
-          </select>
+          <Select options={[{ value: 'all', label: 'All Types' }, { value: 'info', label: 'Info' }, { value: 'warning', label: 'Warning' }, { value: 'error', label: 'Critical' }, { value: 'maintenance', label: 'Maintenance' }, { value: 'success', label: 'Success' }]} value={typeFilter} onChange={(e) => setTypeFilter(e.target.value as AnnouncementType | 'all')} />
+          <Select options={[{ value: 'all', label: 'All Announcements' }, { value: 'unread', label: 'Unread Only' }, { value: 'requires_ack', label: 'Needs Acknowledgment' }]} value={readFilter} onChange={(e) => setReadFilter(e.target.value as 'all' | 'unread' | 'requires_ack')} />
         </div>
       </div>
 
@@ -357,12 +325,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
               <div className="flex items-center gap-2 text-red-700">
                 <AlertCircle size={18} />
                 <span className="text-sm">{error}</span>
-                <button
-                  onClick={handleRefresh}
-                  className="ml-auto text-sm underline hover:no-underline"
-                >
-                  Retry
-                </button>
+                <Button variant="ghost" onClick={handleRefresh}>Retry</Button>
               </div>
             </div>
           )}
@@ -452,12 +415,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedAnnouncement(null)}
-                  className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
-                >
-                  <X size={20} />
-                </button>
+                <Button variant="ghost" iconOnly aria-label="Close" onClick={() => setSelectedAnnouncement(null)}><X size={20} /></Button>
               </div>
 
               {/* Type Badge */}
@@ -523,13 +481,7 @@ export const TenantAnnouncementsPage: React.FC = () => {
                       <AlertCircle size={16} />
                       <span>This announcement requires your acknowledgment</span>
                     </div>
-                    <button
-                      onClick={() => handleAcknowledge(selectedAnnouncement.id)}
-                      className="w-full px-4 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium transition-colors flex items-center justify-center gap-2"
-                    >
-                      <CheckCircle size={18} />
-                      I have read and understand this announcement
-                    </button>
+                    <Button variant="primary" size="lg" className="justify-center" leftIcon={<CheckCircle size={18} />} onClick={() => handleAcknowledge(selectedAnnouncement.id)}>I have read and understand this announcement</Button>
                   </div>
                 )}
               </div>

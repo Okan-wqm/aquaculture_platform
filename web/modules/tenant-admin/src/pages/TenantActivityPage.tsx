@@ -37,7 +37,7 @@ import {
 } from '../hooks/useTenantActivity';
 import { formatRelativeTime } from '../utils/date-utils';
 import { UserAvatar } from '../components/ui/UserAvatar';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Button } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Utilities
@@ -225,13 +225,7 @@ const TenantActivityPage: React.FC = () => {
         actions={
           <div className="flex items-center gap-3">
             <PeriodSelector value={period} onChange={changePeriod} />
-            <button
-              onClick={() => refetch()}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-            </button>
+            <Button variant="ghost" iconOnly aria-label="Refresh" onClick={() => refetch()} title="Refresh"><RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" /></Button>
           </div>
         }
       />
@@ -244,12 +238,7 @@ const TenantActivityPage: React.FC = () => {
             <p className="text-sm font-medium text-red-800">Failed to load activity data</p>
             <p className="text-sm text-red-600">{(error as Error).message}</p>
           </div>
-          <button
-            onClick={() => refetch()}
-            className="ml-auto px-3 py-1 text-sm font-medium text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-          >
-            Retry
-          </button>
+          <Button variant="ghost" size="sm" onClick={() => refetch()}>Retry</Button>
         </div>
       )}
 

@@ -8,6 +8,7 @@
  * the farm finance settings SSoT, so it is changed there, not here.
  */
 import React, { useEffect, useState } from 'react';
+import { Button, Input } from '@aquaculture/shared-ui';
 
 import {
   type HrLabourCost,
@@ -120,15 +121,7 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
         ).map(([label, value, setter]) => (
           <div key={label}>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">{label}</label>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.01"
-              value={value}
-              onChange={(e) => setter(e.target.value)}
-              className="mt-1 block w-32 rounded-lg border border-gray-300 px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
-            />
+            <Input type="number" min="0" max="100" step="0.01" value={value} onChange={(e) => setter(e.target.value)} />
           </div>
         ))}
         {message && (
@@ -142,13 +135,7 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
             {message.text}
           </div>
         )}
-        <button
-          type="submit"
-          disabled={updateSettings.isPending}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {updateSettings.isPending ? 'Saving…' : 'Save rates'}
-        </button>
+        <Button variant="primary" type="submit" disabled={updateSettings.isPending}>{updateSettings.isPending ? 'Saving…' : 'Save rates'}</Button>
       </form>
     </div>
   );

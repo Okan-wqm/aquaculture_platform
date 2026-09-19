@@ -44770,6 +44770,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "libs/shared-contracts/src/__tests__/email-layout.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "libs/shared-contracts/src/__tests__/messaging-media-mime.spec.ts",
       "prettier_managed": true
     },
@@ -44795,6 +44801,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "libs/shared-contracts/src/ai/persona-id.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/design/color-tokens.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "libs/shared-contracts/src/design/email-layout.ts",
       "prettier_managed": true
     },
     {
@@ -48850,6 +48868,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/sensor-single-write-path.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/server-html-single-layout.spec.ts",
       "prettier_managed": true
     },
     {

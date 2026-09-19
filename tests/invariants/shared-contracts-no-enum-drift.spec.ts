@@ -66,6 +66,12 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
       './enums/messaging-media-mime',
       './ai/persona-id',
       './ai/persona-catalogue',
+      // The design palette (FE-MEDIUM-093): zero-dependency colour data the
+      // browser reads through `web/shared-ui/src/styles/theme.ts` and the HTML
+      // e-mail builders read directly, so both paint the product's colours.
+      './design/color-tokens',
+      // The one HTML e-mail layout, painted from those tokens.
+      './design/email-layout',
     ]);
     const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
     const exportFroms = [

@@ -1,4 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
+
+import {
+  emailParagraph,
+  emailRows,
+  emailToneColor,
+  renderEmail,
+  type EmailTone,
+} from '@aquaculture/shared-contracts';
+
 import { NotificationChannel } from '../database/entities/escalation-policy.entity';
 import { AlertIncident, IncidentStatus } from '../database/entities/alert-incident.entity';
 import { AlertSeverity } from '../database/entities/alert-rule.entity';
@@ -42,6 +51,21 @@ export interface NotificationTemplate {
 }
 
 /**
+ * The band a severity paints the notification with — the product's severity
+ * ladder (FE-HIGH-085): critical red, high coral, medium and warning amber,
+ * low blue, informational grey. The colours themselves come from the design
+ * tokens, so an incident mail cannot drift from the incident list.
+ */
+const SEVERITY_TONE: Readonly<Record<AlertSeverity, EmailTone>> = {
+  [AlertSeverity.CRITICAL]: 'error',
+  [AlertSeverity.HIGH]: 'accent',
+  [AlertSeverity.MEDIUM]: 'warning',
+  [AlertSeverity.WARNING]: 'warning',
+  [AlertSeverity.LOW]: 'info',
+  [AlertSeverity.INFO]: 'neutral',
+};
+
+/**
  * Built-in templates
  */
 const DEFAULT_TEMPLATES: Record<NotificationChannel, NotificationTemplate> = {
@@ -63,23 +87,25 @@ Time: {{timestamp}}
 Incident ID: {{incident.id}}
 
 Please review and take appropriate action.`,
-    htmlTemplate: `<!DOCTYPE html>
-<html>
-<head><style>
-  .alert-box { border: 2px solid {{severityColor}}; border-radius: 8px; padding: 16px; margin: 16px 0; }
-  .severity-badge { background: {{severityColor}}; color: white; padding: 4px 8px; border-radius: 4px; }
-</style></head>
-<body>
-<div class="alert-box">
-  <h2><span class="severity-badge">{{severity}}</span> {{incident.title}}</h2>
-  <p><strong>Status:</strong> {{incident.status}}</p>
-  <p><strong>Escalation Level:</strong> {{escalationLevel}}</p>
-  <hr/>
-  <p>{{incident.description}}</p>
-  <p><small>Incident ID: {{incident.id}} | Time: {{timestamp}}</small></p>
-</div>
-</body>
-</html>`,
+    htmlTemplate: renderEmail({
+      title: '{{incident.title}}',
+      subtitle: '{{upper:severity}} · Escalation level {{escalationLevel}}',
+      // One document for every severity: the band takes the class `severity`
+      // substitutes, so a critical incident arrives red and an informational
+      // one grey without a template per level.
+      tone: {
+        variable: 'severity',
+        cases: SEVERITY_TONE,
+        fallback: 'neutral',
+      },
+      footerLines: ['Incident ID: {{incident.id}}', 'Time: {{timestamp}}'],
+      body:
+        emailRows([
+          { label: 'Severity', value: '{{upper:severity}}' },
+          { label: 'Status', value: '{{incident.status}}' },
+          { label: 'Escalation Level', value: '{{escalationLevel}}' },
+        ]) + emailParagraph('{{incident.description}}'),
+    }),
     isDefault: true,
   },
   [NotificationChannel.SMS]: {
@@ -87,7 +113,8 @@ Please review and take appropriate action.`,
     name: 'Default SMS Template',
     channel: NotificationChannel.SMS,
     subjectTemplate: '',
-    bodyTemplate: '[{{severity}}] {{incident.title}} - Level {{escalationLevel}}. ID: {{incident.id}}',
+    bodyTemplate:
+      '[{{severity}}] {{incident.title}} - Level {{escalationLevel}}. ID: {{incident.id}}',
     shortTemplate: '[{{severity}}] {{incident.title}}',
     isDefault: true,
   },
@@ -150,18 +177,6 @@ Severity: {{severity}}
 Incident ID: {{incident.id}}`,
     isDefault: true,
   },
-};
-
-/**
- * Severity colors for templates
- */
-const SEVERITY_COLORS: Record<AlertSeverity, string> = {
-  [AlertSeverity.CRITICAL]: '#dc2626',
-  [AlertSeverity.HIGH]: '#ea580c',
-  [AlertSeverity.MEDIUM]: '#ca8a04',
-  [AlertSeverity.WARNING]: '#eab308',
-  [AlertSeverity.LOW]: '#2563eb',
-  [AlertSeverity.INFO]: '#6b7280',
 };
 
 @Injectable()
@@ -383,7 +398,7 @@ export class TemplateRendererService {
     const enriched: Record<string, unknown> = {
       ...context,
       timestamp: new Date().toISOString(),
-      severityColor: context.severity ? SEVERITY_COLORS[context.severity] : '#6b7280',
+      severityColor: emailToneColor(context.severity ? SEVERITY_TONE[context.severity] : 'neutral'),
     };
 
     // Flatten incident if present

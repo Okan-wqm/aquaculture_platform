@@ -25,6 +25,7 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
 } from '@aquaculture/shared-ui';
 import {
   useProtocolAssignments,
@@ -160,41 +161,38 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           </div>
         )}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {t('feedingV2.assignments.unit')}
-          </label>
-          <select
+          <Select
+            label={t('feedingV2.assignments.unit')}
             required
             value={unitId}
             onChange={(e) => setUnitId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-          >
-            <option value="">{t('feedingV2.assignments.selectUnit')}</option>
-            {units.map((unit) => (
-              <option key={unit.id} value={unit.id}>
-                {unit.name} ({unit.code})
-              </option>
-            ))}
-          </select>
+            size="sm"
+            className="mt-1"
+            options={[
+              { value: '', label: t('feedingV2.assignments.selectUnit') },
+              ...units.map((unit) => ({
+                value: unit.id,
+                label: `${unit.name} (${unit.code})`,
+              })),
+            ]}
+          />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            {t('feedingV2.assignments.protocol')}
-          </label>
-          <select
+          <Select
+            label={t('feedingV2.assignments.protocol')}
             required
             value={protocolId}
             onChange={(e) => setProtocolId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-          >
-            <option value="">{t('feedingV2.assignments.selectProtocol')}</option>
-            {activeProtocols.map((protocol) => (
-              <option key={protocol.id} value={protocol.id}>
-                {protocol.name}
-                {protocol.speciesName ? ` — ${protocol.speciesName}` : ''}
-              </option>
-            ))}
-          </select>
+            size="sm"
+            className="mt-1"
+            options={[
+              { value: '', label: t('feedingV2.assignments.selectProtocol') },
+              ...activeProtocols.map((protocol) => ({
+                value: protocol.id,
+                label: `${protocol.name}${protocol.speciesName ? ` — ${protocol.speciesName}` : ''}`,
+              })),
+            ]}
+          />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -447,18 +445,19 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
             <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-3">
               {t('feedingV2.assignments.tempSensor')}
             </h4>
-            <select
+            <Select
               value={sensorId}
               onChange={(e) => setSensorId(e.target.value)}
-              className="block w-full sm:w-80 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
-            >
-              <option value="">{t('feedingV2.assignments.noSensor')}</option>
-              {sensors.map((sensor) => (
-                <option key={sensor.id} value={sensor.id}>
-                  {sensor.name} ({sensor.type})
-                </option>
-              ))}
-            </select>
+              size="sm"
+              className="sm:w-80"
+              options={[
+                { value: '', label: t('feedingV2.assignments.noSensor') },
+                ...sensors.map((sensor) => ({
+                  value: sensor.id,
+                  label: `${sensor.name} (${sensor.type})`,
+                })),
+              ]}
+            />
           </div>
         )}
 

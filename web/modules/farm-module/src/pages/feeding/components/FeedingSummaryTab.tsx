@@ -10,6 +10,7 @@ import {
   type DataTableColumn,
   Spinner,
   Input,
+  Select,
 } from '@aquaculture/shared-ui';
 import React, { useState, useMemo } from 'react';
 import { useFeedingSummary, FeedTypeSummary } from '../../../hooks/useFeedingRecords';
@@ -54,21 +55,19 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
       <div className="space-y-4">
         {/* Batch Selector */}
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Select a batch to view feeding summary
-          </label>
-          <select
+          <Select
+            label="Select a batch to view feeding summary"
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="block w-full max-w-md rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            <option value="">Choose batch...</option>
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.batchNumber} - {b.name || 'Unnamed'}
-              </option>
-            ))}
-          </select>
+            className="max-w-md"
+            options={[
+              { value: '', label: 'Choose batch...' },
+              ...batches.map((b) => ({
+                value: b.id,
+                label: `${b.batchNumber} - ${b.name || 'Unnamed'}`,
+              })),
+            ]}
+          />
         </div>
 
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
@@ -176,21 +175,18 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({ batchId, b
           {/* Batch Selector (if not from parent) */}
           {!batchId && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Batch
-              </label>
-              <select
+              <Select
+                label="Batch"
                 value={selectedBatchId}
                 onChange={(e) => setSelectedBatchId(e.target.value)}
-                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-              >
-                <option value="">Choose batch...</option>
-                {batches.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.batchNumber} - {b.name || 'Unnamed'}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: 'Choose batch...' },
+                  ...batches.map((b) => ({
+                    value: b.id,
+                    label: `${b.batchNumber} - ${b.name || 'Unnamed'}`,
+                  })),
+                ]}
+              />
             </div>
           )}
           <div>

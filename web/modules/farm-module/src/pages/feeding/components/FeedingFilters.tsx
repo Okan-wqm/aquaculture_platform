@@ -5,6 +5,7 @@
  * Extracted to avoid duplication between FeedingPage tabs.
  */
 import React from 'react';
+import { Select } from '@aquaculture/shared-ui';
 
 interface Site {
   id: string;
@@ -44,45 +45,39 @@ export const FeedingFilters: React.FC<FeedingFiltersProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* Site Filter */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Site
-          </label>
-          <select
+          <Select
+            label="Site"
             value={selectedSiteId}
             onChange={(e) => {
               onSiteChange(e.target.value);
               onBatchChange('');
             }}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             disabled={sitesLoading}
-          >
-            <option value="">All Sites</option>
-            {sites.map((site) => (
-              <option key={site.id} value={site.id}>
-                {site.name} ({site.code})
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Sites' },
+              ...sites.map((site) => ({
+                value: site.id,
+                label: `${site.name} (${site.code})`,
+              })),
+            ]}
+          />
         </div>
 
         {/* Batch Filter */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            Batch
-          </label>
-          <select
+          <Select
+            label="Batch"
             value={selectedBatchId}
             onChange={(e) => onBatchChange(e.target.value)}
-            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
             disabled={batchesLoading}
-          >
-            <option value="">All Batches</option>
-            {batches.map((batch) => (
-              <option key={batch.id} value={batch.id}>
-                {batch.batchNumber} - {batch.name || 'Unnamed'}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: 'All Batches' },
+              ...batches.map((batch) => ({
+                value: batch.id,
+                label: `${batch.batchNumber} - ${batch.name || 'Unnamed'}`,
+              })),
+            ]}
+          />
         </div>
       </div>
     </div>

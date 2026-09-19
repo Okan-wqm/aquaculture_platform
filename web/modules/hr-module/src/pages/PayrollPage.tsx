@@ -26,7 +26,7 @@ import {
   useApprovePayroll,
   useEmployees,
 } from '../hooks';
-import { expectedTotalPages } from '@platform/pagination-contracts';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../components/common';
 import type {
   Payroll,
@@ -884,12 +884,7 @@ const PayrollPage: React.FC = () => {
         emptyMessage="No payroll records found"
         pagination={
           activeTab !== 'pending' && allPayrolls
-            ? {
-                page: filter.page || 1,
-                limit: filter.limit || 20,
-                total: allPayrolls.total,
-                totalPages: expectedTotalPages(allPayrolls.total, filter.limit || 20),
-              }
+            ? derivePaginationMetadataV1(allPayrolls.total, filter.page || 1, filter.limit || 20)
             : undefined
         }
         onPageChange={activeTab === 'pending' ? undefined : handlePageChange}

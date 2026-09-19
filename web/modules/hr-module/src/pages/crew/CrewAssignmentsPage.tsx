@@ -29,7 +29,7 @@ import {
   useCrewAssignments,
   useCurrentlyOffshore,
 } from '../../hooks';
-import { expectedTotalPages } from '@platform/pagination-contracts';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import { SeaLandSplitView } from '../../components/crew';
 import type { Employee, WorkArea, CrewAssignment, PersonnelCategory, WorkAreaType, PaginationInput } from '../../types';
@@ -465,12 +465,7 @@ export function CrewAssignmentsPage() {
             keyExtractor={assignmentKeyExtractor}
             loading={loadingAssignments}
             emptyMessage="No crew assignments found"
-            pagination={{
-              page: currentPage,
-              limit: pageSize,
-              total: enrichedAssignments.length,
-              totalPages: expectedTotalPages(enrichedAssignments.length, pageSize),
-            }}
+            pagination={derivePaginationMetadataV1(enrichedAssignments.length, currentPage, pageSize)}
             onPageChange={handlePageChange}
             searchable={false}
             sortable={false}

@@ -23,7 +23,7 @@ import {
   useRejectLeaveRequest,
   useCurrentEmployeeId,
 } from '../../hooks';
-import { expectedTotalPages } from '@platform/pagination-contracts';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import type { LeaveRequest, LeaveRequestFilterInput, LeaveRequestStatus, PaginationInput } from '../../types';
 import { LEAVE_STATUS_CONFIG, LEAVE_CATEGORY_CONFIG } from '../../types';
@@ -435,12 +435,7 @@ export function LeavesPage() {
           emptyMessage="No leave requests found"
           pagination={
             activeTab !== 'pending' && allRequests
-              ? {
-                  page: pagination.page || 1,
-                  limit: pagination.limit || 20,
-                  total: allRequests.total,
-                  totalPages: expectedTotalPages(allRequests.total, pagination.limit || 20),
-                }
+              ? derivePaginationMetadataV1(allRequests.total, pagination.page || 1, pagination.limit || 20)
               : undefined
           }
           onPageChange={activeTab === 'pending' ? undefined : handlePageChange}

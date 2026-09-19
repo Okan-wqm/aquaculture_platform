@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { cn, useAuth, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useEmployees, useDepartments, usePositions, useToggleFarmWorker } from '../../hooks';
-import { expectedTotalPages } from '@platform/pagination-contracts';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar, DepartmentBadge } from '../../components/common';
 import type { Employee, EmployeeFilterInput, EmployeeStatus, PersonnelCategory, PaginationInput } from '../../types';
 import { EMPLOYEE_STATUS_CONFIG, PERSONNEL_CATEGORY_CONFIG } from '../../types';
@@ -400,12 +400,7 @@ export function EmployeesListPage() {
         emptyMessage="No employees found"
         pagination={
           employees
-            ? {
-                page: pagination.page || 1,
-                limit: pagination.limit || 20,
-                total: employees.total,
-                totalPages: expectedTotalPages(employees.total, pagination.limit || 20),
-              }
+            ? derivePaginationMetadataV1(employees.total, pagination.page || 1, pagination.limit || 20)
             : undefined
         }
         onPageChange={handlePageChange}

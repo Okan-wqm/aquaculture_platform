@@ -15,7 +15,7 @@ import {
   useCurrentEmployeeId,
 } from '../hooks';
 import { TimeClockWidget } from '../components/attendance/TimeClockWidget';
-import { expectedTotalPages } from '@platform/pagination-contracts';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge } from '../components/common';
 import type { AttendanceRecord, AttendanceFilterInput, PaginationInput } from '../types';
 import { ATTENDANCE_STATUS_CONFIG } from '../types';
@@ -338,12 +338,7 @@ export function AttendancePage() {
               emptyMessage="No attendance records found"
               pagination={
                 records
-                  ? {
-                      page: pagination.page || 1,
-                      limit: pagination.limit || 20,
-                      total: records.total,
-                      totalPages: expectedTotalPages(records.total, pagination.limit || 20),
-                    }
+                  ? derivePaginationMetadataV1(records.total, pagination.page || 1, pagination.limit || 20)
                   : undefined
               }
               onPageChange={handlePageChange}

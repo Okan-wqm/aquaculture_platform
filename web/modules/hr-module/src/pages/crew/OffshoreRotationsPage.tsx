@@ -27,7 +27,7 @@ import {
   useEmployees,
   useCurrentlyOffshore,
 } from '../../hooks';
-import { expectedTotalPages } from '@platform/pagination-contracts';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import type { WorkRotation, Employee, RotationType, PaginationInput } from '../../types';
 import { RotationStatus } from '../../types';
@@ -460,12 +460,7 @@ export function OffshoreRotationsPage() {
             keyExtractor={(row) => row.id}
             loading={loadingRotations}
             emptyMessage="No active rotations found"
-            pagination={{
-              page: currentPage,
-              limit: pageSize,
-              total: activeRotations.length,
-              totalPages: expectedTotalPages(activeRotations.length, pageSize),
-            }}
+            pagination={derivePaginationMetadataV1(activeRotations.length, currentPage, pageSize)}
             onPageChange={handlePageChange}
             searchable={false}
             sortable={false}
@@ -603,12 +598,7 @@ export function OffshoreRotationsPage() {
             keyExtractor={(row) => row.id}
             loading={loadingRotations}
             emptyMessage="No rotation history found"
-            pagination={{
-              page: historyPage,
-              limit: pageSize,
-              total: completedRotations.length,
-              totalPages: expectedTotalPages(completedRotations.length, pageSize),
-            }}
+            pagination={derivePaginationMetadataV1(completedRotations.length, historyPage, pageSize)}
             onPageChange={setHistoryPage}
             searchable={false}
             sortable={false}

@@ -34,7 +34,7 @@ import {
   useAllCertifications,
   useEmployees,
 } from '../../hooks';
-import { expectedTotalPages } from '@platform/pagination-contracts';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
 import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import { CertificationExpiryAlert } from '../../components/certification';
 import { CertificationRequirement } from '../../types';
@@ -652,12 +652,7 @@ export function CertificationDashboardPage() {
             keyExtractor={(row) => row.id}
             loading={loadingCerts}
             emptyMessage="No certifications found"
-            pagination={{
-              page: pagination.page || 1,
-              limit: pagination.limit || 20,
-              total: certTotal,
-              totalPages: expectedTotalPages(certTotal, pagination.limit || 20),
-            }}
+            pagination={derivePaginationMetadataV1(certTotal, pagination.page || 1, pagination.limit || 20)}
             onPageChange={handlePageChange}
             searchable={false}
             sortable={false}

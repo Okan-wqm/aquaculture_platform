@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { WidgetConfig } from '../types';
 import { ProcessDiagramRenderer, ProcessNode, ProcessEdge } from './ProcessDiagramRenderer';
 import { useProcess } from '../../../hooks/useProcess';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -67,7 +68,7 @@ export const ProcessViewWidgetContent: React.FC<ProcessViewWidgetContentProps> =
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="lg" />
       </div>
     );
   }

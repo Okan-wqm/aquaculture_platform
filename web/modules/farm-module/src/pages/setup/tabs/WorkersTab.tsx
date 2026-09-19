@@ -11,7 +11,7 @@ import {
   Worker,
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
-import { Modal, useConfirm, useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useToast, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
@@ -258,7 +258,7 @@ export const WorkersTab: React.FC = () => {
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 

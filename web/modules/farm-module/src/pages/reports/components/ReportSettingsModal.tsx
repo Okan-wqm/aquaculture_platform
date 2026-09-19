@@ -10,13 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import {
-  Modal,
-  graphqlClient,
-  useAuth,
-  createTenantQueryKey,
-  createTenantInvalidationKey,
-} from '@aquaculture/shared-ui';
+import { Modal, graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -364,7 +358,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
       <div className="max-h-[calc(100vh-12rem)] overflow-y-auto space-y-6">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <Spinner size="lg" />
             <span className="ml-3 text-gray-600">Loading settings...</span>
           </div>
         ) : (

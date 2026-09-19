@@ -4,7 +4,7 @@
  * Shows feeding summary statistics including totals, variance analysis,
  * FCR calculation, and feed type breakdown for a selected batch.
  */
-import { parseMoney, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import React, { useState, useMemo } from 'react';
 import {
   useFeedingSummary,
@@ -82,7 +82,7 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }

@@ -12,7 +12,7 @@ import { useStockMovements, useLotTrace } from '../../../hooks/useStorageInvento
 import type { StockMovement } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { TransferStockModal } from './TransferStockModal';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 const typeBadge: Record<string, string> = {
   IN: 'bg-green-100 text-green-800',
@@ -246,7 +246,7 @@ export const StockMovementsTab: React.FC = () => {
       {/* Loading state — accounts for both standard and lot trace queries */}
       {(isLoading || isLotTraceLoading) && (
         <div className="flex items-center justify-center py-12">
-          <div className={`animate-spin w-8 h-8 border-4 ${lotTraceMode ? 'border-purple-500' : 'border-blue-500'} border-t-transparent rounded-full`} />
+          <Spinner size="lg" color="inherit" className={lotTraceMode ? 'text-purple-500' : 'text-primary-500'} />
         </div>
       )}
 

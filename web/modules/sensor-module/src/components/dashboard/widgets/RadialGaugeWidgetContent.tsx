@@ -8,7 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Spinner } from '@aquaculture/shared-ui';
 
 interface RadialGaugeWidgetContentProps {
   config: WidgetConfig;
@@ -57,7 +57,7 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="lg" />
       </div>
     );
   }

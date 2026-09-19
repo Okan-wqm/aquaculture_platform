@@ -29,7 +29,6 @@ import {
   Download,
   CheckSquare,
   Square,
-  Loader2,
   AlertTriangle,
   CheckCircle,
   X,
@@ -45,7 +44,7 @@ import type {
   AddIoConfigInput,
 } from '../../hooks/useEdgeDevices';
 import { IoType, IoDataType } from '../../hooks/useEdgeDevices';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -366,7 +365,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
           className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {isImporting ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <Download className="w-3.5 h-3.5" />
           )}

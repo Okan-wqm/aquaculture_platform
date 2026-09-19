@@ -23,11 +23,12 @@
  * operator needs before touching a motor is how old the last one is.
  */
 import React from 'react';
-import { Zap, Play, Square, AlertOctagon, RefreshCw, Loader2, AlertCircle } from 'lucide-react';
+import { Zap, Play, Square, AlertOctagon, RefreshCw, AlertCircle } from 'lucide-react';
 
 import { useVfdRealtimeReadings, getVfdStatus } from '../../hooks/useVfdReadings';
 import { useVfdCommands } from '../../hooks/useVfdCommands';
 import { VfdDeviceStatus } from '../../types/vfd.types';
+import { Spinner } from '@aquaculture/shared-ui';
 
 /** Beyond this the reading is old enough that acting on it is a decision, not a reflex. */
 const STALE_AFTER_MS = 30_000;
@@ -184,7 +185,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
           className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50"
         >
           {cmdLoading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <Play className="w-3.5 h-3.5" />
           )}
@@ -196,7 +197,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
           className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-600 text-white rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-50"
         >
           {cmdLoading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <Square className="w-3.5 h-3.5" />
           )}
@@ -209,7 +210,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
             className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-600 text-white rounded-lg text-sm font-medium hover:bg-yellow-700 transition-colors disabled:opacity-50"
           >
             {cmdLoading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <RefreshCw className="w-3.5 h-3.5" />
             )}
@@ -222,7 +223,7 @@ export const VfdControlPanel: React.FC<VfdControlPanelProps> = ({ deviceId, devi
           className="flex items-center gap-1.5 px-3 py-1.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors disabled:opacity-50 ml-auto"
         >
           {cmdLoading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <AlertOctagon className="w-3.5 h-3.5" />
           )}

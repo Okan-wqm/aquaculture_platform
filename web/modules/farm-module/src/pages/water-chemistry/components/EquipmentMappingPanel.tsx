@@ -5,7 +5,7 @@
  * adding/removing mappings with frequency and alert configuration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useParamEquipmentMappings,
   useCreateParamEquipmentMapping,
@@ -255,7 +255,7 @@ export const EquipmentMappingPanel: React.FC<EquipmentMappingPanelProps> = ({
         {/* Loading */}
         {mappingsLoading && (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+            <Spinner size="lg" />
           </div>
         )}
 

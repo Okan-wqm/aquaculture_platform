@@ -42,6 +42,7 @@ import type {
   WidgetAction,
   TagValueChange,
 } from '../../types/scada-runtime.types';
+import { Spinner } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Grid cell dimensions (mirrors scada-widget-sizes constants)        */
@@ -358,7 +359,7 @@ export const OperatorView = memo<OperatorViewProps>(
             aria-label="Loading screen"
           >
             <div className="flex flex-col items-center gap-2 text-gray-500">
-              <div className="w-6 h-6 border-2 border-gray-600 border-t-blue-500 rounded-full animate-spin" />
+              <Spinner size="md" />
               <span className="text-xs">{screen.name}</span>
             </div>
           </div>

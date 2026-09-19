@@ -16,7 +16,6 @@ import {
   Gauge,
   RefreshCw,
   AlertCircle,
-  Loader2,
   Wifi,
   WifiOff,
   ChevronDown,
@@ -30,7 +29,7 @@ import {
 } from 'lucide-react';
 import { MultiParameterTrendCard } from '../components/charts/MultiParameterTrendCard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -681,7 +680,7 @@ const ReadingsPage: React.FC = () => {
       {/* Loading State */}
       {loading && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 flex flex-col items-center justify-center text-gray-500">
-          <Loader2 className="w-8 h-8 animate-spin mb-3" />
+          <Spinner size="lg" color="inherit" className="mb-3" />
           <p>Sensörler yükleniyor...</p>
         </div>
       )}

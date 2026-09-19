@@ -21,7 +21,6 @@ import {
   LayoutGrid,
   TrendingUp,
   X,
-  Loader2,
 } from 'lucide-react';
 import { useScadaViewerStore, type ScadaProcess } from '../store/scadaViewerStore';
 import { isLegacyScadaViewerEnabled } from '../config/featureFlags';
@@ -31,6 +30,7 @@ import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
 import { SensorPanel } from '../components/scada/SensorPanel';
 import { useScadaTrend, type TrendQuery } from '../hooks/useScadaTrend';
+import { Spinner } from '@aquaculture/shared-ui';
 
 
 // ============================================================================
@@ -96,7 +96,7 @@ const TrendMiniPanel: React.FC<TrendMiniPanelProps> = ({ deviceCode, tagNames, o
       <div className="flex-1 px-4 py-2 overflow-hidden">
         {loading && !allPoints.length && (
           <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
+            <Spinner size="md" />
           </div>
         )}
         {!loading && allPoints.length === 0 && !error && (

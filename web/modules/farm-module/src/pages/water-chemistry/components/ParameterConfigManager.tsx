@@ -6,7 +6,7 @@
  * delete confirmation, and template picker integration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, chartChrome, colors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, chartChrome, colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useParameterConfigList,
   useCreateParameterConfig,
@@ -246,7 +246,7 @@ export const ParameterConfigManager: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+        <Spinner size="xl" />
       </div>
     );
   }

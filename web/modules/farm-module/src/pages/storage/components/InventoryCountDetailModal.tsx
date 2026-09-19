@@ -18,7 +18,7 @@
  *    variance details for compliance record-keeping.
  */
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Modal, useToast, useAuth, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useToast, useAuth, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useInventoryCount,
   useUpdateInventoryCountItems,
@@ -474,7 +474,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
         {/* Loading state */}
         {isLoading && (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+            <Spinner size="lg" />
           </div>
         )}
 

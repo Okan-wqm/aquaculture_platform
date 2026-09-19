@@ -14,7 +14,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useProtocolAssignments,
   useFeedingProtocolsV2,
@@ -708,7 +708,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
 
       {isLoading && (
         <div className="flex items-center justify-center h-40">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+          <Spinner size="xl" />
         </div>
       )}
 

@@ -30,6 +30,7 @@ function formatTimeSince(dateInput: Date | string): string {
 }
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface StatCardWidgetContentProps {
   config: WidgetConfig;
@@ -83,7 +84,7 @@ export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="md" />
       </div>
     );
   }

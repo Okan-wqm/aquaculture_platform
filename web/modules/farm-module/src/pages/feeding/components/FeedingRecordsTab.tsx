@@ -16,7 +16,7 @@ import {
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList, type Feed } from '../../../hooks/useFeeds';
 import { isBlockingError } from '../../../utils/list-view-state';
-import { Modal, useAuth, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, useAuth, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import type { Batch } from '../../../hooks/useBatches';
 
 // ============================================================================
@@ -160,7 +160,7 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }

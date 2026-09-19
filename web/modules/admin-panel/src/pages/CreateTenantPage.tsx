@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Select, Alert, RadioGroup } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Alert, RadioGroup, Spinner } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -1175,7 +1175,7 @@ const CreateTenantPage: React.FC = () => {
 
               {dataLoading ? (
                 <div className="flex items-center justify-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+                  <Spinner size="lg" />
                 </div>
               ) : formData.moduleConfigs.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

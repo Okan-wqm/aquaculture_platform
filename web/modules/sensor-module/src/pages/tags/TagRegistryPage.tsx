@@ -19,7 +19,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { ConfirmModal, Modal, useTenantQuery, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useTenantQuery, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   Tags,
   Search,
@@ -29,7 +29,6 @@ import {
   Trash2,
   Archive,
   Link2,
-  Loader2,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -214,7 +213,7 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
             disabled={updateTag.isPending}
             className="px-3 py-1.5 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-md disabled:opacity-50 flex items-center gap-1.5"
           >
-            {updateTag.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {updateTag.isPending && <Spinner size="sm" color="inherit" />}
             Kaydet
           </button>
         </>
@@ -531,7 +530,7 @@ const TagRegistryPage: React.FC = () => {
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-md disabled:opacity-50"
           >
             {discover.isPending
-              ? <Loader2 className="w-4 h-4 animate-spin" />
+              ? <Spinner size="sm" color="inherit" />
               : <Radar className="w-4 h-4" />}
             Tag Keşfet
           </button>

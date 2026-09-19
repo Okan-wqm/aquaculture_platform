@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Calendar, Sun, Thermometer, Anchor, Clock } from 'lucide-react';
-import { cn, colors } from '@aquaculture/shared-ui';
+import { cn, colors, Spinner } from '@aquaculture/shared-ui';
 import { useLeaveBalanceSummary } from '../../hooks';
 import { LeaveCategory, LEAVE_CATEGORY_CONFIG } from '../../types';
 
@@ -122,7 +122,7 @@ export function LeaveBalanceWidget({
     return (
       <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
         <div className="flex items-center justify-center py-8">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-600" />
+          <Spinner size="md" />
         </div>
       </div>
     );

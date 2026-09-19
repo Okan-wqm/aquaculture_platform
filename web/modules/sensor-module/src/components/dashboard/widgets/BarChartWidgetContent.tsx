@@ -43,7 +43,7 @@ function formatTimeSince(dateInput: Date | string): string {
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
 import { downsampleChartData, MAX_CHART_POINTS } from '../../../utils/downsample';
-import { colors, colors as themeColors } from '@aquaculture/shared-ui';
+import { colors, colors as themeColors, Spinner } from '@aquaculture/shared-ui';
 
 interface BarChartWidgetContentProps {
   config: WidgetConfig;
@@ -67,7 +67,7 @@ export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="lg" />
       </div>
     );
   }

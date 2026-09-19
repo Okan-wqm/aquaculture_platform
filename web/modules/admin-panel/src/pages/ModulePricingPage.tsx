@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input, Alert, Modal } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Alert, Modal, Spinner } from '@aquaculture/shared-ui';
 import {
   billingApi,
   ModulePricingWithModule,
@@ -322,7 +322,7 @@ const ModulePricingPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }

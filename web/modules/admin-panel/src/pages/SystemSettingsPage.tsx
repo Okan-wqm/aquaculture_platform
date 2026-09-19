@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Select, Alert } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Select, Alert, Spinner } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import {
   usePlatformSettings,
@@ -602,7 +602,7 @@ const SystemSettingsPage: React.FC = () => {
   if (isLoading && !settings) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <Spinner size="lg" />
       </div>
     );
   }

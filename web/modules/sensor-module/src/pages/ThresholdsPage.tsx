@@ -16,7 +16,6 @@ import {
   Droplets,
   Gauge,
   Activity,
-  Loader2,
   CheckCircle,
   RefreshCw,
 } from 'lucide-react';
@@ -26,7 +25,7 @@ import {
   AlertThresholds,
   getSensorTypeLabel,
 } from '../hooks/useSensorThresholds';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Components
@@ -184,7 +183,7 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
               className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
               title="Kaydet"
             >
-              {savingId === threshold.sensorId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {savingId === threshold.sensorId ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}
             </button>
             <button
               onClick={cancelEdit}
@@ -258,7 +257,7 @@ const ThresholdsPage: React.FC = () => {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
+          <Spinner size="lg" block className="mb-3" />
           <p className="text-gray-500">Eşik değerleri yükleniyor...</p>
         </div>
       </div>
@@ -341,7 +340,7 @@ const ThresholdsPage: React.FC = () => {
       {/* Success Toast (optional) */}
       {updating && (
         <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
-          <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
+          <Spinner size="md" />
           <span className="text-sm text-gray-700">Kaydediliyor...</span>
         </div>
       )}

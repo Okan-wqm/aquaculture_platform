@@ -36,6 +36,7 @@ import { MemberRow } from '@/components/messaging/MemberRow';
 import { SentimentBadge } from '@/components/messaging/SentimentBadge';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { Spinner } from '@/components/ui/Spinner';
 import { useAiConsent } from '@/hooks/useAiConsent';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelActions } from '@/hooks/useChannelActions';
@@ -209,7 +210,7 @@ export function ChannelSettingsPage(): JSX.Element {
           </div>
         </div>
         <div className="flex items-center justify-center min-h-[50vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
+          <Spinner size="lg" />
         </div>
       </div>
     );

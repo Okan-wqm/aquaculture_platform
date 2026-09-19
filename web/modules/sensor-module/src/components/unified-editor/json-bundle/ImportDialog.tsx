@@ -20,7 +20,6 @@ import {
   X,
   FileJson,
   Shield,
-  Loader2,
 } from 'lucide-react';
 import type { STBundle } from '../../../types/st-editor.types';
 import {
@@ -28,6 +27,7 @@ import {
   formatFileSize,
   type BundleValidationResult,
 } from './bundle.utils';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -259,7 +259,7 @@ const ImportDialog: React.FC<ImportDialogProps> = ({
           {/* Validating Stage */}
           {stage === 'validating' && (
             <div className="flex flex-col items-center py-8 gap-3">
-              <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
+              <Spinner size="lg" />
               <p className="text-sm text-gray-500">Validating bundle...</p>
             </div>
           )}

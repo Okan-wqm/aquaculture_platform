@@ -20,7 +20,6 @@ import {
   Pause,
   Play,
   Plus,
-  Loader2,
 } from 'lucide-react';
 
 import { useScadaViewerStore } from '../store/scadaViewerStore';
@@ -29,6 +28,7 @@ import { ScadaViewer } from '../components/scada/ScadaViewer';
 import { ProcessSelector } from '../components/scada/ProcessSelector';
 import { SensorPanel } from '../components/scada/SensorPanel';
 import { SensorPicker, WidgetType } from '../components/dashboard/SensorPicker';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -120,7 +120,7 @@ const SensorDashboardPage: React.FC = () => {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100" role="status" aria-live="polite">
         <div className="text-center">
-          <Loader2 size={48} className="mx-auto mb-4 text-cyan-500 animate-spin" />
+          <Spinner size="xl" block className="mb-4" />
           <h2 className="text-xl font-semibold text-gray-700">Sensörler Yükleniyor...</h2>
           <p className="text-gray-500 mt-2">Lütfen bekleyin</p>
         </div>

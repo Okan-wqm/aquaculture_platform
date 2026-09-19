@@ -12,13 +12,13 @@ import {
   Play,
   Trash2,
   Edit3,
-  Loader2,
   AlertTriangle,
   Zap,
   Clock,
 } from 'lucide-react';
 import { VfdAutomationRule } from '../../types/vfd.types';
 import { VfdAutomationRuleForm } from './VfdAutomationRuleForm';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Props
@@ -117,7 +117,7 @@ export function VfdAutomationRuleList({
       {/* List */}
       {loading && rules.length === 0 ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          <Spinner size="md" />
         </div>
       ) : rules.length === 0 ? (
         <div className="py-12 text-center">

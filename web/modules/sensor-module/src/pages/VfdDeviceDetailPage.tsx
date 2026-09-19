@@ -15,7 +15,6 @@ import {
   Zap,
   Wifi,
   WifiOff,
-  Loader2,
   AlertTriangle,
   MapPin,
   Clock,
@@ -23,12 +22,12 @@ import {
   Settings,
   Power,
   PowerOff,
-  Loader2 as Spinner,
 } from 'lucide-react';
 
 import { useVfdDevice, useVfdRegistration } from '../hooks/useVfdRegistration';
 import { VfdControlPanel } from '../components/vfd/VfdControlPanel';
 import { VFD_BRAND_NAMES, VFD_PROTOCOL_NAMES, VfdDeviceStatus } from '../types/vfd.types';
+import { Spinner } from '@aquaculture/shared-ui';
 
 const Field: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div>
@@ -75,7 +74,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="p-12 flex flex-col items-center justify-center text-gray-500">
-        <Loader2 className="w-8 h-8 animate-spin mb-3" />
+        <Spinner size="lg" color="inherit" className="mb-3" />
         <p>VFD cihazı yükleniyor...</p>
       </div>
     );
@@ -161,7 +160,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
               className="inline-flex items-center gap-2 rounded-lg bg-gray-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
             >
               {lifecycleBusy ? (
-                <Spinner className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <PowerOff className="w-4 h-4" />
               )}
@@ -176,7 +175,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
               className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
             >
               {lifecycleBusy ? (
-                <Spinner className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <Power className="w-4 h-4" />
               )}

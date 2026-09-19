@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { useConfirm, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -21,7 +21,6 @@ import {
   User,
   LayoutTemplate,
   RefreshCw,
-  Loader2,
   AlertCircle,
 } from 'lucide-react';
 import { useActiveProcesses, useProcess, Process } from '../../hooks/useProcess';
@@ -131,7 +130,7 @@ const ProcessListPage: React.FC = () => {
       <div className="p-6">
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto" />
+            <Spinner size="lg" block />
             <p className="mt-2 text-sm text-gray-500">Loading processes...</p>
           </div>
         </div>
@@ -237,7 +236,7 @@ const ProcessListPage: React.FC = () => {
         return (
           <div className="relative inline-block">
             {isActionLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
+              <Spinner size="md" color="gray" />
             ) : (
               <>
                 <button

@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/adminApi';
 import type { AiPersonaDefinition } from '../../services/api/messaging';
 import type { ApiError } from '../../services/http-client';
@@ -292,7 +292,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
         <Card>
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3" />
+              <Spinner size="lg" block className="mb-3" />
               <p className="text-sm text-gray-500">Loading personas from backend...</p>
             </div>
           </div>

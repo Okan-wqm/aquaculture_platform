@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, LayoutGrid, Activity, Settings } from 'lucide-react';
-import { useAuth, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import { useAuth, tenantScopedStorageKey, Spinner } from '@aquaculture/shared-ui';
 import { GridStackDashboard, DashboardLayout } from '../components/dashboard/GridStackDashboard';
 
 // ============================================================================
@@ -62,7 +62,7 @@ const WidgetDashboardPage: React.FC = () => {
   if (!layoutLoaded) {
     return (
       <div className="h-screen flex items-center justify-center bg-gray-100">
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="lg" />
       </div>
     );
   }

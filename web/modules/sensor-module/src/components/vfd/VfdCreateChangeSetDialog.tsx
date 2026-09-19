@@ -6,8 +6,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
-import { Calendar, AlertTriangle, Loader2 } from 'lucide-react';
+import { Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Calendar, AlertTriangle } from 'lucide-react';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
 
 // ============================================================================
@@ -180,7 +180,7 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
               disabled={submitting || items.length === 0}
               className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
             >
-              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+              {submitting && <Spinner size="sm" color="inherit" />}
               Create Change Set
             </button>
           </div>

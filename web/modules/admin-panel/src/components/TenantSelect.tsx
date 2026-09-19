@@ -6,8 +6,9 @@
  */
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Search, Check, ChevronDown, Loader2, X } from 'lucide-react';
+import { Search, Check, ChevronDown, X } from 'lucide-react';
 import { useActiveTenants, type TenantOption } from '../hooks/useTenants';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -126,7 +127,7 @@ export const TenantSelect: React.FC<TenantSelectProps> = ({
           <div className="flex-1 overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center py-6">
-                <Loader2 className="animate-spin text-blue-600" size={20} />
+                <Spinner size="md" />
               </div>
             ) : filteredTenants.length === 0 ? (
               <div className="text-center py-6 text-sm text-gray-500">

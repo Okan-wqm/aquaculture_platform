@@ -34,9 +34,8 @@ import {
   User,
   HelpCircle,
   FileText,
-  Loader2,
 } from 'lucide-react';
-import { Modal, useAuthContext } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext, Spinner } from '@aquaculture/shared-ui';
 import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import {
   useSupportTickets,
@@ -579,7 +578,7 @@ export const TenantSupportPage: React.FC = () => {
       {loading && (
         <div className="flex-1 flex items-center justify-center bg-gray-50">
           <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 text-tenant-600 animate-spin" />
+            <Spinner size="lg" />
             <p className="text-gray-500">Loading tickets...</p>
           </div>
         </div>

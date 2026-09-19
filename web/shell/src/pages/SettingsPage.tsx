@@ -8,16 +8,7 @@
  * - Privacy: GDPR consent management (view/toggle/withdraw consents, history)
  */
 
-import {
-  useAuthContext,
-  Button,
-  Input,
-  Alert,
-  Card,
-  Modal,
-  useToast,
-  graphqlClient,
-} from '@aquaculture/shared-ui';
+import { useAuthContext, Button, Input, Alert, Card, Modal, useToast, graphqlClient, Spinner } from '@aquaculture/shared-ui';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -1312,7 +1303,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
 
           {notifLoading ? (
             <div className="flex items-center justify-center py-6">
-              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <Spinner size="md" />
             </div>
           ) : (
             <>

@@ -20,17 +20,7 @@ import { useSiteList } from '../../../hooks/useSites';
 import { useSystemsBySite } from '../../../hooks/useSystems';
 import { useSupplierList } from '../../../hooks/useSuppliers';
 import { useSensors } from '../../../hooks/useSensors';
-import {
-  Modal,
-  DynamicSpecificationForm,
-  SpecificationSchema,
-  validateSpecifications,
-  getDefaultSpecificationValues,
-  DeleteConfirmationDialog,
-  DeletePreviewData,
-  AffectedItemGroup,
-  useToast,
-} from '@aquaculture/shared-ui';
+import { Modal, DynamicSpecificationForm, SpecificationSchema, validateSpecifications, getDefaultSpecificationValues, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 import { SubEquipmentSection } from '../components/SubEquipmentSection';
 import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
@@ -888,7 +878,7 @@ export const EquipmentTab: React.FC = () => {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 

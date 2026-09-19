@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ConfirmModal, Modal, useConfirm, colors as themeColors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useConfirm, colors as themeColors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -25,7 +25,6 @@ import {
   RefreshCw,
   AlertTriangle,
   CheckCircle,
-  Loader2,
   Shield,
   Tag,
   MapPin,
@@ -842,7 +841,7 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
             disabled={isSubmitting || !form.tagName.trim()}
             className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
           >
-            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isSubmitting && <Spinner size="sm" color="inherit" />}
             {isEdit ? 'Güncelle' : 'Ekle'}
           </button>
         </div>
@@ -1090,7 +1089,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
               title={!device.isOnline ? 'Cihaz offline — auto-detect icin online olmali' : 'Donanimi tara'}
             >
               {scanHardware.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <Search className="w-4 h-4" />
               )}
@@ -1300,7 +1299,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors disabled:opacity-50"
           >
             {pushMutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <Upload className="w-4 h-4" />
             )}
@@ -1314,7 +1313,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             title={!device.isOnline ? 'Cihaz offline' : 'Donanimi tara ve I/O kanallarini kes\u0327fet'}
           >
             {scanHardware.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <Search className="w-4 h-4" />
             )}
@@ -1456,7 +1455,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
     return (
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div className="flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+          <Spinner size="sm" color="gray" />
           <span className="text-sm text-gray-500">Kurulum komutlari yükleniyor...</span>
         </div>
       </div>
@@ -1580,7 +1579,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
       {/* Updating indicator */}
       {isUpdating && (
         <div className="flex items-center gap-2 py-2.5 border-b border-gray-50">
-          <Loader2 className="w-4 h-4 animate-spin text-cyan-600" />
+          <Spinner size="sm" />
           <span className="text-sm text-cyan-700">
             Güncelleniyor: {device.targetFirmwareVersion}
           </span>
@@ -1627,7 +1626,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
           disabled={!selectedVersion || selectedVersion === currentVersion || updateMutation.isPending}
           className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 transition-colors"
         >
-          {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+          {updateMutation.isPending && <Spinner size="sm" color="inherit" />}
           Güncelle
         </button>
       </div>
@@ -1666,7 +1665,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
                   isDowngrade ? 'bg-orange-600 hover:bg-orange-700' : 'bg-cyan-600 hover:bg-cyan-700'
                 }`}
               >
-                {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                {updateMutation.isPending && <Spinner size="sm" color="inherit" />}
                 Devam
               </button>
             </>
@@ -1745,7 +1744,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
+        <Spinner size="lg" />
       </div>
     );
   }

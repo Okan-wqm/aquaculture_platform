@@ -17,7 +17,6 @@ import {
   CheckCircle,
   Clock,
   AlertTriangle,
-  Loader2,
   RefreshCw,
   Activity,
   Save,
@@ -34,7 +33,7 @@ import {
   getStatusLabel,
   getStatusColor,
 } from '../hooks/useCalibration';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Components
@@ -262,7 +261,7 @@ const SensorCalibrationGroup: React.FC<SensorGroupProps> = ({
               className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
               title="Kaydet"
             >
-              {savingId === channel.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {savingId === channel.id ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}
             </button>
             <button
               onClick={cancelEdit}
@@ -342,7 +341,7 @@ const CalibrationPage: React.FC = () => {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
+          <Spinner size="lg" block className="mb-3" />
           <p className="text-gray-500">Kalibrasyon verileri yükleniyor...</p>
         </div>
       </div>
@@ -483,7 +482,7 @@ const CalibrationPage: React.FC = () => {
       {/* Saving indicator */}
       {updating && (
         <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
-          <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
+          <Spinner size="md" />
           <span className="text-sm text-gray-700">Kaydediliyor...</span>
         </div>
       )}

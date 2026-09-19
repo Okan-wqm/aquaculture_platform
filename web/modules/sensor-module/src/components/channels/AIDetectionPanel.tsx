@@ -6,9 +6,10 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Sparkles, Loader2, CheckCheck, XCircle, AlertCircle, FileJson } from 'lucide-react';
+import { Sparkles, CheckCheck, XCircle, AlertCircle, FileJson } from 'lucide-react';
 import { useChannelDetection, ProposedChannel } from '../../hooks/useChannelDetection';
 import { AIChannelProposalCard } from './AIChannelProposalCard';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Props
@@ -236,7 +237,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {/* M4: Loading state for fetchPending */}
       {loadingPending && (
         <div className="flex items-center gap-3 py-4 justify-center">
-          <Loader2 className="w-5 h-5 text-purple-600 animate-spin" />
+          <Spinner size="md" />
           <p className="text-purple-700 text-sm">Bekleyen teklifler yükleniyor...</p>
         </div>
       )}
@@ -316,7 +317,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
       {/* Loading state */}
       {detecting && (
         <div className="flex items-center gap-3 py-8 justify-center">
-          <Loader2 className="w-6 h-6 text-purple-600 animate-spin" />
+          <Spinner size="md" />
           <p className="text-purple-700 text-sm font-medium">
             AI sensor verilerini analiz ediyor...
           </p>
@@ -338,7 +339,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
                 className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors text-xs font-medium disabled:opacity-50"
               >
                 {bulkProcessing ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <CheckCheck className="w-3.5 h-3.5" />
                 )}
@@ -350,7 +351,7 @@ export const AIDetectionPanel: React.FC<AIDetectionPanelProps> = ({
                 className="flex items-center gap-1 px-3 py-1.5 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-xs font-medium disabled:opacity-50"
               >
                 {bulkProcessing ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <XCircle className="w-3.5 h-3.5" />
                 )}

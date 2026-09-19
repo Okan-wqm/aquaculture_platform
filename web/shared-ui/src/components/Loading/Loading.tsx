@@ -12,10 +12,14 @@ import React from 'react';
 export interface SpinnerProps {
   /** Boyut */
   size?: 'sm' | 'md' | 'lg' | 'xl';
-  /** Renk */
-  color?: 'primary' | 'white' | 'gray';
+  /** Renk — `inherit` çevreleyen metnin rengini alır (bir düğme etiketinin yanında) */
+  color?: 'primary' | 'white' | 'gray' | 'inherit';
+  /** Satır kaplayıp ortalansın mı (yükleniyor bloğunun tek içeriği olduğunda) */
+  block?: boolean;
   /** Metin */
   text?: string;
+  /** Yalnızca ekran okuyucuya okunan ad (görünür metin olmadığında) */
+  label?: string;
   className?: string;
 }
 
@@ -27,9 +31,10 @@ const spinnerSizes = {
 };
 
 const spinnerColors = {
-  primary: 'text-blue-600',
+  primary: 'text-primary-500',
   white: 'text-white',
   gray: 'text-gray-500',
+  inherit: 'text-current',
 };
 
 /**
@@ -42,11 +47,16 @@ const spinnerColors = {
 export const Spinner: React.FC<SpinnerProps> = ({
   size = 'md',
   color = 'primary',
+  block = false,
   text,
+  label,
   className = '',
 }) => {
+  // WHY a span: the arc sits inside buttons and paragraphs as often as in
+  // loading blocks, and only phrasing content is valid there. Display is set
+  // explicitly, so a span lays out exactly as the div did.
   return (
-    <div className={`inline-flex items-center ${className}`}>
+    <span className={`${block ? 'flex justify-center' : 'inline-flex'} items-center ${className}`}>
       <svg
         className={`animate-spin ${spinnerSizes[size]} ${spinnerColors[color]}`}
         xmlns="http://www.w3.org/2000/svg"
@@ -69,7 +79,8 @@ export const Spinner: React.FC<SpinnerProps> = ({
         />
       </svg>
       {text && <span className="ml-2 text-sm text-gray-600">{text}</span>}
-    </div>
+      {!text && label && <span className="sr-only">{label}</span>}
+    </span>
   );
 };
 

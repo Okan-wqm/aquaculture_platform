@@ -14,7 +14,7 @@ import {
   CreateSupplierInput,
 } from '../../../hooks/useSuppliers';
 import SupplierApprovedSitesSection from '../components/SupplierApprovedSitesSection';
-import { Modal, useConfirm, useToast } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useToast, Spinner } from '@aquaculture/shared-ui';
 
 // Keys must be UPPERCASE to match GraphQL enum values
 const typeColors: Record<string, string> = {
@@ -402,7 +402,7 @@ export const SuppliersTab: React.FC = () => {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
@@ -949,25 +949,7 @@ export const SuppliersTab: React.FC = () => {
               className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50"
             >
               {(createSupplier.isPending || updateSupplier.isPending) && (
-                <svg
-                  className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
+                <Spinner size="sm" color="white" className="-ml-1 mr-2" />
               )}
               {editingId ? 'Update' : 'Create'}
             </button>

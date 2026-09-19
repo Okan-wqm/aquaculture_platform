@@ -7,7 +7,7 @@
  */
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Modal, useConfirm, useClickOutside } from '@aquaculture/shared-ui';
+import { Modal, useConfirm, useClickOutside, Spinner } from '@aquaculture/shared-ui';
 import { GridStack, GridStackWidget } from 'gridstack';
 import 'gridstack/dist/gridstack.min.css';
 
@@ -21,7 +21,6 @@ import {
   ChevronDown,
   Star,
   Copy,
-  Loader2,
   AlertCircle,
   GitFork,
   RotateCcw,
@@ -158,7 +157,7 @@ const SaveLayoutModal: React.FC<SaveLayoutModalProps> = ({
               }
             `}
           >
-            {saving && <Loader2 size={16} className="animate-spin" />}
+            {saving && <Spinner size="sm" color="inherit" />}
             {isUpdate ? 'Update' : 'Save'}
           </button>
         </>
@@ -518,7 +517,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <Loader2 size={32} className="animate-spin text-cyan-600" />
+        <Spinner size="lg" />
         <span className="ml-2 text-gray-600">Loading dashboard...</span>
       </div>
     );
@@ -773,7 +772,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
                 className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
               >
                 {saving ? (
-                  <Loader2 size={16} className="animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                 ) : (
                   <Save size={16} />
                 )}

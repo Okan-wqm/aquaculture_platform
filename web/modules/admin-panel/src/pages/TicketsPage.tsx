@@ -22,7 +22,6 @@ import {
   Target,
   Star,
   RefreshCw,
-  Loader2,
   Inbox,
 } from 'lucide-react';
 import {
@@ -34,6 +33,7 @@ import {
   type TicketStatus,
   type TicketCategory,
 } from '../services/adminApi';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -480,7 +480,7 @@ export const TicketsPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="animate-spin text-blue-600" size={32} />
+                <Spinner size="lg" />
               </div>
             ) : error ? (
               <div className="flex flex-col items-center justify-center h-full text-red-500 p-4">
@@ -678,7 +678,7 @@ export const TicketsPage: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {commentsLoading ? (
                 <div className="flex items-center justify-center h-full">
-                  <Loader2 className="animate-spin text-blue-600" size={32} />
+                  <Spinner size="lg" />
                 </div>
               ) : comments.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-gray-500">

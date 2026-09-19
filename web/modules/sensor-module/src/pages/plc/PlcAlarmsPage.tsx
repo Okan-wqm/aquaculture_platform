@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import {
   AlertTriangle,
   Bell,
@@ -17,7 +17,6 @@ import {
   CheckCircle,
   Clock,
   Filter,
-  Loader2,
   RefreshCw,
   Search,
   X,
@@ -146,7 +145,7 @@ const AcknowledgeDialog: React.FC<{
             disabled={isLoading}
             className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isLoading && <Spinner size="sm" color="inherit" />}
             Onayla
           </button>
         </>
@@ -334,7 +333,7 @@ const PlcAlarmsPage: React.FC = () => {
       {/* Alarm List */}
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <Spinner size="lg" />
         </div>
       ) : alarms && alarms.length > 0 ? (
         <div className="space-y-2">

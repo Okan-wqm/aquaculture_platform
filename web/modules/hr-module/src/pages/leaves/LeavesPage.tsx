@@ -14,7 +14,7 @@ import {
   XCircle,
   Eye,
 } from 'lucide-react';
-import { cn, Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { cn, Modal, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,
@@ -238,7 +238,7 @@ export function LeavesPage() {
                 className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {rejectMutation.isPending && (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <Spinner size="sm" color="white" />
                 )}
                 Confirm Rejection
               </button>

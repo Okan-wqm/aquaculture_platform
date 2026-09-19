@@ -1,0 +1,1 @@
+{"at":"2026-09-19T21:10:05+00:00","ledger_hash":"sha256:c1d4cadb7a7eae327372a5beca840195229988f8a31228da6a464de314e53777","previous_ledger_hash":null,"previous_status":"SHADOW","reason":"three non-critical false positives in 30 days","schema_version":1,"status":"CALIBRATE","tool_id":"doc-staleness-adapter"}

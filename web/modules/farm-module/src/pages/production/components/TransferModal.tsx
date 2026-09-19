@@ -4,7 +4,7 @@
  * Handles mixed batch logic when transferring to a tank with existing fish
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, useToast, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import { TankBatch } from '../types/batch.types';
 import { useTransferBatch, useAvailableTanks, AvailableTank } from '../../../hooks/useBatches';
 import { BatchScopeSelector } from './BatchScopeSelector';
@@ -256,42 +256,37 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           batchDetails={tank.batchDetails}
           selectedBatchId={selectedBatchId}
           onChange={setSelectedBatchId}
-          accent="blue"
         />
 
         {/* Form Fields */}
         <div className="space-y-4">
           {/* Destination Tank Selection */}
-          <div>
-            <label
-              htmlFor="destinationTank"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Destination Tank <span className="text-info-500">*</span>
-            </label>
-            {tanksLoading ? (
-              <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">Loading tanks...</div>
-            ) : (
-              <select
-                id="destinationTank"
-                value={destinationTankId}
-                onChange={(e) => setDestinationTankId(e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-              >
-                <option value="">Select destination tank...</option>
-                {destinationTanks.map((t: AvailableTank) => {
-                  const { usedPercent, available } = getCapacityInfo(t);
-                  const hasStock = t.currentCount > 0;
-                  return (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.code}) - {available.toFixed(0)} kg available
-                      {hasStock ? ` [${t.currentCount.toLocaleString()} fish]` : ' [Empty]'}
-                    </option>
-                  );
-                })}
-              </select>
-            )}
-          </div>
+          {tanksLoading ? (
+            <div>
+              <p className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Destination Tank
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Loading tanks...</p>
+            </div>
+          ) : (
+            <Select
+              id="destinationTank"
+              label="Destination Tank"
+              required
+              placeholder="Select destination tank..."
+              value={destinationTankId}
+              onChange={(e) => setDestinationTankId(e.target.value)}
+              options={destinationTanks.map((t: AvailableTank) => {
+                const { available } = getCapacityInfo(t);
+                const stock =
+                  t.currentCount > 0 ? ` [${t.currentCount.toLocaleString()} fish]` : ' [Empty]';
+                return {
+                  value: t.id,
+                  label: `${t.name} (${t.code}) - ${available.toFixed(0)} kg available${stock}`,
+                };
+              })}
+            />
+          )}
 
           {/* Show destination tank details if selected */}
           {selectedDestinationTank && (
@@ -415,26 +410,17 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           )}
 
           {/* Transfer Reason */}
-          <div>
-            <label
-              htmlFor="reason"
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
-            >
-              Transfer Reason <span className="text-info-500">*</span>
-            </label>
-            <select
-              id="reason"
-              value={transferReason}
-              onChange={(e) => setTransferReason(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-            >
-              {Object.entries(TransferReasons).map(([key, label]) => (
-                <option key={key} value={key}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="reason"
+            label="Transfer Reason"
+            required
+            value={transferReason}
+            onChange={(e) => setTransferReason(e.target.value)}
+            options={Object.entries(TransferReasons).map(([key, label]) => ({
+              value: key,
+              label,
+            }))}
+          />
 
           {/* Date */}
           <div>

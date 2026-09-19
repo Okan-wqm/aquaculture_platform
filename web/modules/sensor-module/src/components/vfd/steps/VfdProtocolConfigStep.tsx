@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Input, Select } from '@aquaculture/shared-ui';
+import { Input, Select, type SelectOption } from '@aquaculture/shared-ui';
 import {
   VfdProtocol,
   VfdBrand,
@@ -16,6 +16,41 @@ import {
 } from '../../../types/vfd.types';
 import { useVfdProtocols } from '../../../hooks/useVfdBrands';
 import { Info } from 'lucide-react';
+
+/** Serial line rates a Modbus RTU drive accepts. */
+const MODBUS_RTU_BAUD_RATES: readonly SelectOption[] = [
+  4800, 9600, 19200, 38400, 57600, 115200,
+].map((rate) => ({ value: rate, label: String(rate) }));
+
+/** CANopen bit rates, in the kbit/s the spec names them by. */
+const CANOPEN_BIT_RATES: readonly SelectOption[] = [
+  { value: 10000, label: '10 kbit/s' },
+  { value: 20000, label: '20 kbit/s' },
+  { value: 50000, label: '50 kbit/s' },
+  { value: 125000, label: '125 kbit/s' },
+  { value: 250000, label: '250 kbit/s' },
+  { value: 500000, label: '500 kbit/s' },
+  { value: 800000, label: '800 kbit/s' },
+  { value: 1000000, label: '1 Mbit/s' },
+];
+
+/** PROFIBUS DP bit rates. */
+const PROFIBUS_BIT_RATES: readonly SelectOption[] = [
+  { value: 9600, label: '9.6 kbit/s' },
+  { value: 19200, label: '19.2 kbit/s' },
+  { value: 93750, label: '93.75 kbit/s' },
+  { value: 187500, label: '187.5 kbit/s' },
+  { value: 500000, label: '500 kbit/s' },
+  { value: 1500000, label: '1.5 Mbit/s' },
+  { value: 3000000, label: '3 Mbit/s' },
+  { value: 6000000, label: '6 Mbit/s' },
+  { value: 12000000, label: '12 Mbit/s' },
+];
+
+/** BACnet MS/TP line rates. */
+const BACNET_MSTP_BAUD_RATES: readonly SelectOption[] = [
+  9600, 19200, 38400, 57600, 76800, 115200,
+].map((rate) => ({ value: rate, label: String(rate) }));
 
 interface VfdProtocolConfigStepProps {
   protocol: VfdProtocol;
@@ -154,64 +189,40 @@ function ModbusRtuFields({ values, onChange }: ModbusRtuFieldsProps) {
           Seri İletişim Ayarları
         </legend>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Baud Rate
-            </label>
-            <select
-              value={values.baudRate || 9600}
-              onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-            >
-              <option value={4800}>4800</option>
-              <option value={9600}>9600</option>
-              <option value={19200}>19200</option>
-              <option value={38400}>38400</option>
-              <option value={57600}>57600</option>
-              <option value={115200}>115200</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Data Bits
-            </label>
-            <select
-              value={values.dataBits || 8}
-              onChange={(e) => onChange('dataBits', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-            >
-              <option value={7}>7</option>
-              <option value={8}>8</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Parity
-            </label>
-            <Select
-              fullWidth
-              options={[
-                { value: 'none', label: 'None' },
-                { value: 'even', label: 'Even' },
-                { value: 'odd', label: 'Odd' },
-              ]}
-              value={values.parity || 'none'}
-              onChange={(e) => onChange('parity', e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Stop Bits
-            </label>
-            <select
-              value={values.stopBits || 1}
-              onChange={(e) => onChange('stopBits', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-            >
-              <option value={1}>1</option>
-              <option value={2}>2</option>
-            </select>
-          </div>
+          <Select
+            label="Baud Rate"
+            options={[...MODBUS_RTU_BAUD_RATES]}
+            value={values.baudRate || 9600}
+            onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
+          />
+          <Select
+            label="Data Bits"
+            options={[
+              { value: 7, label: '7' },
+              { value: 8, label: '8' },
+            ]}
+            value={values.dataBits || 8}
+            onChange={(e) => onChange('dataBits', parseInt(e.target.value))}
+          />
+          <Select
+            label="Parity"
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'even', label: 'Even' },
+              { value: 'odd', label: 'Odd' },
+            ]}
+            value={values.parity || 'none'}
+            onChange={(e) => onChange('parity', e.target.value)}
+          />
+          <Select
+            label="Stop Bits"
+            options={[
+              { value: 1, label: '1' },
+              { value: 2, label: '2' },
+            ]}
+            value={values.stopBits || 1}
+            onChange={(e) => onChange('stopBits', parseInt(e.target.value))}
+          />
         </div>
       </fieldset>
 
@@ -528,25 +539,12 @@ function CanopenFields({
               onChange={(e) => onChange('nodeId', parseInt(e.target.value))}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Baud Rate
-            </label>
-            <select
-              value={(values.baudRate as number) || 250000}
-              onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-            >
-              <option value={10000}>10 kbit/s</option>
-              <option value={20000}>20 kbit/s</option>
-              <option value={50000}>50 kbit/s</option>
-              <option value={125000}>125 kbit/s</option>
-              <option value={250000}>250 kbit/s</option>
-              <option value={500000}>500 kbit/s</option>
-              <option value={800000}>800 kbit/s</option>
-              <option value={1000000}>1 Mbit/s</option>
-            </select>
-          </div>
+          <Select
+            label="Baud Rate"
+            options={[...CANOPEN_BIT_RATES]}
+            value={(values.baudRate as number) || 250000}
+            onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               CAN Interface <span className="text-error-500">*</span>
@@ -674,26 +672,12 @@ function ProfibusDpFields({
               onChange={(e) => onChange('stationAddress', parseInt(e.target.value))}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Baud Rate
-            </label>
-            <select
-              value={(values.baudRate as number) || 1500000}
-              onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-            >
-              <option value={9600}>9.6 kbit/s</option>
-              <option value={19200}>19.2 kbit/s</option>
-              <option value={93750}>93.75 kbit/s</option>
-              <option value={187500}>187.5 kbit/s</option>
-              <option value={500000}>500 kbit/s</option>
-              <option value={1500000}>1.5 Mbit/s</option>
-              <option value={3000000}>3 Mbit/s</option>
-              <option value={6000000}>6 Mbit/s</option>
-              <option value={12000000}>12 Mbit/s</option>
-            </select>
-          </div>
+          <Select
+            label="Baud Rate"
+            options={[...PROFIBUS_BIT_RATES]}
+            value={(values.baudRate as number) || 1500000}
+            onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Master Address
@@ -740,23 +724,12 @@ function BacnetMstpFields({
               placeholder="COM1 veya /dev/ttyUSB0"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Baud Rate
-            </label>
-            <select
-              value={(values.baudRate as number) || 38400}
-              onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-            >
-              <option value={9600}>9600</option>
-              <option value={19200}>19200</option>
-              <option value={38400}>38400</option>
-              <option value={57600}>57600</option>
-              <option value={76800}>76800</option>
-              <option value={115200}>115200</option>
-            </select>
-          </div>
+          <Select
+            label="Baud Rate"
+            options={[...BACNET_MSTP_BAUD_RATES]}
+            value={(values.baudRate as number) || 38400}
+            onChange={(e) => onChange('baudRate', parseInt(e.target.value))}
+          />
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               MAC Address <span className="text-error-500">*</span>

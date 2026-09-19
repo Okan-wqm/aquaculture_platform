@@ -402,3 +402,18 @@ dispatch_model` under `if dispatch_model:` with `agent_profile.model`; `run_with
 - **Rule:** enforcement waits for what it needs — two calibrated judges of distinct models — and
   labelling work goes to the label queue, not the escalation ledger.
 - **Plan:** Phase 6.
+
+## ARIA-MEDIUM-175 — a judgment is prose in an envelope; no typed question or answer exists
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-10-03
+- **Evidence:** every judge role is minted as a prose prompt (`judge_fanout._render_prompt`:
+  "Return verdict true_positive|false_positive with file:line evidence") and answered as a free-text
+  envelope whose verdict is extracted by `_extract_envelope_json` (fenced blocks, last wins, then a
+  balanced-brace scan) and read by `judgment_bridge._verdict_field` in three spellings. No schema
+  states what a question is, what an answer is, what `confidence` means, or how N judgments could
+  share one call; the kernel has no primitive to ask a model a closed question and refuse a
+  malformed reply by name.
+- **Rule:** a judgment is a typed question with a typed answer — a closed primitive, a schema, a
+  stated confidence semantics, a citation the parser can check, and a failure vocabulary — before
+  it is a prompt.
+- **Plan:** Phase 1 (`aria_kernel/typed_judgment.py`).

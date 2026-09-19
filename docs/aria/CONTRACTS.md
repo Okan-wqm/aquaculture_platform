@@ -808,7 +808,7 @@ decision constructs and threads through every `classify_evidence_ref` call:
 - **Human-required record.** The executor writes its HUMAN_REQUIRED records IN-PROCESS through
   the kernel's own recorder (`ci_executor._record_human_required` →
   `human_required.record_human_required`; ARIA-HIGH-124 round 3 — the former `human-required
-  record` CHILD passed the reason through the operator CLI's free-text `--reason` validator,
+record` CHILD passed the reason through the operator CLI's free-text `--reason` validator,
   whose phone-number shape matches any ten consecutive digits, so an escalation naming an
   `aria-impl-*` branch or a sha carrying such a run was refused at argparse and lost). The
   record's bound is the kernel's own for that path (`HUMAN_REQUIRED_RECORD_WAIT_SECONDS` = one
@@ -1226,6 +1226,54 @@ Allowed `source` values: `self`, `operator`, `external_scanner`.
 
 `capability_gap_key` is deterministic: `surface:failure_mode:parser_kind`. Three independent
 feedback refs with the same key may produce pressure, but Phase 0 cannot execute skill birth.
+
+---
+
+## 8.6 — Typed Judgment (choice / score / noul) and the Confidence Contract
+
+A typed judgment is a question a model answers with a value, not prose (`aria_kernel/typed_judgment.py`,
+ARIA-HIGH-167). Three closed primitives: `choice` (exactly one of a fixed option set), `score` (a
+number on a stated scale, anchored by a rubric), `noul` (the truth of one proposition on `[0, 1]`).
+N questions travel in one `JudgmentBatch` to ONE model call; the reply is one JSON object:
+
+```json
+{
+  "$schema": "aria/typed-judgment-batch/v1",
+  "batch_id": "batch-…",
+  "answers": [
+    {
+      "question_id": "AIR-…",
+      "primitive": "choice",
+      "value": "false_positive",
+      "probabilities": { "true_positive": 0.2, "false_positive": 0.8 },
+      "confidence": 0.8,
+      "evidence": [{ "index": 0, "quote": "@Public()" }],
+      "rationale": "…"
+    }
+  ]
+}
+```
+
+Laws:
+
+- **Confidence is `P(value is correct)`** — the top-label probability. With `probabilities`
+  present, `value` is the argmax and `confidence` equals the largest probability (tolerance 0.01);
+  a `choice` confidence below 0.5 is a contradiction and is refused. Brier and ECE are computed on
+  exactly this number.
+- **The model never writes `confidence_source`.** The route that ran the call stamps
+  `self_reported` (a model's own number) or `provider_reported` (a vendor that returns probabilities
+  natively) on the envelope; a value inside the payload is ignored.
+- **The model never writes an evidence path.** A citation is an `index` into the question's
+  `evidence_refs` plus a verbatim `quote` (≤ 120 characters) that is checked against the excerpt
+  the question pinned for that ref; a quote outside the pinned bytes is `evidence_quote_mismatch`.
+  A ref the mint pinned nothing for carries its quote unverified, and the bridge grades it as the
+  judge's word.
+- **One outcome per question.** The parser returns an answer or a named failure
+  (`PARSE_REASON_CODES`) for every question in the batch; an answer for an id the batch never asked
+  is reported under `unexpected` and attributed to no question; two answers for one id are no
+  answer.
+- The typed response law in the system turn supersedes any "Response" section a question's prompt
+  carries from the per-request envelope path.
 
 ---
 
@@ -1674,7 +1722,7 @@ and no contract stated. What is now true, in one derivation per fact:
   carries it as data.
 - **One validation suite.** `validation_suite.CANONICAL_VALIDATION_COMMANDS` (re-exported by
   `implementation_safety` under the names every importer uses) grew a format entry (`npm run
-  format:check`, since ARIA-HIGH-149 `node tools/quality/quality.mjs format check-changed`);
+format:check`, since ARIA-HIGH-149 `node tools/quality/quality.mjs format check-changed`);
   `auto_merge._HYGIENE_DIMENSIONS` IS that tuple (one dimension per command, reason
   `triple_gate_hygiene_run_missing:<command>`), and `canonical_command_satisfied_by` is the
   whole-entry matching rule the pre-PR-open `test_gate_canonical_suite` check and the hygiene battery
@@ -2443,7 +2491,7 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   write there is EROFS at the syscall. Existing loose refs under `refs/heads/` are overlaid
   read-only on top of the quarantine (visible, not rewritable — EBUSY on the mountpoint), bounded
   by `LOOSE_REF_OVERLAY_BOUND` (refused `loose_refs_exceed_overlay_bound:<n>`; `git pack-refs
-  --all` is the remedy — bwrap admits at most 9000 argv tokens, which is also why existing loose
+--all` is the remedy — bwrap admits at most 9000 argv tokens, which is also why existing loose
   OBJECTS are not overlaid one by one). READ-ONLY beside the workspace: the nearest ancestor
   `node_modules` (a per-request worktree resolves the checkout's tree). The EFFECTIVE hooks
   directory (`git rev-parse --path-format=absolute --git-path hooks`) is read-only inside. HIDDEN:
@@ -2459,7 +2507,7 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   packed object's name would shadow the good object — refused `object_hash_mismatch`, never
   migrated); a verified object is renamed into the shared store (content-addressed, an object the
   store holds is dropped, never overwritten); a pack the agent's git made is fed to `git
-  unpack-objects --strict` against the shared store (each object under the hash of its inflated
+unpack-objects --strict` against the shared store (each object under the hash of its inflated
   bytes; never a pack file copied whole); only ref files whose name matches the push grammar's own
   fragment (`command_policy.ARIA_IMPL_BRANCH_FRAGMENT`) and whose content is an object the store
   now holds are published with `git update-ref` (a real reflog row, the kernel's); everything else
@@ -2503,14 +2551,14 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   operator control, adjudications, the cost ledgers and the very turn count it is gated by. What
   the agent can do through the socket is what a hook could always do for its own request. The
   store-touching kernel commands the implementer contract once had the agent run inside — `apply
-  gate`, `pr create`, the push — and the `aria` MCP server once spawned inside are the executor's
+gate`, `pr create`, the push — and the `aria` MCP server once spawned inside are the executor's
   and served outside (ARIA-HIGH-124, next paragraph).
   WHAT THE PROBE PROVES: `sandbox_backend()` is non-None only when bwrap builds its namespaces AND
   hosts the SIGNED contract (`containment_probe.probe_git_containment`: a throwaway linked
   worktree, a throwaway key minted into it by the identity's own mint, the kernel-held agent, a
   commit-capable containment derived with that signing exposure, the sandbox stood on the probe's
   `aria-impl-*` branch by the kernel (`stand_on_implementation_branch`, ARIA-HIGH-124), `git
-  status` / the branch check / a signed `git commit` inside the real argv built with the managed
+status` / the branch check / a signed `git commit` inside the real argv built with the managed
   route's network setting
   (`MANAGED_SPAWN_ALLOW_NETWORK`), `git config --local`, a hooks write and a read of the private
   key REFUSED inside, a planted `refs/heads/main.lock` that must not reach the repository, then
@@ -2529,8 +2577,8 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   `tests/test_executor_implementation_identity.py`.
 - Kernel authority is exercised outside the agent's sandbox: the agent produces evidence, the
   executor delivers (ARIA-HIGH-124). The implementer contract had the AGENT run `python3 -m
-  aria_kernel apply gate` and `python3 -m aria_kernel pr create` inside its sandbox after a `git
-  push` of its own, and the `implementer` profile loaded the `aria` MCP server spawned inside as
+aria_kernel apply gate` and `python3 -m aria_kernel pr create` inside its sandbox after a `git
+push` of its own, and the `implementer` profile loaded the `aria` MCP server spawned inside as
   `python3 -m aria_kernel mcp serve`. All of them read and write the durable state store, which
   is not mounted in the sandbox (previous paragraph): measured on `5072864525` (2026-09-14) through
   the real executor child under real bwrap, the in-sandbox kernel CLI bootstrapped a PHANTOM store
@@ -2557,7 +2605,7 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   bwrap with a scripted agent that signed with a key of its own (`gh pr create` called, the
   fixture remote holding the branch, `implementation_delivered` on governance), and reachable
   by the real CLI agent because the command policy admitted `git commit -m x --gpg-sign=<its
-  own key>` (below). (0b, round 3) the admission
+own key>` (below). (0b, round 3) the admission
   (`implementation_delivery.delivery_admission_refusal`: the validation sandbox buildable for
   every staged command, the job's remaining window above the delivery's worst case; stage
   `admission`, harness-class); (1) the change ledger's scope verdict
@@ -2601,7 +2649,7 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   compared against the staged baseline; the action promoted to `ready_for_pr` with the
   `validation_gate_ref` the opener demands. A command that hits its ceiling is STOPPED (round
   4): the wrapper's argv carries `VALIDATION_SANDBOX_CONTAINMENT_FLAGS` (`--unshare-pid
-  --die-with-parent`: the command runs in its own PID namespace behind bwrap's init, which dies
+--die-with-parent`: the command runs in its own PID namespace behind bwrap's init, which dies
   with the executor's child handle and takes the namespace with it — and hides every host pid,
   so `/proc/<host pid>/root` is not a path inside even as uid 0), the bwrap probe exercises
   the same flags so a host that cannot build them is refused before a claim, and
@@ -2635,11 +2683,11 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   hides such a string from the SUBMITTED envelope while the ledger's log keeps it raw, so the
   submit's scan never saw what the ledger carried; (3) the change ledger's commit row;
   (4) `git push
-  origin refs/heads/<branch>` with the
+origin refs/heads/<branch>` with the
   delivery credential's environment (`GH_TOKEN` + the env-only `gh auth git-credential` helper)
   applied to that ONE git subprocess, intent + receipt keyed on the request
   (`recovery.record_intent(effect_kind="git_push")`); (3) `pr_manager.open_pr_for_action(dry_run=
-  False, request_id=, command_environment=)` — the `ARIA_PR_BASE` guard, GATE_PRE_PR_OPEN, the
+False, request_id=, command_environment=)` — the `ARIA_PR_BASE` guard, GATE_PRE_PR_OPEN, the
   breaker producer, the `change_id` anchor, intent + receipt keyed on the request, the credential
   on that ONE `gh pr create` subprocess, bounded at `GH_PR_CREATE_TIMEOUT_SECONDS`. The change
   ledger's commit row (round 2; `change_ledger.emit_change_committed`, delivery stage
@@ -2706,7 +2754,7 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   PR sign nothing. Until round 5 the key stayed under `<worktree>/aria-debts/keys/` through the
   gate, where the validation sandbox exposed it (above). Pinned end to end: the fixture `gh`
   lists the keys dir at `pr create` time (`[]`; round 4: `[<cycle>, <cycle>.pub,
-  <lease>.token]`), the contained suite's own listing is `[]`, and
+<lease>.token]`), the contained suite's own listing is `[]`, and
   `delivery_credential_issued.token_file_outside_workspace` is true. The
   spawn's environment carries no `GH_TOKEN` and no credential helper (and no lease exists
   while the agent runs); the command policy
@@ -2729,7 +2777,7 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   the push). Pinned: a `pre-push` installed in the checkout never runs for the kernel's push.
   WHERE THE EXECUTOR'S OWN KERNEL RESOLVES FROM (round 2): the code root, never the agent's
   tree. Every kernel command the executor runs after the spawn — `agent release`, `agent
-  submit-result`, the drain's `agent next-pending`, the worker lane's `worker list` /
+submit-result`, the drain's `agent next-pending`, the worker lane's `worker list` /
   `worker-result submit` (the HUMAN_REQUIRED record is in-process since round 3) — inherits the
   child's cwd, which in the drain's lane is the request worktree the agent just wrote to, and
   `python -m` put that cwd FIRST on `sys.path`: an `aria_kernel/__main__.py` (or a `json.py`)
@@ -2873,7 +2921,7 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   WHAT `git commit` MAY LOOK LIKE (round 4): `git commit [-a] -m <message> [-m <message>…]` —
   and nothing else. The round-3 line rule `^git\s+commit(\s+-[a-zA-Z]+)*(\s+-m\s+.+)?$` admitted
   `-S<key>` in the short cluster and swallowed every trailing flag inside `.+`, so `git commit
-  -m x --gpg-sign=/tmp/its-own-key` (with `gpg.format=ssh` a key the agent wrote under its
+-m x --gpg-sign=/tmp/its-own-key` (with `gpg.format=ssh` a key the agent wrote under its
   writable HOME), `--author=…`, `--amend`, `--date=…`, `-C <commit>`, `-n` and a pathspec operand
   all passed the hook; and a single `-m` holding subject, body and trailer was an allowlist MISS
   (`.` did not cross the newline), so the contract's "trailer as the last body line" was only
@@ -2935,7 +2983,7 @@ workspace_root=<the tree the agent runs in>)`. WHERE: inside that tree — the p
   nothing, a blocked gate, a branch the repository already holds, an UNSIGNED tip and a tip signed
   with a key of the agent's own (round 4) are each refused by name with no push and no `gh`; the
   claim's lease is the child's priced worst case; inside the sandbox the broker refuses `apply
-  gate`, `pr create`, the push and every foreign `git commit` option by name, the agent starts on
+gate`, `pr create`, the push and every foreign `git commit` option by name, the agent starts on
   the kernel-made branch with no `GH_TOKEN` in its environment, and the `aria` MCP view answers
   through the relay with the real store's rows while a write tool is refused), at the policy in
   `tests/test_executor_pr_via_kernel.py`, at the module seams in

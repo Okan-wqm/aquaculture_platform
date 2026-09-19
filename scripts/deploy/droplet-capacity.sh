@@ -68,14 +68,17 @@ FULL_PROJECTED_RESERVE_GIB="${FULL_PROJECTED_RESERVE_GIB:-20}"
 SELECTIVE_PROJECTED_RESERVE_GIB="${SELECTIVE_PROJECTED_RESERVE_GIB:-10}"
 
 # --- Broker/JetStream capacity floors (100-tenant readiness Task 0) ---
-# NATS file-store floor: sum of DECLARED stream budgets × 1.25 reserve. Today
-# the only stream is AQUACULTURE_EVENTS (1.5GiB, nats-event-bus
-# getStreamConfig), so the floor is 1920MiB. When Task 2 lands
-# AQUACULTURE_TELEMETRY (~6GiB at the locked 2K msg/s envelope), this default
-# AND infrastructure/docker/nats/nats.conf max_file_store MUST be raised in the
-# same commit — this gate exists to catch the half-done version of exactly
-# that change.
-NATS_REQUIRED_FILE_STORE_BYTES="${NATS_REQUIRED_FILE_STORE_BYTES:-2013265920}"
+# NATS file-store floor: sum of DECLARED stream budgets × 1.25 reserve. The
+# event bus declares AQUACULTURE_TELEMETRY 6GiB (nats-event-bus
+# getTelemetryStreamConfig default), AQUACULTURE_EVENTS 1.5GiB
+# (getStreamConfig) and AQUACULTURE_DLQ 256MiB (getDlqStreamConfig):
+# 8321499136 bytes, × 1.25 = 10401873920. This gate was written to catch the
+# half-done version of a stream-size change; it did not, because its own floor
+# was a second hand-typed copy of the stream sizes and stayed at 1920MiB when
+# the telemetry stream landed. tests/invariants/jetstream-store-budget.spec.ts
+# now derives all three numbers from the event-bus source and fails when any
+# one of them drifts.
+NATS_REQUIRED_FILE_STORE_BYTES="${NATS_REQUIRED_FILE_STORE_BYTES:-10401873920}"
 NATS_MIN_MEMORY_BYTES="${NATS_MIN_MEMORY_BYTES:-536870912}"
 NATS_MIN_CPUS="${NATS_MIN_CPUS:-1.0}"
 # Measured 60-minute broker queue projection from the Task 0.4 M/E/R artifact.
@@ -100,7 +103,7 @@ Environment:
   CAPACITY_GC_MODE=auto|off
   CAPACITY_DISK_USAGE_MODE=summary|deep|off
   CAPACITY_DU_TIMEOUT_SECONDS=1..120
-  NATS_REQUIRED_FILE_STORE_BYTES=<bytes>  (default 1920MiB = 1.5GiB streams × 1.25)
+  NATS_REQUIRED_FILE_STORE_BYTES=<bytes>  (default 10401873920 = 7.75GiB declared streams × 1.25)
   NATS_MIN_MEMORY_BYTES=<bytes>           (default 512MiB)
   NATS_MIN_CPUS=<cores>                   (default 1.0)
   BROKER_QUEUE_BUDGET_BYTES=<bytes>       (default 0; measured 60-min queue projection)

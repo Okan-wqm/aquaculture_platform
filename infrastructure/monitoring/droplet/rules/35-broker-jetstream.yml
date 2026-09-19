@@ -22,17 +22,17 @@ groups:
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/nats-exporter-down.md'
 
       - alert: JetStreamStorageHigh
-        # 75% of the droplet nats.conf max_file_store (2GiB today). When Task 2
-        # raises max_file_store for AQUACULTURE_TELEMETRY, this threshold MUST
-        # be raised in the same commit — the deploy gate enforces the config
-        # side, this rule enforces the live side.
-        expr: nats_server_jetstream_total_storage_bytes > 1610612736
+        # 75% of the droplet nats.conf max_file_store (12GiB). The deploy gate
+        # enforces the config side, this rule enforces the live side, and
+        # tests/invariants/jetstream-store-budget.spec.ts keeps this number
+        # equal to 75% of the configured store.
+        expr: nats_server_jetstream_total_storage_bytes > 9663676416
         for: 15m
         labels:
           severity: warning
         annotations:
           summary: 'JetStream file store above 75% of the configured budget'
-          description: 'JetStream storage has exceeded 1.5GiB (75% of the 2GiB max_file_store) for 15 minutes; Discard-policy pressure is near.'
+          description: 'JetStream storage has exceeded 9GiB (75% of the 12GiB max_file_store) for 15 minutes; Discard-policy pressure is near.'
           runbook_url: 'https://github.com/Okan-wqm/aquaculture_platform/blob/main/docs/runbooks/monitoring/jetstream-storage-high.md'
 
       - alert: HostCpuSustainedHigh

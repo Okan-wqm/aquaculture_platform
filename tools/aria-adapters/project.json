@@ -26,6 +26,7 @@
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/event-contracts-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/fe-dto-parity-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/kernel-dead-wire-adapter.test.ts",
+          "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/lint-rules-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/security-boundary-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/tenant-scoping-adapter.test.ts",
           "npx ts-node --project tools/gates/tsconfig.json tools/aria-adapters/test-gap-adapter.test.ts",

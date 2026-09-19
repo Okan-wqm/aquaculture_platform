@@ -1,0 +1,65 @@
+{
+  "tool_id": "lint-rules-adapter",
+  "kind": "adapter",
+  "version": "1.0.0",
+  "status": "SHADOW",
+  "declared_scope": [
+    "apps/**/*.{ts,tsx}",
+    "libs/**/*.{ts,tsx}",
+    "platform/libs/**/*.{ts,tsx}",
+    "web/**/*.{ts,tsx}"
+  ],
+  "output_schema": {
+    "type": "object",
+    "required": ["observations", "findings", "read_paths", "evidence_sources"]
+  },
+  "fixture_set": "tools/aria-adapters/fixtures/lint-rules-adapter",
+  "health_thresholds": {
+    "max_cost_units": 8000
+  },
+  "default_input": {
+    "roots": ["apps", "libs", "platform/libs", "web"],
+    "includeTests": false
+  },
+  "allowed_read_globs": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "libs/**/*.ts",
+    "libs/**/*.tsx",
+    "platform/libs/**/*.ts",
+    "platform/libs/**/*.tsx",
+    "web/**/*.ts",
+    "web/**/*.tsx"
+  ],
+  "forbidden_read_globs": [
+    ".claude/**",
+    ".git/**",
+    "agent-workspace/**",
+    ".aria-poc/**",
+    "aria-tools/**",
+    "node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "build/**",
+    "tmp/**"
+  ],
+  "claim_types": ["lint_rule"],
+  "owner": "platform",
+  "runner": {
+    "type": "subprocess",
+    "argv": [
+      "npx",
+      "ts-node",
+      "--project",
+      "tools/gates/tsconfig.json",
+      "tools/aria-adapters/lint-rules-adapter.ts"
+    ],
+    "cwd": ".",
+    "timeout_ms": 1500000,
+    "stdin_json": true,
+    "node_max_old_space_mb": 4096
+  },
+  "freshness_window_hours": 168,
+  "schema_version": 1,
+  "parse_window_signature": "sha256:e91ca54cb282e55bd49b3d50ccc36f7a25858be38a46ca77f72102077cc5da41"
+}

@@ -60852,6 +60852,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/__tests__/Menu.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/Menu.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/Popover.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Modal/__tests__/ConfirmModal.spec.tsx",
       "prettier_managed": true
     },
@@ -60967,6 +60991,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Tabs/Tabs.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/__tests__/Tooltip.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/Tooltip.tsx",
       "prettier_managed": true
     },
     {

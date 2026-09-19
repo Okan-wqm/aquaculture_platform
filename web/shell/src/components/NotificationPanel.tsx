@@ -14,9 +14,9 @@
  * - Click-outside to close
  */
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { validateNavigationUrl } from '@aquaculture/shared-ui';
+import { validateNavigationUrl, Popover } from '@aquaculture/shared-ui';
 import {
   useNotifications,
   type InAppNotification,
@@ -232,7 +232,6 @@ export const NotificationPanel: React.FC = () => {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   const {
     notifications,
@@ -245,37 +244,20 @@ export const NotificationPanel: React.FC = () => {
   } = useNotifications();
 
   // --------------------------------------------------------------------------
-  // Click-outside handler (only active when panel is open)
-  // --------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isOpen]);
-
-  // --------------------------------------------------------------------------
   // Toggle panel
   // --------------------------------------------------------------------------
 
-  const handleToggle = useCallback(() => {
-    setIsOpen((prev) => {
-      const opening = !prev;
+  const handleOpenChange = useCallback(
+    (opening: boolean) => {
       // Fetch full list on first open, or re-fetch on subsequent opens
       if (opening) {
         fetchNotifications();
         setHasFetched(true);
       }
-      return opening;
-    });
-  }, [fetchNotifications]);
+      setIsOpen(opening);
+    },
+    [fetchNotifications],
+  );
 
   // --------------------------------------------------------------------------
   // Notification click: mark as read + navigate
@@ -330,15 +312,17 @@ export const NotificationPanel: React.FC = () => {
   }, []);
 
   return (
-    <div className="relative" ref={panelRef}>
-      {/* Bell Button */}
+    <Popover
+      open={isOpen}
+      onOpenChange={handleOpenChange}
+      aria-label="Notifications"
+      panelClassName="w-96"
+      trigger={(props) => (
       <button
+        {...props}
         type="button"
-        onClick={handleToggle}
         className="relative p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
         aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
-        aria-expanded={isOpen}
-        aria-haspopup="true"
       >
         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path
@@ -354,10 +338,12 @@ export const NotificationPanel: React.FC = () => {
           </span>
         )}
       </button>
+      )}
+    >
 
-      {/* Dropdown Panel */}
+      {/* Panel content */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-96 max-h-[32rem] rounded-lg bg-white dark:bg-gray-900 shadow-xl ring-1 ring-black/5 z-50 flex flex-col overflow-hidden">
+        <div className="max-h-[32rem] flex flex-col overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
@@ -410,7 +396,7 @@ export const NotificationPanel: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
+    </Popover>
   );
 };
 

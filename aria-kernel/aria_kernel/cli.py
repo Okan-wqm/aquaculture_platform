@@ -730,6 +730,14 @@ def build_parser() -> argparse.ArgumentParser:
     fb_batch = add_subparser(feedback_sub, "record-batch")
     fb_batch.add_argument("--sample-id", required=True)
     fb_batch.add_argument("--file", required=True)
+    # Typed-judgment plan Phase 6 — the sample a human label can bind to:
+    # the judge groups themselves, in three strata, with a pre-filled verdict
+    # file (verdict null, unconfirmed) the operator completes.
+    fb_queue = add_subparser(feedback_sub, "label-queue")
+    fb_queue.add_argument("--tool-id", required=True)
+    fb_queue.add_argument("--limit", type=int, default=15)
+    fb_queue.add_argument("--cycle-id", default=None)
+    fb_queue.add_argument("--out", required=True, help="Where the pre-filled verdict file is written")
     # V9.5 check 12 — the operator's channel for a plan-request row. The
     # kernel signs what it records; a row appended any other way is dropped
     # at ingestion with an unsigned_operator_feedback governance event, so
@@ -3245,6 +3253,15 @@ def _main(argv: list[str] | None = None) -> int:
         ), indent=2, sort_keys=True))
         return 0
 
+    if args.command == "feedback" and args.feedback_command == "label-queue":
+        from aria_kernel.label_queue import build_label_queue
+
+        queue = build_label_queue(tool_id=args.tool_id, base_dir=args.tools_dir, limit=int(args.limit), cycle_id=args.cycle_id)
+        Path(args.out).write_text(json.dumps(queue["verdict_file"], indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(json.dumps({"sample_id": queue["sample"]["sample_id"], "sampled_count": queue["sample"]["sampled_count"],
+                          "strata_available": queue["sample"]["strata_available"], "out": str(args.out)},
+                         sort_keys=True))
+        return 0
     if args.command == "feedback" and args.feedback_command == "record-batch":
         from aria_kernel.feedback_store import record_operator_feedback_batch
         payload = json.loads(Path(args.file).read_text(encoding="utf-8"))

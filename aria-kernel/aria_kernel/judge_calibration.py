@@ -80,17 +80,49 @@ def _observer_ids(row: dict[str, Any]) -> frozenset[str]:
     return frozenset(i for i in ids if i)
 
 
+def _human_row_is_verified(row: dict[str, Any], base_dir: str | Path | None) -> bool:
+    """ARIA-HIGH-169 — a human label counts only when it SAYS it is human
+    and the kernel's signature over it verifies; an absent provenance is
+    not the strongest provenance, and an unsigned row is nobody's label."""
+    if row.get("source_type") != "human":
+        return False
+    if base_dir is None:
+        return True
+    from .operator_feedback_signature import verify_operator_feedback_row
+
+    return bool(verify_operator_feedback_row(row, base_dir=base_dir).valid)
+
+
+def _label_stratum(row: dict[str, Any]) -> str:
+    provenance = row.get("label_provenance")
+    if isinstance(provenance, dict) and provenance.get("stratum"):
+        return str(provenance["stratum"])
+    return "unstratified"
+
+
 def _build_ground_truth_detail(
-    rows: list[dict[str, Any]],
+    rows: list[dict[str, Any]], *, base_dir: str | Path | None = None,
+    unverified: list[dict[str, Any]] | None = None,
 ) -> dict[tuple[str, str, str], tuple[str, str, frozenset[str]]]:
     """Best ground-truth ``(verdict, source, observers)`` per finding.
-    human beats ai_consensus; an anchor row remembers who formed it."""
+    human beats ai_consensus; an anchor row remembers who formed it; a
+    human row that is not explicitly human or does not verify is skipped
+    (and listed in ``unverified`` when the caller asks). The ``source`` of a
+    human row carries its label stratum: ``human`` for a random or
+    unstratified label, ``human_escalated`` for one drawn from the
+    escalations (review C3: reported, never the basis of `calibrated`)."""
     truth: dict[tuple[str, str, str], tuple[str, str, frozenset[str]]] = {}
     for row in rows:
         # JJ-1 — one predicate, five readers (see feedback_store).
         if not is_ground_truth_row(row):
             continue
         source = row.get("source_type") or "human"
+        if source == "human" or row.get("source_type") is None:
+            if not _human_row_is_verified(row, base_dir):
+                if unverified is not None:
+                    unverified.append(row)
+                continue
+            source = "human_escalated" if _label_stratum(row) == "escalated" else "human"
         verdict = str(row.get("verdict") or "")
         if not verdict:
             continue
@@ -102,9 +134,9 @@ def _build_ground_truth_detail(
         # overrides, a later `ai_consensus` overrides only when no `human` exists.
         if existing is None:
             truth[key] = (verdict, source, observers)
-        elif source == "human":
+        elif source.startswith("human"):
             truth[key] = (verdict, source, observers)
-        elif source == "ai_consensus" and existing[1] != "human":
+        elif source == "ai_consensus" and not existing[1].startswith("human"):
             truth[key] = (verdict, source, observers)
     return truth
 
@@ -283,14 +315,15 @@ def score_judges(
             r for r in rows
             if not str(r.get("judgment_group_id") or "").startswith(_REPLAY_GROUP_PREFIX)
         ]
-    truth = _build_ground_truth_detail(rows)
+    unverified_rows: list[dict[str, Any]] = []
+    truth = _build_ground_truth_detail(rows, base_dir=base_dir, unverified=unverified_rows)
     if calibration_bins < 1:
         raise ValueError(f"calibration_bins must be >= 1, got {calibration_bins!r}")
 
     def _fresh_bucket() -> dict[str, Any]:
         return {"tp": 0, "fp": 0, "fn": 0, "tn": 0, "n": 0, "correct": 0,
-                "conf_correct": [], "conf_wrong": [], "top_pairs": [], "tp_pairs": [],
-                "n_human": 0, "n_anchor_external": 0, "n_anchor_self_excluded": 0}
+                "conf_correct": [], "conf_wrong": [], "top_pairs": [], "tp_pairs": [], "decision_pairs": [],
+                "n_human": 0, "n_human_escalated": 0, "n_anchor_external": 0, "n_anchor_self_excluded": 0}
 
     agg: dict[str, dict[str, Any]] = {}
     by_source: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -311,7 +344,8 @@ def score_judges(
             # vote wearing a consensus hat: counted, never scored.
             bucket["n_anchor_self_excluded"] += 1
             continue
-        bucket["n_human" if truth_source == "human" else "n_anchor_external"] += 1
+        bucket["n_human" if truth_source == "human" else "n_human_escalated" if truth_source == "human_escalated"
+               else "n_anchor_external"] += 1
         source_bucket = by_source.setdefault(
             (judge_id, str(row.get("model") or ""), str(row.get("confidence_source") or "self_reported")),
             _fresh_bucket(),
@@ -333,11 +367,16 @@ def score_judges(
                 # is right (top-label, the 0.80 gate's quantity) and the
                 # finding is a true positive (the precision lane's).
                 b["top_pairs"].append((confidence, correct))
+                if truth_source != "human_escalated":
+                    # The decision is taken over the random strata and the
+                    # external anchors; escalated labels are the hard cases
+                    # (review C3) and are reported, never decided on.
+                    b["decision_pairs"].append((confidence, correct))
                 p_tp = confidence if judge_verdict == "true_positive" else 1.0 - confidence
                 b["tp_pairs"].append((p_tp, truth_verdict == "true_positive"))
 
     def _scored(judge_id: str, b: dict[str, Any], *, seed_parts: tuple[str, ...]) -> dict[str, Any]:
-        top_pairs: list[tuple[float, bool]] = b["top_pairs"]
+        top_pairs: list[tuple[float, bool]] = b["decision_pairs"]
         ece = expected_calibration_error(top_pairs, bins=calibration_bins)
         # The bootstrap is the decision's cost, paid only where a decision is
         # possible: under the provisional floor the status is fixed anyway.
@@ -356,6 +395,7 @@ def score_judges(
         )
         return {
             "samples_with_confidence": len(top_pairs),
+            "samples_with_confidence_all_strata": len(b["top_pairs"]),
             "brier_top": brier_score(top_pairs), "brier_skill": brier_skill_score(top_pairs),
             "brier_tp": brier_score(b["tp_pairs"]),
             "ece_top": ece["ece"], "ece_bins": ece["bins"], "ece_upper_90": ece_upper,
@@ -390,7 +430,8 @@ def score_judges(
             "mean_confidence_correct": _mean(b["conf_correct"]),
             "mean_confidence_wrong": _mean(b["conf_wrong"]),
             "status": status,
-            "ground_truth_strata": {"n_human": b["n_human"], "n_anchor_external": b["n_anchor_external"],
+            "ground_truth_strata": {"n_human": b["n_human"], "n_human_escalated": b["n_human_escalated"],
+                                    "n_anchor_external": b["n_anchor_external"],
                                     "n_anchor_self_excluded": b["n_anchor_self_excluded"]},
             **_scored(judge_id, b, seed_parts=(judge_id,)),
             "by_source": [
@@ -413,6 +454,7 @@ def score_judges(
         "precision_floor": precision_floor,
         "judged_judges": len(judges),
         "degraded_judges": degraded,
+        "unverified_ground_truth_rows": len(unverified_rows),
         "judges": judges,
     }
     return result

@@ -73,7 +73,11 @@ CONFIDENCE_SOURCES = ("self_reported", "provider_reported")
 # Consensus never treats two identical index sets as independent
 # corroboration.
 EVIDENCE_SELECTIONS = ("ref", "index")
-JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "random")
+# Typed-judgment plan Phase 6 — the label queue's own sample (label_queue.py):
+# items are the judge groups themselves, in strata, so a label lands on the
+# exact group the judges voted on.
+CALIBRATION_STRATIFIED_STRATEGY = "calibration_stratified"
+JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "random", CALIBRATION_STRATIFIED_STRATEGY)
 DEFAULT_MIN_JUDGED_SAMPLES = 10
 CONSENSUS_MIN_CONFIDENCE = 0.80
 
@@ -534,6 +538,7 @@ def record_operator_feedback(
     confidence_source: str | None = None,
     evidence_selection: str | None = None,
     calibration_basis: dict[str, Any] | None = None,
+    label_provenance: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
@@ -651,6 +656,10 @@ def record_operator_feedback(
         # Phase 6 — on a consensus row: the gate the row closed under and
         # the agreeing judges the calibrated quorum left out.
         "calibration_basis": calibration_basis,
+        # Phase 6 — on a human row from the label queue: the queue and the
+        # stratum the finding was drawn from (escalated labels are reported,
+        # never the basis of `calibrated`).
+        "label_provenance": label_provenance,
     }
     # The stored row carries the signature the signer added; return that
     # so callers (judge lanes, the CLI) see the row exactly as recorded.
@@ -675,6 +684,8 @@ def record_operator_feedback_batch(
     sample = _sample_by_id(sample_id, base_dir)
     if sample is None:
         raise GovernanceError(f"unknown judgment sample: {sample_id}")
+    if sample.get("status") == "recorded":
+        raise GovernanceError(f"judgment sample already recorded: {sample_id} (a correction is a new `feedback record` row)")
     verdicts = verdict_payload.get("verdicts") if isinstance(verdict_payload, dict) else verdict_payload
     if not isinstance(verdicts, list):
         raise GovernanceError("batch verdict file must be an array or an object with verdicts array")
@@ -707,8 +718,21 @@ def record_operator_feedback_batch(
         first = missing[0]
         raise GovernanceError(f"batch verdict missing sample item: {first[0]} {first[1]}")
 
+    stratified = sample.get("strategy") == CALIBRATION_STRATIFIED_STRATEGY
     rows = []
     for verdict, item in normalized:
+        if stratified:
+            # The label queue's law: nothing is pre-filled, everything is
+            # confirmed. An unchanged verdict file mints no ground truth.
+            if verdict.get("verdict") not in FEEDBACK_VERDICTS:
+                raise GovernanceError(
+                    f"label queue verdict is not decided for {item.get('run_id')} {item.get('finding_id')}: "
+                    f"{verdict.get('verdict')!r}"
+                )
+            if verdict.get("confirmed_by_operator") is not True:
+                raise GovernanceError(
+                    f"label queue verdict is not confirmed by the operator for {item.get('run_id')} {item.get('finding_id')}"
+                )
         rows.append(
             record_operator_feedback(
                 tool_id=str(item.get("tool_id") or sample.get("tool_id") or ""),
@@ -720,14 +744,27 @@ def record_operator_feedback_batch(
                 affected_belief_ids=_optional_string_list(verdict.get("affected_belief_ids")),
                 evidence_refs=_optional_string_list(verdict.get("evidence_refs")) or _evidence_refs_from_item(item),
                 rationale=str(verdict.get("rationale") or ""),
-                judgment_group_id=str(verdict.get("judgment_group_id") or sample_id),
+                # ARIA-HIGH-165 — the group the JUDGES voted on: the item's
+                # (the queue copies it from the judge rows), the verdict's
+                # only as an explicit override, and the sample id — a key no
+                # judge group carries — never again.
+                judgment_group_id=str(
+                    verdict.get("judgment_group_id") or item.get("judgment_group_id") or sample_id
+                ),
                 finding_fingerprint=str(item.get("finding_fingerprint") or ""),
+                label_provenance=(
+                    {"queue_id": sample_id, "stratum": str(item.get("stratum") or "")} if stratified else None
+                ),
                 base_dir=base_dir,
             ),
         )
     stored_sample = dict(sample)
     stored_sample["status"] = "recorded"
     stored_sample["recorded_feedback_count"] = len(rows)
+    stored_sample["recorded_at_status"] = utc_now()
+    # ARIA-HIGH-165 (F13) — the status used to be built and dropped: 125
+    # `pending` / 65 `empty` samples on the live store, none ever recorded.
+    append_jsonl(judgment_samples_path(base_dir), stored_sample)
     return {"schema_version": 1, "sample_id": sample_id, "recorded_count": len(rows), "feedback": rows}
 
 

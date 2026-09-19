@@ -122,7 +122,7 @@ function percentileNearestRank(sortedSamples: number[], p: number): number {
     throw new Error('percentile: no samples');
   }
   const rank = Math.max(1, Math.ceil(p * sortedSamples.length));
-  return sortedSamples[rank - 1] as number;
+  return sortedSamples[rank - 1];
 }
 
 /** Reduces raw latency samples to the summary used by phase acceptance. */
@@ -135,8 +135,8 @@ export function summarizeLatency(samples: number[]): LatencySummary {
     count: samples.length,
     median: percentileNearestRank(sorted, 0.5),
     p95: percentileNearestRank(sorted, 0.95),
-    min: sorted[0] as number,
-    max: sorted[sorted.length - 1] as number,
+    min: sorted[0],
+    max: sorted[sorted.length - 1],
     samples,
   };
 }
@@ -295,7 +295,11 @@ export function parseGraphqlOperationName(
  */
 export function countGraphqlRequests(page: Page): GraphqlRequestCollector {
   const counter = new GraphqlRequestCounter();
-  const listener = (request: { url(): string; method(): string; postData(): string | null }) => {
+  const listener = (request: {
+    url(): string;
+    method(): string;
+    postData(): string | null;
+  }): void => {
     counter.observe(request.url(), request.method(), request.postData());
   };
   page.on('request', listener);

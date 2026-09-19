@@ -77,15 +77,17 @@ export class ConversationService {
   ): Promise<void> {
     // SECURITY: tenantId + userId in WHERE prevents cross-tenant/cross-user mutation
     // MSGFIX: tenant-schema-pinned (see create()).
-    const result: unknown = await runInTenantTransaction(
+    const result = await runInTenantTransaction<unknown>(
       this.dataSource,
       'ai',
       tenantId,
-      async (queryRunner) =>
-        queryRunner.query(
+      async (queryRunner) => {
+        const rows: unknown = await queryRunner.query(
           `UPDATE agent_conversations SET messages = messages || $1::jsonb, "updatedAt" = NOW() WHERE id = $2 AND "tenantId" = $3 AND "userId" = $4`,
           [JSON.stringify([message]), conversationId, tenantId, userId],
-        ),
+        );
+        return rows;
+      },
     );
     // result[1] is the affected row count for UPDATE queries
     const affectedRows =
@@ -162,11 +164,12 @@ export class ConversationService {
       this.dataSource,
       'ai',
       tenantId,
-      async (queryRunner) =>
-        queryRunner.query(
+      async (queryRunner): Promise<void> => {
+        await queryRunner.query(
           `UPDATE agent_conversations SET "totalTokens" = "totalTokens" + $1 WHERE id = $2 AND "tenantId" = $3 AND "userId" = $4`,
           [tokens, conversationId, tenantId, userId],
-        ),
+        );
+      },
     );
   }
 

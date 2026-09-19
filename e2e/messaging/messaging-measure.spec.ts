@@ -24,7 +24,7 @@
  *   - send button: button[aria-label="Send"]
  */
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 
 import {
   assertNoBleed,
@@ -74,7 +74,7 @@ test.describe('Messaging FAZ measurements @messaging-measure', () => {
       // message would silently measure 0ms.
       const text = `measure-send ${repetition} ${Date.now()}`;
       const composer = page.getByLabel('Message');
-      const send = async () => {
+      const send = async (): Promise<Locator> => {
         await composer.fill(text);
         await composer.press('Enter');
         // The room renders each bubble in its own .sd-msg-row keyed by the
@@ -87,7 +87,7 @@ test.describe('Messaging FAZ measurements @messaging-measure', () => {
 
     saveMeasurementEvidence(
       `send-to-visible-${Date.now()}.json`,
-      JSON.stringify(summary, null, 2),
+      JSON.stringify(summary),
     );
     assertP95WithinBudget(summary, 1500);
   });
@@ -118,7 +118,7 @@ test.describe('Messaging FAZ measurements @messaging-measure', () => {
     const snapshot = collector.snapshot();
     saveMeasurementEvidence(
       `channel-switch-requests-${Date.now()}.json`,
-      JSON.stringify(snapshot, null, 2),
+      JSON.stringify(snapshot),
     );
     const channelMessages = snapshot.operations['ChannelMessages'] ?? 0;
     const myChannels = snapshot.operations['MyChannels'] ?? 0;
@@ -156,7 +156,7 @@ test.describe('Messaging FAZ measurements @messaging-measure', () => {
     const snapshot = collector.snapshot();
     saveMeasurementEvidence(
       `one-send-requests-${Date.now()}.json`,
-      JSON.stringify(snapshot, null, 2),
+      JSON.stringify(snapshot),
     );
     const channelMessages = snapshot.operations['ChannelMessages'] ?? 0;
     expect(
@@ -200,7 +200,7 @@ test.describe('Messaging FAZ measurements @messaging-measure', () => {
    * render WITHOUT a ChannelMessages refetch (pure cache mutation) and the
    * badge of a NON-open channel must move without any request.
    */
-  test('a WS-delivered message renders without a thread refetch @messaging-measure', async ({
+  test('a WS-delivered message renders without a thread refetch @messaging-measure', ({
     page: _page,
   }) => {
     // Requires a second actor (another browser context / user) to send into
@@ -215,7 +215,7 @@ test.describe('Messaging FAZ measurements @messaging-measure', () => {
     void _page;
   });
 
-  test('negative paths keep the gateway error-code contract @messaging-measure', async () => {
+  test('negative paths keep the gateway error-code contract @messaging-measure', () => {
     // Helper self-check (no live call): pins the contractual code set this
     // lane asserts with. TODO(FAZ-1): drive real negative paths through the
     // panel/gateway (deleted channel id → NOT_FOUND, expired session →

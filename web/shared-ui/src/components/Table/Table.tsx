@@ -135,7 +135,7 @@ const SortIndicator: React.FC<{ active: boolean; direction?: 'asc' | 'desc' }> =
     <span className="ml-2 inline-flex">
       <Icon
         className={`w-4 h-4 transition-colors ${
-          active ? 'text-primary-600' : 'text-gray-500 dark:text-gray-400'
+          active ? 'text-primary-600 dark:text-primary-400' : 'text-gray-500 dark:text-gray-400'
         }`}
         aria-hidden="true"
       />
@@ -421,7 +421,7 @@ export function Table<T extends object = Record<string, unknown>>({
                     onClick={() => onRowClick?.(row)}
                     className={`
                       ${onRowClick ? 'cursor-pointer' : ''}
-                      ${isSelected ? 'bg-primary-50' : ''}
+                      ${isSelected ? 'bg-primary-50 dark:bg-primary-900/20' : ''}
                       ${striped && rowIndex % 2 === 1 ? 'bg-gray-50 dark:bg-gray-800' : ''}
                       hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
                     `}

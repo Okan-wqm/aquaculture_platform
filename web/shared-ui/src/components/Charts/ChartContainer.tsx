@@ -27,10 +27,10 @@ const LoadingSkeleton: React.FC<{ height: number | string }> = ({ height }) => (
 // BUG-021: Remove hardcoded min-h-[200px] — use h-full so error state respects
 // the container height prop and doesn't overflow small charts
 const ErrorState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="flex items-center justify-center h-full w-full bg-error-50 rounded-lg">
+  <div className="flex items-center justify-center h-full w-full bg-error-50 dark:bg-error-900/20 rounded-lg">
     <div className="text-center">
       <CircleAlert className="w-12 h-12 mx-auto text-error-400 mb-2" aria-hidden="true" />
-      <p className="text-sm text-error-600">{message}</p>
+      <p className="text-sm text-error-600 dark:text-error-400">{message}</p>
     </div>
   </div>
 );

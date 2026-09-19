@@ -75,8 +75,8 @@ const TrendIndicator: React.FC<{
   isPercentage?: boolean;
 }> = ({ value, direction, label, isPercentage = true }) => {
   const colors = {
-    up: 'text-success-600 bg-success-50',
-    down: 'text-error-600 bg-error-50',
+    up: 'text-success-600 dark:text-success-400 bg-success-50 dark:bg-success-900/20',
+    down: 'text-error-600 dark:text-error-400 bg-error-50 dark:bg-error-900/20',
     neutral: 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800',
   };
 
@@ -237,7 +237,7 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
   sparklineData,
   progress,
   icon,
-  iconBackground = 'bg-primary-100',
+  iconBackground = 'bg-primary-100 dark:bg-primary-900/40',
   variant = 'default',
   size = 'md',
   className = '',
@@ -276,29 +276,29 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
       iconText: 'text-gray-600 dark:text-gray-400',
     },
     primary: {
-      border: 'border-primary-200',
-      iconBg: 'bg-primary-100',
-      iconText: 'text-primary-600',
+      border: 'border-primary-200 dark:border-primary-800',
+      iconBg: 'bg-primary-100 dark:bg-primary-900/40',
+      iconText: 'text-primary-600 dark:text-primary-400',
     },
     success: {
-      border: 'border-success-200',
-      iconBg: 'bg-success-100',
-      iconText: 'text-success-600',
+      border: 'border-success-200 dark:border-success-800',
+      iconBg: 'bg-success-100 dark:bg-success-900/40',
+      iconText: 'text-success-600 dark:text-success-400',
     },
     warning: {
-      border: 'border-warning-200',
-      iconBg: 'bg-warning-100',
-      iconText: 'text-warning-600',
+      border: 'border-warning-200 dark:border-warning-800',
+      iconBg: 'bg-warning-100 dark:bg-warning-900/40',
+      iconText: 'text-warning-600 dark:text-warning-400',
     },
     danger: {
-      border: 'border-error-200',
-      iconBg: 'bg-error-100',
-      iconText: 'text-error-600',
+      border: 'border-error-200 dark:border-error-800',
+      iconBg: 'bg-error-100 dark:bg-error-900/40',
+      iconText: 'text-error-600 dark:text-error-400',
     },
     info: {
-      border: 'border-info-200',
-      iconBg: 'bg-info-100',
-      iconText: 'text-info-600',
+      border: 'border-info-200 dark:border-info-800',
+      iconBg: 'bg-info-100 dark:bg-info-900/40',
+      iconText: 'text-info-600 dark:text-info-400',
     },
   };
 
@@ -310,7 +310,7 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
       className={`
         bg-white dark:bg-gray-900 rounded-xl shadow-sm border ${colors.border}
         ${sizes.padding}
-        ${onClick ? 'cursor-pointer hover:shadow-md hover:border-primary-300 transition-all duration-200' : ''}
+        ${onClick ? 'cursor-pointer hover:shadow-md hover:border-primary-300 dark:hover:border-primary-600 transition-all duration-200' : ''}
         ${className}
       `}
       onClick={onClick}

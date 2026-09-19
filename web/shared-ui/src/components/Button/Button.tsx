@@ -87,12 +87,12 @@ const variantStyles: Record<ButtonVariant, string> = {
     disabled:text-gray-500 dark:disabled:text-gray-400
   `,
   outline: `
-    bg-transparent text-primary-600
+    bg-transparent text-primary-600 dark:text-primary-400
     border border-primary-600
-    hover:bg-primary-50
+    hover:bg-primary-50 dark:hover:bg-primary-900/30
     focus:ring-primary-500
-    active:bg-primary-100
-    disabled:text-primary-300 disabled:border-primary-300
+    active:bg-primary-100 dark:active:bg-primary-900/50
+    disabled:text-primary-300 disabled:border-primary-300 dark:disabled:border-primary-700
   `,
 };
 
@@ -151,14 +151,7 @@ const LoadingSpinner: React.FC<{ size: Size }> = ({ size }) => {
       viewBox="0 0 24 24"
       aria-hidden="true"
     >
-      <circle
-        className="opacity-25"
-        cx="12"
-        cy="12"
-        r="10"
-        stroke="currentColor"
-        strokeWidth="4"
-      />
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path
         className="opacity-75"
         fill="currentColor"
@@ -210,11 +203,13 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       type = 'button',
       ...props
     },
-    ref
+    ref,
   ) => {
     // BUG-017: Warn in development if both loading aliases are supplied
     if (import.meta.env.DEV && isLoadingProp && loading) {
-      console.warn('Button: Both `isLoading` and `loading` props are set. Use `isLoading` — `loading` is deprecated.');
+      console.warn(
+        'Button: Both `isLoading` and `loading` props are set. Use `isLoading` — `loading` is deprecated.',
+      );
     }
     const isLoading = isLoadingProp || loading;
     // Devre dışı durumu (yükleniyor veya disabled prop'u)
@@ -264,9 +259,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         )}
 
         {/* Sol ikon (yükleniyor değilse) */}
-        {!isLoading && leftIcon && (
-          <span className={children ? 'mr-2' : ''}>{leftIcon}</span>
-        )}
+        {!isLoading && leftIcon && <span className={children ? 'mr-2' : ''}>{leftIcon}</span>}
 
         {/* Buton içeriği */}
         {!iconOnly && children}
@@ -275,7 +268,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {rightIcon && <span className={children ? 'ml-2' : ''}>{rightIcon}</span>}
       </button>
     );
-  }
+  },
 );
 
 Button.displayName = 'Button';
@@ -315,10 +308,7 @@ export const ButtonGroup: React.FC<ButtonGroupProps> = ({
     : 'flex-row [&>button]:rounded-none [&>button:first-child]:rounded-l-lg [&>button:last-child]:rounded-r-lg [&>button:not(:last-child)]:border-r-0';
 
   return (
-    <div
-      className={`inline-flex ${orientationClass} ${className}`}
-      role="group"
-    >
+    <div className={`inline-flex ${orientationClass} ${className}`} role="group">
       {children}
     </div>
   );

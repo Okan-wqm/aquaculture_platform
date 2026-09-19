@@ -152,11 +152,13 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
       {!isLoading && preview && (
         <div className="space-y-4">
           {/* Entity being deleted */}
-          <div className="flex items-start p-4 bg-error-50 border border-error-200 rounded-lg">
-            <WarningIcon className="w-6 h-6 text-error-600 flex-shrink-0 mt-0.5" />
+          <div className="flex items-start p-4 bg-error-50 dark:bg-error-900/20 border border-error-200 dark:border-error-800 rounded-lg">
+            <WarningIcon className="w-6 h-6 text-error-600 dark:text-error-400 flex-shrink-0 mt-0.5" />
             <div className="ml-3">
-              <h3 className="text-sm font-medium text-error-800">{entityType} Silme Onayı</h3>
-              <p className="mt-1 text-sm text-error-700">
+              <h3 className="text-sm font-medium text-error-800 dark:text-error-200">
+                {entityType} Silme Onayı
+              </h3>
+              <p className="mt-1 text-sm text-error-700 dark:text-error-300">
                 <strong>"{entityName}"</strong> {entityType.toLowerCase()}'ını silmek istediğinizden
                 emin misiniz?
               </p>
@@ -165,14 +167,16 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
 
           {/* Blockers */}
           {hasBlockers && (
-            <div className="p-4 bg-warning-50 border border-warning-200 rounded-lg">
+            <div className="p-4 bg-warning-50 dark:bg-warning-900/20 border border-warning-200 dark:border-warning-800 rounded-lg">
               <div className="flex items-center mb-2">
-                <BlockerIcon className="w-5 h-5 text-warning-600" />
-                <h4 className="ml-2 text-sm font-medium text-warning-800">Silme Engelleyicileri</h4>
+                <BlockerIcon className="w-5 h-5 text-warning-600 dark:text-warning-400" />
+                <h4 className="ml-2 text-sm font-medium text-warning-800 dark:text-warning-200">
+                  Silme Engelleyicileri
+                </h4>
               </div>
               <ul className="list-disc list-inside space-y-1">
                 {preview.blockers.map((blocker, index) => (
-                  <li key={index} className="text-sm text-warning-700">
+                  <li key={index} className="text-sm text-warning-700 dark:text-warning-300">
                     {blocker}
                   </li>
                 ))}
@@ -212,7 +216,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                         <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                           {group.label}
                         </span>
-                        <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 text-info-800">
+                        <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200">
                           {group.items.length}
                         </span>
                       </div>
@@ -237,7 +241,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                               )}
                             </div>
                             {item.hasBlocker && (
-                              <span className="ml-2 text-xs text-warning-600 flex-shrink-0">
+                              <span className="ml-2 text-xs text-warning-600 dark:text-warning-400 flex-shrink-0">
                                 {item.blockerReason}
                               </span>
                             )}
@@ -258,8 +262,8 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
 
           {/* No affected items */}
           {totalAffected === 0 && !hasBlockers && (
-            <div className="p-4 bg-success-50 border border-success-200 rounded-lg">
-              <p className="text-sm text-success-700">
+            <div className="p-4 bg-success-50 dark:bg-success-900/20 border border-success-200 dark:border-success-800 rounded-lg">
+              <p className="text-sm text-success-700 dark:text-success-300">
                 Bu {entityType.toLowerCase()} silindığında başka hiçbir öğe etkilenmeyecektir.
               </p>
             </div>

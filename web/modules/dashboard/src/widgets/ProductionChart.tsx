@@ -7,15 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { Card, chartChrome, colors, Button } from '@aquaculture/shared-ui';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { TrendUpIcon } from '../components/icons';
 import { useHarvestStatistics } from '../hooks/useDashboardData';
@@ -28,8 +20,19 @@ export interface ProductionChartProps {
 
 // Month labels (Turkish abbreviations)
 const MONTH_LABELS = [
-  '', 'Oca', 'Sub', 'Mar', 'Nis', 'May', 'Haz',
-  'Tem', 'Agu', 'Eyl', 'Eki', 'Kas', 'Ara',
+  '',
+  'Oca',
+  'Sub',
+  'Mar',
+  'Nis',
+  'May',
+  'Haz',
+  'Tem',
+  'Agu',
+  'Eyl',
+  'Eki',
+  'Kas',
+  'Ara',
 ];
 
 // PERF-M1: tooltip style hoisted to module scope
@@ -84,7 +87,15 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
         <div className="text-center py-6 text-gray-500 dark:text-gray-400">
           <TrendUpIcon className="w-8 h-8 mx-auto mb-2 text-red-400" />
           <p className="text-sm font-medium text-red-500">Uretim verileri yuklenemedi</p>
-          <Button variant="ghost" size="xs" className="mt-2" type="button" onClick={() => harvestQuery.refetch()}>Tekrar Dene</Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="mt-2"
+            type="button"
+            onClick={() => harvestQuery.refetch()}
+          >
+            Tekrar Dene
+          </Button>
         </div>
       </Card>
     );
@@ -113,7 +124,7 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totalTons} Ton</p>
           <p className="text-xs text-gray-500 dark:text-gray-400">{totalHarvests} hasat</p>
         </div>
-        <TrendUpIcon className="w-6 h-6 text-primary-600" />
+        <TrendUpIcon className="w-6 h-6 text-primary-600 dark:text-primary-400" />
       </div>
 
       <ResponsiveContainer width="100%" height={120}>
@@ -125,12 +136,7 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
             contentStyle={tooltipStyle}
             formatter={(value: number) => [`${value} Ton`, 'Uretim']}
           />
-          <Bar
-            dataKey="uretim"
-            fill={colors.primary[500]}
-            radius={[2, 2, 0, 0]}
-            maxBarSize={24}
-          />
+          <Bar dataKey="uretim" fill={colors.primary[500]} radius={[2, 2, 0, 0]} maxBarSize={24} />
         </BarChart>
       </ResponsiveContainer>
     </Card>

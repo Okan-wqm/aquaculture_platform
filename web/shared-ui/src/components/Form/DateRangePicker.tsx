@@ -258,7 +258,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   p-2 text-sm transition-colors
                   ${isStart ? 'bg-primary-600 text-white rounded-l-lg' : ''}
                   ${isEnd ? 'bg-primary-600 text-white rounded-r-lg' : ''}
-                  ${inRange && !isStart && !isEnd ? 'bg-primary-100' : ''}
+                  ${inRange && !isStart && !isEnd ? 'bg-primary-100 dark:bg-primary-900/40' : ''}
                   ${!inRange && !isStart && !isEnd ? 'hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg' : ''}
                   ${isDisabled ? 'text-gray-300 cursor-not-allowed' : 'cursor-pointer'}
                 `}
@@ -388,7 +388,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       )}
 
       {error && (
-        <p className="mt-1 text-sm text-error-600" role="alert">
+        <p className="mt-1 text-sm text-error-600 dark:text-error-400" role="alert">
           {error}
         </p>
       )}

@@ -216,7 +216,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                   key={opt.value}
                   className={`
                     inline-flex items-center gap-1
-                    bg-primary-100 text-primary-800 rounded
+                    bg-primary-100 dark:bg-primary-900/40 text-primary-800 dark:text-primary-200 rounded
                     ${chipSizeStyles[size]}
                   `}
                 >
@@ -225,7 +225,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     <button
                       type="button"
                       onClick={(e) => handleRemove(opt.value, e)}
-                      className="hover:text-primary-600 focus:outline-hidden"
+                      className="hover:text-primary-600 dark:hover:text-primary-300 focus:outline-hidden"
                     >
                       <X className="w-3 h-3" aria-hidden="true" />
                     </button>
@@ -266,7 +266,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     className={`
                       flex items-center gap-2 px-3 py-2
                       ${option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
-                      ${value.includes(option.value) ? 'bg-primary-50' : ''}
+                      ${value.includes(option.value) ? 'bg-primary-50 dark:bg-primary-900/20' : ''}
                     `}
                   >
                     <input
@@ -286,7 +286,11 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
 
         {/* Hata mesajı */}
         {error && (
-          <p id={`${selectId}-error`} className="mt-1 text-sm text-error-600" role="alert">
+          <p
+            id={`${selectId}-error`}
+            className="mt-1 text-sm text-error-600 dark:text-error-400"
+            role="alert"
+          >
             {error}
           </p>
         )}

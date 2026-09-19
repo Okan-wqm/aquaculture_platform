@@ -45,7 +45,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
       closeLabel="Close"
       title={
         <span className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-primary-600" />
+          <Sparkles className="h-5 w-5 text-primary-600 dark:text-primary-400" />
           <span>AI Assistant</span>
         </span>
       }
@@ -99,10 +99,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
           </div>
         )}
         {messages.map((m) => (
-          <div
-            key={m.id}
-            className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}
-          >
+          <div key={m.id} className={m.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
             <div
               className={
                 m.role === 'user'

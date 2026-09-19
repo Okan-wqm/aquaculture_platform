@@ -54,31 +54,31 @@ const typeStyles: Record<
   { bg: string; border: string; icon: string; text: string; focusRing: string }
 > = {
   success: {
-    bg: 'bg-success-50',
+    bg: 'bg-success-50 dark:bg-success-900/20',
     border: 'border-success-400',
     icon: 'text-success-400',
-    text: 'text-success-800',
+    text: 'text-success-800 dark:text-success-200',
     focusRing: 'focus:ring-success-500 focus:ring-offset-green-50',
   },
   error: {
-    bg: 'bg-error-50',
+    bg: 'bg-error-50 dark:bg-error-900/20',
     border: 'border-error-400',
     icon: 'text-error-400',
-    text: 'text-error-800',
+    text: 'text-error-800 dark:text-error-200',
     focusRing: 'focus:ring-error-500 focus:ring-offset-red-50',
   },
   warning: {
-    bg: 'bg-warning-50',
+    bg: 'bg-warning-50 dark:bg-warning-900/20',
     border: 'border-warning-400',
     icon: 'text-warning-400',
-    text: 'text-warning-800',
+    text: 'text-warning-800 dark:text-warning-200',
     focusRing: 'focus:ring-warning-500 focus:ring-offset-yellow-50',
   },
   info: {
-    bg: 'bg-info-50',
+    bg: 'bg-info-50 dark:bg-info-900/20',
     border: 'border-info-400',
     icon: 'text-info-400',
-    text: 'text-info-800',
+    text: 'text-info-800 dark:text-info-200',
     focusRing: 'focus:ring-info-500 focus:ring-offset-blue-50',
   },
 };
@@ -204,10 +204,10 @@ export interface BadgeProps {
 
 const badgeVariants = {
   default: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  success: 'bg-success-100 text-success-800',
-  warning: 'bg-warning-100 text-warning-800',
-  error: 'bg-error-100 text-error-800',
-  info: 'bg-info-100 text-info-800',
+  success: 'bg-success-100 dark:bg-success-900/40 text-success-800 dark:text-success-200',
+  warning: 'bg-warning-100 dark:bg-warning-900/40 text-warning-800 dark:text-warning-200',
+  error: 'bg-error-100 dark:bg-error-900/40 text-error-800 dark:text-error-200',
+  info: 'bg-info-100 dark:bg-info-900/40 text-info-800 dark:text-info-200',
   outline:
     'bg-transparent border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300',
 };

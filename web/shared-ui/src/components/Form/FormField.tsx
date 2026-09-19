@@ -97,7 +97,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       {showError && (
         <p
           id={errorId}
-          className="mt-1 text-sm text-error-600 flex items-center gap-1"
+          className="mt-1 text-sm text-error-600 dark:text-error-400 flex items-center gap-1"
           role="alert"
         >
           <CircleAlert className="w-4 h-4 flex-shrink-0" aria-hidden="true" />

@@ -40,9 +40,9 @@ const RemoteModuleLoader: React.FC<RemoteModuleLoaderProps> = ({ moduleName, mes
     <div className="min-h-[400px] flex items-center justify-center">
       <div className="text-center">
         <div className="relative mx-auto w-20 h-20 mb-6">
-          <div className="absolute inset-0 rounded-full border-4 border-primary-100 animate-ping opacity-75" />
-          <div className="relative w-full h-full bg-primary-50 rounded-full flex items-center justify-center">
-            <div className="text-primary-600">{icon}</div>
+          <div className="absolute inset-0 rounded-full border-4 border-primary-100 dark:border-primary-800 animate-ping opacity-75" />
+          <div className="relative w-full h-full bg-primary-50 dark:bg-primary-900/20 rounded-full flex items-center justify-center">
+            <div className="text-primary-600 dark:text-primary-400">{icon}</div>
           </div>
         </div>
 

@@ -219,7 +219,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         className={`
           relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
           transition-colors duration-200
-          ${isDragging ? 'border-primary-500 bg-primary-50' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'}
+          ${isDragging ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'}
           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
           ${error ? 'border-error-500' : ''}
         `}
@@ -241,7 +241,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
         <div className="mt-2">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            <span className="font-medium text-primary-600">Click to upload</span> or drag and drop
+            <span className="font-medium text-primary-600 dark:text-primary-400">
+              Click to upload
+            </span>{' '}
+            or drag and drop
           </p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {accept ? `Accepted: ${accept}` : 'Any file type'} up to {formatFileSize(maxSize)}
@@ -257,7 +260,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
               key={file.id}
               className={`
                 flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border
-                ${file.status === 'error' ? 'border-error-200 bg-error-50' : 'border-gray-200 dark:border-gray-700'}
+                ${file.status === 'error' ? 'border-error-200 dark:border-error-800 bg-error-50 dark:bg-error-900/20' : 'border-gray-200 dark:border-gray-700'}
               `}
             >
               {/* Preview or Icon */}
@@ -284,7 +287,9 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                       <span>{file.progress}%</span>
                     </>
                   )}
-                  {file.status === 'error' && <span className="text-error-600">{file.error}</span>}
+                  {file.status === 'error' && (
+                    <span className="text-error-600 dark:text-error-400">{file.error}</span>
+                  )}
                 </div>
 
                 {/* Progress bar */}
@@ -321,7 +326,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
       {/* Error */}
       {error && (
-        <p className="mt-1 text-sm text-error-600" role="alert">
+        <p className="mt-1 text-sm text-error-600 dark:text-error-400" role="alert">
           {error}
         </p>
       )}

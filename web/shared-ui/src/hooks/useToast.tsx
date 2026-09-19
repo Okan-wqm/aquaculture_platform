@@ -168,10 +168,12 @@ export function useToast(): UseToastReturn {
 // ============================================================================
 
 const variantStyles: Record<string, string> = {
-  success: 'bg-success-50 border-success-400 text-success-800',
-  error: 'bg-error-50 border-error-400 text-error-800',
-  warning: 'bg-warning-50 border-warning-400 text-warning-800',
-  info: 'bg-info-50 border-info-400 text-info-800',
+  success:
+    'bg-success-50 dark:bg-success-900/20 border-success-400 text-success-800 dark:text-success-200',
+  error: 'bg-error-50 dark:bg-error-900/20 border-error-400 text-error-800 dark:text-error-200',
+  warning:
+    'bg-warning-50 dark:bg-warning-900/20 border-warning-400 text-warning-800 dark:text-warning-200',
+  info: 'bg-info-50 dark:bg-info-900/20 border-info-400 text-info-800 dark:text-info-200',
 };
 
 const ToastCard: React.FC<{

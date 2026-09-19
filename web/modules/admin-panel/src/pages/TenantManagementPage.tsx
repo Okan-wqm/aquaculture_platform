@@ -280,7 +280,7 @@ const TenantManagementPage: React.FC = () => {
       sortable: true,
       render: (tenant) => (
         <div
-          className="cursor-pointer hover:text-primary-600"
+          className="cursor-pointer hover:text-primary-600 dark:hover:text-primary-300"
           onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
         >
           <div className="flex items-center space-x-2">

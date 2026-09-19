@@ -254,7 +254,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                       isSelected
                         ? 'bg-primary-600 text-white'
                         : isTodayDate
-                          ? 'bg-primary-50 text-primary-600 font-medium'
+                          ? 'bg-primary-50 dark:bg-primary-900/20 text-primary-600 dark:text-primary-400 font-medium'
                           : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                     }
                     ${isDisabled ? 'text-gray-300 cursor-not-allowed' : 'cursor-pointer'}
@@ -271,7 +271,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             <button
               type="button"
               onClick={() => handleSelectDate(new Date())}
-              className="w-full text-sm text-primary-600 hover:text-primary-700 font-medium"
+              className="w-full text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-200 font-medium"
             >
               Today
             </button>
@@ -281,7 +281,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
       {/* Error */}
       {error && (
-        <p className="mt-1 text-sm text-error-600" role="alert">
+        <p className="mt-1 text-sm text-error-600 dark:text-error-400" role="alert">
           {error}
         </p>
       )}

@@ -41,7 +41,9 @@ export const AuthStatusScreen: React.FC<AuthStatusScreenProps> = ({
     <div className="text-center" role={isSuccess ? 'status' : 'alert'}>
       <div
         className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${
-          isSuccess ? 'bg-success-100 text-success-600' : 'bg-error-100 text-error-600'
+          isSuccess
+            ? 'bg-success-100 dark:bg-success-900/40 text-success-600 dark:text-success-400'
+            : 'bg-error-100 dark:bg-error-900/40 text-error-600 dark:text-error-400'
         }`}
       >
         {isSuccess ? <CheckIcon /> : <XIcon />}

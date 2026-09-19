@@ -70,7 +70,10 @@ const NotFoundPage: React.FC<NotFoundPageProps> = ({ type = 'notfound' }) => {
 
         <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
           If the issue persists, please contact{' '}
-          <a href="/support" className="text-primary-600 hover:text-primary-700 font-medium">
+          <a
+            href="/support"
+            className="text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-200 font-medium"
+          >
             support
           </a>
           .

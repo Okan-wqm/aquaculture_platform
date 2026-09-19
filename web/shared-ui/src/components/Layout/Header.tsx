@@ -233,11 +233,11 @@ const headerThemeStyles = {
   },
   admin: {
     bg: 'bg-white dark:bg-gray-900',
-    border: 'border-accent-100',
+    border: 'border-accent-100 dark:border-accent-800',
   },
   tenant: {
     bg: 'bg-white dark:bg-gray-900',
-    border: 'border-secondary-100',
+    border: 'border-secondary-100 dark:border-secondary-800',
   },
 };
 

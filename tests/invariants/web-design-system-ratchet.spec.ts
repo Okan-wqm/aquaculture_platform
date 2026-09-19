@@ -47,7 +47,10 @@
  * 733 of them in the survey against lucide in 308 files.
  * A light-only surface (FE-MEDIUM-072) is a class string that paints
  * `bg-white`, `bg-gray-50` or `bg-gray-100` with no `dark:` sibling: under the
- * shell's dark theme the element keeps its light colour. theme.css keys
+ * shell's dark theme the element keeps its light colour. A semantic tint
+ * (`bg-success-50`, `bg-primary-100` — the Alert, Badge, KpiCard and chip
+ * surfaces, FE-MEDIUM-081) is a light surface too and pairs the same way.
+ * theme.css keys
  * `dark:` on `[data-theme='dark']` (the shell's toggle, or a dialog pinned
  * dark), so a surface is dark-aware exactly when every light class it paints
  * has a dark counterpart — 2,600 did not in the survey. The three shared-ui
@@ -183,7 +186,8 @@ const STRING_LITERAL = /"[^"\n]*"|'[^'\n]*'|`[^`]*`/g;
  * surface; `after:bg-white` paints generated content (a toggle's knob, white
  * in both themes), not the element.
  */
-const LIGHT_SURFACE = /(?<![.\w-])(?<!after:)(?<!before:)(?:bg-white|bg-gray-50|bg-gray-100)\b/;
+const LIGHT_SURFACE =
+  /(?<![.\w-])(?<!after:)(?<!before:)(?:bg-white|bg-gray-50|bg-gray-100|bg-(?:primary|secondary|accent|success|warning|error|info)-(?:50|100))\b/;
 /** Every light gray/white class the strict form pairs (surfaces, text, borders, dividers, placeholders). */
 const LIGHT_CLASS = /\b(?:bg-white|(?:bg|text|border|divide|placeholder)-gray-\d{2,3})\b/;
 /** theme.css keys `dark:` on the shell's attribute — the one definition every entry imports. */

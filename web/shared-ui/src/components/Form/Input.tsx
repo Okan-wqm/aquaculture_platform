@@ -98,7 +98,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       id: providedId,
       ...props
     },
-    ref
+    ref,
   ) => {
     // hint ve helperText'i birleştir
     const helperText = helperTextProp || hint;
@@ -162,7 +162,9 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             required={required}
             aria-required={required || undefined}
             aria-invalid={!!error}
-            aria-describedby={error ? `${inputId}-error` : helperText ? `${inputId}-helper` : undefined}
+            aria-describedby={
+              error ? `${inputId}-error` : helperText ? `${inputId}-helper` : undefined
+            }
             className={`
               block w-full rounded-lg border
               transition-colors duration-200
@@ -178,15 +180,17 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
           {/* Sağ element */}
           {rightElement && (
-            <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
-              {rightElement}
-            </div>
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center">{rightElement}</div>
           )}
         </div>
 
         {/* Hata mesajı */}
         {error && (
-          <p id={`${inputId}-error`} className="mt-1 text-sm text-error-600" role="alert">
+          <p
+            id={`${inputId}-error`}
+            className="mt-1 text-sm text-error-600 dark:text-error-400"
+            role="alert"
+          >
             {error}
           </p>
         )}
@@ -199,7 +203,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 Input.displayName = 'Input';
@@ -236,7 +240,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
       id: providedId,
       ...props
     },
-    ref
+    ref,
   ) => {
     const generatedId = useId();
     const textareaId = providedId || generatedId;
@@ -270,7 +274,9 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           required={required}
           aria-required={required || undefined}
           aria-invalid={!!error}
-          aria-describedby={error ? `${textareaId}-error` : helperText ? `${textareaId}-helper` : undefined}
+          aria-describedby={
+            error ? `${textareaId}-error` : helperText ? `${textareaId}-helper` : undefined
+          }
           className={`
             block w-full rounded-lg border
             transition-colors duration-200
@@ -284,17 +290,23 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         />
 
         {error && (
-          <p id={`${textareaId}-error`} className="mt-1 text-sm text-error-600" role="alert">
+          <p
+            id={`${textareaId}-error`}
+            className="mt-1 text-sm text-error-600 dark:text-error-400"
+            role="alert"
+          >
             {error}
           </p>
         )}
 
         {!error && helperText && (
-          <p id={`${textareaId}-helper`} className="mt-1 text-sm text-gray-500 dark:text-gray-400">{helperText}</p>
+          <p id={`${textareaId}-helper`} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            {helperText}
+          </p>
         )}
       </div>
     );
-  }
+  },
 );
 
 Textarea.displayName = 'Textarea';

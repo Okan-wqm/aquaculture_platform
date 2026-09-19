@@ -87,12 +87,24 @@ function getErrorColors(code: ErrorCode): { bg: string; border: string; text: st
     case ErrorCode.NETWORK_ERROR:
     case ErrorCode.TIMEOUT:
     case ErrorCode.SERVICE_UNAVAILABLE:
-      return { bg: 'bg-warning-50', border: 'border-warning-200', text: 'text-warning-800' };
+      return {
+        bg: 'bg-warning-50 dark:bg-warning-900/20',
+        border: 'border-warning-200 dark:border-warning-800',
+        text: 'text-warning-800 dark:text-warning-200',
+      };
     case ErrorCode.BAD_REQUEST:
     case ErrorCode.VALIDATION_ERROR:
-      return { bg: 'bg-warning-50', border: 'border-warning-200', text: 'text-warning-800' };
+      return {
+        bg: 'bg-warning-50 dark:bg-warning-900/20',
+        border: 'border-warning-200 dark:border-warning-800',
+        text: 'text-warning-800 dark:text-warning-200',
+      };
     default:
-      return { bg: 'bg-error-50', border: 'border-error-200', text: 'text-error-700' };
+      return {
+        bg: 'bg-error-50 dark:bg-error-900/20',
+        border: 'border-error-200 dark:border-error-800',
+        text: 'text-error-700 dark:text-error-300',
+      };
   }
 }
 

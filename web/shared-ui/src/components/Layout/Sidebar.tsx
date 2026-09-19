@@ -155,19 +155,19 @@ const resolveIcon = (
  */
 const themeClasses = {
   default: {
-    active: 'bg-primary-50 text-primary-700',
+    active: 'bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300',
     hover: 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700',
-    badge: 'bg-primary-100 text-primary-700',
+    badge: 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300',
   },
   admin: {
-    active: 'bg-accent-50 text-accent-700',
+    active: 'bg-accent-50 dark:bg-accent-900/20 text-accent-700 dark:text-accent-300',
     hover: 'text-gray-700 dark:text-gray-300 hover:bg-accent-50',
-    badge: 'bg-accent-100 text-accent-700',
+    badge: 'bg-accent-100 dark:bg-accent-900/40 text-accent-700 dark:text-accent-300',
   },
   tenant: {
-    active: 'bg-secondary-50 text-secondary-700',
+    active: 'bg-secondary-50 dark:bg-secondary-900/20 text-secondary-700 dark:text-secondary-300',
     hover: 'text-gray-700 dark:text-gray-300 hover:bg-secondary-50',
-    badge: 'bg-secondary-100 text-secondary-700',
+    badge: 'bg-secondary-100 dark:bg-secondary-900/40 text-secondary-700 dark:text-secondary-300',
   },
 };
 
@@ -348,13 +348,13 @@ const sidebarThemeStyles = {
   },
   admin: {
     bg: 'bg-slate-50',
-    border: 'border-accent-100',
-    toggleHover: 'hover:bg-accent-100',
+    border: 'border-accent-100 dark:border-accent-800',
+    toggleHover: 'hover:bg-accent-100 dark:hover:bg-accent-900/50',
   },
   tenant: {
     bg: 'bg-slate-50',
-    border: 'border-secondary-100',
-    toggleHover: 'hover:bg-secondary-100',
+    border: 'border-secondary-100 dark:border-secondary-800',
+    toggleHover: 'hover:bg-secondary-100 dark:hover:bg-secondary-900/50',
   },
 };
 

@@ -247,7 +247,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       </div>
 
       {error && (
-        <p className="mt-1 text-sm text-error-600" role="alert">
+        <p className="mt-1 text-sm text-error-600 dark:text-error-400" role="alert">
           {error}
         </p>
       )}

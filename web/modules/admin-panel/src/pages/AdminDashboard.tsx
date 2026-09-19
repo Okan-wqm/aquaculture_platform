@@ -231,7 +231,10 @@ const RecentActivityCard: React.FC<{ logs: readonly AuditLog[] }> = ({ logs }) =
     <Card>
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Activity</h3>
-        <Link to={adminRoutes.audit} className="text-sm text-primary-600 hover:text-primary-700">
+        <Link
+          to={adminRoutes.audit}
+          className="text-sm text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-200"
+        >
           View All
         </Link>
       </div>
@@ -574,7 +577,9 @@ const AdminDashboard: React.FC = () => {
                   key={item.role}
                   className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg"
                 >
-                  <p className="text-2xl font-bold text-primary-600">{item.count}</p>
+                  <p className="text-2xl font-bold text-primary-600 dark:text-primary-400">
+                    {item.count}
+                  </p>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.role}</p>
                 </div>
               ))}

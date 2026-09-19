@@ -1,10 +1,11 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
+import { CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import {useParams} from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { GET_TASK_DETAIL } from '@/graphql/operations';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -43,7 +44,6 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 export function TaskDetailPage(): JSX.Element {
-  const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: string }>();
   const { completeTask, startTask, setChecklistItem, addNote } = useTaskActions();
 
@@ -191,14 +191,9 @@ export function TaskDetailPage(): JSX.Element {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <h1 className="text-lg font-bold">Task Details</h1>
-          </div>
-        </div>
+        <PageHeader
+          title="Task Details"
+        />
         <div className="flex items-center justify-center min-h-[50vh]">
           <Spinner size="lg" />
         </div>
@@ -209,14 +204,9 @@ export function TaskDetailPage(): JSX.Element {
   if (error || !task) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <h1 className="text-lg font-bold">Task Details</h1>
-          </div>
-        </div>
+        <PageHeader
+          title="Task Details"
+        />
         <div className="px-4 mt-4">
           <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-center gap-3 border border-red-200 dark:border-red-800">
             <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
@@ -239,14 +229,9 @@ export function TaskDetailPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <h1 className="text-lg font-bold">Task Details</h1>
-        </div>
-      </div>
+      <PageHeader
+        title="Task Details"
+      />
 
       {/* Task info */}
       <div className="px-4 mt-4">

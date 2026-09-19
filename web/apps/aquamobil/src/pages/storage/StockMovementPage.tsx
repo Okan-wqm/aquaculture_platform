@@ -15,7 +15,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   ArrowDownToLine,
   ArrowUpFromLine,
   Trash2,
@@ -32,6 +31,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader, type PageHeaderTone } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { VirtualList } from '@/components/VirtualList';
 import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
@@ -77,10 +77,10 @@ interface StorageInventoryItem {
 // WHY: Movement type determines the header color, icon, and which fields are
 // mandatory. WASTE requires a reason (for audit), Feed/Chemical require lot
 // numbers (for traceability in food safety audits).
-const MOVEMENT_CONFIG: Record<StockMovementType, { label: string; color: string; gradient: string; icon: typeof ArrowDownToLine }> = {
-  IN: { label: 'Stock In', color: 'text-green-600', gradient: 'from-green-600 to-green-500', icon: ArrowDownToLine },
-  OUT: { label: 'Stock Out', color: 'text-red-600', gradient: 'from-red-600 to-red-500', icon: ArrowUpFromLine },
-  WASTE: { label: 'Write Off', color: 'text-gray-600', gradient: 'from-gray-600 to-gray-500', icon: Trash2 },
+const MOVEMENT_CONFIG: Record<StockMovementType, { label: string; color: string; gradient: string; tone: PageHeaderTone; icon: typeof ArrowDownToLine }> = {
+  IN: { label: 'Stock In', color: 'text-green-600', gradient: 'from-green-600 to-green-500', tone: 'green', icon: ArrowDownToLine },
+  OUT: { label: 'Stock Out', color: 'text-red-600', gradient: 'from-red-600 to-red-500', tone: 'red', icon: ArrowUpFromLine },
+  WASTE: { label: 'Write Off', color: 'text-gray-600', gradient: 'from-gray-600 to-gray-500', tone: 'gray', icon: Trash2 },
 };
 
 const ITEM_TYPES: Array<{ type: StorageItemType; label: string; emoji: string }> = [
@@ -401,19 +401,13 @@ export function StockMovementPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
       {/* Gradient Header */}
-      <div className={`bg-gradient-to-r ${config.gradient} text-white`}>
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={handleBack} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <MovementIcon size={22} />
-            <div>
-              <h1 className="text-lg font-bold">{config.label}</h1>
-              <p className="text-xs text-white/80">Step {effectiveStep} of {effectiveSteps}</p>
-            </div>
-          </div>
-        </div>
+      <PageHeader
+        tone={config.tone}
+        icon={MovementIcon}
+        title={config.label}
+        subtitle={`Step ${effectiveStep} of ${effectiveSteps}`}
+        back={handleBack}
+      >
         {/* Progress bar */}
         <div className="h-1 bg-white/20">
           <div
@@ -421,7 +415,7 @@ export function StockMovementPage(): JSX.Element {
             style={{ width: `${progress}%` }}
           />
         </div>
-      </div>
+      </PageHeader>
 
       {/* Error Banner */}
       {submitError && (

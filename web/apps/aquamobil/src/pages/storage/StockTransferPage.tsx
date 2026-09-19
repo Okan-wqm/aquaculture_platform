@@ -13,7 +13,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   ArrowLeftRight,
   AlertCircle,
   ChevronRight,
@@ -28,6 +27,7 @@ import { useNavigate } from 'react-router-dom';
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { BarcodeScanButton } from '@/components/BarcodeScanButton';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { VirtualList } from '@/components/VirtualList';
 import { STORAGE_INVENTORY_ITEMS, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
@@ -303,26 +303,20 @@ export function StockTransferPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
       {/* Gradient Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={handleBack} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <ArrowLeftRight size={22} />
-            <div>
-              <h1 className="text-lg font-bold">Stock Transfer</h1>
-              <p className="text-xs text-white/80">Step {step} of {TOTAL_STEPS}</p>
-            </div>
-          </div>
-        </div>
+      <PageHeader
+        tone="blue"
+        icon={ArrowLeftRight}
+        title="Stock Transfer"
+        subtitle={<>Step {step} of {TOTAL_STEPS}</>}
+        back={handleBack}
+      >
         <div className="h-1 bg-white/20">
           <div
             className="h-full bg-white/80 transition-all duration-300"
             style={{ width: `${progress}%` }}
           />
         </div>
-      </div>
+      </PageHeader>
 
       {/* Error Banner */}
       {submitError && (

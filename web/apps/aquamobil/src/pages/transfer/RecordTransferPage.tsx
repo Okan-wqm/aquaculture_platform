@@ -1,10 +1,11 @@
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
+import { ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useEffect, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
@@ -141,17 +142,12 @@ export function RecordTransferPage(): JSX.Element {
     const qty = parseInt(quantity, 10);
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => setStep('entry')} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <ArrowLeftRight size={22} />
-              <h1 className="text-lg font-bold">Confirm Transfer</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          tone="blue"
+          icon={ArrowLeftRight}
+          title="Confirm Transfer"
+          back={() => setStep('entry')}
+        />
 
         <div className="px-4 mt-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -247,17 +243,11 @@ export function RecordTransferPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <ArrowLeftRight size={22} />
-            <h1 className="text-lg font-bold">Transfer Record</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        tone="blue"
+        icon={ArrowLeftRight}
+        title="Transfer Record"
+      />
 
       {/* Source tank info */}
       {sourceTank && sourceMetrics && (

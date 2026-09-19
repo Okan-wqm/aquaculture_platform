@@ -4,6 +4,7 @@ import type { JSX } from 'react';
 import { useState, useCallback } from 'react';
 
 import { TaskCard } from '@/components/cards/TaskCard';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { useMyTasks } from '@/hooks/useMyTasks';
 
 
@@ -30,21 +31,11 @@ export function MyTasksPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-br from-ocean-700 via-ocean-600 to-ocean-500 text-white">
-        <div className="px-5 pt-safe-top">
-          <div className="flex items-center gap-3 py-4">
-            <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
-              <CheckSquare size={22} className="text-white" />
-            </div>
-            <h1 className="text-lg font-bold tracking-tight">My Tasks</h1>
-          </div>
-        </div>
-        <div className="relative">
-          <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-            <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-          </svg>
-        </div>
-      </div>
+      <PageHeader
+        variant="hub"
+        icon={CheckSquare}
+        title="My Tasks"
+      />
 
       {/* Segment control */}
       <div className="px-5 pt-4">

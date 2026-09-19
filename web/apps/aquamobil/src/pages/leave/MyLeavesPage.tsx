@@ -1,9 +1,10 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, CalendarOff, Plus, Clock } from 'lucide-react';
+import { CalendarOff, Plus, Clock } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { LeaveTypeSwatch } from '@/components/LeaveTypeSwatch';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { useMyLeaveBalances, useMyLeaveRequests, useCancelLeaveRequest, useLeaveTypes } from '@/hooks/useLeave';
 import type { LeaveBalance, LeaveRequest } from '@/types';
@@ -55,25 +56,19 @@ export function MyLeavesPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
       {/* Header */}
-      <div className="bg-gradient-to-r from-violet-600 to-violet-500 text-white">
-        <div className="flex items-center justify-between px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <CalendarOff size={22} />
-              <h1 className="text-lg font-bold">Leave</h1>
-            </div>
-          </div>
+      <PageHeader
+        tone="violet"
+        icon={CalendarOff}
+        title="Leave"
+        actions={
           <button
             onClick={() => navigate('/leave/request')}
             className="p-2 rounded-xl bg-white/20 hover:bg-white/30 touch-feedback"
           >
             <Plus size={20} />
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Tabs */}
       <div className="px-4 mt-4 flex gap-2">

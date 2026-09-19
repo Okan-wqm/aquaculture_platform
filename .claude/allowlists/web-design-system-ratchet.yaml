@@ -22,8 +22,9 @@
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
 #                 the same way), per package. shared-ui Spinner (aquamobil:
 #                 components/ui/Spinner) is the loading indicator.
-#   rawPageTitle — hand-written page titles (an h1 in text-2xl/text-xl bold or
-#                 semibold), per package. shared-ui PageHeader is the title row.
+#   rawPageTitle — hand-written page titles (an h1 in text-2xl/text-xl/text-lg
+#                 bold or semibold), per package. shared-ui PageHeader is the
+#                 title row; AquaMobil's components/ui/PageHeader is the band.
 #
 # Per-package ceilings are EXACT live counts (the spec rejects slack), so the
 # workflow is: remove occurrences, run the spec, lower the ceiling to the number
@@ -107,11 +108,11 @@ rawSpinner:
 rawPageTitle:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 1
+      ceiling: 5
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-071
-      reason: the error boundary fallback — a centred message, not a page header (mobile top bars are their own primitive)
+      reason: the home and account heroes (decorated bands with stats and an avatar), the channel list whose title row swaps into a search field, and the error boundary fallback — not the page band PageHeader draws
     - package: web/modules/hr-module
       ceiling: 1
       owner: okan
@@ -125,11 +126,11 @@ rawPageTitle:
       findingId: FE-MEDIUM-071
       reason: the pH/EC dosing simulator strip — the title is one control in a dense tool layout, compact by design
     - package: web/modules/sensor-module
-      ceiling: 3
+      ceiling: 5
       owner: okan
       expiry: 2027-06-30
       findingId: FE-MEDIUM-071
-      reason: toolbars of full-screen tools (SCADA view, widget dashboard, water-chemistry monitor) — the title is one control in a dense strip, compact by design; a page header would break the strip
+      reason: toolbars of full-screen tools (SCADA view, widget dashboard, water-chemistry monitor, VFD programming, tag registry) — the title is one control in a dense strip, compact by design; a page header would break the strip
     - package: web/shell
       ceiling: 1
       owner: okan

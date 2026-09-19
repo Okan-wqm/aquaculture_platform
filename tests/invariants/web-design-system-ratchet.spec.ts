@@ -36,9 +36,11 @@
  * affordance, not a loading indicator, and is not counted.
  *
  * A hand-written page title (FE-MEDIUM-071) is an `h1` in `text-2xl`/`text-xl`
- * bold or semibold outside shared-ui — the title row `PageHeader` owns (one
- * h1, one description, the actions beside it, responsive and dark-aware),
- * written by hand in a dozen spellings across 130 pages in the survey.
+ * (web) or `text-lg` (AquaMobil's bands) bold or semibold outside the two
+ * PageHeaders — the title row shared-ui's PageHeader owns (one h1, one
+ * description, the actions beside it, responsive and dark-aware) and the
+ * band AquaMobil's PageHeader owns (tone, back arrow, icon, actions) —
+ * written by hand in a dozen spellings across 169 pages in the survey.
  *
  * Detection is deliberately textual and identical to the survey (`git
  * ls-files` + a regex on the raw source, tests and generated code excluded) so
@@ -86,7 +88,7 @@ const CLASS_WITH_SPIN = /className=(?:"[^"]*\banimate-spin\b[^"]*"|'[^']*\banima
 const RING = /\brounded-full\b|\bborder(?:-[tblrxy])?-\d\b/;
 
 /** A page title written by hand — PageHeader renders the h1. */
-const RAW_PAGE_TITLE = /<h1 className="[^"]*\b(?:text-2xl|text-xl)\b[^"]*\bfont-(?:bold|semibold)\b[^"]*"/g;
+const RAW_PAGE_TITLE = /<h1 className="[^"]*\b(?:text-2xl|text-xl|text-lg)\b[^"]*\bfont-(?:bold|semibold)\b[^"]*"/g;
 
 function handRolledSpinners(source: string): number {
   let hits = (source.match(LOADER_ICON_SPINNER) ?? []).length + (source.match(SVG_SPINNER) ?? []).length;

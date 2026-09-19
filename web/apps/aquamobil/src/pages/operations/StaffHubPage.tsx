@@ -22,8 +22,9 @@ import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
+import { KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useStaffSummary } from '@/hooks/useStaffSummary';
 
@@ -127,14 +128,16 @@ export function StaffHubPage(): JSX.Element {
   return (
     <ErrorBoundary fallbackTitle="Staff Error">
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <HubHeader
+        <PageHeader
+          variant="hub"
+          tone="indigo"
+          back
+          icon={Users}
           title="Staff"
           subtitle={subtitle}
-          icon={Users}
-          gradient="from-indigo-700 via-indigo-600 to-indigo-500"
         >
           <KpiStrip items={kpiItems} />
-        </HubHeader>
+        </PageHeader>
 
         <main className="px-5 pt-4 space-y-5">
           {!isOnline && (

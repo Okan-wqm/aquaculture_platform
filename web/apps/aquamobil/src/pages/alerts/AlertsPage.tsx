@@ -1,8 +1,9 @@
 import { clsx } from 'clsx';
-import { AlertTriangle, ArrowLeft, BellRing, Check, CheckCheck, RefreshCw } from 'lucide-react';
+import { AlertTriangle, BellRing, Check, CheckCheck, RefreshCw } from 'lucide-react';
 import { type JSX, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import {useSearchParams} from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
 import type { AlertSeverity } from '@/generated/graphql';
 import { useAlerts, type MobileAlert } from '@/hooks/useAlerts';
 
@@ -91,7 +92,6 @@ function AlertCard({
 }
 
 export function AlertsPage(): JSX.Element {
-  const navigate = useNavigate();
   const { alerts, unacknowledgedCount, isLoading, error, acknowledge, refetch } = useAlerts();
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('unacked');
   const [ackingId, setAckingId] = useState<string | null>(null);
@@ -128,21 +128,11 @@ export function AlertsPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-red-600 to-red-500 text-white">
-        <div className="flex items-center justify-between px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => navigate(-1)}
-              aria-label="Back"
-              className="p-2 -ml-2 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl hover:bg-white/10 touch-feedback"
-            >
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <BellRing size={22} />
-              <h1 className="text-lg font-bold">Alerts</h1>
-            </div>
-          </div>
+      <PageHeader
+        tone="red"
+        icon={BellRing}
+        title="Alerts"
+        actions={
           <button
             onClick={() => void refetch()}
             aria-label="Refresh alerts"
@@ -150,13 +140,14 @@ export function AlertsPage(): JSX.Element {
           >
             <RefreshCw size={18} />
           </button>
-        </div>
+        }
+      >
         {unacknowledgedCount > 0 && (
           <div className="px-4 pb-3 text-sm font-semibold">
             {unacknowledgedCount} alert{unacknowledgedCount > 1 ? 's' : ''} awaiting acknowledgement
           </div>
         )}
-      </div>
+      </PageHeader>
 
       {/* Status filter */}
       <div className="px-4 pt-4 flex gap-2">

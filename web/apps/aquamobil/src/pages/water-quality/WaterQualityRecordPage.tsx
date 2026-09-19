@@ -4,13 +4,14 @@ import type { TypedDocumentNode } from '@graphql-typed-document-node/core';
 import { useQuery } from '@tanstack/react-query';
 import { gql } from 'graphql-tag';
 import { BlockTitle, List, ListInput } from 'konsta/react';
-import { ArrowLeft, Droplets, AlertCircle } from 'lucide-react';
+import { Droplets, AlertCircle } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import type {
   EquipmentListQuery,
@@ -239,20 +240,12 @@ export function WaterQualityRecordPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Gradient Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-blue-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <Droplets size={22} />
-            <div>
-              <h1 className="text-lg font-bold">Water Quality</h1>
-              <p className="text-xs text-white/80">Record measurements</p>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        tone="cyan"
+        icon={Droplets}
+        title="Water Quality"
+        subtitle="Record measurements"
+      />
 
       {/* Error Banner */}
       {submitError && (

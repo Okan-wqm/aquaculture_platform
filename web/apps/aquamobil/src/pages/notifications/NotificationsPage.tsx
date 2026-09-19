@@ -1,8 +1,9 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
+import { Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
 import { VirtualList } from '@/components/VirtualList';
 import { useNotifications } from '@/hooks/useNotifications';
 import type { InAppNotification } from '@/types';
@@ -69,30 +70,26 @@ export function NotificationsPage(): JSX.Element {
   return (
     <div className="h-full min-h-screen flex flex-col bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-amber-600 to-amber-500 text-white">
-        <div className="flex items-center justify-between px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="min-h-touch min-w-touch flex items-center justify-center -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <Bell size={22} />
-              <h1 className="text-lg font-bold">Notifications</h1>
-            </div>
-          </div>
-          {unreadCount > 0 && (
-            <button
-              onClick={() => {
-                runAsyncAction(markAllAsRead, 'notifications-mark-all-read');
-              }}
-              className="flex items-center gap-1.5 text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
-            >
-              <CheckCheck size={16} />
-              Mark All Read
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        tone="amber"
+        icon={Bell}
+        title="Notifications"
+        actions={
+          <>
+            {unreadCount > 0 && (
+              <button
+                onClick={() => {
+                  runAsyncAction(markAllAsRead, 'notifications-mark-all-read');
+                }}
+                className="flex items-center gap-1.5 text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
+              >
+                <CheckCheck size={16} />
+                Mark All Read
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Notification list — virtualized (MOB-MEDIUM-012): only the visible
           window mounts, so a long history cannot jank low-end devices. */}

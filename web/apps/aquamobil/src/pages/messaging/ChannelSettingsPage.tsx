@@ -13,7 +13,6 @@
 
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   UserPlus,
   Bell,
   BellOff,
@@ -36,6 +35,7 @@ import { MemberRow } from '@/components/messaging/MemberRow';
 import { SentimentBadge } from '@/components/messaging/SentimentBadge';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { useAiConsent } from '@/hooks/useAiConsent';
 import { useAuth } from '@/hooks/useAuth';
@@ -196,19 +196,10 @@ export function ChannelSettingsPage(): JSX.Element {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 -ml-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-            >
-              <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-            </button>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">
-              Channel Info
-            </h1>
-          </div>
-        </div>
+        <PageHeader
+          tone="plain"
+          title="Channel Info"
+        />
         <div className="flex items-center justify-center min-h-[50vh]">
           <Spinner size="lg" />
         </div>
@@ -220,19 +211,10 @@ export function ChannelSettingsPage(): JSX.Element {
   if (error || !channel) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-2 -ml-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-            >
-              <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-            </button>
-            <h1 className="text-lg font-bold text-gray-900 dark:text-white">
-              Channel Info
-            </h1>
-          </div>
-        </div>
+        <PageHeader
+          tone="plain"
+          title="Channel Info"
+        />
         <div className="px-4 mt-4">
           <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-center gap-3 border border-red-200 dark:border-red-800">
             <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
@@ -252,19 +234,10 @@ export function ChannelSettingsPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 -ml-2 rounded-xl hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback"
-          >
-            <ArrowLeft size={22} className="text-gray-700 dark:text-gray-300" />
-          </button>
-          <h1 className="text-lg font-bold text-gray-900 dark:text-white">
-            Channel Info
-          </h1>
-        </div>
-      </div>
+      <PageHeader
+        tone="plain"
+        title="Channel Info"
+      />
 
       {/* Channel avatar + name */}
       <div className="flex flex-col items-center pt-6 pb-4 px-4">

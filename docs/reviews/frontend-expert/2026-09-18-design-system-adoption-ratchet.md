@@ -357,9 +357,18 @@ per-package `rawPageTitle` ceiling: an `h1` in `text-2xl`/`text-xl` bold or
 semibold outside shared-ui. What remains is not a page header: the SCADA
 view, widget dashboard and water-chemistry monitor toolbars and the pH
 simulator strip (the title is one control in a dense tool strip, compact by
-design), the 404 page and the HR module's load-failure state. AquaMobil's 39
-mobile top bars (back arrow, icon, title, right action on the ocean band)
-are one primitive of their own and follow in their own batch.
+design), the 404 page and the HR module's load-failure state. Batch 25:
+AquaMobil, which cannot import shared-ui, gets its own `PageHeader` under
+`components/ui/` — the feature-toned gradient band (`tone`), the back arrow
+(history pop, a handler, or none), the 22px icon, title and subtitle,
+`actions` on the row, `children` inside the band, and a `hub` variant with
+the glass icon box and the curved edge, which replaces the hub-only
+`HubHeader`. 35 of its 39 bands render through it (the converter took the
+bar and hub shapes; the record pages' theme and the stock-movement config
+name a `tone` instead of a gradient class); the four that stay are the home
+and account heroes, the channel list whose title row swaps into a search
+field, and the error boundary. The ratchet counts `text-lg` titles too, so
+the mobile band sits under the same ceiling.
 **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement

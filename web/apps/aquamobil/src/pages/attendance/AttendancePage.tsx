@@ -1,10 +1,10 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
+import { MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -34,7 +34,6 @@ function formatMinutes(mins: number): string {
 }
 
 export function AttendancePage(): JSX.Element {
-  const navigate = useNavigate();
   const { addToQueue, isOnline } = useOfflineQueue();
 
   // WHY React Query hooks accept params directly instead of imperative fetch():
@@ -145,22 +144,7 @@ export function AttendancePage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
       {/* Header */}
-      <div className={clsx(
-        'text-white',
-        isClockedIn
-          ? 'bg-gradient-to-r from-green-600 to-green-500'
-          : 'bg-gradient-to-r from-ocean-600 to-ocean-500',
-      )}>
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <MapPin size={22} />
-            <h1 className="text-lg font-bold">Attendance</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader tone={isClockedIn ? 'green' : 'ocean'} icon={MapPin} title="Attendance" />
 
       {/* Clock In/Out Button */}
       <div className="px-4 mt-5">

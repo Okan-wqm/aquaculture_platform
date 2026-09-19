@@ -14,7 +14,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   Package,
   AlertCircle,
   RefreshCw,
@@ -22,8 +21,9 @@ import {
 } from 'lucide-react';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import type { JSX } from 'react';
-import { useNavigate } from 'react-router-dom';
 
+
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { STOCK_AT_LOCATION, STORAGE_LOCATIONS } from '@/graphql/storage-operations';
 import { useAuth } from '@/hooks/useAuth';
@@ -99,7 +99,6 @@ function formatExpiryDate(dateStr: string): string {
 // ============================================================================
 
 export function StockViewPage(): JSX.Element {
-  const navigate = useNavigate();
   const { accessToken, tenantId, isAuthenticated } = useAuth();
   const { isOnline } = useOfflineQueue();
   const queryClient = useQueryClient();
@@ -204,31 +203,25 @@ export function StockViewPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 flex flex-col">
       {/* Gradient Header */}
-      <div className="bg-gradient-to-r from-cyan-600 to-cyan-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5 flex-1">
-            <Package size={22} />
-            <div>
-              <h1 className="text-lg font-bold">View Stock</h1>
-              <p className="text-xs text-white/80">
-                {selectedLocation ? selectedLocation.name : 'Select a location'}
-              </p>
-            </div>
-          </div>
-          {selectedLocationId && isOnline && (
-            <button
-              onClick={() => { void handleRefresh(); }}
-              disabled={isRefreshing}
-              className="p-2 rounded-xl hover:bg-white/10 touch-feedback"
-            >
-              <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        tone="cyan"
+        icon={Package}
+        title="View Stock"
+        subtitle={selectedLocation ? selectedLocation.name : 'Select a location'}
+        actions={
+          <>
+            {selectedLocationId && isOnline && (
+              <button
+                onClick={() => { void handleRefresh(); }}
+                disabled={isRefreshing}
+                className="p-2 rounded-xl hover:bg-white/10 touch-feedback"
+              >
+                <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Location Selector */}
       <div className="px-4 pt-4">

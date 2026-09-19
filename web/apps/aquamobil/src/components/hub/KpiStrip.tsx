@@ -39,7 +39,7 @@ const GRID_COLS: Record<number, string> = {
 // ---------------------------------------------------------------------------
 
 /**
- * KpiStrip -- row of stat boxes displayed inside a HubHeader's gradient area.
+ * KpiStrip -- row of stat boxes displayed inside a hub PageHeader's gradient area.
  *
  * WHY: Operational KPIs (e.g., "5 of 12 tanks fed", "3 mortality events today")
  * need to be visible immediately without scrolling. Placing them inside the

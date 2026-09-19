@@ -1,11 +1,12 @@
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, CalendarOff, AlertCircle } from 'lucide-react';
+import { CalendarOff, AlertCircle } from 'lucide-react';
 import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { LeaveTypeSwatch } from '@/components/LeaveTypeSwatch';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { Spinner } from '@/components/ui/Spinner';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -129,17 +130,11 @@ export function LeaveRequestPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
       {/* Header */}
-      <div className="bg-gradient-to-r from-violet-600 to-violet-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <CalendarOff size={22} />
-            <h1 className="text-lg font-bold">New Leave Request</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        tone="violet"
+        icon={CalendarOff}
+        title="New Leave Request"
+      />
 
       {/* Error Banner */}
       {errors.general && (

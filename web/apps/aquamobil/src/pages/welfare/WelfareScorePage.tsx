@@ -28,7 +28,7 @@ import { useTanks } from '@/hooks/useTanks';
 import type { QueuedPayload } from '@/types';
 
 const WELFARE_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-emerald-600 to-emerald-500',
+  headerTone: 'emerald',
   accentText: 'text-emerald-600',
   summaryHeaderBg:
     'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/50',

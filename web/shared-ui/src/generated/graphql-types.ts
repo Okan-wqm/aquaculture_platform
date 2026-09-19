@@ -4014,7 +4014,7 @@ export type CreateWaterQualityInput = {
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
   /** Site ID */
   siteId?: InputMaybe<Scalars['ID']['input']>;
-  /** Ölçüm kaynağı */
+  /** Ölçüm kaynağı (makine kaynakları reddedilir) */
   source: WaterQualityMeasurementSource;
   /** Tank ID */
   tankId?: InputMaybe<Scalars['ID']['input']>;

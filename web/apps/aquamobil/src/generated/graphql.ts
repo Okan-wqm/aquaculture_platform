@@ -243,7 +243,7 @@ export type CreateWaterQualityInput = {
   schemaVersion?: string | null | undefined;
   /** Site ID */
   siteId?: string | null | undefined;
-  /** Ölçüm kaynağı */
+  /** Ölçüm kaynağı (makine kaynakları reddedilir) */
   source: WaterQualityMeasurementSource;
   /** Tank ID */
   tankId?: string | null | undefined;

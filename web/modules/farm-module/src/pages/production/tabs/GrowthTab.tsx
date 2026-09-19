@@ -10,7 +10,7 @@ import {
   type GrowthAnalysis,
 } from '../../../hooks/useGrowth';
 import { useBatchList } from '../../../hooks/useBatches';
-import { DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Select, Spinner, Button } from '@aquaculture/shared-ui';
 import { ChartColumn, Circle, CircleCheck, Plus } from 'lucide-react';
 
 // ============================================================================
@@ -486,18 +486,18 @@ export const GrowthTab: React.FC = () => {
 
         <div className="flex items-center gap-3">
           {/* Batch Filter */}
-          <select
+          <Select
+            aria-label="Batch filtresi"
+            fullWidth={false}
+            className="w-48"
+            size="sm"
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="block w-48 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 text-sm"
-          >
-            <option value="">Tum Batch'ler</option>
-            {activeBatches.map((batch) => (
-              <option key={batch.id} value={batch.id}>
-                {batch.batchNumber}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: '', label: "Tum Batch'ler" },
+              ...activeBatches.map((batch) => ({ value: batch.id, label: batch.batchNumber })),
+            ]}
+          />
 
           <Button variant="primary">
             <Plus className="w-4 h-4 mr-2" aria-hidden="true" />

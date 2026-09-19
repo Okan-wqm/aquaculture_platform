@@ -22,6 +22,7 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
   Textarea,
 } from '@aquaculture/shared-ui';
 import {
@@ -375,30 +376,26 @@ export const SuppliersTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Type filter"
+            fullWidth={false}
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Types</option>
-            {Object.entries(typeLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Types' },
+              ...Object.entries(typeLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
+          <Select
+            aria-label="Status filter"
+            fullWidth={false}
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Statuses</option>
-            {Object.entries(statusLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Statuses' },
+              ...Object.entries(statusLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
         </div>
         <Button variant="primary" onClick={openAddModal}>
           <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
@@ -649,46 +646,25 @@ export const SuppliersTab: React.FC = () => {
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Type *
-                  </label>
-                  <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
-                    <select
-                      required
-                      value={formData.type}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, type: e.target.value as SupplierType }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                    >
-                      <option value="">Select Type</option>
-                      {Object.entries(typeLabels).map(([value, label]) => (
-                        <option key={value} value={value}>
-                          {label}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, status: e.target.value as SupplierStatus }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    {Object.entries(statusLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Type"
+                  required
+                  placeholder="Select Type"
+                  value={formData.type}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, type: e.target.value as SupplierType }))
+                  }
+                  error={formData.type ? undefined : fieldErrors.type}
+                  options={Object.entries(typeLabels).map(([value, label]) => ({ value, label }))}
+                />
+                <Select
+                  label="Status"
+                  value={formData.status}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, status: e.target.value as SupplierStatus }))
+                  }
+                  options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+                />
               </div>
             </CollapsibleSection>
 

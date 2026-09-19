@@ -6,7 +6,7 @@
  * and editing existing ones.
  */
 import React, { useState } from 'react';
-import { Modal, colors, Button, Input } from '@aquaculture/shared-ui';
+import { Modal, colors, Button, Input, Select } from '@aquaculture/shared-ui';
 import {
   ParameterDataType,
   ParameterGroup,
@@ -199,38 +199,22 @@ export const ConfigFormModal: React.FC<ConfigFormModalProps> = ({
         {/* Data Type + Group */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Data Type
-            </label>
-            <select
+            <Select
+              label="Data Type"
               name="dataType"
               value={formData.dataType}
               onChange={handleChange}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-            >
-              {DATA_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              options={DATA_TYPE_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Group
-            </label>
-            <select
+            <Select
+              label="Group"
               name="group"
               value={formData.group}
               onChange={handleChange}
-              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-            >
-              {GROUP_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+              options={GROUP_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label }))}
+            />
           </div>
         </div>
 

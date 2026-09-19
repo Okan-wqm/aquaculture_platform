@@ -14,6 +14,7 @@ import {
   type DataTableColumn,
   Spinner,
   Button,
+  Select,
 } from '@aquaculture/shared-ui';
 import {
   useParameterConfigList,
@@ -418,18 +419,16 @@ export const ParameterConfigManager: React.FC = () => {
       {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <select
+          <Select
+            aria-label="Group filter"
             value={groupFilter}
             onChange={(e) => setGroupFilter(e.target.value as ParameterGroup | '')}
-            className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-info-500 focus:ring-info-500 sm:text-sm"
-          >
-            <option value="">All Groups</option>
-            {GROUP_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+            fullWidth={false}
+            options={[
+              { value: '', label: 'All Groups' },
+              ...GROUP_OPTIONS.map((opt) => ({ value: opt.value, label: opt.label })),
+            ]}
+          />
         </div>
         <div className="flex items-center space-x-3">
           <Button variant="secondary" onClick={() => setShowTemplatePicker(true)}>

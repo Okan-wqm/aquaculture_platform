@@ -3,7 +3,7 @@
  * Modal for creating and editing sites
  */
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import SiteContactsSection from './SiteContactsSection';
 import type { MonitoringArea, Site, SiteType } from '../../../hooks/useSites';
 import { validateMonitoringAreaForSite } from './monitoringAreaUxValidation';
@@ -431,50 +431,27 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label
-                    htmlFor="site-type"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Site Type
-                  </label>
-                  <select
-                    id="site-type"
-                    value={formData.type}
-                    onChange={(e) => {
-                      if (isSiteType(e.target.value)) {
-                        handleInputChange('type', e.target.value);
-                      }
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-                  >
-                    {siteTypeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label
-                    htmlFor="site-status"
-                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                  >
-                    Status
-                  </label>
-                  <select
-                    id="site-status"
-                    value={formData.status}
-                    onChange={(e) => handleInputChange('status', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-                  >
-                    {statusOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  id="site-type"
+                  label="Site Type"
+                  value={formData.type}
+                  onChange={(e) => {
+                    if (isSiteType(e.target.value)) {
+                      handleInputChange('type', e.target.value);
+                    }
+                  }}
+                  options={siteTypeOptions.map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  }))}
+                />
+                <Select
+                  id="site-status"
+                  label="Status"
+                  value={formData.status}
+                  onChange={(e) => handleInputChange('status', e.target.value)}
+                  options={statusOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -500,31 +477,16 @@ export const SiteFormModal: React.FC<SiteFormModalProps> = ({ isOpen, onClose, o
                 </div>
               </div>
 
-              <div>
-                <label
-                  htmlFor="site-timezone"
-                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
-                >
-                  Timezone
-                </label>
-                <select
-                  id="site-timezone"
-                  value={formData.timezone}
-                  onChange={(e) => handleInputChange('timezone', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-                >
-                  {timezoneOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Feeding jobs (day-plan generation, morning sweep, daily summary) run on this
-                  site&apos;s local day. Leave it inherited unless the site is in a different
-                  timezone than the tenant.
-                </p>
-              </div>
+              <Select
+                id="site-timezone"
+                label="Timezone"
+                value={formData.timezone}
+                onChange={(e) => handleInputChange('timezone', e.target.value)}
+                helperText={
+                  "Feeding jobs (day-plan generation, morning sweep, daily summary) run on this site's local day. Leave it inherited unless the site is in a different timezone than the tenant."
+                }
+                options={timezoneOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+              />
             </div>
           )}
 

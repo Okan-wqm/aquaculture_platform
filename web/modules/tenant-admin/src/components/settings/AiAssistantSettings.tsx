@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, PasswordInput } from '@aquaculture/shared-ui';
 import { Save, Check, RefreshCw, AlertCircle, KeyRound, Sparkles } from 'lucide-react';
 import {
   useAiProviderSettings,
@@ -17,6 +17,7 @@ interface AiAssistantSettingsProps {
 const PROVIDER_LABEL: Record<LlmProviderId, string> = {
   anthropic: 'Anthropic (Claude)',
   openai: 'OpenAI (GPT)',
+  zai: 'Z.ai (GLM)',
 };
 
 /**
@@ -39,6 +40,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
   // Key fields start empty — a blank field leaves the stored key untouched.
   const [anthropicApiKey, setAnthropicApiKey] = useState('');
   const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [zaiApiKey, setZaiApiKey] = useState('');
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -69,11 +71,13 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
     };
     if (anthropicApiKey.trim()) input.anthropicApiKey = anthropicApiKey.trim();
     if (openaiApiKey.trim()) input.openaiApiKey = openaiApiKey.trim();
+    if (zaiApiKey.trim()) input.zaiApiKey = zaiApiKey.trim();
     try {
       await updateMutation.mutateAsync(input);
       // Clear the key inputs so a masked hint is never re-submitted.
       setAnthropicApiKey('');
       setOpenaiApiKey('');
+      setZaiApiKey('');
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (err) {
@@ -88,6 +92,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
     hourlyRequestLimit,
     anthropicApiKey,
     openaiApiKey,
+    zaiApiKey,
     updateMutation,
   ]);
 
@@ -132,7 +137,9 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">AI Provider</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          AI Provider
+        </label>
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as LlmProviderId)}
@@ -198,9 +205,22 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
         />
       </div>
 
+      <PasswordInput
+        label="Z.ai API Key (GLM)"
+        hint={settings?.zaiKeyHint ? `current: ${settings.zaiKeyHint}` : undefined}
+        autoComplete="off"
+        value={zaiApiKey}
+        onChange={(e) => setZaiApiKey(e.target.value)}
+        disabled={!canEdit}
+        placeholder={settings?.zaiKeyHint ? 'Enter a new key to replace' : '•••… (api.z.ai key)'}
+      />
+
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-          Chat Model <span className="text-xs font-normal text-gray-400 dark:text-gray-500">(optional override)</span>
+          Chat Model{' '}
+          <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
+            (optional override)
+          </span>
         </label>
         <input
           type="text"
@@ -249,7 +269,8 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
               {saveError}
             </p>
           )}
-          <Button variant="primary" onClick={handleSave} disabled={saving}>{saved ? (
+          <Button variant="primary" onClick={handleSave} disabled={saving}>
+            {saved ? (
               <>
                 <Check className="w-4 h-4" />
                 Saved!
@@ -264,7 +285,8 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
                 <Save className="w-4 h-4" />
                 Save Changes
               </>
-            )}</Button>
+            )}
+          </Button>
         </div>
       )}
     </div>

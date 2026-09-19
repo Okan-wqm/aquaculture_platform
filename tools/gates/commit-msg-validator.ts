@@ -320,6 +320,17 @@ const PRE_PHASE6_SHAS: ReadonlySet<string> = new Set([
   // the commit that adds this entry. Same route as 5334a47a / 4048a1cf above.
   'aae401bc', // feat(web): ban browser dialogs; add useConfirm/usePrompt, Drawer, SW update banner (FE-HIGH-068)
   'a74c6ee3', // feat(web): design-system adoption ratchet; 17 dialogs onto shared Modal (FE-HIGH-065/077, FE-MEDIUM-067)
+  // feat/ai-farm-specialists: its aquamobil AI-identity fix was raised on the
+  // branch as FE-HIGH-066 and named by that commit's trailer; main's
+  // design-system wave allocated FE-HIGH-066 (raw hex colours) before the
+  // branch landed, so the branch row was renumbered when the registry was
+  // re-appended onto main's chain — to FE-HIGH-069, then FE-HIGH-080, then
+  // FE-HIGH-150 as main's design-system and operator-screen reviews took
+  // 069 and 080 in turn (150 sits well past the FE allocator's position on
+  // main). The alias sidecar cannot carry it (FE-HIGH-066 is a LIVE id on
+  // main) and the pushed trailer cannot be amended (force-push ban) — the
+  // identical situation as 5334a47a above.
+  'd6eeb1cf', // fix(aquamobil): restore FAZ 2.4 server-authoritative AI identity (066 -> 150)
 ]);
 
 interface Commit {

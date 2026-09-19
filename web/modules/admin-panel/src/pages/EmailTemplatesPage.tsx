@@ -6,7 +6,16 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge, Input, Modal, SandboxedHtmlPreview, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Input,
+  Modal,
+  SandboxedHtmlPreview,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 
 import { settingsApi, EmailTemplate } from '../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';

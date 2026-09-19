@@ -27,30 +27,35 @@ import { PresenceModule } from '../presence/presence.module';
 import { MessageAnalysis } from './entities/message-analysis.entity';
 import { MessageEntityReference } from './entities/message-entity-reference.entity';
 import { KnowledgeEntry } from './entities/knowledge-entry.entity';
-import { EmbeddingsMetadata } from './entities/embeddings-metadata.entity';
 import { UserAiConsent } from './entities/user-ai-consent.entity';
 import { Message } from '../message/entities/message.entity';
 import { Channel } from '../channel/entities/channel.entity';
 // Services
 import { AiEgressGateService } from './services/ai-egress-gate.service';
 import { AiPrivacyService } from './services/ai-privacy.service';
-import { EmbeddingService } from './services/embedding.service';
-import { SentimentAnalysisService } from './services/sentiment-analysis.service';
+import { AiCallerCapabilitiesService } from './services/ai-caller-capabilities.service';
 import { KnowledgeExtractionService } from './services/knowledge-extraction.service';
 import { AiChatBridgeService } from './services/ai-chat-bridge.service';
 import { AiPersonasRegistryService } from './services/ai-personas-registry.service';
+// MSGFIX-FAZ0: env-driven AI kill-switch (MESSAGING_AI_TRIGGER_ENABLED, default OFF).
+// The Faz 2 trigger injects this before enqueuing any AI analysis.
+import { AiTriggerConfig } from './ai-trigger.config';
+// MSGFIX-FAZ2 2.2: durable MessageSent consumer that dispatches
+// AnalyzeMessageCommand (the previously-missing trigger wire).
+import { AiTriggerNatsHandler } from './ai-trigger-nats.handler';
 
 // AI Safety — SSRF / input filter / output PII scanner now come from the
 // shared core module (libs/backend-common/src/ai-safety) extracted under
-// AUDIT-HIGH-007. Instruction-hierarchy and tool-schema-validator remain
-// service-local because they carry messaging-specific config.
+// AUDIT-HIGH-007.
+// MSGFIX-FAZ2 2.3: the service-local instruction-hierarchy +
+// tool-schema-validator safety services were DELETED — their only consumer
+// was the bridge's dead prompt-hardening ferry, and ai-service's
+// AiSafetyMiddleware chain is the live, authoritative hardening. No prompt
+// is computed (or ferried) on the messaging side anymore.
 import { AiSafetyCoreModule } from '@aquaculture/backend-common/ai-safety';
-import { InstructionHierarchyService } from './safety/instruction-hierarchy.service';
-import { ToolSchemaValidatorService } from './safety/tool-schema-validator.service';
 
 // Command Handlers
 import { AnalyzeMessageHandler } from './commands/analyze-message.handler';
-import { ExtractKnowledgeHandler } from './commands/extract-knowledge.handler';
 
 // Query Handlers
 import { GetSentimentTrendsHandler } from './queries/get-sentiment-trends.handler';
@@ -59,28 +64,19 @@ import { SearchSimilarMessagesHandler } from './queries/search-similar-messages.
 // Resolver
 import { AiResolver } from './resolvers/ai.resolver';
 
-const commandHandlers = [
-  AnalyzeMessageHandler,
-  ExtractKnowledgeHandler,
-];
+const commandHandlers = [AnalyzeMessageHandler];
 
-const queryHandlers = [
-  GetSentimentTrendsHandler,
-  SearchSimilarMessagesHandler,
-];
+const queryHandlers = [GetSentimentTrendsHandler, SearchSimilarMessagesHandler];
 
 const services = [
   AiPrivacyService,
   AiEgressGateService,
-  EmbeddingService,
-  SentimentAnalysisService,
+  // MSGFIX-FAZ2 2.3: auth-service caller-capability resolver (roles +
+  // effective resourcePermissions, NATS + 60s Redis cache, fail-closed).
+  AiCallerCapabilitiesService,
   KnowledgeExtractionService,
   AiChatBridgeService,
   AiPersonasRegistryService,
-  // messaging-local AI safety extensions (SSRF / input filter / output PII
-  // scanner now come from AiSafetyCoreModule imported below).
-  InstructionHierarchyService,
-  ToolSchemaValidatorService,
 ];
 
 @Module({
@@ -89,7 +85,6 @@ const services = [
       MessageAnalysis,
       MessageEntityReference,
       KnowledgeEntry,
-      EmbeddingsMetadata,
       // ADR-015 follow-up: AI privacy consent tables registered for
       // repository injection in AiPrivacyService (replaces prior
       // raw-SQL queries that drifted on table + column names).
@@ -117,8 +112,14 @@ const services = [
     ...commandHandlers,
     ...queryHandlers,
     ...services,
+    // MSGFIX-FAZ0: AI trigger kill-switch config (reads env once at boot,
+    // logs one line when disabled). Exported for the Faz 2 trigger.
+    AiTriggerConfig,
+    // MSGFIX-FAZ2 2.2: the durable MessageSent → AnalyzeMessageCommand
+    // consumer (subscribes ONLY when the kill-switch is ON).
+    AiTriggerNatsHandler,
     AiResolver,
   ],
-  exports: [AiPrivacyService, AiEgressGateService, AiPersonasRegistryService],
+  exports: [AiPrivacyService, AiEgressGateService, AiPersonasRegistryService, AiTriggerConfig],
 })
 export class AiModule {}

@@ -6,6 +6,7 @@ import { AiActionResponder } from './ai-action.responder';
 import { ProposedAction } from './proposed-action.entity';
 
 import { ToolRegistryModule } from '../tools/tool-registry.module';
+import { AgentPersonaCatalogueModule } from '../agent/agent-persona-catalogue.module';
 
 /**
  * MOB-HIGH-001 — human-in-the-loop actuation ("Faz 6"): proposal persistence,
@@ -14,7 +15,11 @@ import { ToolRegistryModule } from '../tools/tool-registry.module';
  * confirmAiAction has been calling into the void.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([ProposedAction]), ToolRegistryModule],
+  imports: [
+    TypeOrmModule.forFeature([ProposedAction]),
+    ToolRegistryModule,
+    AgentPersonaCatalogueModule,
+  ],
   controllers: [AiActionResponder],
   providers: [ActionProposalService],
   exports: [ActionProposalService],

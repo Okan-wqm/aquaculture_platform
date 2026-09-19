@@ -155,7 +155,7 @@ describe('LoginForm', () => {
     fireEvent.change(password, { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
-    const verifyButton = await screen.findByRole('button', { name: 'Verify Code' });
+    const verifyButton = await screen.findByRole('button', { name: 'Verify & continue' });
     expect((verifyButton as HTMLButtonElement).disabled).toBe(true);
 
     const code = container.querySelector<HTMLInputElement>('input[name="mfaCode"]');
@@ -187,7 +187,7 @@ describe('LoginForm', () => {
     fireEvent.change(password, { target: { value: 'password123' } });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 
-    const verifyButton = await screen.findByRole('button', { name: 'Verify Code' });
+    const verifyButton = await screen.findByRole('button', { name: 'Verify & continue' });
     const code = container.querySelector<HTMLInputElement>('input[name="mfaCode"]');
     if (!code) throw new Error('MFA code field not found');
     fireEvent.change(code, { target: { value: '123456' } });

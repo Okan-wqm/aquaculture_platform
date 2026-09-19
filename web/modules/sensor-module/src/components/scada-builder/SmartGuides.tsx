@@ -26,8 +26,8 @@ interface SmartGuidesProps {
 interface GuideLine {
   orientation: 'horizontal' | 'vertical';
   position: number; // px value for top or left
-  start: number;    // px value for where line starts
-  end: number;      // px value for where line ends
+  start: number; // px value for where line starts
+  end: number; // px value for where line ends
 }
 
 export const SmartGuides: React.FC<SmartGuidesProps> = ({

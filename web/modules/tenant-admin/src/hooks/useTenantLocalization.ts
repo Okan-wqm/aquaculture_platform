@@ -11,7 +11,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createTenantInvalidationKey,
   createTenantQueryKey,
-  getTenantId, useFeedbackMutation } from '@aquaculture/shared-ui';
+  getTenantId,
+  useFeedbackMutation,
+} from '@aquaculture/shared-ui';
 
 import { MY_TENANT_LOCALIZATION_QUERY, UPDATE_TENANT_LOCALIZATION_MUTATION } from '../graphql';
 import { graphqlRequest } from '../services/tenant-api.service';

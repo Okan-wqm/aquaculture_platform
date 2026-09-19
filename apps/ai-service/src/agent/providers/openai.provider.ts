@@ -7,6 +7,7 @@ import type {
 } from 'openai/resources/chat/completions';
 import {
   LlmAuthError,
+  LlmProviderId,
   LlmChatParams,
   LlmChatResult,
   LlmContentBlock,
@@ -32,8 +33,10 @@ const MAX_CACHED_CLIENTS = 256;
 
 @Injectable()
 export class OpenAiProvider implements LlmProvider {
-  readonly id = 'openai' as const;
-  private readonly logger = new Logger(OpenAiProvider.name);
+  readonly id: LlmProviderId = 'openai';
+  // protected: OpenAI-compatible relays (ZaiProvider) subclass this class
+  // and log through the same channel.
+  protected readonly logger = new Logger(OpenAiProvider.name);
   private readonly clients = new Map<string, OpenAI>();
 
   private clientFor(apiKey: string): OpenAI {
@@ -52,15 +55,34 @@ export class OpenAiProvider implements LlmProvider {
       }
     }
 
-    const client = new OpenAI({ apiKey });
+    const client = this.newClient(apiKey);
     this.clients.set(cacheKey, client);
     return client;
   }
 
-  async chat(
-    params: LlmChatParams,
-    credential: LlmCredential,
-  ): Promise<LlmChatResult> {
+  /**
+   * Client construction hook — OpenAI-compatible relays (Z.ai's GLM API)
+   * override ONLY this with a different baseURL; every message-translation
+   * and validation behavior is inherited unchanged.
+   */
+  protected newClient(apiKey: string): OpenAI {
+    // FARM-AI-0.1: SDK defaults are 600s timeout + 2 retries — a single hung
+    // Z.ai/OpenAI call could block a cron or watch cadence for 10+ minutes.
+    // 30s / 1 retry matches the platform's LLM latency budget (glm-5.3-low
+    // observed ~20s; validateCredential is a lightweight auth probe).
+    return new OpenAI({ apiKey, timeout: 30_000, maxRetries: 1 });
+  }
+
+  /**
+   * Per-request extras merged into the chat.completions.create params.
+   * Base: none. OpenAI-compatible relays override to inject their knobs
+   * (e.g. Z.ai's reasoning_effort) without duplicating the translation.
+   */
+  protected requestExtras(_params: LlmChatParams): Record<string, unknown> {
+    return {};
+  }
+
+  async chat(params: LlmChatParams, credential: LlmCredential): Promise<LlmChatResult> {
     const client = this.clientFor(credential.apiKey);
 
     const tools: ChatCompletionTool[] = params.tools.map((t) => ({
@@ -78,6 +100,8 @@ export class OpenAiProvider implements LlmProvider {
         model: params.model,
         max_completion_tokens: params.maxTokens,
         messages: this.toOpenAiMessages(params.system, params.messages),
+        // Provider-specific extras (Z.ai reasoning-effort etc.) — subclass hook.
+        ...this.requestExtras(params),
         // Only pass `tools` when non-empty — the API rejects an empty array.
         ...(tools.length > 0 ? { tools } : {}),
       });
@@ -188,9 +212,7 @@ export class OpenAiProvider implements LlmProvider {
     return out;
   }
 
-  private toAssistantMessage(
-    blocks: LlmContentBlock[],
-  ): ChatCompletionMessageParam {
+  private toAssistantMessage(blocks: LlmContentBlock[]): ChatCompletionMessageParam {
     const text: string[] = [];
     const toolCalls: NonNullable<
       Extract<ChatCompletionMessageParam, { role: 'assistant' }>['tool_calls']

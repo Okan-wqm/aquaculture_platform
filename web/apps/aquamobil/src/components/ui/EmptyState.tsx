@@ -20,7 +20,13 @@ export interface EmptyStateProps {
   className?: string;
 }
 
-export function EmptyState({ icon: Icon, title, description, action, className = '' }: EmptyStateProps): ReactNode {
+export function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  action,
+  className = '',
+}: EmptyStateProps): ReactNode {
   return (
     <div className={`text-center py-12 text-gray-400 dark:text-gray-500 ${className}`}>
       {Icon && <Icon size={48} className="mx-auto mb-3 opacity-30" aria-hidden />}

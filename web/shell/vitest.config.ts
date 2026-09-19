@@ -11,6 +11,7 @@ export default defineConfig({
       // Tests resolve shared-ui from SOURCE (matching tsconfig paths) so they
       // exercise the real components, not a possibly-stale built dist.
       '@aquaculture/shared-ui': resolve(__dirname, '../shared-ui/src'),
+      '@aquaculture/shared-contracts': resolve(__dirname, '../../libs/shared-contracts/src'),
     },
   },
   test: {

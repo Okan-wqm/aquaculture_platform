@@ -24,13 +24,26 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary: 'bg-ocean-600 text-white shadow-sm hover:bg-ocean-700 active:bg-ocean-700',
-  secondary: 'bg-white text-gray-900 border border-gray-200 hover:bg-gray-50 dark:bg-gray-900 dark:text-white dark:border-gray-700 dark:hover:bg-gray-800',
+  secondary:
+    'bg-white text-gray-900 border border-gray-200 hover:bg-gray-50 dark:bg-gray-900 dark:text-white dark:border-gray-700 dark:hover:bg-gray-800',
   danger: 'bg-red-600 text-white shadow-sm hover:bg-red-700',
-  ghost: 'bg-transparent text-ocean-600 hover:bg-ocean-50 dark:text-ocean-400 dark:hover:bg-ocean-900/20',
+  ghost:
+    'bg-transparent text-ocean-600 hover:bg-ocean-50 dark:text-ocean-400 dark:hover:bg-ocean-900/20',
 };
 const SIZE = { md: 'min-h-touch px-4 py-2.5 text-sm', lg: 'min-h-[3.25rem] px-5 py-3.5 text-base' };
 
-export function Button({ variant = 'primary', size = 'md', block = false, loading = false, leading, className, type = 'button', disabled, children, ...rest }: ButtonProps): ReactNode {
+export function Button({
+  variant = 'primary',
+  size = 'md',
+  block = false,
+  loading = false,
+  leading,
+  className,
+  type = 'button',
+  disabled,
+  children,
+  ...rest
+}: ButtonProps): ReactNode {
   return (
     <button
       type={type}

@@ -1,7 +1,7 @@
+import { doSaturationWeiss as calcDOSaturation } from '@platform/aquaculture-engines';
 import { describe, it, expect } from 'vitest';
 
 import { handler } from '../tools/math/calculate-carrying-capacity.js';
-import { calcDOSaturation } from '../utils/formulas.js';
 
 // ============================================================================
 // Tasima Kapasitesi Testleri
@@ -20,14 +20,14 @@ describe('Carrying Capacity', () => {
     // Cok dusuk maxDensity, buyuk tank, dusuk sicaklik → yogunluk baskili olur
     return handler({
       tankVolumeM3: 1000,
-      temperature: 10,       // Dusuk sicaklik → yuksek DO → yuksek oksijen limiti
+      temperature: 10, // Dusuk sicaklik → yuksek DO → yuksek oksijen limiti
       avgFishWeightG: 250,
-      maxDensityKgM3: 1,     // Cok dusuk yogunluk siniri → 1 * 1000 = 1000 kg
+      maxDensityKgM3: 1, // Cok dusuk yogunluk siniri → 1 * 1000 = 1000 kg
       dailyFeedingRatePercent: 0.5,
       salinity: 0,
       hasBiofilter: false,
       minDOMgL: 5,
-    }).then(result => {
+    }).then((result) => {
       const data = JSON.parse(result.content[0]!.text);
       expect(data.limitingFactor).toBe('density');
       expect(data.maxBiomassKg).toBeCloseTo(1000, 0);
@@ -39,14 +39,14 @@ describe('Carrying Capacity', () => {
     // Yuksek maxDensity ama yuksek sicaklik + biyofiltre → oksijen siniri
     return handler({
       tankVolumeM3: 10,
-      temperature: 30,        // Yuksek sicaklik → dusuk DO
+      temperature: 30, // Yuksek sicaklik → dusuk DO
       avgFishWeightG: 250,
-      maxDensityKgM3: 100,    // Yuksek yogunluk siniri → 100 * 10 = 1000 kg
+      maxDensityKgM3: 100, // Yuksek yogunluk siniri → 100 * 10 = 1000 kg
       dailyFeedingRatePercent: 3,
       hasBiofilter: true,
       salinity: 0,
       minDOMgL: 5,
-    }).then(result => {
+    }).then((result) => {
       const data = JSON.parse(result.content[0]!.text);
       expect(data.limitingFactor).toBe('oxygen');
       expect(data.maxBiomassKg).toBeLessThan(1000);
@@ -67,7 +67,7 @@ describe('Carrying Capacity', () => {
       hasBiofilter: false,
       dailyFeedingRatePercent: 2,
       minDOMgL: 5,
-    }).then(result => {
+    }).then((result) => {
       const data = JSON.parse(result.content[0]!.text);
       expect(data.limits.oxygen.doSaturationMgL).toBeCloseTo(expectedDOSat, 1);
     });
@@ -93,14 +93,18 @@ describe('Carrying Capacity', () => {
       const saltData = JSON.parse(saltResult.content[0]!.text);
 
       // Tuzlu suda DO sat daha dusuk
-      expect(saltData.limits.oxygen.doSaturationMgL)
-        .toBeLessThan(freshData.limits.oxygen.doSaturationMgL);
+      expect(saltData.limits.oxygen.doSaturationMgL).toBeLessThan(
+        freshData.limits.oxygen.doSaturationMgL,
+      );
 
       // Tuzlu suda oksijen limiti (varsa) daha siki
-      if (saltData.limits.oxygen.maxBiomassKg !== null &&
-          freshData.limits.oxygen.maxBiomassKg !== null) {
-        expect(saltData.limits.oxygen.maxBiomassKg)
-          .toBeLessThan(freshData.limits.oxygen.maxBiomassKg);
+      if (
+        saltData.limits.oxygen.maxBiomassKg !== null &&
+        freshData.limits.oxygen.maxBiomassKg !== null
+      ) {
+        expect(saltData.limits.oxygen.maxBiomassKg).toBeLessThan(
+          freshData.limits.oxygen.maxBiomassKg,
+        );
       }
     });
   });
@@ -115,11 +119,11 @@ describe('Carrying Capacity', () => {
       hasBiofilter: false,
       dailyFeedingRatePercent: 2,
       minDOMgL: 5,
-    }).then(result => {
+    }).then((result) => {
       const data = JSON.parse(result.content[0]!.text);
       // maxBiomass = min(density limit, oxygen limit)
       // maxFishCount = floor(maxBiomassKg * 1000 / avgFishWeightG)
-      const expectedCount = Math.floor(data.maxBiomassKg * 1000 / 500);
+      const expectedCount = Math.floor((data.maxBiomassKg * 1000) / 500);
       expect(data.maxFishCount).toBe(expectedCount);
     });
   });
@@ -143,8 +147,9 @@ describe('Carrying Capacity', () => {
       const bioData = JSON.parse(bioResult.content[0]!.text);
 
       // Biyofiltre ile birim basina O2 tuketimi daha yuksek
-      expect(bioData.limits.oxygen.o2PerKgPerDayKg)
-        .toBeGreaterThan(noBioData.limits.oxygen.o2PerKgPerDayKg);
+      expect(bioData.limits.oxygen.o2PerKgPerDayKg).toBeGreaterThan(
+        noBioData.limits.oxygen.o2PerKgPerDayKg,
+      );
     });
   });
 });

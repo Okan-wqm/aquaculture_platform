@@ -45,6 +45,26 @@ export interface MessageSentEvent extends BaseEvent {
   hasAttachments: boolean;
   mentionedUserIds?: string[];
   createdAt: string;
+  /**
+   * MSGFIX-FAZ2: true when THIS message is the persisted AI assistant reply
+   * (senderId is the virtual AI user). Additive + optional — legacy publishers
+   * that omit it are indistinguishable from human messages, and consumers
+   * (gateway WS bridge, push fan-out) use it ONLY as a positive signal, never
+   * as a presence gate. Lets consumers suppress offline push for AI replies
+   * and lets the AI trigger consumer skip its own outputs (double defense).
+   */
+  isAiResponse?: boolean;
+
+  /**
+   * MSGFIX-FAZ2 (V1 MAJOR-2): true when this AI-authored MessageSent is an
+   * ERROR/STATUS NOTICE (auth unresolved, not permitted, AI unavailable,
+   * daily limit…) rather than a conversational reply. Consumers treat it as a
+   * positive signal: push fan-out EXEMPTS these from the AI push filter so a
+   * backgrounded user still learns the AI turn failed; the AI trigger consumer
+   * ignores it (it already carries isAiResponse:true). Additive + optional,
+   * same contract discipline as isAiResponse.
+   */
+  isAiErrorNotice?: boolean;
 }
 
 /**

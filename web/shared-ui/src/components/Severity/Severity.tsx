@@ -21,7 +21,14 @@ import { colors } from '../../styles/theme';
 export type Severity = 'critical' | 'high' | 'medium' | 'warning' | 'low' | 'info';
 
 /** Most to least severe. */
-export const SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'warning', 'low', 'info'];
+export const SEVERITIES: readonly Severity[] = [
+  'critical',
+  'high',
+  'medium',
+  'warning',
+  'low',
+  'info',
+];
 
 /**
  * Accepts any of the three historical vocabularies (case-insensitive;
@@ -128,10 +135,21 @@ export interface SeverityBadgeProps {
   className?: string;
 }
 
-const SIZES = { xs: 'px-1.5 py-0.5 text-[11px]', sm: 'px-2 py-0.5 text-xs', md: 'px-2.5 py-0.5 text-sm' };
+const SIZES = {
+  xs: 'px-1.5 py-0.5 text-[11px]',
+  sm: 'px-2 py-0.5 text-xs',
+  md: 'px-2.5 py-0.5 text-sm',
+};
 
 /** The severity pill: colour, icon and text together, never colour alone. */
-export const SeverityBadge: React.FC<SeverityBadgeProps> = ({ severity, label, icon, tone = 'soft', size = 'sm', className = '' }) => {
+export const SeverityBadge: React.FC<SeverityBadgeProps> = ({
+  severity,
+  label,
+  icon,
+  tone = 'soft',
+  size = 'sm',
+  className = '',
+}) => {
   const level = normalizeSeverity(severity);
   return (
     <span

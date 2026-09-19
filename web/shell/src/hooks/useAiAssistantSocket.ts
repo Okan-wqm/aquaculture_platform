@@ -5,6 +5,11 @@
  * (request.ai.chat) and streams `ai:response` / `ai:error` back — the same
  * real-time path messaging uses. Identity is the JWT in the handshake; the
  * server enforces ai_assistant:use, so a denied user gets `ai:error FORBIDDEN`.
+ *
+ * Persona: the drawer may pin a catalogue persona id (`null` = the tenant's
+ * default, resolved by ai-service). ai-service pins a conversation to the
+ * persona that opened it, so switching persona starts a new conversation here
+ * rather than tripping that server-side mismatch.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
@@ -40,9 +45,11 @@ export function useAiAssistantSocket(active: boolean) {
   const { token, isAuthenticated } = useAuth();
   const socketRef = useRef<Socket | null>(null);
   const conversationIdRef = useRef<string | null>(null);
+  const personaRef = useRef<string | null>(null);
 
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [status, setStatus] = useState<AiAssistantStatus>('offline');
+  const [persona, setPersonaState] = useState<string | null>(null);
 
   // Connect only while the drawer is open + authenticated — no idle socket.
   useEffect(() => {
@@ -105,6 +112,7 @@ export function useAiAssistantSocket(active: boolean) {
     socket.emit('ai:chat', {
       message: trimmed,
       conversationId: conversationIdRef.current ?? undefined,
+      persona: personaRef.current,
     });
   }, []);
 
@@ -113,5 +121,15 @@ export function useAiAssistantSocket(active: boolean) {
     setMessages([]);
   }, []);
 
-  return { messages, status, sendMessage, reset };
+  const setPersona = useCallback(
+    (next: string | null) => {
+      if (next === personaRef.current) return;
+      personaRef.current = next;
+      setPersonaState(next);
+      reset();
+    },
+    [reset],
+  );
+
+  return { messages, status, persona, setPersona, sendMessage, reset };
 }

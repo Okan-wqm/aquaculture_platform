@@ -36,9 +36,7 @@ interface SparklineWidgetContentProps {
   config: WidgetConfig;
 }
 
-export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
-  config,
-}) => {
+export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({ config }) => {
   const { data, history, loading, error } = useWidgetData(config);
   const [, forceUpdate] = useState(0);
 
@@ -175,8 +173,7 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
                 cy={
                   height -
                   padding -
-                  ((validValues[validValues.length - 1] - min) / range) *
-                    (height - padding * 2)
+                  ((validValues[validValues.length - 1] - min) / range) * (height - padding * 2)
                 }
                 r={3}
                 fill={themeColors.primary[400]}

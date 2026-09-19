@@ -13,13 +13,39 @@ describe('AlarmAnnouncer', () => {
     const region = screen.getByRole('alert');
     expect(region.textContent).toBe('');
 
-    rerender(<AlarmAnnouncer alarms={[{ id: 'a', severity: 'critical' }, { id: 'b', severity: 'CRITICAL' }, { id: 'c', severity: 'high' }]} />);
+    rerender(
+      <AlarmAnnouncer
+        alarms={[
+          { id: 'a', severity: 'critical' },
+          { id: 'b', severity: 'CRITICAL' },
+          { id: 'c', severity: 'high' },
+        ]}
+      />,
+    );
     expect(region.textContent).toBe('1 new critical alarm, 1 new high alarm');
 
-    rerender(<AlarmAnnouncer alarms={[{ id: 'a', severity: 'critical' }, { id: 'b', severity: 'CRITICAL' }, { id: 'c', severity: 'high' }, { id: 'd', severity: 'info' }]} />);
+    rerender(
+      <AlarmAnnouncer
+        alarms={[
+          { id: 'a', severity: 'critical' },
+          { id: 'b', severity: 'CRITICAL' },
+          { id: 'c', severity: 'high' },
+          { id: 'd', severity: 'info' },
+        ]}
+      />,
+    );
     expect(region.textContent).toBe('1 new critical alarm, 1 new high alarm');
 
-    rerender(<AlarmAnnouncer alarms={[{ id: 'e', severity: 'EMERGENCY' }, { id: 'f', severity: 'critical' }, { id: 'g', severity: 'critical' }, { id: 'h', severity: 'critical' }]} />);
+    rerender(
+      <AlarmAnnouncer
+        alarms={[
+          { id: 'e', severity: 'EMERGENCY' },
+          { id: 'f', severity: 'critical' },
+          { id: 'g', severity: 'critical' },
+          { id: 'h', severity: 'critical' },
+        ]}
+      />,
+    );
     expect(region.textContent).toBe('2 new critical alarms');
   });
 });

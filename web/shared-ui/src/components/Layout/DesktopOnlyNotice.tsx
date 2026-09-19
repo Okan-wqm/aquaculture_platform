@@ -28,7 +28,13 @@ export const DesktopOnlyNotice: React.FC<DesktopOnlyNoticeProps> = ({ tool, clas
       className,
     )}
   >
-    <svg className="mt-0.5 h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+    <svg
+      className="mt-0.5 h-5 w-5 shrink-0"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      aria-hidden="true"
+    >
       <path
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -37,8 +43,8 @@ export const DesktopOnlyNotice: React.FC<DesktopOnlyNoticeProps> = ({ tool, clas
       />
     </svg>
     <p>
-      {tool} is laid out for a screen at least 768 px wide. On this screen the work area scrolls sideways; a
-      tablet in landscape or a desktop is the editing surface.
+      {tool} is laid out for a screen at least 768 px wide. On this screen the work area scrolls
+      sideways; a tablet in landscape or a desktop is the editing surface.
     </p>
   </div>
 );

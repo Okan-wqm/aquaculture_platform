@@ -3,8 +3,8 @@
  *
  * `libs/shared-contracts` is a NARROW cross-stack constant lib (zero-dependency
  * values that must be byte-identical on the backend trust boundary AND the
- * standalone aquamobil Vite bundle — today only the messaging media MIME
- * allowlist). It MUST NOT declare domain `enum`s.
+ * standalone aquamobil Vite bundle — the messaging media MIME allowlist and
+ * the AI persona grammar + catalogue). It MUST NOT declare domain `enum`s.
  *
  * # Why
  *
@@ -57,16 +57,23 @@ describe('INVARIANT (ORPHAN-087): shared-contracts declares no domain enums', ()
     }
   });
 
-  it('the public barrel only re-exports the cross-stack media MIME allowlist', () => {
-    const index = readFileSync(
-      resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'),
-      'utf8',
-    );
-    const exportFroms = [...index.matchAll(/export\s+(?:type\s+)?\{[^}]*\}\s+from\s+'([^']+)'/g)].map(
-      (m) => m[1],
-    );
+  it('the public barrel only re-exports the cross-stack allowlisted modules', () => {
+    // The allowlist is the explicit gate on this lib's scope: media MIME
+    // allowlist (MSG-MEDIUM-057) and the AI persona grammar + catalogue
+    // (farm specialists, tier × specialty). Anything else must justify itself
+    // here, in review.
+    const ALLOWED_MODULES = new Set([
+      './enums/messaging-media-mime',
+      './ai/persona-id',
+      './ai/persona-catalogue',
+    ]);
+    const index = readFileSync(resolve(REPO_ROOT, 'libs/shared-contracts/src/index.ts'), 'utf8');
+    const exportFroms = [
+      ...index.matchAll(/export\s+(?:type\s+)?\{[^}]*\}\s+from\s+'([^']+)'/g),
+    ].map((m) => m[1] ?? '');
+    expect(exportFroms.length).toBeGreaterThan(0);
     for (const from of exportFroms) {
-      expect(from).toBe('./enums/messaging-media-mime');
+      expect(ALLOWED_MODULES.has(from)).toBe(true);
     }
   });
 });

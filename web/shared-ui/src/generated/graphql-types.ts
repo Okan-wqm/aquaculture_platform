@@ -289,6 +289,7 @@ export type AiSettings = {
   monthlyTokenBudget: Scalars['Int']['output'];
   openaiKeyHint?: Maybe<Scalars['String']['output']>;
   provider: Scalars['String']['output'];
+  zaiKeyHint?: Maybe<Scalars['String']['output']>;
 };
 
 export type AiSettingsType = {
@@ -2620,7 +2621,7 @@ export type CreateCertificationTypeInput = {
 };
 
 export type CreateChannelInput = {
-  /** AI persona ID (e.g. "expert-v1", "operator-v1"). Only for AI channels. */
+  /** Published AI persona id (e.g. "expert-farm-production-v1"); omit for the tenant default. Only for AI channels. */
   aiPersona?: InputMaybe<Scalars['String']['input']>;
   /** Channel description */
   description?: InputMaybe<Scalars['String']['input']>;
@@ -4013,7 +4014,7 @@ export type CreateWaterQualityInput = {
   schemaVersion?: InputMaybe<Scalars['String']['input']>;
   /** Site ID */
   siteId?: InputMaybe<Scalars['ID']['input']>;
-  /** Ölçüm kaynağı */
+  /** Ölçüm kaynağı (makine kaynakları reddedilir) */
   source: WaterQualityMeasurementSource;
   /** Tank ID */
   tankId?: InputMaybe<Scalars['ID']['input']>;
@@ -22752,6 +22753,7 @@ export type UpdateAiSettingsInput = {
   monthlyTokenBudget?: InputMaybe<Scalars['Int']['input']>;
   openaiApiKey?: InputMaybe<Scalars['String']['input']>;
   provider?: InputMaybe<Scalars['String']['input']>;
+  zaiApiKey?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateAlertRuleInput = {

@@ -1,4 +1,12 @@
-export { OPERATOR_PERSONA } from './operator';
-export { MANAGER_PERSONA } from './manager';
-export { EXPERT_PERSONA } from './expert';
-export { SUPERVISOR_PERSONA } from './supervisor';
+export { TIERS, OPERATOR_TIER, MANAGER_TIER, EXPERT_TIER, SUPERVISOR_TIER } from './tiers';
+export {
+  SPECIALTIES,
+  GENERAL_SPECIALTY,
+  FARM_WATER_HEALTH_SPECIALTY,
+  FARM_PRODUCTION_SPECIALTY,
+  FARM_OPERATIONS_SPECIALTY,
+} from './specialties';
+export { NARRATOR_PERSONA } from './narrator';
+export { composePersona, mostRestrictivePolicy, PROMPT_PREAMBLE } from './compose';
+export type { ComposedPersona } from './compose';
+export type { AgentPersona, AgentSpecialty, AgentTier, ServicePersona } from './types';

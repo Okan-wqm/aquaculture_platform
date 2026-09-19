@@ -14,7 +14,11 @@ describe('Menu', () => {
     const onProfile = vi.fn();
     const onLogout = vi.fn();
     render(
-      <Menu aria-label="User menu" items={items(onProfile, onLogout)} trigger={(p) => <button {...p}>Account</button>} />,
+      <Menu
+        aria-label="User menu"
+        items={items(onProfile, onLogout)}
+        trigger={(p) => <button {...p}>Account</button>}
+      />,
     );
     const trigger = screen.getByRole('button', { name: 'Account' });
     expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
@@ -45,7 +49,14 @@ describe('Menu', () => {
     render(
       <>
         <p>outside</p>
-        <Menu aria-label="User menu" items={items(() => {}, () => {})} trigger={(p) => <button {...p}>Account</button>} />
+        <Menu
+          aria-label="User menu"
+          items={items(
+            () => {},
+            () => {},
+          )}
+          trigger={(p) => <button {...p}>Account</button>}
+        />
       </>,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Account' }));

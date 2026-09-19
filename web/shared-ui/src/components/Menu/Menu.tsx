@@ -33,11 +33,22 @@ export interface MenuProps {
   className?: string;
 }
 
-export const Menu: React.FC<MenuProps> = ({ trigger, items, 'aria-label': ariaLabel, header, align = 'end', panelClassName = 'w-64', className = '' }) => {
+export const Menu: React.FC<MenuProps> = ({
+  trigger,
+  items,
+  'aria-label': ariaLabel,
+  header,
+  align = 'end',
+  panelClassName = 'w-64',
+  className = '',
+}) => {
   const listRef = useRef<HTMLDivElement>(null);
 
   const onKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
-    const buttons = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])') ?? []);
+    const buttons = Array.from(
+      listRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not([disabled])') ??
+        [],
+    );
     if (buttons.length === 0) return;
     const current = buttons.findIndex((b) => b === document.activeElement);
     let next: number | null = null;
@@ -51,10 +62,19 @@ export const Menu: React.FC<MenuProps> = ({ trigger, items, 'aria-label': ariaLa
   }, []);
 
   return (
-    <Popover trigger={trigger} role="menu" aria-label={ariaLabel} align={align} panelClassName={panelClassName} className={className}>
+    <Popover
+      trigger={trigger}
+      role="menu"
+      aria-label={ariaLabel}
+      align={align}
+      panelClassName={panelClassName}
+      className={className}
+    >
       {(close) => (
         <div ref={listRef} onKeyDown={onKeyDown}>
-          {header && <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-700">{header}</div>}
+          {header && (
+            <div className="border-b border-gray-100 px-4 py-3 dark:border-gray-700">{header}</div>
+          )}
           <div className="py-1">
             {items.map((item) => (
               <button

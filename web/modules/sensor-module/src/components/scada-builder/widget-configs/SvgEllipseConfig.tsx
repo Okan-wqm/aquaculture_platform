@@ -22,7 +22,13 @@ import { GradientEditor } from './GradientEditor';
 import { SvgFilterEditor } from './SvgFilterEditor';
 import { ColorAlphaInput } from './ColorAlphaInput';
 import { SvgTagBindingSection } from './SvgTagBindingSection';
-import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, SvgFilterConfig } from '../../../types/scada-svg-properties.types';
+import type {
+  StrokeDashPattern,
+  StrokeLineCap,
+  StrokeLineJoin,
+  GradientConfig,
+  SvgFilterConfig,
+} from '../../../types/scada-svg-properties.types';
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';

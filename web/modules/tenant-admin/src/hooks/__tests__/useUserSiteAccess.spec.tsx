@@ -25,7 +25,8 @@ const testState = vi.hoisted(() => ({
 vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
   // The hook reports through the real feedback wrapper (FE-HIGH-086); its
   // toast surface falls back to local state without a provider.
-  useFeedbackMutation: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).useFeedbackMutation,
+  useFeedbackMutation: (await importOriginal<typeof import('@aquaculture/shared-ui')>())
+    .useFeedbackMutation,
   createTenantQueryKey: (
     tenantId: string | null,
     ...segments: readonly unknown[]

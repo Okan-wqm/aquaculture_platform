@@ -78,7 +78,17 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
     <div className="mt-4">
       {/* WHY: Section header matches the existing tank detail page's heading style */}
       <div className="flex items-center gap-2 mb-3">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-500">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="text-purple-500"
+        >
           <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
           <path d="M12 9v4" />
           <path d="M12 17h.01" />
@@ -93,9 +103,7 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <span className={clsx('w-2.5 h-2.5 rounded-full', colors.dot)} />
-            <span className={clsx('text-sm font-bold', colors.text)}>
-              {risk.riskLevel}
-            </span>
+            <span className={clsx('text-sm font-bold', colors.text)}>{risk.riskLevel}</span>
           </div>
           <span className={clsx('text-2xl font-bold tabular-nums', colors.text)}>
             {risk.riskScore}
@@ -133,7 +141,16 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
               {risk.recommendations.map((rec, idx) => (
                 <li key={idx} className="flex items-start gap-1.5">
                   <span className="text-purple-500 mt-0.5 flex-shrink-0">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <path d="m9 18 6-6-6-6" />
                     </svg>
                   </span>

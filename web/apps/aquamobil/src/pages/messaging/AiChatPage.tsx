@@ -13,6 +13,11 @@
  * but adds AI-specific hooks (useAiChat, useAiConsent) and components.
  */
 
+import {
+  AI_GENERAL_ASSISTANT_PICKER_ENTRY,
+  findAiPersona,
+  type AiPersonaIcon,
+} from '@aquaculture/shared-contracts';
 import { clsx } from 'clsx';
 import {
   ArrowLeft,
@@ -23,6 +28,8 @@ import {
   Fish,
   BarChart,
   Cpu,
+  HeartPulse,
+  Wrench,
   Info,
   AlertCircle,
   Sparkles,
@@ -40,12 +47,11 @@ import {
 } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
-import { IconButton } from '../../components/ui';
-
 import { AiActionCard } from '@/components/messaging/AiActionCard';
 import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
 import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
+import { IconButton } from '@/components/ui';
 import { Spinner } from '@/components/ui/Spinner';
 import { useAiChat } from '@/hooks/useAiChat';
 import { useAuth } from '@/hooks/useAuth';
@@ -63,9 +69,7 @@ import { getDateLabel } from '@/utils/messaging-helpers';
 // ---------------------------------------------------------------------------
 
 /** Group messages by date for rendering date separators. */
-function groupMessagesByDate(
-  messages: Message[],
-): Array<{ date: string; messages: Message[] }> {
+function groupMessagesByDate(messages: Message[]): Array<{ date: string; messages: Message[] }> {
   const groups: Array<{ date: string; messages: Message[] }> = [];
   let currentDate = '';
 
@@ -95,32 +99,68 @@ function isAiMessage(msg: Message): boolean {
 // Persona Helpers
 // ---------------------------------------------------------------------------
 
-/** Map persona icon name to Lucide component. */
-const PERSONA_ICONS: Record<string, typeof Bot> = {
+/** Map the catalogue icon vocabulary to Lucide components. */
+const PERSONA_ICONS: Record<AiPersonaIcon, typeof Bot> = {
   bot: Bot,
   droplets: Droplets,
   fish: Fish,
   'bar-chart': BarChart,
   cpu: Cpu,
+  'heart-pulse': HeartPulse,
+  wrench: Wrench,
 };
 
 /** Map persona color to Tailwind classes for header styling. */
-const PERSONA_HEADER_COLORS: Record<string, { border: string; avatar: string; icon: string; label: string }> = {
-  purple: { border: 'border-purple-500', avatar: 'bg-purple-50 dark:bg-purple-900/30', icon: 'text-purple-600 dark:text-purple-400', label: 'text-purple-500 dark:text-purple-400' },
-  cyan: { border: 'border-cyan-500', avatar: 'bg-cyan-50 dark:bg-cyan-900/30', icon: 'text-cyan-600 dark:text-cyan-400', label: 'text-cyan-500 dark:text-cyan-400' },
-  blue: { border: 'border-blue-500', avatar: 'bg-blue-50 dark:bg-blue-900/30', icon: 'text-blue-600 dark:text-blue-400', label: 'text-blue-500 dark:text-blue-400' },
-  green: { border: 'border-green-500', avatar: 'bg-green-50 dark:bg-green-900/30', icon: 'text-green-600 dark:text-green-400', label: 'text-green-500 dark:text-green-400' },
-  orange: { border: 'border-orange-500', avatar: 'bg-orange-50 dark:bg-orange-900/30', icon: 'text-orange-600 dark:text-orange-400', label: 'text-orange-500 dark:text-orange-400' },
+const PERSONA_HEADER_COLORS: Record<
+  string,
+  { border: string; avatar: string; icon: string; label: string }
+> = {
+  purple: {
+    border: 'border-purple-500',
+    avatar: 'bg-purple-50 dark:bg-purple-900/30',
+    icon: 'text-purple-600 dark:text-purple-400',
+    label: 'text-purple-500 dark:text-purple-400',
+  },
+  cyan: {
+    border: 'border-cyan-500',
+    avatar: 'bg-cyan-50 dark:bg-cyan-900/30',
+    icon: 'text-cyan-600 dark:text-cyan-400',
+    label: 'text-cyan-500 dark:text-cyan-400',
+  },
+  blue: {
+    border: 'border-blue-500',
+    avatar: 'bg-blue-50 dark:bg-blue-900/30',
+    icon: 'text-blue-600 dark:text-blue-400',
+    label: 'text-blue-500 dark:text-blue-400',
+  },
+  green: {
+    border: 'border-green-500',
+    avatar: 'bg-green-50 dark:bg-green-900/30',
+    icon: 'text-green-600 dark:text-green-400',
+    label: 'text-green-500 dark:text-green-400',
+  },
+  orange: {
+    border: 'border-orange-500',
+    avatar: 'bg-orange-50 dark:bg-orange-900/30',
+    icon: 'text-orange-600 dark:text-orange-400',
+    label: 'text-orange-500 dark:text-orange-400',
+  },
 };
 
-/** Known persona metadata keyed by persona ID. Used for header enrichment. */
-const PERSONA_METADATA: Record<string, { name: string; icon: string; color: string; capabilities: string[] }> = {
-  'general': { name: 'General AI Assistant', icon: 'bot', color: 'purple', capabilities: ['General questions', 'Basic guidance', 'Platform help'] },
-  'operator-v1': { name: 'Water Quality Specialist', icon: 'droplets', color: 'cyan', capabilities: ['Water quality parameters', 'Sensor readings', 'Ammonia/H2S/CO2 toxicity'] },
-  'expert-v1': { name: 'Farm Expert', icon: 'fish', color: 'blue', capabilities: ['Growth analytics', 'Feed optimization', 'Reagent dosing', 'Risk assessment'] },
-  'manager-v1': { name: 'Management Assistant', icon: 'bar-chart', color: 'green', capabilities: ['Report generation', 'Analytics', 'Trend analysis', 'Feed management'] },
-  'supervisor-v1': { name: 'SCADA AI', icon: 'cpu', color: 'orange', capabilities: ['Autonomous monitoring', 'Equipment actuation', 'PLC control', 'Safety limits'] },
-};
+/**
+ * Header enrichment for the channel's persona — read from the shared persona
+ * catalogue (`@aquaculture/shared-contracts`), the SSoT every surface uses, so
+ * a farm specialist opened from NewChatPage is named and coloured the same
+ * here. An unpinned channel (`aiPersona: null`) is the tenant default.
+ */
+function personaMetadata(personaId: string | null | undefined): {
+  name: string;
+  icon: AiPersonaIcon;
+  color: string;
+  capabilities: readonly string[];
+} {
+  return (personaId ? findAiPersona(personaId) : undefined) ?? AI_GENERAL_ASSISTANT_PICKER_ENTRY;
+}
 
 // ---------------------------------------------------------------------------
 // AiAvatarHeader Sub-component
@@ -139,9 +179,9 @@ function AiChannelHeader({
   onSettings: () => void;
 }): JSX.Element {
   const [showCapabilities, setShowCapabilities] = useState(false);
-  const meta = PERSONA_METADATA[personaId ?? 'general'] ?? PERSONA_METADATA['general'];
+  const meta = personaMetadata(personaId);
   const colors = PERSONA_HEADER_COLORS[meta.color] ?? PERSONA_HEADER_COLORS['purple'];
-  const IconComponent = PERSONA_ICONS[meta.icon] ?? Bot;
+  const IconComponent = PERSONA_ICONS[meta.icon];
 
   return (
     <div className="bg-white dark:bg-gray-900 border-b-2 border-inherit flex-shrink-0 z-10">
@@ -168,11 +208,13 @@ function AiChannelHeader({
             }}
           >
             {/* AI Avatar with persona-colored border */}
-            <div className={clsx(
-              'relative w-10 h-10 rounded-full border-2 flex items-center justify-center flex-shrink-0',
-              colors.border,
-              colors.avatar,
-            )}>
+            <div
+              className={clsx(
+                'relative w-10 h-10 rounded-full border-2 flex items-center justify-center flex-shrink-0',
+                colors.border,
+                colors.avatar,
+              )}
+            >
               <IconComponent size={20} className={colors.icon} />
               <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-400 rounded-full border-2 border-white dark:border-gray-900" />
             </div>
@@ -272,8 +314,7 @@ export function AiChatPage(): JSX.Element {
   const { user } = useAuth();
 
   // Core messaging hooks
-  const { isConnected, joinChannel, leaveChannel, socketRef } =
-    useMessageSocket();
+  const { isConnected, joinChannel, leaveChannel, socketRef } = useMessageSocket();
   const {
     messages,
     isLoading: messagesLoading,
@@ -318,16 +359,12 @@ export function AiChatPage(): JSX.Element {
   }, [channelId, isConnected, joinChannel, leaveChannel]);
 
   // Group messages by date
-  const messageGroups = useMemo(
-    () => groupMessagesByDate(messages),
-    [messages],
-  );
+  const messageGroups = useMemo(() => groupMessagesByDate(messages), [messages]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
     if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop =
-        scrollContainerRef.current.scrollHeight;
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
     }
   }, [messages.length, isAiThinking]);
 
@@ -357,10 +394,7 @@ export function AiChatPage(): JSX.Element {
 
     const handleResize = (): void => {
       const offset = window.innerHeight - viewport.height;
-      document.documentElement.style.setProperty(
-        '--keyboard-offset',
-        `${offset}px`,
-      );
+      document.documentElement.style.setProperty('--keyboard-offset', `${offset}px`);
     };
 
     viewport.addEventListener('resize', handleResize);
@@ -425,37 +459,37 @@ export function AiChatPage(): JSX.Element {
   );
 
   // Auto-resize textarea
-  const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setInputText(e.target.value);
-      const el = e.target;
-      el.style.height = 'auto';
-      el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputText(e.target.value);
+    const el = e.target;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, []);
+
+  const handleCopy = useCallback(
+    (messageId: string) => {
+      const msg = messages.find((m) => m.id === messageId);
+      if (msg?.content) {
+        navigator.clipboard.writeText(msg.content).catch(() => {
+          /* intentional no-op: clipboard copy is a best-effort convenience;
+           a denied/unsupported Clipboard API must not surface an error. */
+        });
+      }
     },
-    [],
+    [messages],
   );
 
-  const handleCopy = useCallback((messageId: string) => {
-    const msg = messages.find((m) => m.id === messageId);
-    if (msg?.content) {
-      navigator.clipboard.writeText(msg.content).catch(() => {
-        /* intentional no-op: clipboard copy is a best-effort convenience;
-           a denied/unsupported Clipboard API must not surface an error. */
-      });
-    }
-  }, [messages]);
-
-  const personaMeta = PERSONA_METADATA[channel?.aiPersona ?? 'general'] ?? PERSONA_METADATA['general'];
+  const personaMeta = personaMetadata(channel?.aiPersona);
   const channelName = channel?.name ?? personaMeta.name;
   const loading = messagesLoading || channelLoading;
   const errorMsg = messagesError
-    ? (messagesError instanceof Error ? messagesError.message : 'Failed to load messages')
+    ? messagesError instanceof Error
+      ? messagesError.message
+      : 'Failed to load messages'
     : null;
 
   return (
-    <div
-      className="flex flex-col h-screen-nav bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]"
-    >
+    <div className="flex flex-col h-screen-nav bg-gray-100 dark:bg-gray-950 pb-[var(--keyboard-offset,_0px)]">
       {/* AI-specific header — persona-aware */}
       <AiChannelHeader
         channelName={channelName}
@@ -467,7 +501,9 @@ export function AiChatPage(): JSX.Element {
       {/* Message list */}
       <div
         ref={scrollContainerRef}
-        onScroll={() => { void handleScroll(); }}
+        onScroll={() => {
+          void handleScroll();
+        }}
         className="flex-1 overflow-y-auto overscroll-contain"
       >
         {/* Context banner */}
@@ -485,11 +521,17 @@ export function AiChatPage(): JSX.Element {
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">
             {(() => {
-              const EmptyIcon = PERSONA_ICONS[personaMeta.icon] ?? Bot;
-              const emptyColors = PERSONA_HEADER_COLORS[personaMeta.color] ?? PERSONA_HEADER_COLORS['purple'];
+              const EmptyIcon = PERSONA_ICONS[personaMeta.icon];
+              const emptyColors =
+                PERSONA_HEADER_COLORS[personaMeta.color] ?? PERSONA_HEADER_COLORS['purple'];
               return (
                 <>
-                  <div className={clsx('w-16 h-16 rounded-full flex items-center justify-center mb-3', emptyColors.avatar)}>
+                  <div
+                    className={clsx(
+                      'w-16 h-16 rounded-full flex items-center justify-center mb-3',
+                      emptyColors.avatar,
+                    )}
+                  >
                     <EmptyIcon size={28} className={emptyColors.icon} />
                   </div>
                   <p className="text-sm font-medium text-gray-700 dark:text-gray-300 text-center">
@@ -514,11 +556,12 @@ export function AiChatPage(): JSX.Element {
                   const aiMsg = isAiMessage(msg);
 
                   // Map optimistic status
-                  const status = msg._status === 'pending'
-                    ? 'pending' as const
-                    : msg._status === 'failed'
-                      ? 'pending' as const
-                      : 'sent' as const;
+                  const status =
+                    msg._status === 'pending'
+                      ? ('pending' as const)
+                      : msg._status === 'failed'
+                        ? ('pending' as const)
+                        : ('sent' as const);
 
                   return (
                     <MessageBubble
@@ -600,7 +643,9 @@ export function AiChatPage(): JSX.Element {
           {/* WHY: When offline, the send button uses amber styling with a clock
            * icon to indicate "Queue" semantics, matching the MessageInput pattern. */}
           <button
-            onClick={() => { runAsyncAction(handleSend, 'ai-chat-send'); }}
+            onClick={() => {
+              runAsyncAction(handleSend, 'ai-chat-send');
+            }}
             disabled={!inputText.trim() || isSending || isAiThinking}
             className={clsx(
               'w-12 h-12 rounded-full flex items-center justify-center touch-feedback flex-shrink-0 transition-all',

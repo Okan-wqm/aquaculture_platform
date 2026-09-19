@@ -1,71 +1,133 @@
-import { PageHeader } from '@aquaculture/shared-ui';
+import { Button, useAuth, useI18n, type MessageKey } from '@aquaculture/shared-ui';
 import { MessageSquare, Sparkles, Users, RefreshCw, AlertCircle } from 'lucide-react';
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 import { useChannels } from '../hooks/useMessagingData';
+import { useMessagingSocket } from '../hooks/useMessagingSocket';
 import { channelTitle } from '../lib/channelDisplay';
+import { messageBodyKind, messageBodyLabelKey } from '../lib/messageBody';
 import type { Channel } from '../types/messaging';
 
 function ChannelIcon({ channel }: { channel: Channel }): React.ReactElement {
-  if (channel.type === 'AI') return <Sparkles className="h-5 w-5 text-green-600" />;
-  if (channel.type === 'GROUP') return <Users className="h-5 w-5 text-gray-500 dark:text-gray-400" />;
-  return <MessageSquare className="h-5 w-5 text-gray-500 dark:text-gray-400" />;
+  if (channel.type === 'AI') return <Sparkles size={19} />;
+  if (channel.type === 'GROUP') return <Users size={19} />;
+  return <MessageSquare size={19} />;
 }
 
+/**
+ * Last-message preview: media references never leak into the list (URLs /
+ * storage keys render as the localized label — FAZ 2.4 parity), deleted rows
+ * fall back to the neutral empty-preview copy.
+ */
+function lastMessagePreview(channel: Channel, t: (key: MessageKey) => string): string {
+  const last = channel.lastMessage;
+  if (!last || last.isDeleted || last.content == null) {
+    return t('messaging.noMessagesPreview');
+  }
+  const kind = messageBodyKind(last.contentType);
+  return kind === 'text' ? last.content : t(messageBodyLabelKey(kind));
+}
+
+/**
+ * Channel list — SUDERRA Tenant Console design (mockup "Messages" left card).
+ * The selected channel highlights with the mint edge + tint exactly like the
+ * mockup; selection is derived from the route so deep links highlight too.
+ *
+ * DATA SOURCE: 100% real — messaging-service `myChannels`. unreadCount is
+ * computed per-user server-side (DB-authoritative); lastMessage rides the same
+ * query. No mocked data on this page.
+ *
+ * FAZ 3.2 (channel-room decision): the socket is mounted HERE too — it joins
+ * every myChannels room and keeps the list live through local cache mutations
+ * (unread badge +1, last-message preview) with NO refetch, so the FAZ 1 60s
+ * poll was removed. Previews of media messages show localized labels, never
+ * the raw media reference; DM titles exclude the current user's own membership.
+ */
 const ChannelListPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user, hasPermission } = useAuth();
+  const myId = user?.id;
+  const { t } = useI18n();
   const { data: channels, isLoading, isError } = useChannels();
+  useMessagingSocket();
+  // FE-MEDIUM-065: the AI entry point is shown only to users holding the
+  // surface capability; the persona choice itself is server-filtered.
+  const canUseAi = hasPermission('ai_assistant:use');
 
   return (
-    <div className="mx-auto max-w-3xl">
-      <PageHeader title="Messages" className="mb-4" />
+    <div className="sd-page max-w-[520px]">
+      <div className="sd-pagehead">
+        <span className="sd-eyebrow">{t('messaging.overview')}</span>
+        <h1 className="sd-page-title">{t('messaging.title')}</h1>
+        <span className="sd-page-sub">{t('messaging.subtitle')}</span>
+      </div>
+
+      {canUseAi && (
+        <Button
+          onClick={() => navigate('/messaging/new-ai')}
+          leftIcon={<Sparkles size={15} />}
+          className="sd-send mb-3"
+        >
+          {t('messaging.ai.newChat')}
+        </Button>
+      )}
 
       {isLoading && (
-        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-          <RefreshCw className="h-4 w-4 animate-spin" /> Loading channels…
+        <div className="flex items-center gap-2 text-[13.5px] text-sd-ink-muted">
+          <RefreshCw size={15} className="animate-spin" /> {t('messaging.loadingChannels')}
         </div>
       )}
       {isError && (
-        <p className="flex items-center gap-1 text-sm text-red-600">
-          <AlertCircle className="h-4 w-4" /> Could not load channels.
-        </p>
-      )}
-
-      {!isLoading && !isError && (channels?.length ?? 0) === 0 && (
-        <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-8 text-center text-sm text-gray-500 dark:text-gray-400">
-          No channels yet.
+        <div className="sd-banner sd-banner--error" role="alert">
+          <AlertCircle size={17} className="text-sd-danger" />
+          <span className="text-[13.5px] font-semibold text-sd-danger-ink">
+            {t('messaging.errorChannels')}
+          </span>
         </div>
       )}
 
-      <div className="divide-y divide-gray-100 dark:divide-gray-700 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-        {channels?.map((channel) => (
-          <button
-            key={channel.id}
-            onClick={() => navigate(`/messaging/${channel.id}`)}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
-              <ChannelIcon channel={channel} />
+      {!isLoading && !isError && (channels?.length ?? 0) === 0 && (
+        <div className="sd-card">
+          <div className="sd-empty">{t('messaging.noChannels')}</div>
+        </div>
+      )}
+
+      {(channels?.length ?? 0) > 0 && (
+        <div className="sd-card sd-card--flush">
+          <div className="border-b border-sd-rule px-4 py-3">
+            <span className="text-[11.5px] font-bold uppercase tracking-[0.09em] text-sd-teal-deep">
+              {t('messaging.channelsLabel')}
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-                  {channelTitle(channel)}
+          </div>
+          {channels?.map((channel) => {
+            const active = location.pathname === `/messaging/${channel.id}`;
+            return (
+              <button
+                key={channel.id}
+                onClick={() => navigate(`/messaging/${channel.id}`)}
+                className={`sd-chan-row${active ? ' sd-chan-row--active' : ''}`}
+              >
+                <span className={`sd-chan-icon${channel.type === 'AI' ? ' sd-chan-icon--ai' : ''}`}>
+                  <ChannelIcon channel={channel} />
                 </span>
-                {!!channel.unreadCount && channel.unreadCount > 0 && (
-                  <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-green-600 px-1.5 text-xs font-medium text-white">
-                    {channel.unreadCount}
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="sd-chan-title">{channelTitle(channel, myId)}</span>
+                    {!!channel.unreadCount && channel.unreadCount > 0 && (
+                      <span className="sd-unread">{channel.unreadCount}</span>
+                    )}
                   </span>
-                )}
-              </span>
-              <span className="mt-0.5 block truncate text-xs text-gray-400 dark:text-gray-500">
-                {channel.lastMessage?.content ?? 'No messages yet'}
-              </span>
-            </span>
-          </button>
-        ))}
-      </div>
+                  <span className="sd-chan-preview mt-0.5 block">
+                    {lastMessagePreview(channel, t)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

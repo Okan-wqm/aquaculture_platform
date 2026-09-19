@@ -11,7 +11,13 @@ export const ProcessViewConfig: React.FC<WidgetConfigProps> = ({ config, onChang
     <div className="space-y-3">
       <div>
         <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Proses ID</label>
-        <Input fullWidth type="text" value={config.processId || ''} onChange={(e) => onChange({ processId: e.target.value })} placeholder="Enter Process ID" />
+        <Input
+          fullWidth
+          type="text"
+          value={config.processId || ''}
+          onChange={(e) => onChange({ processId: e.target.value })}
+          placeholder="Enter Process ID"
+        />
       </div>
     </div>
   );

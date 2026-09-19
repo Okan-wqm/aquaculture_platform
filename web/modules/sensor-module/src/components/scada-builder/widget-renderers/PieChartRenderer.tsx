@@ -28,8 +28,14 @@ interface PieSource {
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_COLORS = [
-  colors.primary[400], colors.primary[700], colors.warning[500], colors.error[500], colors.success[500],
-  colors.accent[500], colors.info[500], colors.secondary[600],
+  colors.primary[400],
+  colors.primary[700],
+  colors.warning[500],
+  colors.error[500],
+  colors.success[500],
+  colors.accent[500],
+  colors.info[500],
+  colors.secondary[600],
 ];
 
 /* ------------------------------------------------------------------ */
@@ -148,10 +154,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
   }, [isEditing, value, sources]);
 
   /* ---- Compute slice angles ---- */
-  const total = useMemo(
-    () => sliceValues.reduce((acc, v) => acc + v, 0),
-    [sliceValues],
-  );
+  const total = useMemo(() => sliceValues.reduce((acc, v) => acc + v, 0), [sliceValues]);
 
   const slices = useMemo(() => {
     if (total <= 0) return [];
@@ -225,14 +228,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
           // Skip zero-value slices to avoid degenerate paths
           if (slice.fraction <= 0.001) return null;
 
-          const d = describeArc(
-            cx,
-            cy,
-            radius,
-            innerR,
-            slice.startAngle,
-            slice.endAngle,
-          );
+          const d = describeArc(cx, cy, radius, innerR, slice.startAngle, slice.endAngle);
 
           // Label position: midpoint of the slice, at 65% of radius
           const midAngle = (slice.startAngle + slice.endAngle) / 2;
@@ -246,11 +242,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
                 fill={slice.color}
                 stroke="white"
                 strokeWidth={1.5}
-                style={
-                  animate
-                    ? { transition: 'd 300ms ease-out' }
-                    : undefined
-                }
+                style={animate ? { transition: 'd 300ms ease-out' } : undefined}
               />
               {/* Percentage label inside slice */}
               {showLabels && slice.fraction > 0.05 && (
@@ -312,12 +304,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
 
         {/* Legend */}
         {showLegend && (
-          <foreignObject
-            x={0}
-            y={height - PAD * 2 - LEGEND_H}
-            width={availW}
-            height={LEGEND_H}
-          >
+          <foreignObject x={0} y={height - PAD * 2 - LEGEND_H} width={availW} height={LEGEND_H}>
             <div
               style={{
                 display: 'flex',
@@ -339,9 +326,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
                       width: 8,
                       height: 8,
                       borderRadius: 2,
-                      background:
-                        source.color ||
-                        DEFAULT_COLORS[i % DEFAULT_COLORS.length],
+                      background: source.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length],
                       display: 'inline-block',
                       flexShrink: 0,
                     }}

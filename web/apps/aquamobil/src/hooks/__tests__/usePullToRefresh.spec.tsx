@@ -6,7 +6,12 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { DEFAULT_THRESHOLD_PX, MAX_PULL_PX, usePullToRefresh, type PullTouchEvent } from '../usePullToRefresh';
+import {
+  DEFAULT_THRESHOLD_PX,
+  MAX_PULL_PX,
+  usePullToRefresh,
+  type PullTouchEvent,
+} from '../usePullToRefresh';
 
 function container(scrollTop = 0): HTMLElement {
   const el = document.createElement('div');
@@ -21,7 +26,12 @@ function touch(target: HTMLElement, clientY: number): PullTouchEvent {
 describe('usePullToRefresh', () => {
   it('refreshes after a pull from the top that passes the threshold, and reports the pull on the way', async () => {
     let settle: () => void = () => undefined;
-    const onRefresh = vi.fn(() => new Promise<void>((resolve) => { settle = resolve; }));
+    const onRefresh = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+    );
     const { result } = renderHook(() => usePullToRefresh({ onRefresh }));
     const el = container(0);
 
@@ -38,7 +48,10 @@ describe('usePullToRefresh', () => {
     expect(result.current.isRefreshing).toBe(true);
     expect(result.current.pullDistance).toBe(0);
 
-    await act(async () => { settle(); await Promise.resolve(); });
+    await act(async () => {
+      settle();
+      await Promise.resolve();
+    });
     expect(result.current.isRefreshing).toBe(false);
   });
 

@@ -1,7 +1,11 @@
 // Mock sanitize-html (may not have type declarations)
-jest.mock('sanitize-html', () => {
-  return jest.fn((html: string) => html.replace(/<[^>]*>/g, ''));
-}, { virtual: true });
+jest.mock(
+  'sanitize-html',
+  () => {
+    return jest.fn((html: string) => html.replace(/<[^>]*>/g, ''));
+  },
+  { virtual: true },
+);
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -110,9 +114,10 @@ describe('SendMessageHandler', () => {
       // The handler uses processedContent as the final sanitizedContent
       // (see send-message.handler.ts:118), so returning '' would make
       // every TEXT-message test fail the non-empty content guard.
-      parseMentions: jest.fn().mockImplementation(
-        (content: string) => ({ mentionedUserIds: [], processedContent: content }),
-      ),
+      parseMentions: jest.fn().mockImplementation((content: string) => ({
+        mentionedUserIds: [],
+        processedContent: content,
+      })),
     };
     mediaService = {
       // Default: every attachment key validates as image/png 1024 bytes.
@@ -165,13 +170,15 @@ describe('SendMessageHandler', () => {
     jest.clearAllMocks();
   });
 
-  function makeCmd(overrides: Partial<{
-    content: string | null;
-    contentType: MessageContentType;
-    attachmentKeys: string[];
-    metadata: Record<string, unknown> | null;
-    parentId: string | null;
-  }> = {}): SendMessageCommand {
+  function makeCmd(
+    overrides: Partial<{
+      content: string | null;
+      contentType: MessageContentType;
+      attachmentKeys: string[];
+      metadata: Record<string, unknown> | null;
+      parentId: string | null;
+    }> = {},
+  ): SendMessageCommand {
     return new SendMessageCommand(
       tenantId,
       senderId,
@@ -184,6 +191,20 @@ describe('SendMessageHandler', () => {
       overrides.metadata ?? null,
     );
   }
+
+  // -----------------------------------------------------------------------
+  // MSGFIX-FAZ2 2.3: SYSTEM contentType is reserved for AI/platform rows.
+  // -----------------------------------------------------------------------
+  it('rejects user-sent contentType SYSTEM with BadRequestException', async () => {
+    redisClient.get.mockResolvedValue(null);
+
+    await expect(
+      handler.execute(makeCmd({ contentType: MessageContentType.SYSTEM })),
+    ).rejects.toThrow(BadRequestException);
+
+    // Nothing was written: no ledger claim, no message insert, no outbox.
+    expect(queryRunner.manager.save).not.toHaveBeenCalled();
+  });
 
   // -----------------------------------------------------------------------
   // Happy path
@@ -231,9 +252,7 @@ describe('SendMessageHandler', () => {
     const result = await handler.execute(cmd);
 
     // The saved content should not contain script tags
-    const msgSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => call[0] === Message,
-    );
+    const msgSaveCall = queryRunner.manager.save.mock.calls.find((call) => call[0] === Message);
     expect(msgSaveCall).toBeDefined();
     const savedContent = (msgSaveCall![1] as Partial<Message>).content;
     expect(savedContent).not.toContain('<script>');
@@ -245,9 +264,7 @@ describe('SendMessageHandler', () => {
 
     await handler.execute(cmd);
 
-    const msgSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => call[0] === Message,
-    );
+    const msgSaveCall = queryRunner.manager.save.mock.calls.find((call) => call[0] === Message);
     const savedContent = (msgSaveCall![1] as Partial<Message>).content;
     expect(savedContent).not.toContain('javascript:');
   });
@@ -258,9 +275,7 @@ describe('SendMessageHandler', () => {
 
     await handler.execute(cmd);
 
-    const msgSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => call[0] === Message,
-    );
+    const msgSaveCall = queryRunner.manager.save.mock.calls.find((call) => call[0] === Message);
     const savedContent = (msgSaveCall![1] as Partial<Message>).content;
     expect(savedContent).not.toContain('data:');
   });
@@ -271,9 +286,7 @@ describe('SendMessageHandler', () => {
 
     const result = await handler.execute(cmd);
 
-    const msgSaveCall = queryRunner.manager.save.mock.calls.find(
-      (call) => call[0] === Message,
-    );
+    const msgSaveCall = queryRunner.manager.save.mock.calls.find((call) => call[0] === Message);
     const savedContent = (msgSaveCall![1] as Partial<Message>).content as string;
     expect(savedContent).toContain('https://example.com');
     expect(savedContent).toContain('http://example.com');
@@ -325,7 +338,9 @@ describe('SendMessageHandler', () => {
 
     expect(redisClient.setex).toHaveBeenCalled();
     const setexCall = redisClient.setex.mock.calls[0];
-    expect(setexCall[0]).toContain(idempotencyKey);
+    // MSGFIX-FAZ1: the idempotency cache key is scoped to
+    // (tenant, sender, channel, key) — mirroring the DB ledger PK.
+    expect(setexCall[0]).toBe(`msg:${tenantId}:${senderId}:${channelId}:${idempotencyKey}`);
     // TTL should be 7 days = 604800
     expect(setexCall[1]).toBe(604800);
   });
@@ -352,9 +367,7 @@ describe('SendMessageHandler', () => {
 
     await handler.execute(cmd);
 
-    const attSave = queryRunner.manager.save.mock.calls.find(
-      (c) => c[0] === MessageAttachment,
-    );
+    const attSave = queryRunner.manager.save.mock.calls.find((c) => c[0] === MessageAttachment);
     expect(attSave).toBeDefined();
     const attachments = attSave![1] as Partial<MessageAttachment>[];
     expect(attachments).toHaveLength(2);
@@ -376,9 +389,7 @@ describe('SendMessageHandler', () => {
       null,
     );
 
-    const attSave = queryRunner.manager.save.mock.calls.find(
-      (c) => c[0] === MessageAttachment,
-    );
+    const attSave = queryRunner.manager.save.mock.calls.find((c) => c[0] === MessageAttachment);
     const attachments = attSave![1] as Partial<MessageAttachment>[];
     expect(attachments[0]).toMatchObject({
       width: 100,
@@ -417,9 +428,7 @@ describe('SendMessageHandler', () => {
     );
 
     // ...and onto the persisted attachment row's typed column.
-    const attSave = queryRunner.manager.save.mock.calls.find(
-      (c) => c[0] === MessageAttachment,
-    );
+    const attSave = queryRunner.manager.save.mock.calls.find((c) => c[0] === MessageAttachment);
     const attachments = attSave![1] as Partial<MessageAttachment>[];
     expect(attachments[0]?.durationSeconds).toBe(12.34);
 
@@ -487,10 +496,13 @@ describe('SendMessageHandler', () => {
         messageId: existing.id,
         messageCreatedAt: existing.createdAt,
       };
-      ledgerInsertBuilder.execute.mockResolvedValue({ identifiers: [{}], raw: [], generatedMaps: [] });
-      queryRunner.manager.findOne.mockImplementation(
-        (entity: unknown) =>
-          Promise.resolve(entity === MessageSendIdempotency ? ledgerRow : existing),
+      ledgerInsertBuilder.execute.mockResolvedValue({
+        identifiers: [{}],
+        raw: [],
+        generatedMaps: [],
+      });
+      queryRunner.manager.findOne.mockImplementation((entity: unknown) =>
+        Promise.resolve(entity === MessageSendIdempotency ? ledgerRow : existing),
       );
 
       const result = await handler.execute(makeCommand());
@@ -518,11 +530,84 @@ describe('SendMessageHandler', () => {
     it('fails loud when the claim conflicts but the ledger row is unreadable', async () => {
       // identifiers stay non-empty on conflict (TypeORM fabricates them
       // from VALUES for non-generated PKs) — raw is the truth signal.
-      ledgerInsertBuilder.execute.mockResolvedValue({ identifiers: [{}], raw: [], generatedMaps: [] });
+      ledgerInsertBuilder.execute.mockResolvedValue({
+        identifiers: [{}],
+        raw: [],
+        generatedMaps: [],
+      });
       queryRunner.manager.findOne.mockResolvedValue(null);
 
       await expect(handler.execute(makeCommand())).rejects.toThrow(ConflictException);
       expect(queryRunner.manager.save).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── MSGFIX-FAZ1: Redis fast-path scoping (tenant+sender+channel) ────
+  describe('MSGFIX-FAZ1 — Redis fast-path key scoping', () => {
+    function makeCommandFor(sender: string, channel: string): SendMessageCommand {
+      return new SendMessageCommand(
+        tenantId,
+        sender,
+        channel,
+        'hello',
+        MessageContentType.TEXT,
+        idempotencyKey,
+        null,
+        [],
+        null,
+      );
+    }
+
+    it('keys the cache per (tenant, sender, channel) — a different sender with the same key does NOT collide', async () => {
+      // Pre-FAZ1 the key was msg:{tenant}:idem:{key} — sender/channel
+      // free. Two users picking the same client-side key collided: the
+      // victim's send was silently swallowed and returned the other
+      // user's message. The scoped key makes them two separate entries.
+      const senderB = fakeUuid('usr');
+      redisClient.get.mockResolvedValue(null);
+
+      await handler.execute(makeCommandFor(senderId, channelId));
+      await handler.execute(makeCommandFor(senderB, channelId));
+
+      const keyA = redisClient.set.mock.calls[0]![0] as string;
+      const keyB = redisClient.set.mock.calls[1]![0] as string;
+      expect(keyA).toBe(`msg:${tenantId}:${senderId}:${channelId}:${idempotencyKey}`);
+      expect(keyB).toBe(`msg:${tenantId}:${senderB}:${channelId}:${idempotencyKey}`);
+      // Separate keys ⇒ separate SET NX claims ⇒ both sends took the full
+      // DB path (each message actually created, none swallowed).
+      expect(keyA).not.toBe(keyB);
+      expect(ledgerInsertBuilder.execute).toHaveBeenCalledTimes(2);
+    });
+
+    it('treats a fast-path hit resolving to a DIFFERENT sender/channel as a cache miss (DB ledger is the authority)', async () => {
+      // Key exists (SET NX fails) but the cached value points at another
+      // sender's message — the exact shape a stale/pre-scoping entry or a
+      // misfiled cache write produces. The handler must NOT return the
+      // foreign message; it must fall through to the ledger claim.
+      // NOTE: the foreign sender is a literal, not fakeUuid('usr') — the
+      // shared counter is reset in beforeEach, so a fresh fakeUuid('usr')
+      // would regenerate the SUITE senderId and accidentally match.
+      const foreign = createMockMessage({
+        id: fakeUuid('msg'),
+        channelId,
+        senderId: '99999999-9999-4999-8999-999999999999',
+      });
+      redisClient.set.mockResolvedValue(null);
+      redisClient.get.mockResolvedValue(foreign.id);
+      queryRunner.manager.findOne.mockResolvedValue(foreign);
+
+      const result = await handler.execute(makeCommandFor(senderId, channelId));
+
+      // The foreign message must NOT be returned to this sender...
+      expect(result.id).not.toBe(foreign.id);
+      expect(result.senderId).toBe(senderId);
+      // ...the authoritative DB ledger claim ran instead...
+      expect(ledgerInsertBuilder.execute).toHaveBeenCalledTimes(1);
+      // ...and the misfiled cache entry is overwritten with THIS send's
+      // message id (self-healing).
+      const setexArgs = redisClient.setex.mock.calls[0]!;
+      expect(setexArgs[0]).toBe(`msg:${tenantId}:${senderId}:${channelId}:${idempotencyKey}`);
+      expect(setexArgs[2]).toBe(result.id);
     });
   });
 });

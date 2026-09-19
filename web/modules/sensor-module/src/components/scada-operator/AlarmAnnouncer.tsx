@@ -22,7 +22,14 @@ export const AlarmAnnouncer: React.FC<AlarmAnnouncerProps> = ({ alarms }) => {
   const [message, setMessage] = useState<{ text: string; tick: number } | null>(null);
 
   useEffect(() => {
-    const counts = { critical: 0, high: 0, medium: 0, warning: 0, low: 0, info: 0 } satisfies Record<Severity, number>;
+    const counts = {
+      critical: 0,
+      high: 0,
+      medium: 0,
+      warning: 0,
+      low: 0,
+      info: 0,
+    } satisfies Record<Severity, number>;
     for (const alarm of alarms) counts[normalizeSeverity(alarm.severity)] += 1;
     const before = previous.current;
     previous.current = counts;

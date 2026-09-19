@@ -134,17 +134,8 @@ const PaymentsPage: React.FC = () => {
         limit: 50,
       });
 
-      const mapped = (data.payments || []).map((p: PaymentOverview) => ({
-        ...p,
-        amount: typeof p.amount === 'string' ? parseFloat(p.amount as unknown as string) : p.amount,
-        refundedAmount:
-          typeof p.refundedAmount === 'string'
-            ? parseFloat(p.refundedAmount as unknown as string)
-            : p.refundedAmount || 0,
-      }));
-
-      setPayments(mapped);
-      setTotalPayments(data.total || 0);
+      setPayments(data.payments);
+      setTotalPayments(data.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load payments');
       setPayments([]);

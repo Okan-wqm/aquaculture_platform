@@ -1,5 +1,6 @@
 import { Role } from '@aquaculture/backend-common/decorators';
 import { Injectable } from '@nestjs/common';
+import { colors } from '@aquaculture/shared-contracts';
 
 /**
  * Permission definition
@@ -127,7 +128,7 @@ export class RoleTemplateService {
       level: 100,
       permissions: ['*'], // All permissions
       isSystem: true,
-      color: '#FF0000',
+      color: colors.error[500],
       icon: 'shield-check',
     },
     {
@@ -178,7 +179,7 @@ export class RoleTemplateService {
         'api:manage',
       ],
       isSystem: true,
-      color: '#6366F1',
+      color: colors.primary[500],
       icon: 'user-cog',
     },
     {
@@ -215,7 +216,7 @@ export class RoleTemplateService {
         'settings:view',
       ],
       isSystem: true,
-      color: '#10B981',
+      color: colors.success[400],
       icon: 'briefcase',
     },
     {
@@ -233,7 +234,7 @@ export class RoleTemplateService {
         'reports:view',
       ],
       isSystem: true,
-      color: '#6B7280',
+      color: colors.gray[400],
       icon: 'eye',
     },
   ];

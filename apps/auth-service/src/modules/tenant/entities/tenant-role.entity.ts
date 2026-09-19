@@ -6,6 +6,7 @@ import {
   UpdateDateColumn,
   Index,
 } from 'typeorm';
+import { colors } from '@aquaculture/shared-contracts';
 
 /**
  * RBAC-HIGH-011 — `auth.tenant_roles` persistence mapping.
@@ -54,7 +55,7 @@ export class TenantRole {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   permissions!: unknown;
 
-  @Column({ type: 'varchar', length: 20, default: '#6366F1' })
+  @Column({ type: 'varchar', length: 20, default: colors.primary[500] })
   color!: string;
 
   @Column({ type: 'varchar', length: 50, default: 'shield' })

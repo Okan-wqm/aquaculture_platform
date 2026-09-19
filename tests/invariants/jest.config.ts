@@ -240,6 +240,10 @@ const commonProjectOptions = {
   // proof-ledger table constant via the @platform/outbox alias; map it so jest
   // resolves the source the same way tsconfig.base paths do at build time.
   moduleNameMapper: {
+    // `web/shared-ui/src/styles/theme.ts` re-exports the design palette from the
+    // zero-dependency shared lib (FE-MEDIUM-093); the parity spec imports that
+    // module, so resolve the alias the same way tsconfig.base does.
+    '^@aquaculture/shared-contracts$': '<rootDir>/../../libs/shared-contracts/src/index.ts',
     '^@platform/outbox$': '<rootDir>/../../platform/libs/outbox/src/index.ts',
     // outbox aliases the platform routing segment from the event contract
     // (SEC-HIGH-159), so the specs that load outbox need the contract resolved.

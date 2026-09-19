@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   Megaphone,
   Plus,
@@ -207,30 +207,30 @@ export const AnnouncementsPage: React.FC = () => {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Announcements</h1>
-            <p className="text-gray-500 mt-1">Broadcast messages to all tenants</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                fetchAnnouncements();
-                fetchStats();
-              }}
-              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-            >
-              <RefreshCw size={18} />
-            </button>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Plus size={18} />
-              Create Announcement
-            </button>
-          </div>
-        </div>
+        <PageHeader
+          title="Announcements"
+          description="Broadcast messages to all tenants"
+          actions={
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  fetchAnnouncements();
+                  fetchStats();
+                }}
+                className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              >
+                <RefreshCw size={18} />
+              </button>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Plus size={18} />
+                Create Announcement
+              </button>
+            </div>
+          }
+        />
 
         {/* Stats */}
         {stats && (

@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useCallback, useMemo, memo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, PageHeader } from '@aquaculture/shared-ui';
 import { Shield, Plus, Trash2, RefreshCw, AlertCircle, Check, Star, Palette } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
@@ -529,52 +529,50 @@ const TenantRolesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Roles & Permissions</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Define custom roles with granular permission control
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          {/* RBAC-HIGH-004: seed + create require the roles:create capability.
-              RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
-              on a query error `roles` is just the [] default, and offering a
-              seed there invites a duplicate seed against unknown server state. */}
-          {canCreateRoles && (
-            <>
-              {!error && roles.length === 0 && (
+      <PageHeader
+        title="Roles & Permissions"
+        description="Define custom roles with granular permission control"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRefresh}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500" />
+            </button>
+            {/* RBAC-HIGH-004: seed + create require the roles:create capability.
+                RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
+                on a query error `roles` is just the [] default, and offering a
+                seed there invites a duplicate seed against unknown server state. */}
+            {canCreateRoles && (
+              <>
+                {!error && roles.length === 0 && (
+                  <button
+                    onClick={handleSeedRoles}
+                    disabled={seedMutation.isPending}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    {seedMutation.isPending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Shield className="w-4 h-4" />
+                    )}
+                    Seed Default Roles
+                  </button>
+                )}
                 <button
-                  onClick={handleSeedRoles}
-                  disabled={seedMutation.isPending}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  onClick={handleOpenCreate}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
                 >
-                  {seedMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Shield className="w-4 h-4" />
-                  )}
-                  Seed Default Roles
+                  <Plus className="w-4 h-4" />
+                  Create Role
                 </button>
-              )}
-              <button
-                onClick={handleOpenCreate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Create Role
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+              </>
+            )}
+          </div>
+        }
+      />
 
       {/* Error Message */}
       {error && (

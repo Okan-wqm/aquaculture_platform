@@ -4,7 +4,13 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { useConfirm, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import {
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -314,35 +320,36 @@ const ProcessListPage: React.FC = () => {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Process Diagrams</h1>
-          <p className="text-gray-500 mt-1">Create and manage equipment connection diagrams</p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={refetch}
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
-          <Link
-            to="/sensor/processes/templates"
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <LayoutTemplate className="w-4 h-4" />
-            Templates
-          </Link>
-          <Link
-            to="/sensor/unified-editor/new"
-            className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New Process
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Process Diagrams"
+        description="Create and manage equipment connection diagrams"
+        actions={
+          <div className="flex gap-3">
+            <button
+              onClick={refetch}
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </button>
+            <Link
+              to="/sensor/processes/templates"
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              <LayoutTemplate className="w-4 h-4" />
+              Templates
+            </Link>
+            <Link
+              to="/sensor/unified-editor/new"
+              className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New Process
+            </Link>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {/* Filters */}
       <div className="flex gap-4 mb-6">

@@ -35,7 +35,7 @@ import {
   type Announcement,
 } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -247,31 +247,31 @@ export const TenantAnnouncementsPage: React.FC = () => {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Announcements</h1>
-            <p className="text-gray-500 mt-1">Platform updates and important notices</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
-              title="Refresh"
-            >
-              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-            {unreadCount > 0 && (
+        <PageHeader
+          title="Announcements"
+          description="Platform updates and important notices"
+          actions={
+            <div className="flex items-center gap-3">
               <button
-                onClick={handleMarkAllRead}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-tenant-600 hover:bg-tenant-50 rounded-lg transition-colors"
+                onClick={handleRefresh}
+                disabled={loading}
+                className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                title="Refresh"
               >
-                <CheckCircle className="w-4 h-4" />
-                Mark all as read
+                <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
               </button>
-            )}
-          </div>
-        </div>
+              {unreadCount > 0 && (
+                <button
+                  onClick={handleMarkAllRead}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-tenant-600 hover:bg-tenant-50 rounded-lg transition-colors"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Mark all as read
+                </button>
+              )}
+            </div>
+          }
+        />
 
         {/* Stats */}
         <div className="grid grid-cols-4 gap-4 mt-4">

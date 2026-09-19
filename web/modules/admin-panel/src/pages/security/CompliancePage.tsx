@@ -26,7 +26,7 @@ import {
   FileCheck,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -844,24 +844,22 @@ export const CompliancePage: React.FC = () => {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Compliance Management</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            GDPR compliance, data subject requests, and regulatory reporting
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => void loadData()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Compliance Management"
+        description="GDPR compliance, data subject requests, and regulatory reporting"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => void loadData()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (

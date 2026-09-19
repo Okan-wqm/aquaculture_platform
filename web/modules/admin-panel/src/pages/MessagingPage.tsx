@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   MessageSquare,
   Send,
@@ -261,37 +261,37 @@ export const MessagingPage: React.FC = () => {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Messaging</h1>
-            <p className="text-gray-500 mt-1">Communicate with tenant administrators</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                fetchThreads();
-                fetchStats();
-              }}
-              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-            >
-              <RefreshCw size={18} />
-            </button>
-            <button
-              onClick={() => setShowBulkModal(true)}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-            >
-              <Users size={18} />
-              Bulk Message
-            </button>
-            <button
-              onClick={() => setShowNewThreadModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Plus size={18} />
-              New Conversation
-            </button>
-          </div>
-        </div>
+        <PageHeader
+          title="Messaging"
+          description="Communicate with tenant administrators"
+          actions={
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  fetchThreads();
+                  fetchStats();
+                }}
+                className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+              >
+                <RefreshCw size={18} />
+              </button>
+              <button
+                onClick={() => setShowBulkModal(true)}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              >
+                <Users size={18} />
+                Bulk Message
+              </button>
+              <button
+                onClick={() => setShowNewThreadModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Plus size={18} />
+                New Conversation
+              </button>
+            </div>
+          }
+        />
 
         {/* Stats */}
         {stats && (

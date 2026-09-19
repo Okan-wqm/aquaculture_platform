@@ -29,7 +29,7 @@ import {
 } from 'lucide-react';
 import { MultiParameterTrendCard } from '../components/charts/MultiParameterTrendCard';
 import { useSensorList, RegisteredSensor } from '../hooks/useSensorList';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -523,37 +523,35 @@ const ReadingsPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Canlı Okumalar</h1>
-          <p className="text-gray-500 mt-1">
-            {loading ? 'Yükleniyor...' : `${stats.parentCount} cihaz, ${stats.channelCount} veri kanalı`}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => refetch()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Yenile
-          </button>
-          <button
-            onClick={() => setIsAutoRefresh(!isAutoRefresh)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-              isAutoRefresh ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-            }`}
-          >
-            <RefreshCw className={`w-4 h-4 ${isAutoRefresh ? 'animate-spin' : ''}`} />
-            {isAutoRefresh ? 'Otomatik (30s)' : 'Manuel'}
-          </button>
-          <button className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
-            <Download className="w-4 h-4" />
-            Dışa Aktar
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Canlı Okumalar"
+        description={loading ? 'Yükleniyor...' : `${stats.parentCount} cihaz, ${stats.channelCount} veri kanalı`}
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => refetch()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Yenile
+            </button>
+            <button
+              onClick={() => setIsAutoRefresh(!isAutoRefresh)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                isAutoRefresh ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              <RefreshCw className={`w-4 h-4 ${isAutoRefresh ? 'animate-spin' : ''}`} />
+              {isAutoRefresh ? 'Otomatik (30s)' : 'Manuel'}
+            </button>
+            <button className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
+              <Download className="w-4 h-4" />
+              Dışa Aktar
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-5 gap-4">

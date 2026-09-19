@@ -18,6 +18,7 @@ import {
   Alert,
   RadioGroup,
   Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
@@ -1004,15 +1005,15 @@ const CreateTenantPage: React.FC = () => {
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Create New Tenant</h1>
-          <p className="text-gray-500 mt-1">Create a custom package with module-based pricing</p>
-        </div>
-        <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
-          Cancel
-        </Button>
-      </div>
+      <PageHeader
+        title="Create New Tenant"
+        description="Create a custom package with module-based pricing"
+        actions={
+          <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
+            Cancel
+          </Button>
+        }
+      />
 
       {/* Step Indicator */}
       <StepIndicator steps={steps} currentStep={currentStep} />

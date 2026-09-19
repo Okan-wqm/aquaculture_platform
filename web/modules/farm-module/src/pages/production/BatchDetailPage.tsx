@@ -23,6 +23,7 @@ import React, { Suspense } from 'react';
 import { useParams, useNavigate, NavLink, Routes, Route, Navigate } from 'react-router-dom';
 
 import { useBatch } from '../../hooks/useBatches';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 const BatchOverviewTab = React.lazy(
   () => import('./tabs/BatchOverviewTab'),
@@ -96,8 +97,18 @@ const BatchDetailPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Page header — batch number + status pill + back link */}
-      <div className="flex items-start justify-between">
-        <div>
+      <PageHeader
+        title={
+          <>
+            {batch.batchNumber}
+            {batch.name && (
+              <span className="ml-2 text-lg font-normal text-gray-500">
+                — {batch.name}
+              </span>
+            )}
+          </>
+        }
+        eyebrow={
           <button
             type="button"
             onClick={() => navigate('/sites/tanks')}
@@ -105,17 +116,11 @@ const BatchDetailPage: React.FC = () => {
           >
             ← Parti Listesi
           </button>
-          <h1 className="mt-1 text-2xl font-bold text-gray-900">
-            {batch.batchNumber}
-            {batch.name && (
-              <span className="ml-2 text-lg font-normal text-gray-500">
-                — {batch.name}
-              </span>
-            )}
-          </h1>
-        </div>
-        <BatchStatusPill status={batch.status} />
-      </div>
+        }
+        actions={
+          <BatchStatusPill status={batch.status} />
+        }
+      />
 
       {/* Tab navigation */}
       <nav

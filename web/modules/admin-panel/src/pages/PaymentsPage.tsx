@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import { billingApi, PaymentOverview, PaymentStatus, PaymentMethod } from '../services/adminApi';
 
 // ============================================================================
@@ -384,20 +384,18 @@ const PaymentsPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Record, track, and manage payments across all tenants
-          </p>
-        </div>
-        <button
-          onClick={() => setShowRecordModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          Record Payment
-        </button>
-      </div>
+      <PageHeader
+        title="Payments"
+        description="Record, track, and manage payments across all tenants"
+        actions={
+          <button
+            onClick={() => setShowRecordModal(true)}
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Record Payment
+          </button>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

@@ -20,6 +20,7 @@ import {
   DataTable,
   type DataTableColumn,
   Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
@@ -745,19 +746,19 @@ const PayrollPage: React.FC = () => {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payroll</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">Salary and payment management</p>
-        </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4" />
-          Create Payroll
-        </button>
-      </div>
+      <PageHeader
+        title="Payroll"
+        description="Salary and payment management"
+        actions={
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            Create Payroll
+          </button>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

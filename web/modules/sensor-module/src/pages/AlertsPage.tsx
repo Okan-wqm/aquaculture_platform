@@ -29,7 +29,7 @@ import {
   AlertSeverity,
   AlertStatusFilter,
 } from '../hooks/useAlerts';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -261,10 +261,10 @@ const AlertsPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Uyarılar</h1>
-          <p className="text-gray-500 mt-1">
+      <PageHeader
+        title="Uyarılar"
+        description={
+          <>
             {stats.active > 0 ? (
               <span className="text-red-600 font-medium">{stats.active} aktif uyarı</span>
             ) : (
@@ -273,17 +273,19 @@ const AlertsPage: React.FC = () => {
             {stats.critical > 0 && (
               <span className="text-red-600 font-medium"> ({stats.critical} kritik)</span>
             )}
-          </p>
-        </div>
-        <button
-          onClick={refetch}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Yenile
-        </button>
-      </div>
+          </>
+        }
+        actions={
+          <button
+            onClick={refetch}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Yenile
+          </button>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

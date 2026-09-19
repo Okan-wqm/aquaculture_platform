@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { billingApi } from '../services/api/billing';
 import { SubscriptionStatus } from '../services/types/billing';
 import { saveBlob } from '../services/blob-client';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 interface BillingReportSummary {
   totalInvoices: number;
@@ -85,29 +86,27 @@ const BillingReportsPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing Reports</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Platform-level billing totals compiled from invoice, subscription, and payment APIs.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link
-            to="/admin/billing"
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-          >
-            Back to Billing
-          </Link>
-          <button
-            onClick={exportCsv}
-            disabled={!summary}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Export CSV
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Billing Reports"
+        description="Platform-level billing totals compiled from invoice, subscription, and payment APIs."
+        actions={
+          <div className="flex gap-2">
+            <Link
+              to="/admin/billing"
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Back to Billing
+            </Link>
+            <button
+              onClick={exportCsv}
+              disabled={!summary}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Export CSV
+            </button>
+          </div>
+        }
+      />
 
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4">

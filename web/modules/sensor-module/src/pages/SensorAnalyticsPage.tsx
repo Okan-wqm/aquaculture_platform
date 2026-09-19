@@ -17,6 +17,7 @@ import {
   Database,
   Zap,
 } from 'lucide-react';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Sensor Analytics Page
@@ -51,23 +52,23 @@ const SensorAnalyticsPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Sensör Analitik</h1>
-          <p className="text-gray-500 mt-1">Performans metrikleri ve trend analizi</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500">
-            <option value="7d">Son 7 Gün</option>
-            <option value="30d">Son 30 Gün</option>
-            <option value="90d">Son 90 Gün</option>
-          </select>
-          <button className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
-            <Download className="w-4 h-4" />
-            Rapor İndir
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Sensör Analitik"
+        description="Performans metrikleri ve trend analizi"
+        actions={
+          <div className="flex items-center gap-2">
+            <select className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500">
+              <option value="7d">Son 7 Gün</option>
+              <option value="30d">Son 30 Gün</option>
+              <option value="90d">Son 90 Gün</option>
+            </select>
+            <button className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors">
+              <Download className="w-4 h-4" />
+              Rapor İndir
+            </button>
+          </div>
+        }
+      />
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

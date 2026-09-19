@@ -29,7 +29,7 @@ import {
 } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
-import { Modal, useAuthContext } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext, PageHeader } from '@aquaculture/shared-ui';
 
 type TabId = 'overview' | 'io-config' | 'automation' | 'events';
 
@@ -249,73 +249,77 @@ const EdgeDeviceDetailPage: React.FC = () => {
     <>
       <div className="p-6 space-y-6">
         {/* Back button + Header */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/tenant/devices')}
-            className="p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="flex items-center gap-3 flex-1">
-            <div
-              className={`w-12 h-12 rounded-xl flex items-center justify-center ${device.isOnline ? 'bg-emerald-100' : 'bg-gray-100'}`}
-            >
-              <Cpu
-                className={`w-6 h-6 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500'}`}
-              />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold text-gray-900">{device.deviceName}</h1>
-                {device.isOnline ? (
-                  <span className="flex items-center gap-1 text-xs text-emerald-600">
-                    <Wifi className="w-3.5 h-3.5" /> Online
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs text-gray-500">
-                    <WifiOff className="w-3.5 h-3.5" /> Offline
-                  </span>
-                )}
-              </div>
-              <p className="text-sm text-gray-500">
-                {device.deviceCode} · {device.deviceModel} ·{' '}
-                {device.lifecycleState.replace(/_/g, ' ')}
-              </p>
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex items-center gap-2">
-            {device.lifecycleState === 'pending_approval' && (
+        <PageHeader
+          title={
+            <span className="flex items-center gap-2">
+              {device.deviceName}
+              {device.isOnline ? (
+                <span className="flex items-center gap-1 text-xs text-emerald-600">
+                  <Wifi className="w-3.5 h-3.5" /> Online
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-xs text-gray-500">
+                  <WifiOff className="w-3.5 h-3.5" /> Offline
+                </span>
+              )}
+            </span>
+          }
+          description={
+            <>
+              {device.deviceCode} · {device.deviceModel} ·{' '}
+              {device.lifecycleState.replace(/_/g, ' ')}
+            </>
+          }
+          leading={
+            <>
               <button
-                onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })}
-                disabled={!!actionLoading}
-                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
+                onClick={() => navigate('/tenant/devices')}
+                className="p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
               >
-                <CheckCircle2 className="w-4 h-4" />
-                {actionLoading === 'approve' ? 'Approving...' : 'Approve'}
+                <ArrowLeft className="w-5 h-5" />
               </button>
-            )}
-            <button
-              onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })}
-              disabled={!!actionLoading}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
-            >
-              <Play className="w-4 h-4" />
-              Ping
-            </button>
-            {isTenantAdmin && (
+              <div
+                className={`w-12 h-12 rounded-xl flex items-center justify-center ${device.isOnline ? 'bg-emerald-100' : 'bg-gray-100'}`}
+              >
+                <Cpu
+                  className={`w-6 h-6 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500'}`}
+                />
+              </div>
+            </>
+          }
+          actions={
+            <div className="flex items-center gap-2">
+              {device.lifecycleState === 'pending_approval' && (
+                <button
+                  onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })}
+                  disabled={!!actionLoading}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  {actionLoading === 'approve' ? 'Approving...' : 'Approve'}
+                </button>
+              )}
               <button
-                onClick={() => setShowRebootModal(true)}
+                onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })}
                 disabled={!!actionLoading}
                 className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
               >
-                <RotateCcw className="w-4 h-4" />
-                Reboot
+                <Play className="w-4 h-4" />
+                Ping
               </button>
-            )}
-          </div>
-        </div>
+              {isTenantAdmin && (
+                <button
+                  onClick={() => setShowRebootModal(true)}
+                  disabled={!!actionLoading}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  Reboot
+                </button>
+              )}
+            </div>
+          }
+        />
 
         {/* Tabs */}
         <div className="border-b border-gray-200">

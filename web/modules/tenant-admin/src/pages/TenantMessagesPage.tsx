@@ -19,7 +19,7 @@ import {
   RefreshCw,
   AlertCircle,
 } from 'lucide-react';
-import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   useMessageThreads,
@@ -108,29 +108,29 @@ const TenantMessagesPage: React.FC = () => {
     <div className="h-[calc(100dvh-180px)] flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 sm:px-6 py-4 rounded-t-xl">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
-            <p className="text-gray-500 mt-1">Communicate with platform support</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
-              title="Refresh"
-            >
-              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={() => setShowNewThreadModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
-            >
-              <Plus size={18} />
-              New Message
-            </button>
-          </div>
-        </div>
+        <PageHeader
+          title="Messages"
+          description="Communicate with platform support"
+          actions={
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRefresh}
+                disabled={loading}
+                className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100 disabled:opacity-50"
+                title="Refresh"
+              >
+                <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+              <button
+                onClick={() => setShowNewThreadModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
+              >
+                <Plus size={18} />
+                New Message
+              </button>
+            </div>
+          }
+        />
 
         {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">

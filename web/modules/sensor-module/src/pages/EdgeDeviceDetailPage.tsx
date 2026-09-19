@@ -17,6 +17,7 @@ import {
   DataTable,
   type DataTableColumn,
   Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
@@ -1983,18 +1984,11 @@ const EdgeDeviceDetailPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link
-            to="/sensor/devices"
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Cihaz listesine don"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </Link>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">{device.deviceName}</h1>
+      <PageHeader
+        title={
+          <>
+            <span className="flex items-center gap-3">
+              {device.deviceName}
               <StatusBadge state={device.lifecycleState} />
               {device.isOnline ? (
                 <span className="flex items-center gap-1 text-xs text-green-600">
@@ -2007,42 +2001,54 @@ const EdgeDeviceDetailPage: React.FC = () => {
                   Cevrimdisi
                 </span>
               )}
-            </div>
-            <p className="text-gray-500 text-sm mt-0.5">
-              {device.deviceCode} · {getDeviceModelText(device.deviceModel)}
-              {device.serialNumber && ` · S/N: ${device.serialNumber}`}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handlePing}
-            disabled={pingMutation.isPending}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+            </span>
+          </>
+        }
+        description={
+          <>
+            {device.deviceCode} · {getDeviceModelText(device.deviceModel)}
+            {device.serialNumber && ` · S/N: ${device.serialNumber}`}
+          </>
+        }
+        leading={
+          <Link
+            to="/sensor/devices"
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            aria-label="Cihaz listesine don"
           >
-            <Activity className={`w-4 h-4 ${pingMutation.isPending ? 'animate-pulse' : ''}`} />
-            Ping
-          </button>
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Yenile
-          </button>
-          {device.lifecycleState === DeviceLifecycleState.PENDING_APPROVAL && (
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
+          </Link>
+        }
+        actions={
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => void handleApprove()}
-              disabled={approveMutation.isPending}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+              onClick={handlePing}
+              disabled={pingMutation.isPending}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
             >
-              <CheckCircle className="w-4 h-4" />
-              Onayla
+              <Activity className={`w-4 h-4 ${pingMutation.isPending ? 'animate-pulse' : ''}`} />
+              Ping
             </button>
-          )}
-        </div>
-      </div>
+            <button
+              onClick={() => refetch()}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Yenile
+            </button>
+            {device.lifecycleState === DeviceLifecycleState.PENDING_APPROVAL && (
+              <button
+                onClick={() => void handleApprove()}
+                disabled={approveMutation.isPending}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Onayla
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200" role="tablist">

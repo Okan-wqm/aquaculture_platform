@@ -18,6 +18,7 @@ import {
   DataTable,
   type DataTableColumn,
   Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import {
   Plus,
@@ -791,32 +792,31 @@ const PlcFeedingParamsPage: React.FC = () => {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Besleme Parametreleri</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Besleme parametre setlerini yönetin ve PLC&apos;ye gönderin
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => refetch()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => {
-              setEditingParam(null);
-              setShowForm(true);
-            }}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            Yeni Parametre
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Besleme Parametreleri"
+        description="Besleme parametre setlerini yönetin ve PLC'ye gönderin"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => refetch()}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => {
+                setEditingParam(null);
+                setShowForm(true);
+              }}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+            >
+              <Plus className="h-4 w-4" />
+              Yeni Parametre
+            </button>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {/* Filters */}
       <div className="mb-4 flex gap-3">

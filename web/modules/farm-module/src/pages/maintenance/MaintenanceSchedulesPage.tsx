@@ -3,7 +3,17 @@
  * Displays and manages preventive maintenance schedules with full CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Modal,
+  Input,
+  Select,
+  Badge,
+  Spinner,
+  Alert,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   useMaintenanceSchedules,
   useCreateMaintenanceSchedule,
@@ -399,18 +409,16 @@ export const MaintenanceSchedulesPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Bakım Planları</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Önleyici bakım planlarını görüntüleyin ve yönetin
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <ProcessAutoGenerateButton />
-          <Button onClick={handleOpenCreate}>Yeni Bakım Planı</Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Bakım Planları"
+        description="Önleyici bakım planlarını görüntüleyin ve yönetin"
+        actions={
+          <div className="flex items-center gap-2">
+            <ProcessAutoGenerateButton />
+            <Button onClick={handleOpenCreate}>Yeni Bakım Planı</Button>
+          </div>
+        }
+      />
 
       {/* Filters */}
       <Card className="p-4">

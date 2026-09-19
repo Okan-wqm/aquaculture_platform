@@ -10,7 +10,15 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Card, Button, Select, chartChrome, chartPalette, colors } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Select,
+  chartChrome,
+  chartPalette,
+  colors,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { DownloadIcon } from '../components/icons';
 import {
@@ -304,28 +312,28 @@ const AnalyticsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Sayfa Basligi */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analitik</h1>
-          <p className="mt-1 text-sm text-gray-500">Detayli performans metrikleri ve trendler</p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex items-center space-x-3">
-          <Select
-            value={dateRange}
-            onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
-            options={[
-              { value: '7days', label: 'Son 7 Gun' },
-              { value: '30days', label: 'Son 30 Gun' },
-              { value: '90days', label: 'Son 90 Gun' },
-              { value: 'year', label: 'Bu Yil' },
-            ]}
-          />
-          <Button variant="outline" size="sm" onClick={handleExportCSV}>
-            <DownloadIcon className="w-4 h-4 mr-2" />
-            Rapor Indir
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Analitik"
+        description="Detayli performans metrikleri ve trendler"
+        actions={
+          <div className="mt-4 sm:mt-0 flex items-center space-x-3">
+            <Select
+              value={dateRange}
+              onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
+              options={[
+                { value: '7days', label: 'Son 7 Gun' },
+                { value: '30days', label: 'Son 30 Gun' },
+                { value: '90days', label: 'Son 90 Gun' },
+                { value: 'year', label: 'Bu Yil' },
+              ]}
+            />
+            <Button variant="outline" size="sm" onClick={handleExportCSV}>
+              <DownloadIcon className="w-4 h-4 mr-2" />
+              Rapor Indir
+            </Button>
+          </div>
+        }
+      />
 
       {/* KPI Ozet Kartlari */}
       {summary && (

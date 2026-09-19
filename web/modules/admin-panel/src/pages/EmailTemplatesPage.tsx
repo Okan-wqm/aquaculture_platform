@@ -14,6 +14,7 @@ import {
   Modal,
   SandboxedHtmlPreview,
   Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 
 import { settingsApi, EmailTemplate } from '../services/adminApi';
@@ -167,21 +168,21 @@ const EmailTemplatesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Email Templates</h1>
-          <p className="text-gray-500 mt-1">Manage system and custom email templates</p>
-        </div>
-        <Button
-          variant="primary"
-          onClick={() => {
-            setSelectedTemplate(null);
-            setShowEditModal(true);
-          }}
-        >
-          New Template
-        </Button>
-      </div>
+      <PageHeader
+        title="Email Templates"
+        description="Manage system and custom email templates"
+        actions={
+          <Button
+            variant="primary"
+            onClick={() => {
+              setSelectedTemplate(null);
+              setShowEditModal(true);
+            }}
+          >
+            New Template
+          </Button>
+        }
+      />
 
       {/* Success message */}
       {successMessage && (

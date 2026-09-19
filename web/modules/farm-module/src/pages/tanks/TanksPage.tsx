@@ -50,7 +50,7 @@ import {
   useCleanerFishBatches,
   useCleanerFishSpecies,
 } from '../../hooks/useCleanerFish';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // STATUS COLORS
@@ -998,133 +998,133 @@ export const TanksPage: React.FC = () => {
       )}
 
       {/* Page Header with Quick Actions */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tanks, Ponds & Cages</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            View all tanks, ponds and sea cages with their current batch metrics
-          </p>
-        </div>
+      <PageHeader
+        title="Tanks, Ponds & Cages"
+        description="View all tanks, ponds and sea cages with their current batch metrics"
+        actions={
+          <>
+            {/* Quick Actions - Top Right */}
+            <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200">
+              <select
+                value={selectedTankId || ''}
+                onChange={(e) => setSelectedTankId(e.target.value || null)}
+                className="px-2 py-1.5 border border-gray-300 rounded text-sm min-w-[160px] bg-white focus:ring-1 focus:ring-blue-500"
+              >
+                <option value="">Select Tank...</option>
+                {tableData
+                  .filter((t) => t.batchNumber || t.hasCleanerFish)
+                  .map((tank) => (
+                    <option key={tank.id} value={tank.id}>
+                      {tank.name} {tank.hasCleanerFish ? '🐟' : ''}
+                    </option>
+                  ))}
+              </select>
 
-        {/* Quick Actions - Top Right */}
-        <div className="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200">
-          <select
-            value={selectedTankId || ''}
-            onChange={(e) => setSelectedTankId(e.target.value || null)}
-            className="px-2 py-1.5 border border-gray-300 rounded text-sm min-w-[160px] bg-white focus:ring-1 focus:ring-blue-500"
-          >
-            <option value="">Select Tank...</option>
-            {tableData
-              .filter((t) => t.batchNumber || t.hasCleanerFish)
-              .map((tank) => (
-                <option key={tank.id} value={tank.id}>
-                  {tank.name} {tank.hasCleanerFish ? '🐟' : ''}
-                </option>
-              ))}
-          </select>
+              <div className="h-6 w-px bg-gray-300" />
 
-          <div className="h-6 w-px bg-gray-300" />
+              <button
+                onClick={handleMortalityClick}
+                disabled={!selectedTankId}
+                className="p-1.5 text-red-600 hover:bg-red-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Record Mortality"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </button>
 
-          <button
-            onClick={handleMortalityClick}
-            disabled={!selectedTankId}
-            className="p-1.5 text-red-600 hover:bg-red-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Record Mortality"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-              />
-            </svg>
-          </button>
+              <button
+                onClick={handleTransferClick}
+                disabled={!selectedTankId}
+                className="p-1.5 text-blue-600 hover:bg-blue-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Transfer Fish"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
+                  />
+                </svg>
+              </button>
 
-          <button
-            onClick={handleTransferClick}
-            disabled={!selectedTankId}
-            className="p-1.5 text-blue-600 hover:bg-blue-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Transfer Fish"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-              />
-            </svg>
-          </button>
+              <button
+                onClick={handleCullClick}
+                disabled={!selectedTankId || !selectedTank?.batchNumber}
+                className="p-1.5 text-orange-600 hover:bg-orange-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Record Cull"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"
+                  />
+                </svg>
+              </button>
 
-          <button
-            onClick={handleCullClick}
-            disabled={!selectedTankId || !selectedTank?.batchNumber}
-            className="p-1.5 text-orange-600 hover:bg-orange-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Record Cull"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"
-              />
-            </svg>
-          </button>
+              <button
+                onClick={handleGradingClick}
+                disabled={!selectedTankId || !selectedTank?.batchNumber}
+                className="p-1.5 text-purple-600 hover:bg-purple-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Grade Fish"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 4h18M7 8h10M10 12h4m-6 4h8m-5 4h2"
+                  />
+                </svg>
+              </button>
 
-          <button
-            onClick={handleGradingClick}
-            disabled={!selectedTankId || !selectedTank?.batchNumber}
-            className="p-1.5 text-purple-600 hover:bg-purple-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Grade Fish"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 4h18M7 8h10M10 12h4m-6 4h8m-5 4h2"
-              />
-            </svg>
-          </button>
+              <button
+                onClick={handleWaterTempClick}
+                disabled={!selectedTankId}
+                className="p-1.5 text-cyan-600 hover:bg-cyan-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Record Water Temperature"
+              >
+                {/* Water-drop icon — records the manual water temperature the feed-rate uses */}
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"
+                  />
+                </svg>
+              </button>
 
-          <button
-            onClick={handleWaterTempClick}
-            disabled={!selectedTankId}
-            className="p-1.5 text-cyan-600 hover:bg-cyan-100 rounded disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Record Water Temperature"
-          >
-            {/* Water-drop icon — records the manual water temperature the feed-rate uses */}
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"
-              />
-            </svg>
-          </button>
+              <div className="h-6 w-px bg-gray-300" />
 
-          <div className="h-6 w-px bg-gray-300" />
-
-          <button
-            onClick={() => setShowBatchModal(true)}
-            className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
-            title="New Batch"
-          >
-            <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            New Batch
-          </button>
-        </div>
-      </div>
+              <button
+                onClick={() => setShowBatchModal(true)}
+                className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded"
+                title="New Batch"
+              >
+                <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 4v16m8-8H4"
+                  />
+                </svg>
+                New Batch
+              </button>
+            </div>
+          </>
+        }
+        className="mb-6"
+      />
 
       {/* Toolbar */}
       <div className="flex flex-wrap gap-4 mb-6 items-center">

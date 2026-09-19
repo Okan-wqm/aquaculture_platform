@@ -59,6 +59,8 @@ export { Sidebar } from './Layout/Sidebar';
 export type { SidebarProps, SidebarTheme } from './Layout/Sidebar';
 export { SuderraSidebar } from './Layout/SuderraSidebar';
 export type { SuderraSidebarProps, SuderraNavSection } from './Layout/SuderraSidebar';
+export { PageHeader } from './Layout/PageHeader';
+export type { PageHeaderProps } from './Layout/PageHeader';
 
 // Modal
 export { Modal, ConfirmModal, DeleteConfirmationDialog } from './Modal';

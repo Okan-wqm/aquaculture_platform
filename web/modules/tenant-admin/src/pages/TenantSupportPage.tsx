@@ -35,7 +35,7 @@ import {
   HelpCircle,
   FileText,
 } from 'lucide-react';
-import { Modal, useAuthContext, Spinner } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import {
   useSupportTickets,
@@ -524,22 +524,22 @@ export const TenantSupportPage: React.FC = () => {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Support</h1>
-            <p className="text-gray-500 mt-1">Get help from our support team</p>
-          </div>
-          <button
-            onClick={() => {
-              setNewTicketOpen(true);
-              setActionError(null);
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New Ticket
-          </button>
-        </div>
+        <PageHeader
+          title="Support"
+          description="Get help from our support team"
+          actions={
+            <button
+              onClick={() => {
+                setNewTicketOpen(true);
+                setActionError(null);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New Ticket
+            </button>
+          }
+        />
         {actionError && (
           <div className="mt-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />

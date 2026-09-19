@@ -18,6 +18,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { InstallerKeyModal } from '../components/devices/InstallerKeyModal';
 import { useEdgeDevices, tenantKeys } from '../hooks/useTenantData';
 import { formatRelativeTime } from '../utils/date-utils';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 const stateColors: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-800',
@@ -82,21 +83,19 @@ const EdgeDevicesPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Edge Devices</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage industrial edge controllers and IoT gateways
-          </p>
-        </div>
-        <button
-          onClick={() => setShowInstallerModal(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-sm"
-        >
-          <Plus className="w-5 h-5" />
-          Installer Link Oluştur
-        </button>
-      </div>
+      <PageHeader
+        title="Edge Devices"
+        description="Manage industrial edge controllers and IoT gateways"
+        actions={
+          <button
+            onClick={() => setShowInstallerModal(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium shadow-sm"
+          >
+            <Plus className="w-5 h-5" />
+            Installer Link Oluştur
+          </button>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">

@@ -16,7 +16,17 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { Card, Button, Input, Select, Badge, Table, Modal, Spinner } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Input,
+  Select,
+  Badge,
+  Table,
+  Modal,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminQuery, usePagination, useFilters } from '../hooks';
 import { auditApi, tenantsApi } from '../services/adminApi';
@@ -516,39 +526,41 @@ const AuditLogPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Logs</h1>
-          <p className="mt-1 text-sm text-gray-500">
+      <PageHeader
+        title="Audit Logs"
+        description={
+          <>
             System activity logs{' '}
             {pagination.total > 0 && `(${pagination.total.toLocaleString()} records)`}
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex gap-2">
-          <Button variant="outline" onClick={refresh} disabled={loading}>
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Refresh
-          </Button>
-          <Button variant="outline" onClick={handleExport}>
-            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-              />
-            </svg>
-            Export
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <div className="mt-4 sm:mt-0 flex gap-2">
+            <Button variant="outline" onClick={refresh} disabled={loading}>
+              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              Refresh
+            </Button>
+            <Button variant="outline" onClick={handleExport}>
+              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                />
+              </svg>
+              Export
+            </Button>
+          </div>
+        }
+      />
 
       {/* Export error */}
       {exportError && (

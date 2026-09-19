@@ -5,7 +5,7 @@
  * Uses real API with mock fallback for development.
  */
 
-import { AreaChart, MetricCard } from '@aquaculture/shared-ui';
+import { AreaChart, MetricCard, PageHeader } from '@aquaculture/shared-ui';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAsyncData } from '../hooks';
@@ -357,25 +357,23 @@ const BillingDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Billing Overview</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Monitor revenue, subscriptions, and financial metrics
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
-            Export Report
-          </button>
-          <Link
-            to="/admin/billing/invoices/new"
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Create Invoice
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Billing Overview"
+        description="Monitor revenue, subscriptions, and financial metrics"
+        actions={
+          <div className="flex gap-2">
+            <button className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
+              Export Report
+            </button>
+            <Link
+              to="/admin/billing/invoices/new"
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Create Invoice
+            </Link>
+          </div>
+        }
+      />
 
       {/* Metrics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

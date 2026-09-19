@@ -11,7 +11,7 @@
  */
 
 import React, { useCallback } from 'react';
-import { Card, Button, Badge, KpiCard, BarChart } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, KpiCard, BarChart, PageHeader } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/api/messaging';
 import type { MessagingMonitoringStats } from '../../services/types/messaging';
@@ -135,22 +135,20 @@ const MessagingMonitoringPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Monitoring</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Cross-tenant message volume, channel activity, and outbox health
-          </p>
-        </div>
-        <Button
-          onClick={() => void handleRefresh()}
-          disabled={loading}
-          variant="secondary"
-          size="sm"
-        >
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </Button>
-      </div>
+      <PageHeader
+        title="Messaging Monitoring"
+        description="Cross-tenant message volume, channel activity, and outbox health"
+        actions={
+          <Button
+            onClick={() => void handleRefresh()}
+            disabled={loading}
+            variant="secondary"
+            size="sm"
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
 
       {/* Error state */}
       {statsQuery.error && (

@@ -8,3 +8,4 @@ export {
   type SuderraSidebarProps,
   type SuderraNavSection,
 } from './SuderraSidebar';
+export { PageHeader, type PageHeaderProps } from './PageHeader';

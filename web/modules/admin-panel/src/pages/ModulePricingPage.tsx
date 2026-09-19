@@ -6,7 +6,16 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input, Alert, Modal, Spinner } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Input,
+  Alert,
+  Modal,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   billingApi,
   ModulePricingWithModule,
@@ -330,19 +339,17 @@ const ModulePricingPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Module Pricing</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Configure per-module pricing with metric-based billing
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex gap-2">
-          <Button variant="outline" onClick={loadPricings}>
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Module Pricing"
+        description="Configure per-module pricing with metric-based billing"
+        actions={
+          <div className="mt-4 sm:mt-0 flex gap-2">
+            <Button variant="outline" onClick={loadPricings}>
+              Refresh
+            </Button>
+          </div>
+        }
+      />
 
       {/* Success/Error Messages */}
       {success && (

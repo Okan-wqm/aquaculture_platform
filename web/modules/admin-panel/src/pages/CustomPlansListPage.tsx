@@ -17,6 +17,7 @@ import {
   useConfirm,
   type DataTableColumn,
   Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import { billingApi, CustomPlan, CustomPlanStatus, PlanTier } from '../services/adminApi';
 import type { PaginatedResult } from '../services/types/common';
@@ -464,19 +465,17 @@ const CustomPlansListPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Custom Plans</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage custom plans, approvals, and activations
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0">
-          <Button onClick={() => navigate('/admin/billing/custom-plan-builder')}>
-            Create Custom Plan
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Custom Plans"
+        description="Manage custom plans, approvals, and activations"
+        actions={
+          <div className="mt-4 sm:mt-0">
+            <Button onClick={() => navigate('/admin/billing/custom-plan-builder')}>
+              Create Custom Plan
+            </Button>
+          </div>
+        }
+      />
 
       {/* Alerts */}
       {error && (

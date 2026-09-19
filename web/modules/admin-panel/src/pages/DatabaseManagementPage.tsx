@@ -12,7 +12,13 @@
  */
 
 import React, { useState } from 'react';
-import { DataTable, Modal, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  Modal,
+  type DataTableColumn,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { databaseApi } from '../services/api/database';
@@ -1031,12 +1037,11 @@ const DatabaseManagementPage: React.FC = () => {
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Database Management</h1>
-        <p className="text-gray-500">
-          Multi-tenant schema yonetimi, migration ve performans izleme
-        </p>
-      </div>
+      <PageHeader
+        title="Database Management"
+        description="Multi-tenant schema yonetimi, migration ve performans izleme"
+        className="mb-6"
+      />
 
       {/* Tabs */}
       <div className="mb-6">

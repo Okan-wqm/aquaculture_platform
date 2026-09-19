@@ -43,6 +43,7 @@ import {
   DataTable,
   type DataTableColumn,
   Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import { graphqlFetch } from '../../config/api';
 import {
@@ -538,22 +539,25 @@ const AutomationProgramsPage: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+      <PageHeader
+        title={
+          <>
             <Workflow className="h-6 w-6 text-indigo-600" />
             Automation Programs
-          </h1>
-          <p className="text-gray-500 mt-1">Manage IEC 61131-3 compliant automation programs</p>
-        </div>
-        <button
-          onClick={() => navigate('/sensor/automation/new')}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4" />
-          New Program
-        </button>
-      </div>
+          </>
+        }
+        description="Manage IEC 61131-3 compliant automation programs"
+        actions={
+          <button
+            onClick={() => navigate('/sensor/automation/new')}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            New Program
+          </button>
+        }
+        className="mb-6"
+      />
 
       {/* Stats */}
       {stats && (

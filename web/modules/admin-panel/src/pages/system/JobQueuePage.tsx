@@ -15,6 +15,7 @@ import {
   Select,
   useConfirm,
   type DataTableColumn,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
@@ -404,27 +405,25 @@ export const JobQueuePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Job Queue Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Monitor and manage background jobs across all queues
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Button variant="secondary" onClick={loadDashboard} className="flex items-center gap-2">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Job Queue Management"
+        description="Monitor and manage background jobs across all queues"
+        actions={
+          <div className="flex gap-3">
+            <Button variant="secondary" onClick={loadDashboard} className="flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              Refresh
+            </Button>
+          </div>
+        }
+      />
 
       {/* A failed read or a rejected action, named. The page used to put a
           write failure in a fixed-position toast at the bottom-right corner,

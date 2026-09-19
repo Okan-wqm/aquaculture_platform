@@ -26,7 +26,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { useTenantAuditLog, type AuditLogEntry } from '../hooks/useTenantAuditLog';
-import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Sub-Components
@@ -331,44 +331,42 @@ const TenantAuditLogPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Log</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Review all actions and changes within your tenant
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={refresh}
-            disabled={isFetching}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
-            title="Refresh"
-          >
-            <RefreshCw className={`w-5 h-5 text-gray-500 ${isFetching ? 'animate-spin' : ''}`} />
-          </button>
-          <button
-            onClick={exportCsv}
-            disabled={entries.length === 0}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download className="w-4 h-4" />
-            Export CSV
-          </button>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-              showFilters || hasActiveFilters
-                ? 'text-tenant-700 bg-tenant-50 border border-tenant-200'
-                : 'text-gray-700 bg-white border border-gray-200 hover:bg-gray-50'
-            }`}
-          >
-            <Filter className="w-4 h-4" />
-            Filters
-            {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-tenant-500" />}
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Audit Log"
+        description="Review all actions and changes within your tenant"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={refresh}
+              disabled={isFetching}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors disabled:opacity-50"
+              title="Refresh"
+            >
+              <RefreshCw className={`w-5 h-5 text-gray-500 ${isFetching ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={exportCsv}
+              disabled={entries.length === 0}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="w-4 h-4" />
+              Export CSV
+            </button>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                showFilters || hasActiveFilters
+                  ? 'text-tenant-700 bg-tenant-50 border border-tenant-200'
+                  : 'text-gray-700 bg-white border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              Filters
+              {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-tenant-500" />}
+            </button>
+          </div>
+        }
+      />
 
       {/* Error Message */}
       {error && (

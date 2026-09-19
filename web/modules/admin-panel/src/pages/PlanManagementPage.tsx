@@ -5,7 +5,16 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input, Modal, useConfirm, Spinner } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Input,
+  Modal,
+  useConfirm,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { billingApi, PlanCyclePrice, PlanDefinition } from '../services/adminApi';
 import { formatCurrencyAmount } from '../utils/money';
 
@@ -124,17 +133,15 @@ const PlanManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Plan Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Configure subscription plans, pricing, and features
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex gap-2">
-          <Button variant="primary">Create New Plan</Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Plan Management"
+        description="Configure subscription plans, pricing, and features"
+        actions={
+          <div className="mt-4 sm:mt-0 flex gap-2">
+            <Button variant="primary">Create New Plan</Button>
+          </div>
+        }
+      />
 
       {/* Pricing Info */}
       <Card className="p-4 bg-blue-50 border-blue-200">

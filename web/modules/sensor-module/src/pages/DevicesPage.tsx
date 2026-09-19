@@ -45,6 +45,7 @@ import {
   DataTable,
   type DataTableColumn,
   Spinner,
+  PageHeader,
 } from '@aquaculture/shared-ui';
 import { useVfdDevices, useVfdStats } from '../hooks/useVfdRegistration';
 import {
@@ -674,69 +675,69 @@ const DevicesPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Cihaz Yönetimi</h1>
-          <p className="text-gray-500 mt-1">
-            {loading ? 'Yükleniyor...' : `${onlineCount}/${groupedDevices.length} cihaz çevrimiçi`}
-          </p>
-        </div>
-        <div className="relative" ref={deviceTypeSelectorRef}>
-          {canManageDevices && (
-            <button
-              onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}
-              className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
-            >
-              <Plus className="w-4 h-4" />
-              Yeni Cihaz Ekle
-            </button>
-          )}
+      <PageHeader
+        title="Cihaz Yönetimi"
+        description={
+          loading ? 'Yükleniyor...' : `${onlineCount}/${groupedDevices.length} cihaz çevrimiçi`
+        }
+        actions={
+          <div className="relative" ref={deviceTypeSelectorRef}>
+            {canManageDevices && (
+              <button
+                onClick={() => setShowDeviceTypeSelector(!showDeviceTypeSelector)}
+                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                Yeni Cihaz Ekle
+              </button>
+            )}
 
-          {/* Device Type Selector Dropdown */}
-          {showDeviceTypeSelector && (
-            <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
-              <div className="p-2">
-                <button
-                  onClick={() => handleAddDevice('edge')}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                >
-                  <div className="p-2 bg-gray-100 rounded-lg">
-                    <Server className="w-5 h-5 text-gray-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Edge Controller</p>
-                    <p className="text-xs text-gray-500">Revolution Pi, Industrial PC</p>
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleAddDevice('sensor')}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                >
-                  <div className="p-2 bg-cyan-100 rounded-lg">
-                    <Activity className="w-5 h-5 text-cyan-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">Sensör</p>
-                    <p className="text-xs text-gray-500">Sıcaklık, pH, oksijen vb.</p>
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleAddDevice('vfd')}
-                  className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
-                >
-                  <div className="p-2 bg-indigo-100 rounded-lg">
-                    <Zap className="w-5 h-5 text-indigo-600" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-gray-900">VFD / Frekans Konvertör</p>
-                    <p className="text-xs text-gray-500">Danfoss, ABB, Siemens vb.</p>
-                  </div>
-                </button>
+            {/* Device Type Selector Dropdown */}
+            {showDeviceTypeSelector && (
+              <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-xl border border-gray-200 z-20 overflow-hidden">
+                <div className="p-2">
+                  <button
+                    onClick={() => handleAddDevice('edge')}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <div className="p-2 bg-gray-100 rounded-lg">
+                      <Server className="w-5 h-5 text-gray-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">Edge Controller</p>
+                      <p className="text-xs text-gray-500">Revolution Pi, Industrial PC</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => handleAddDevice('sensor')}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <div className="p-2 bg-cyan-100 rounded-lg">
+                      <Activity className="w-5 h-5 text-cyan-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">Sensör</p>
+                      <p className="text-xs text-gray-500">Sıcaklık, pH, oksijen vb.</p>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => handleAddDevice('vfd')}
+                    className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors text-left"
+                  >
+                    <div className="p-2 bg-indigo-100 rounded-lg">
+                      <Zap className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">VFD / Frekans Konvertör</p>
+                      <p className="text-xs text-gray-500">Danfoss, ABB, Siemens vb.</p>
+                    </div>
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">

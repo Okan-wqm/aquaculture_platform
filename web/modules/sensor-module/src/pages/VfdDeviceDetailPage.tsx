@@ -27,7 +27,7 @@ import {
 import { useVfdDevice, useVfdRegistration } from '../hooks/useVfdRegistration';
 import { VfdControlPanel } from '../components/vfd/VfdControlPanel';
 import { VFD_BRAND_NAMES, VFD_PROTOCOL_NAMES, VfdDeviceStatus } from '../types/vfd.types';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 const Field: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div>
@@ -112,40 +112,48 @@ export const VfdDeviceDetailPage: React.FC = () => {
       </Link>
 
       {/* Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex items-center gap-4">
-        <div className="w-12 h-12 rounded-lg bg-cyan-50 flex items-center justify-center">
-          <Zap className="w-6 h-6 text-cyan-600" />
-        </div>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold text-gray-900">{device.name}</h1>
-          <p className="text-sm text-gray-500">
-            {VFD_BRAND_NAMES[device.brand] ?? device.brand}
-            {' · '}
-            {VFD_PROTOCOL_NAMES[device.protocol] ?? device.protocol}
-          </p>
-        </div>
-        <span
-          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-            connected ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-          {connected ? 'Çevrimiçi' : 'Çevrimdışı'}
-        </span>
-        <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
-          {device.status}
-        </span>
-        {/*
-          SENSOR-HIGH-062: the VFD programming route existed but nothing in the
-          product linked to it, so the only way in was to type the URL. A drive's
-          own page is where an operator goes to program it.
-        */}
-        <Link
-          to={`/sensor/vfd-programming/${device.id}`}
-          className="inline-flex items-center gap-1.5 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-sm font-medium text-cyan-700 hover:bg-cyan-100"
-        >
-          <Settings className="w-4 h-4" /> Parametreleri Programla
-        </Link>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+        <PageHeader
+          title={device.name}
+          description={
+            <>
+              {VFD_BRAND_NAMES[device.brand] ?? device.brand}
+              {' · '}
+              {VFD_PROTOCOL_NAMES[device.protocol] ?? device.protocol}
+            </>
+          }
+          leading={
+            <div className="w-12 h-12 rounded-lg bg-cyan-50 flex items-center justify-center">
+              <Zap className="w-6 h-6 text-cyan-600" />
+            </div>
+          }
+          actions={
+            <>
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  connected ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+                }`}
+              >
+                {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                {connected ? 'Çevrimiçi' : 'Çevrimdışı'}
+              </span>
+              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                {device.status}
+              </span>
+              {/*
+                SENSOR-HIGH-062: the VFD programming route existed but nothing in the
+                product linked to it, so the only way in was to type the URL. A drive's
+                own page is where an operator goes to program it.
+              */}
+              <Link
+                to={`/sensor/vfd-programming/${device.id}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-sm font-medium text-cyan-700 hover:bg-cyan-100"
+              >
+                <Settings className="w-4 h-4" /> Parametreleri Programla
+              </Link>
+            </>
+          }
+        />
       </div>
 
       {/* Lifecycle — the only place a drive can be made operable */}

@@ -3,6 +3,7 @@ import { ArrowLeft, CalendarOff, Plus, Clock } from 'lucide-react';
 import { useState, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { LeaveTypeSwatch } from '@/components/LeaveTypeSwatch';
 import { Spinner } from '@/components/ui/Spinner';
 import {
   useMyLeaveBalances,
@@ -122,12 +123,7 @@ export function MyLeavesPage(): JSX.Element {
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded-full"
-                    style={{
-                      backgroundColor: leaveTypeById.get(balance.leaveTypeId)?.color || '#6366f1',
-                    }}
-                  />
+                  <LeaveTypeSwatch color={leaveTypeById.get(balance.leaveTypeId)?.color} />
                   <h3 className="font-semibold text-gray-900 dark:text-white">
                     {leaveTypeById.get(balance.leaveTypeId)?.name || 'Leave'}
                   </h3>

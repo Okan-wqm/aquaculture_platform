@@ -84,7 +84,7 @@ const SearchBox: React.FC<{
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Ara..."
-          className="block w-64 pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="block w-64 pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-sm placeholder-gray-400 dark:placeholder-gray-500 focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent"
         />
       </div>
     </form>
@@ -113,7 +113,7 @@ const NotificationButton: React.FC<{
       />
     </svg>
     {count > 0 && (
-      <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
+      <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-error-500 rounded-full">
         {count > 99 ? '99+' : count}
       </span>
     )}
@@ -124,9 +124,9 @@ const NotificationButton: React.FC<{
  * Avatar renkleri tema bazlı
  */
 const avatarColors = {
-  default: 'bg-blue-600',
-  admin: 'bg-indigo-600',
-  tenant: 'bg-emerald-600',
+  default: 'bg-primary-600',
+  admin: 'bg-accent-600',
+  tenant: 'bg-secondary-600',
 };
 
 /**
@@ -224,7 +224,7 @@ const UserMenu: React.FC<{
                   }}
                   className={`
                     w-full flex items-center px-4 py-2 text-sm
-                    ${item.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}
+                    ${item.danger ? 'text-error-600 hover:bg-error-50' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}
                   `}
                 >
                   {item.icon && <span className="mr-3">{item.icon}</span>}
@@ -242,7 +242,7 @@ const UserMenu: React.FC<{
                   onLogout();
                   setIsOpen(false);
                 }}
-                className="w-full flex items-center px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                className="w-full flex items-center px-4 py-2 text-sm text-error-600 hover:bg-error-50"
               >
                 <svg className="w-5 h-5 mr-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
@@ -289,11 +289,11 @@ const headerThemeStyles = {
   },
   admin: {
     bg: 'bg-white dark:bg-gray-900',
-    border: 'border-indigo-100',
+    border: 'border-accent-100',
   },
   tenant: {
     bg: 'bg-white dark:bg-gray-900',
-    border: 'border-emerald-100',
+    border: 'border-secondary-100',
   },
 };
 

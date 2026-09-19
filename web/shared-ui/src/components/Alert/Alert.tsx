@@ -51,32 +51,32 @@ const typeStyles: Record<
   { bg: string; border: string; icon: string; text: string; focusRing: string }
 > = {
   success: {
-    bg: 'bg-green-50',
-    border: 'border-green-400',
-    icon: 'text-green-400',
-    text: 'text-green-800',
-    focusRing: 'focus:ring-green-500 focus:ring-offset-green-50',
+    bg: 'bg-success-50',
+    border: 'border-success-400',
+    icon: 'text-success-400',
+    text: 'text-success-800',
+    focusRing: 'focus:ring-success-500 focus:ring-offset-green-50',
   },
   error: {
-    bg: 'bg-red-50',
-    border: 'border-red-400',
-    icon: 'text-red-400',
-    text: 'text-red-800',
-    focusRing: 'focus:ring-red-500 focus:ring-offset-red-50',
+    bg: 'bg-error-50',
+    border: 'border-error-400',
+    icon: 'text-error-400',
+    text: 'text-error-800',
+    focusRing: 'focus:ring-error-500 focus:ring-offset-red-50',
   },
   warning: {
-    bg: 'bg-yellow-50',
-    border: 'border-yellow-400',
-    icon: 'text-yellow-400',
-    text: 'text-yellow-800',
-    focusRing: 'focus:ring-yellow-500 focus:ring-offset-yellow-50',
+    bg: 'bg-warning-50',
+    border: 'border-warning-400',
+    icon: 'text-warning-400',
+    text: 'text-warning-800',
+    focusRing: 'focus:ring-warning-500 focus:ring-offset-yellow-50',
   },
   info: {
-    bg: 'bg-blue-50',
-    border: 'border-blue-400',
-    icon: 'text-blue-400',
-    text: 'text-blue-800',
-    focusRing: 'focus:ring-blue-500 focus:ring-offset-blue-50',
+    bg: 'bg-info-50',
+    border: 'border-info-400',
+    icon: 'text-info-400',
+    text: 'text-info-800',
+    focusRing: 'focus:ring-info-500 focus:ring-offset-blue-50',
   },
 };
 
@@ -221,10 +221,10 @@ export interface BadgeProps {
 
 const badgeVariants = {
   default: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
-  success: 'bg-green-100 text-green-800',
-  warning: 'bg-yellow-100 text-yellow-800',
-  error: 'bg-red-100 text-red-800',
-  info: 'bg-blue-100 text-blue-800',
+  success: 'bg-success-100 text-success-800',
+  warning: 'bg-warning-100 text-warning-800',
+  error: 'bg-error-100 text-error-800',
+  info: 'bg-info-100 text-info-800',
   outline: 'bg-transparent border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300',
 };
 
@@ -251,10 +251,10 @@ export const Badge: React.FC<BadgeProps> = ({
   if (dot) {
     const dotColors = {
       default: 'bg-gray-400',
-      success: 'bg-green-400',
-      warning: 'bg-yellow-400',
-      error: 'bg-red-400',
-      info: 'bg-blue-400',
+      success: 'bg-success-400',
+      warning: 'bg-warning-400',
+      error: 'bg-error-400',
+      info: 'bg-info-400',
       outline: 'bg-gray-400',
     };
 

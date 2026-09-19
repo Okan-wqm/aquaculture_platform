@@ -82,6 +82,16 @@ function isPrimitive(file: string): boolean {
 const OVERLAY = /fixed inset-0/;
 const RAW_HEX = /#[0-9a-fA-F]{6}\b/g;
 /**
+ * A colour utility on one of Tailwind's raw hues (`bg-blue-600`,
+ * `dark:text-red-400`, `focus:ring-indigo-500`) instead of a theme scale
+ * (primary / secondary / accent / success / warning / error / info / neutral).
+ * The neutral greys are not counted: they are surfaces, and theme.css owns
+ * `gray-400`. shared-ui is held at zero — a primitive that paints from the raw
+ * palette makes the token file decorative for every consumer (FE-HIGH-078).
+ */
+const RAW_PALETTE =
+  /(?<![\w-])(?:[a-z-]+:)*!?(?:bg|text|border|ring|divide|from|to|via|placeholder|outline|shadow|fill|stroke|accent|caret|decoration)-(?:red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d+(?:\/\d+)?(?![\w-])/g;
+/**
  * FE-HIGH-069: a hand-rolled `<table>` re-implements what shared-ui's DataTable
  * owns — header semantics, sorting, selection, pagination, empty and loading
  * states, export. Counted per package the same way as raw hex.
@@ -233,6 +243,7 @@ interface Allowlist {
   version: number;
   overlays: { ceiling: number; entries: OverlayEntry[] };
   rawHex: { entries: PackageCeiling[] };
+  rawPalette: { entries: PackageCeiling[] };
   inlineStyle: { entries: PackageCeiling[] };
   rawTable: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
@@ -338,6 +349,37 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
     for (const entry of doc.rawHex.entries) {
       assertGoverned(entry, today);
       // A ceiling above the live count is slack nobody earned: tighten it.
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets raw-palette colour utilities per package; shared-ui at zero (FE-HIGH-078)', () => {
+    const actual = new Map<string, number>();
+    for (const file of [...files, ...sourceFiles(['web/shared-ui/src'])]) {
+      const hits = read(file).replace(COMMENT_LINE, '').match(RAW_PALETTE)?.length ?? 0;
+      if (hits === 0) continue;
+      const pkg = packageOf(file);
+      actual.set(pkg, (actual.get(pkg) ?? 0) + hits);
+    }
+    const ceilings = new Map(doc.rawPalette.entries.map((entry) => [entry.package, entry]));
+    // The primitives are the design system: no ceiling is ever granted to shared-ui.
+    expect(ceilings.has('web/shared-ui')).toBe(false);
+
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} raw-palette utilities, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} raw-palette colour utilities, ceiling ${entry.ceiling}. Paint from the theme scales (bg-primary-*, text-error-*, border-warning-*) or through a shared-ui primitive; lower the ceiling when you remove some.`,
+        );
+      }
+    }
+    for (const entry of doc.rawPalette.entries) {
+      assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling
           ? ''

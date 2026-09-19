@@ -255,9 +255,9 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 disabled={isDisabled}
                 className={`
                   p-2 text-sm transition-colors
-                  ${isStart ? 'bg-blue-600 text-white rounded-l-lg' : ''}
-                  ${isEnd ? 'bg-blue-600 text-white rounded-r-lg' : ''}
-                  ${inRange && !isStart && !isEnd ? 'bg-blue-100' : ''}
+                  ${isStart ? 'bg-primary-600 text-white rounded-l-lg' : ''}
+                  ${isEnd ? 'bg-primary-600 text-white rounded-r-lg' : ''}
+                  ${inRange && !isStart && !isEnd ? 'bg-primary-100' : ''}
                   ${!inRange && !isStart && !isEnd ? 'hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg' : ''}
                   ${isDisabled ? 'text-gray-300 cursor-not-allowed' : 'cursor-pointer'}
                 `}
@@ -282,7 +282,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       {label && (
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="text-error-500 ml-1">*</span>}
         </label>
       )}
 
@@ -293,10 +293,10 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
         className={`
           w-full flex items-center justify-between rounded-lg border
           bg-white dark:bg-gray-900 text-left
-          focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+          focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-primary-500
           disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed
           ${sizeClasses[size]}
-          ${error ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}
+          ${error ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}
         `}
       >
         <span className={value.start ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
@@ -318,7 +318,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                   key={index}
                   type="button"
                   onClick={() => handlePreset(preset)}
-                  className="block w-full text-left text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 hover:bg-blue-50 px-2 py-1.5 rounded"
+                  className="block w-full text-left text-sm text-gray-700 dark:text-gray-300 hover:text-primary-600 hover:bg-primary-50 px-2 py-1.5 rounded"
                 >
                   {preset.label}
                 </button>
@@ -378,7 +378,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 type="button"
                 onClick={handleApply}
                 disabled={!tempRange.start || !tempRange.end}
-                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 text-sm bg-primary-600 text-white rounded hover:bg-primary-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Apply
               </button>
@@ -388,7 +388,7 @@ export const DateRangePicker: React.FC<DateRangePickerProps> = ({
       )}
 
       {error && (
-        <p className="mt-1 text-sm text-red-600" role="alert">{error}</p>
+        <p className="mt-1 text-sm text-error-600" role="alert">{error}</p>
       )}
       {!error && helperText && (
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{helperText}</p>

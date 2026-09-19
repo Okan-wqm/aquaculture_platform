@@ -147,8 +147,8 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
     const selectedOptions = options.filter((opt) => value.includes(opt.value));
 
     const inputStateStyles = error
-      ? 'border-red-500 focus-within:ring-red-500 focus-within:border-red-500'
-      : 'border-gray-300 dark:border-gray-600 focus-within:ring-blue-500 focus-within:border-blue-500';
+      ? 'border-error-500 focus-within:ring-error-500 focus-within:border-error-500'
+      : 'border-gray-300 dark:border-gray-600 focus-within:ring-primary-500 focus-within:border-primary-500';
 
     const disabledStyles = disabled
       ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed'
@@ -166,7 +166,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
             aria-hidden="false"
           >
             {label}
-            {required && <span className="text-red-500 ml-1" aria-hidden="true">*</span>}
+            {required && <span className="text-error-500 ml-1" aria-hidden="true">*</span>}
           </span>
         )}
 
@@ -211,7 +211,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                   key={opt.value}
                   className={`
                     inline-flex items-center gap-1
-                    bg-blue-100 text-blue-800 rounded
+                    bg-primary-100 text-primary-800 rounded
                     ${chipSizeStyles[size]}
                   `}
                 >
@@ -220,7 +220,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     <button
                       type="button"
                       onClick={(e) => handleRemove(opt.value, e)}
-                      className="hover:text-blue-600 focus:outline-hidden"
+                      className="hover:text-primary-600 focus:outline-hidden"
                     >
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -265,7 +265,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     className={`
                       flex items-center gap-2 px-3 py-2
                       ${option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
-                      ${value.includes(option.value) ? 'bg-blue-50' : ''}
+                      ${value.includes(option.value) ? 'bg-primary-50' : ''}
                     `}
                   >
                     <input
@@ -273,7 +273,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                       checked={value.includes(option.value)}
                       disabled={option.disabled}
                       onChange={() => {}}
-                      className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
+                      className="h-4 w-4 text-primary-600 border-gray-300 dark:border-gray-600 rounded focus:ring-primary-500"
                     />
                     <span className="text-sm text-gray-700 dark:text-gray-300">{option.label}</span>
                   </div>
@@ -285,7 +285,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
 
         {/* Hata mesajı */}
         {error && (
-          <p id={`${selectId}-error`} className="mt-1 text-sm text-red-600" role="alert">
+          <p id={`${selectId}-error`} className="mt-1 text-sm text-error-600" role="alert">
             {error}
           </p>
         )}

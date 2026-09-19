@@ -56,7 +56,7 @@ export const FormField: React.FC<FormFieldProps> = ({
           {label}
           {/* FE-HIGH-018: aria-required communicated visually AND semantically */}
           {required && (
-            <span className="text-red-500 ml-1" aria-hidden="true">*</span>
+            <span className="text-error-500 ml-1" aria-hidden="true">*</span>
           )}
         </label>
       )}
@@ -92,7 +92,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       {showError && (
         <p
           id={errorId}
-          className="mt-1 text-sm text-red-600 flex items-center gap-1"
+          className="mt-1 text-sm text-error-600 flex items-center gap-1"
           role="alert"
         >
           <svg

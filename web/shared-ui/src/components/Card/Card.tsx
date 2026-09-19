@@ -123,7 +123,7 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
       ${shadowStyles[shadow]}
       ${bordered ? 'border border-gray-200 dark:border-gray-700' : ''}
       ${hoverable ? 'hover:shadow-md transition-shadow duration-200 cursor-pointer' : ''}
-      ${selected ? 'ring-2 ring-blue-500 border-blue-500' : ''}
+      ${selected ? 'ring-2 ring-primary-500 border-primary-500' : ''}
     `;
 
     // Header var mı kontrolü
@@ -302,8 +302,8 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     : trendProp;
 
   const trendColors = {
-    up: 'text-green-600',
-    down: 'text-red-600',
+    up: 'text-success-600',
+    down: 'text-error-600',
     neutral: 'text-gray-600 dark:text-gray-400',
   };
 
@@ -341,7 +341,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
         </div>
         {icon && (
           <div
-            className={`flex-shrink-0 p-3 rounded-lg ${iconClassName ?? 'bg-blue-50 text-blue-600'}`}
+            className={`flex-shrink-0 p-3 rounded-lg ${iconClassName ?? 'bg-primary-50 text-primary-600'}`}
           >
             {icon}
           </div>

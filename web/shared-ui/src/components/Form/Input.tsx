@@ -112,10 +112,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
     // the glass tokens REPLACE the default border/ring so there is no competing
     // `border-gray-300`/`bg-white` utility (which would make the cascade ambiguous).
     const inputStateStyles = error
-      ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
+      ? 'border-error-500 focus:ring-error-500 focus:border-error-500'
       : isGlass
         ? 'border-[var(--surface-field-border)] focus:ring-[var(--surface-field-focus-ring)] focus:border-[var(--surface-field-focus-border)]'
-        : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500';
+        : 'border-gray-300 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500';
 
     const disabledStyles = disabled
       ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400'
@@ -139,7 +139,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             }`}
           >
             {label}
-            {required && <span className="text-red-500 ml-1">*</span>}
+            {required && <span className="text-error-500 ml-1">*</span>}
           </label>
         )}
 
@@ -184,7 +184,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
         {/* Hata mesajı */}
         {error && (
-          <p id={`${inputId}-error`} className="mt-1 text-sm text-red-600" role="alert">
+          <p id={`${inputId}-error`} className="mt-1 text-sm text-error-600" role="alert">
             {error}
           </p>
         )}
@@ -240,8 +240,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
     const textareaId = providedId || generatedId;
 
     const inputStateStyles = error
-      ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-      : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500';
+      ? 'border-error-500 focus:ring-error-500 focus:border-error-500'
+      : 'border-gray-300 dark:border-gray-600 focus:ring-primary-500 focus:border-primary-500';
 
     const disabledStyles = disabled
       ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400'
@@ -255,7 +255,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
             className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
           >
             {label}
-            {required && <span className="text-red-500 ml-1">*</span>}
+            {required && <span className="text-error-500 ml-1">*</span>}
           </label>
         )}
 
@@ -280,7 +280,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         />
 
         {error && (
-          <p id={`${textareaId}-error`} className="mt-1 text-sm text-red-600" role="alert">
+          <p id={`${textareaId}-error`} className="mt-1 text-sm text-error-600" role="alert">
             {error}
           </p>
         )}

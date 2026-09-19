@@ -113,7 +113,7 @@ const PromptDialog: React.FC<PromptDialogProps> = ({ options, onSubmit, onCancel
           value={value}
           placeholder={options.placeholder}
           onChange={(e) => setValue(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-blue-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-primary-500"
         />
         <div className="mt-6 flex justify-end space-x-3">
           <button
@@ -126,7 +126,7 @@ const PromptDialog: React.FC<PromptDialogProps> = ({ options, onSubmit, onCancel
           <button
             type="submit"
             disabled={!canSubmit}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-primary-500 disabled:opacity-50"
           >
             {options.confirmText ?? 'Tamam'}
           </button>

@@ -151,7 +151,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             id={capsId}
             role="status"
             aria-live="polite"
-            className={`mt-1 text-sm ${isGlass ? 'text-[var(--surface-muted-fg)]' : 'text-amber-700'}`}
+            className={`mt-1 text-sm ${isGlass ? 'text-[var(--surface-muted-fg)]' : 'text-warning-700'}`}
           >
             {capsLockLabel}
           </p>

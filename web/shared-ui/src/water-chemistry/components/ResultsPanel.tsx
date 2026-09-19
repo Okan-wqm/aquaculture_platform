@@ -18,9 +18,9 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
   }
 
   const statusConfig = {
-    safe: { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', icon: '✓', label: 'SAFE' },
-    alert: { bg: 'bg-yellow-50', border: 'border-yellow-200', text: 'text-yellow-700', icon: '⚠', label: 'ALERT' },
-    danger: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', icon: '✗', label: 'DANGER' },
+    safe: { bg: 'bg-success-50', border: 'border-success-200', text: 'text-success-700', icon: '✓', label: 'SAFE' },
+    alert: { bg: 'bg-warning-50', border: 'border-warning-200', text: 'text-warning-700', icon: '⚠', label: 'ALERT' },
+    danger: { bg: 'bg-error-50', border: 'border-error-200', text: 'text-error-700', icon: '✗', label: 'DANGER' },
   };
   const status = statusConfig[outputs.uiaStatusLevel];
 
@@ -37,7 +37,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
             label="Current NH₃-N"
             value={outputs.currentUIA.toFixed(4)}
             unit="mg/L"
-            color={outputs.uiaStatusLevel === 'danger' ? 'text-red-600' : undefined}
+            color={outputs.uiaStatusLevel === 'danger' ? 'text-error-600' : undefined}
           />
           <ResultRow
             label="Safe TAN (max)"
@@ -50,8 +50,8 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
             unit="pH"
             color={
               isNaN(outputs.deltaPH) ? 'text-gray-400 dark:text-gray-500' :
-              outputs.deltaPH > 0.2 ? 'text-green-600' :
-              outputs.deltaPH > 0 ? 'text-yellow-600' : 'text-red-600'
+              outputs.deltaPH > 0.2 ? 'text-success-600' :
+              outputs.deltaPH > 0 ? 'text-warning-600' : 'text-error-600'
             }
           />
           <div className="border-t pt-2 mt-2" />
@@ -59,7 +59,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
             label="Toxic NH₃ pH Border"
             value={isNaN(outputs.toxicNH3pH) ? 'N/A' : outputs.toxicNH3pH.toFixed(3)}
             unit="NBS"
-            color={!isNaN(outputs.toxicNH3pH) ? 'text-red-600' : undefined}
+            color={!isNaN(outputs.toxicNH3pH) ? 'text-error-600' : undefined}
           />
           <ResultRow
             label="UIA-N % at NH₃ Border"
@@ -83,7 +83,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
                 label="Current H₂S"
                 value={outputs.currentH2S.toFixed(1)}
                 unit="µg/L"
-                color={outputs.h2sStatusLevel === 'danger' ? 'text-red-600' : undefined}
+                color={outputs.h2sStatusLevel === 'danger' ? 'text-error-600' : undefined}
               />
               <ResultRow
                 label="Total Sulfide (calc)"
@@ -101,8 +101,8 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
                 unit="pH"
                 color={
                   isNaN(outputs.h2sDeltaPH) ? 'text-gray-400 dark:text-gray-500' :
-                  outputs.h2sDeltaPH > 0.2 ? 'text-green-600' :
-                  outputs.h2sDeltaPH > 0 ? 'text-yellow-600' : 'text-red-600'
+                  outputs.h2sDeltaPH > 0.2 ? 'text-success-600' :
+                  outputs.h2sDeltaPH > 0 ? 'text-warning-600' : 'text-error-600'
                 }
               />
               <div className="border-t pt-2 mt-2" />
@@ -110,7 +110,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
                 label="Toxic H₂S pH Border"
                 value={isNaN(outputs.toxicH2SpH) ? 'N/A' : outputs.toxicH2SpH.toFixed(3)}
                 unit="NBS"
-                color={!isNaN(outputs.toxicH2SpH) ? 'text-red-600' : undefined}
+                color={!isNaN(outputs.toxicH2SpH) ? 'text-error-600' : undefined}
               />
             </div>
           </div>
@@ -125,13 +125,13 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
             label="Toxic CO₂ pH Border"
             value={isNaN(outputs.toxicCO2pH) ? 'N/A' : outputs.toxicCO2pH.toFixed(3)}
             unit="NBS"
-            color={!isNaN(outputs.toxicCO2pH) ? 'text-red-600' : undefined}
+            color={!isNaN(outputs.toxicCO2pH) ? 'text-error-600' : undefined}
           />
           <ResultRow
             label="Current CO₂"
             value={outputs.currentCO2.toFixed(2)}
             unit="mg/L"
-            color={outputs.currentCO2 > 20 ? 'text-yellow-600' : 'text-green-600'}
+            color={outputs.currentCO2 > 20 ? 'text-warning-600' : 'text-success-600'}
           />
           <ResultRow
             label="Target CO₂"
@@ -167,7 +167,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
                 </p>
                 {recipe.steps.map((step, si) => (
                   <div key={si} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 ml-3">
-                    <span className="text-blue-600 font-medium">{step.formula}</span>
+                    <span className="text-info-600 font-medium">{step.formula}</span>
                     <span>
                       {step.amountGrams < 1000
                         ? `${step.amountGrams.toFixed(1)} g`

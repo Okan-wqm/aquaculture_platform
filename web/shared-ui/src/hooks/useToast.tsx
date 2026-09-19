@@ -95,10 +95,10 @@ export function useToast(): UseToastReturn {
 // ============================================================================
 
 const variantStyles: Record<string, string> = {
-  success: 'bg-green-50 border-green-400 text-green-800',
-  error: 'bg-red-50 border-red-400 text-red-800',
-  warning: 'bg-yellow-50 border-yellow-400 text-yellow-800',
-  info: 'bg-blue-50 border-blue-400 text-blue-800',
+  success: 'bg-success-50 border-success-400 text-success-800',
+  error: 'bg-error-50 border-error-400 text-error-800',
+  warning: 'bg-warning-50 border-warning-400 text-warning-800',
+  info: 'bg-info-50 border-info-400 text-info-800',
 };
 
 const ToastCard: React.FC<{ toast: Toast; onDismiss: (id: string) => void }> = ({

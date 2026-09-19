@@ -148,7 +148,7 @@ const SortIndicator: React.FC<{ active: boolean; direction?: 'asc' | 'desc' }> =
   <span className="ml-2 inline-flex">
     <svg
       className={`w-4 h-4 transition-colors ${
-        active ? 'text-blue-600' : 'text-gray-500 dark:text-gray-400'
+        active ? 'text-primary-600' : 'text-gray-500 dark:text-gray-400'
       }`}
       fill="none"
       viewBox="0 0 24 24"
@@ -239,7 +239,7 @@ const Pagination: React.FC<PaginationProps> = ({
               onClick={() => onChange(page, pageSize)}
               className={`px-3 py-1 rounded text-sm ${
                 current === page
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-primary-600 text-white'
                   : 'border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
@@ -385,7 +385,7 @@ export function Table<T extends object = Record<string, unknown>>({
                       if (input) input.indeterminate = someSelected;
                     }}
                     onChange={handleSelectAll}
-                    className="w-4 h-4 text-blue-600 rounded border-gray-300 dark:border-gray-600 focus:ring-blue-500"
+                    className="w-4 h-4 text-primary-600 rounded border-gray-300 dark:border-gray-600 focus:ring-primary-500"
                   />
                 </th>
               )}
@@ -440,7 +440,7 @@ export function Table<T extends object = Record<string, unknown>>({
                     onClick={() => onRowClick?.(row)}
                     className={`
                       ${onRowClick ? 'cursor-pointer' : ''}
-                      ${isSelected ? 'bg-blue-50' : ''}
+                      ${isSelected ? 'bg-primary-50' : ''}
                       ${striped && rowIndex % 2 === 1 ? 'bg-gray-50 dark:bg-gray-800' : ''}
                       hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
                     `}
@@ -452,7 +452,7 @@ export function Table<T extends object = Record<string, unknown>>({
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => handleSelectRow(key)}
-                          className="w-4 h-4 text-blue-600 rounded border-gray-300 dark:border-gray-600 focus:ring-blue-500"
+                          className="w-4 h-4 text-primary-600 rounded border-gray-300 dark:border-gray-600 focus:ring-primary-500"
                         />
                       </td>
                     )}

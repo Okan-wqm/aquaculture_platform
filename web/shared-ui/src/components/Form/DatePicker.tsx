@@ -144,7 +144,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
       {label && (
         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="text-error-500 ml-1">*</span>}
         </label>
       )}
 
@@ -156,11 +156,11 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         className={`
           w-full flex items-center justify-between rounded-lg border
           bg-white dark:bg-gray-900 text-left
-          focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+          focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-primary-500
           disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed
           transition-colors duration-200
           ${sizeClasses[size]}
-          ${error ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}
+          ${error ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}
         `}
       >
         <span className={value ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
@@ -243,9 +243,9 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                   className={`
                     p-2 text-sm rounded-lg transition-colors
                     ${isSelected
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-primary-600 text-white'
                       : isTodayDate
-                      ? 'bg-blue-50 text-blue-600 font-medium'
+                      ? 'bg-primary-50 text-primary-600 font-medium'
                       : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                     }
                     ${isDisabled ? 'text-gray-300 cursor-not-allowed' : 'cursor-pointer'}
@@ -262,7 +262,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             <button
               type="button"
               onClick={() => handleSelectDate(new Date())}
-              className="w-full text-sm text-blue-600 hover:text-blue-700 font-medium"
+              className="w-full text-sm text-primary-600 hover:text-primary-700 font-medium"
             >
               Today
             </button>
@@ -272,7 +272,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
       {/* Error */}
       {error && (
-        <p className="mt-1 text-sm text-red-600" role="alert">
+        <p className="mt-1 text-sm text-error-600" role="alert">
           {error}
         </p>
       )}

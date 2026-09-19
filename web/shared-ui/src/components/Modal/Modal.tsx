@@ -322,15 +322,15 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   // BUG-011: confirmVariant is now properly typed — use it directly with fallback to variant prop
   const variant: 'danger' | 'warning' | 'info' = confirmVariant ?? variantProp;
   const iconColors = {
-    danger: 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/40',
-    warning: 'text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/40',
-    info: 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/40',
+    danger: 'text-error-600 bg-error-100 dark:text-error-400 dark:bg-error-900/40',
+    warning: 'text-warning-600 bg-warning-100 dark:text-warning-400 dark:bg-warning-900/40',
+    info: 'text-info-600 bg-info-100 dark:text-info-400 dark:bg-info-900/40',
   };
 
   const buttonColors = {
-    danger: 'bg-red-600 hover:bg-red-700 focus:ring-red-500',
-    warning: 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500',
-    info: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
+    danger: 'bg-error-600 hover:bg-error-700 focus:ring-error-500',
+    warning: 'bg-warning-600 hover:bg-warning-700 focus:ring-warning-500',
+    info: 'bg-primary-600 hover:bg-primary-700 focus:ring-primary-500',
   };
 
   const icons = {
@@ -379,7 +379,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         {warning && (
           <div
             role="alert"
-            className="mt-4 rounded-lg border border-amber-100 bg-amber-50 p-3 text-left text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+            className="mt-4 rounded-lg border border-warning-100 bg-warning-50 p-3 text-left text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-900/30 dark:text-warning-300"
           >
             {warning}
           </div>
@@ -411,7 +411,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
               onChange={(e) => setTypedConfirmation(e.target.value)}
               disabled={isLoading}
               autoComplete="off"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-primary-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
               aria-label="Typed confirmation"
             />
           </div>

@@ -17,6 +17,11 @@
 #   rawHex      — `#rrggbb` occurrences outside theme.css, per package. The
 #                 tokens they should use live in web/shared-ui/src/styles/theme.css
 #                 (primary/secondary/accent/success/warning/error/info/neutral/gray).
+#   rawPalette  — colour utilities on Tailwind's raw hues (bg-blue-600,
+#                 text-red-400, ring-indigo-500) instead of the theme scales,
+#                 per package. shared-ui is never granted a ceiling: the
+#                 primitives paint from primary / secondary / accent / success /
+#                 warning / error / info / neutral.
 #   inlineStyle — `style={{` occurrences, per package.
 #   rawSpinner  — hand-rolled loading spinners (a lucide loader icon or an
 #                 inline <svg> spun by animate-spin, or a bordered ring spun
@@ -132,5 +137,67 @@ rawPageTitle:
       reason: the 404 page — a centred message, not a page header
 darkSurface:
   entries: []
+rawPalette:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 1455
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 1483
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 80
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 4318
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 1036
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 111
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 10
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 4283
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 878
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/shell
+      ceiling: 115
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
 inlineStyle:
   entries: []

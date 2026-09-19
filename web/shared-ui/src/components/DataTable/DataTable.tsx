@@ -163,11 +163,11 @@ const SortIcon: React.FC<{ direction?: 'asc' | 'desc' }> = ({ direction }) => {
     );
   }
   return direction === 'asc' ? (
-    <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
     </svg>
   ) : (
-    <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
     </svg>
   );
@@ -194,7 +194,7 @@ const Checkbox: React.FC<{
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
       disabled={disabled}
-      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 focus:ring-offset-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800"
+      className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500 focus:ring-offset-0 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800"
     />
   );
 };
@@ -285,7 +285,7 @@ const TableBodyInner = <T,>({
           return (
             <React.Fragment key={rowId}>
               <tr
-                className={`${rowClasses(row, index)} ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30' : ''}`}
+                className={`${rowClasses(row, index)} ${isSelected ? 'bg-primary-50 dark:bg-primary-900/30' : ''}`}
                 onClick={() => onRowClick?.(row)}
               >
                 {selectable && (
@@ -594,7 +594,7 @@ export function DataTable<T>({
     (row: T, index: number) =>
       [
         striped && index % 2 === 1 && 'bg-gray-50 dark:bg-gray-800/60',
-        hoverable && 'hover:bg-blue-50 transition-colors duration-150 dark:hover:bg-blue-900/20',
+        hoverable && 'hover:bg-primary-50 transition-colors duration-150 dark:hover:bg-primary-900/20',
         onRowClick && 'cursor-pointer',
         rowClassName?.(row, index),
       ]
@@ -635,7 +635,7 @@ export function DataTable<T>({
                 placeholder={searchPlaceholder}
                 value={internalSearch}
                 onChange={(e) => setInternalSearch(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
+                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
               />
             </div>
           )}
@@ -644,18 +644,18 @@ export function DataTable<T>({
           <div className="flex items-center gap-2 flex-wrap">
             {/* Bulk Actions */}
             {selectable && selectedRows.length > 0 && bulkActions.length > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 rounded-lg dark:bg-blue-900/30">
-                <span className="text-sm text-blue-700 font-medium dark:text-blue-300">{selectedRows.length} selected</span>
+              <div className="flex items-center gap-2 px-3 py-1 bg-primary-50 rounded-lg dark:bg-primary-900/30">
+                <span className="text-sm text-primary-700 font-medium dark:text-primary-300">{selectedRows.length} selected</span>
                 {bulkActions.map((action) => (
                   <button
                     key={action.key}
                     onClick={() => action.onClick(selectedRows)}
                     className={`inline-flex items-center gap-1 px-3 py-1 text-sm font-medium rounded-md transition-colors ${
                       action.variant === 'danger'
-                        ? 'text-red-700 hover:bg-red-100 dark:text-red-300 dark:hover:bg-red-900/40'
+                        ? 'text-error-700 hover:bg-error-100 dark:text-error-300 dark:hover:bg-error-900/40'
                         : action.variant === 'secondary'
                         ? 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
-                        : 'text-blue-700 hover:bg-blue-100 dark:text-blue-300 dark:hover:bg-blue-900/40'
+                        : 'text-primary-700 hover:bg-primary-100 dark:text-primary-300 dark:hover:bg-primary-900/40'
                     }`}
                   >
                     {action.icon}
@@ -671,7 +671,7 @@ export function DataTable<T>({
                 onClick={() => setShowFilterPanel(!showFilterPanel)}
                 className={`p-2 rounded-lg border transition-colors ${
                   showFilterPanel || Object.keys(filters).length > 0
-                    ? 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300'
+                    ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300'
                     : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
                 }`}
                 title="Toggle filters"
@@ -794,7 +794,7 @@ export function DataTable<T>({
                             [String(col.key)]: e.target.value || undefined,
                           } as FilterConfig)
                         }
-                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                       >
                         <option value="">All</option>
                         {col.filterOptions?.map((opt) => (
@@ -814,7 +814,7 @@ export function DataTable<T>({
                           } as FilterConfig)
                         }
                         placeholder={`Filter ${col.header.toLowerCase()}...`}
-                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                       />
                     )}
                   </div>
@@ -822,7 +822,7 @@ export function DataTable<T>({
               {Object.keys(filters).length > 0 && (
                 <button
                   onClick={() => onFilterChange?.({})}
-                  className="self-end px-3 py-2 text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                  className="self-end px-3 py-2 text-sm text-error-600 hover:text-error-800 dark:text-error-400 dark:hover:text-error-300"
                 >
                   Clear filters
                 </button>
@@ -943,7 +943,7 @@ export function DataTable<T>({
                   value={pagination.limit}
                   onChange={(e) => onPageSizeChange(Number(e.target.value))}
                   aria-label="Rows per page"
-                  className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                  className="px-2 py-1 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
                 >
                   {pageSizeOptions.map((size) => (
                     <option key={size} value={size}>

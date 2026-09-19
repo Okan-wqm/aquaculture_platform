@@ -17,7 +17,18 @@ import { RetryableIntrospectAndCompose } from './retryable-introspect';
 interface BackgroundCompositionManagerOptions {
   retryable: RetryableIntrospectAndCompose;
   state: CompositionStateService;
+  /**
+   * Back-off between composition ROUNDS once the composer's own bounded
+   * retry budget is exhausted (GW-COMPOSITION-CONVERGES). Defaults:
+   * 5 s doubling to a 60 s cap. Injectable for tests.
+   */
+  recomposeBackoff?: { baseMs: number; maxMs: number };
+  /** Injectable sleep so tests can park or fast-forward the loop. */
+  sleep?: (ms: number) => Promise<void>;
 }
+
+/** Back-off between composition rounds: 5 s, 10 s, 20 s, 40 s, then 60 s forever. */
+export const RECOMPOSE_BACKOFF_DEFAULT = { baseMs: 5_000, maxMs: 60_000 } as const;
 
 /**
  * BackgroundCompositionManager — non-blocking supergraph composition.
@@ -51,8 +62,25 @@ interface BackgroundCompositionManagerOptions {
  *   2. initialize() fire-and-forgets {@link composeInBackground}, which runs the
  *      real RetryableIntrospectAndCompose introspect+retry loop. On success it
  *      hot-swaps the real schema in via `options.update()` and latches readiness
- *      via state.markComposed(). On terminal failure it records the reason via
- *      state.markCompositionError() and does NOT throw.
+ *      via state.markComposed(). When a round's bounded budget is exhausted it
+ *      records the reason via state.markCompositionError() and does NOT throw —
+ *      and does NOT stop either.
+ *
+ * # Composition converges; it never fails terminally (GW-COMPOSITION-CONVERGES)
+ *
+ * On 2026-09-18 a deploy restarted the gateway 3.5 minutes before auth-service
+ * came back. The composer's 24 attempts (~72 s) exhausted with auth
+ * ECONNREFUSED, the manager recorded the error and returned, and the gateway
+ * served for hours with /health/live 200, /health/ready 503 and no `auth`
+ * subgraph — every login mutation answered "Unknown type LoginInput" until a
+ * human restarted the container. "Docker will restart the container" was never
+ * true: liveness stayed green, so nothing restarted anything. The order in which
+ * containers come back is not a property this process can assume, so the
+ * background composer now runs rounds without end: after each exhausted round it
+ * records the reason, waits (5 s doubling to a 60 s cap) and composes again,
+ * until the schema lands. Readiness stays honest throughout — 503 with the last
+ * error until the real supergraph is live — and no operator act is needed for
+ * a subgraph that is merely late.
  *
  * # The placeholder is composed, never hand-written
  *
@@ -64,10 +92,16 @@ export class BackgroundCompositionManager implements SupergraphManager {
   private readonly logger = new Logger(BackgroundCompositionManager.name);
   private readonly retryable: RetryableIntrospectAndCompose;
   private readonly state: CompositionStateService;
+  private readonly backoff: { baseMs: number; maxMs: number };
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: BackgroundCompositionManagerOptions) {
     this.retryable = options.retryable;
     this.state = options.state;
+    this.backoff = options.recomposeBackoff ?? RECOMPOSE_BACKOFF_DEFAULT;
+    this.sleep =
+      options.sleep ??
+      ((ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   /**
@@ -108,18 +142,26 @@ export class BackgroundCompositionManager implements SupergraphManager {
    */
   private async composeInBackground(options: SupergraphSdlHookOptions): Promise<void> {
     this.logger.log('Starting background supergraph composition...');
-    try {
-      const result = await this.retryable.initialize(options);
-      options.update(result.supergraphSdl);
-      this.state.markComposed();
-      this.logger.log('Background supergraph composition complete; live schema swapped in.');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.state.markCompositionError(message);
-      this.logger.error(
-        `Background supergraph composition failed terminally: ${message}. ` +
-          'Gateway stays not_ready (/health/ready) but /health/live remains up.',
-      );
+    for (let round = 1; ; round += 1) {
+      try {
+        const result = await this.retryable.initialize(options);
+        options.update(result.supergraphSdl);
+        this.state.markComposed();
+        this.logger.log(
+          `Background supergraph composition complete on round ${round}; live schema swapped in.`,
+        );
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.state.markCompositionError(message);
+        const delayMs = Math.min(this.backoff.baseMs * 2 ** (round - 1), this.backoff.maxMs);
+        this.logger.error(
+          `Background supergraph composition round ${round} exhausted: ${message}. ` +
+            `Gateway stays not_ready (/health/ready) with this reason; /health/live remains up; ` +
+            `next round in ${Math.round(delayMs / 1000)}s.`,
+        );
+        await this.sleep(delayMs);
+      }
     }
   }
 

@@ -329,7 +329,7 @@ export function MediaViewerPage(): JSX.Element {
       <div className="flex items-center justify-between px-4 py-3 pt-safe-top bg-black/60 backdrop-blur-sm z-10">
         <button
           onClick={handleClose}
-          className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 touch-feedback"
+          className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback"
           aria-label="Close"
         >
           <X size={24} className="text-white" />
@@ -349,7 +349,7 @@ export function MediaViewerPage(): JSX.Element {
         <button
           onClick={handleDownload}
           disabled={!currentMedia}
-          className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 touch-feedback disabled:opacity-30"
+          className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback disabled:opacity-30"
           aria-label="Download"
         >
           <Download size={22} className="text-white" />
@@ -404,7 +404,7 @@ export function MediaViewerPage(): JSX.Element {
             }}
           />
         ) : currentMedia.type === 'PDF' ? (
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
+          <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
             <div className="w-20 h-20 bg-red-500/20 rounded-2xl flex items-center justify-center">
               <FileText size={40} className="text-red-400" />
             </div>
@@ -416,16 +416,16 @@ export function MediaViewerPage(): JSX.Element {
             </div>
             <button
               onClick={handleDownload}
-              className="w-full py-3 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl touch-feedback transition-all flex items-center justify-center gap-2 text-sm"
+              className="w-full py-3 bg-white/20 dark:bg-gray-900/20 hover:bg-white/30 dark:hover:bg-gray-800/30 text-white font-semibold rounded-xl touch-feedback transition-all flex items-center justify-center gap-2 text-sm"
             >
               <Download size={18} />
               Download
             </button>
           </div>
         ) : (
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
+          <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-2xl p-8 flex flex-col items-center gap-4 max-w-xs w-full mx-6">
             <div className="w-20 h-20 bg-gray-500/20 rounded-2xl flex items-center justify-center">
-              <FileText size={40} className="text-gray-400" />
+              <FileText size={40} className="text-gray-400 dark:text-gray-500" />
             </div>
             <div className="text-center">
               <p className="text-sm font-semibold text-white truncate max-w-[200px]">
@@ -434,7 +434,7 @@ export function MediaViewerPage(): JSX.Element {
             </div>
             <button
               onClick={handleDownload}
-              className="w-full py-3 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-xl touch-feedback transition-all flex items-center justify-center gap-2 text-sm"
+              className="w-full py-3 bg-white/20 dark:bg-gray-900/20 hover:bg-white/30 dark:hover:bg-gray-800/30 text-white font-semibold rounded-xl touch-feedback transition-all flex items-center justify-center gap-2 text-sm"
             >
               <Download size={18} />
               Download
@@ -475,8 +475,8 @@ export function MediaViewerPage(): JSX.Element {
               key={idx}
               className={`w-1.5 h-1.5 rounded-full transition-all ${
                 idx === activeIndex
-                  ? 'bg-white w-4'
-                  : 'bg-white/40'
+                  ? 'bg-white dark:bg-gray-900 w-4'
+                  : 'bg-white/40 dark:bg-gray-900/40'
               }`}
             />
           ))}

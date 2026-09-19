@@ -63,7 +63,7 @@ const PerformancePage: React.FC = () => {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'reviews'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Reviews
@@ -74,7 +74,7 @@ const PerformancePage: React.FC = () => {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'goals'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Goals
@@ -102,7 +102,7 @@ const PerformancePage: React.FC = () => {
                     <p className="font-medium text-gray-900 dark:text-white">
                       {review.periodType ?? `${review.periodStart ?? ''} - ${review.periodEnd ?? ''}`}
                     </p>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                       {review.employee?.firstName} {review.employee?.lastName}
                     </p>
                   </div>
@@ -131,8 +131,8 @@ const PerformancePage: React.FC = () => {
             ))
           ) : (
             <div className="flex h-32 flex-col items-center justify-center text-center">
-              <BarChart3 className="mb-2 h-8 w-8 text-gray-400" />
-              <p className="text-gray-500">No performance reviews found</p>
+              <BarChart3 className="mb-2 h-8 w-8 text-gray-400 dark:text-gray-500" />
+              <p className="text-gray-500 dark:text-gray-400">No performance reviews found</p>
             </div>
           )}
         </div>
@@ -141,8 +141,8 @@ const PerformancePage: React.FC = () => {
       {/* Goals Tab */}
       {activeTab === 'goals' && (
         <div className="flex h-32 flex-col items-center justify-center text-center">
-          <Target className="mb-2 h-8 w-8 text-gray-400" />
-          <p className="text-gray-500">Goals tracking available in the Goals section</p>
+          <Target className="mb-2 h-8 w-8 text-gray-400 dark:text-gray-500" />
+          <p className="text-gray-500 dark:text-gray-400">Goals tracking available in the Goals section</p>
           <Link
             to="/hr/performance/goals"
             className="mt-3 text-sm text-indigo-600 hover:underline"

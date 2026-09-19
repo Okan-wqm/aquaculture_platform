@@ -353,7 +353,7 @@ export function NewChatPage(): JSX.Element {
             {isGroupMode && !showGroupNameInput && (
               <button
                 onClick={handleToggleGroupMode}
-                className="text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
+                className="text-sm font-medium bg-white/20 dark:bg-gray-900/20 px-3 py-1.5 rounded-lg touch-feedback"
               >
                 Cancel
               </button>
@@ -368,7 +368,7 @@ export function NewChatPage(): JSX.Element {
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
             <label
               htmlFor="new-group-name"
-              className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block"
+              className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block"
             >
               Group Name
             </label>
@@ -429,7 +429,7 @@ export function NewChatPage(): JSX.Element {
             <div className="relative">
               <Search
                 size={18}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
               />
               <input
                 type="text"
@@ -443,7 +443,7 @@ export function NewChatPage(): JSX.Element {
                   onClick={() => setSearchQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
                 >
-                  <X size={16} className="text-gray-400" />
+                  <X size={16} className="text-gray-400 dark:text-gray-500" />
                 </button>
               )}
             </div>
@@ -531,7 +531,7 @@ export function NewChatPage(): JSX.Element {
                   size={40}
                   className="mx-auto mb-3 text-gray-300 opacity-60"
                 />
-                <p className="text-sm text-gray-500">{errorMsg}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{errorMsg}</p>
               </div>
             ) : filteredUsers.length === 0 ? (
               <div className="text-center py-12 px-4">

@@ -104,7 +104,7 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Description */}
           <div>
-            <label htmlFor="cs-desc" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="cs-desc" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Description *
             </label>
             <textarea
@@ -113,7 +113,7 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
               onChange={(e) => setDraftDescription(e.target.value)}
               rows={3}
               placeholder="Describe the purpose of these parameter changes..."
-              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
+              className="mt-1 w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-indigo-500"
             />
           </div>
 
@@ -124,9 +124,9 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
                 type="checkbox"
                 checked={scheduleEnabled}
                 onChange={(e) => setScheduleEnabled(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-indigo-600"
+                className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600"
               />
-              <Calendar className="h-4 w-4 text-gray-400" />
+              <Calendar className="h-4 w-4 text-gray-400 dark:text-gray-500" />
               Schedule for later
             </label>
             {scheduleEnabled && (
@@ -134,7 +134,7 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
                 type="datetime-local"
                 value={scheduledAt}
                 onChange={(e) => setScheduledAt(e.target.value)}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                className="mt-2 w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm"
                 aria-label="Scheduled date and time"
               />
             )}
@@ -142,10 +142,10 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
 
           {/* Items table */}
           <div>
-            <h3 className="mb-2 text-sm font-medium text-gray-900">
+            <h3 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">
               Parameter Changes ({items.length})
             </h3>
-            <div className="max-h-48 overflow-y-auto rounded-md border border-gray-200">
+            <div className="max-h-48 overflow-y-auto rounded-md border border-gray-200 dark:border-gray-700">
               <DataTable<PendingParameterChange>
                 data={items}
                 columns={pendingParameterChangeColumns}
@@ -171,7 +171,7 @@ export function VfdCreateChangeSetDialog({ onSubmit }: VfdCreateChangeSetDialogP
             <button
               type="button"
               onClick={closeCreateDialog}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>

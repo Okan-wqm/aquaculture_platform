@@ -52,7 +52,7 @@ interface Scenario {
 const SEVERITY_COLORS: Record<string, string> = {
   critical: 'bg-red-600 text-white',
   high: 'bg-orange-500 text-white',
-  warning: 'bg-yellow-400 text-gray-900',
+  warning: 'bg-yellow-400 text-gray-900 dark:text-gray-100',
   info: 'bg-blue-500 text-white',
 };
 
@@ -149,7 +149,7 @@ const TagRow: React.FC<{
         <div className="text-[11px] text-gray-300 truncate" title={tag.tagName}>
           {tag.tagName}
         </div>
-        <div className="text-[10px] text-gray-400">{tag.widgetType}</div>
+        <div className="text-[10px] text-gray-400 dark:text-gray-500">{tag.widgetType}</div>
       </div>
       <div className="flex-shrink-0">
         {tag.dataHint === 'boolean' && (
@@ -162,7 +162,7 @@ const TagRow: React.FC<{
             }`}
           >
             <span
-              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${
+              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white dark:bg-gray-900 transition-transform ${
                 value ? 'translate-x-4' : 'translate-x-0.5'
               }`}
             />
@@ -567,7 +567,7 @@ export const SimulationSidebar: React.FC = () => {
         {/* A. Tag Values */}
         <Section title="Tag Values" icon={<Settings className="w-3 h-3" />} badge={allTags.length}>
           {allTags.length === 0 ? (
-            <p className="text-[11px] text-gray-400 italic">Assign tags to widgets</p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">Assign tags to widgets</p>
           ) : (
             <>
               <div className="space-y-0.5">
@@ -583,7 +583,7 @@ export const SimulationSidebar: React.FC = () => {
               </div>
               <button
                 onClick={clearSimTagValues}
-                className="mt-2 flex items-center gap-1 px-2 py-1 text-[11px] text-gray-400 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
+                className="mt-2 flex items-center gap-1 px-2 py-1 text-[11px] text-gray-400 dark:text-gray-500 hover:text-gray-200 hover:bg-gray-700 rounded transition-colors"
               >
                 <RotateCcw className="w-3 h-3" />
                 Reset All
@@ -618,7 +618,7 @@ export const SimulationSidebar: React.FC = () => {
                     <button
                       onClick={() => handleDeleteScenario(sc.id)}
                       aria-label="Delete scenario"
-                      className="p-1 text-gray-400 hover:text-red-400 transition-colors"
+                      className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-400 transition-colors"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -633,13 +633,13 @@ export const SimulationSidebar: React.FC = () => {
               value={newScenarioName}
               onChange={(e) => setNewScenarioName(e.target.value)}
               placeholder="Scenario name..."
-              className="flex-1 px-2 py-1 text-[11px] bg-gray-700 border border-gray-600 rounded text-gray-200 placeholder-gray-500"
+              className="flex-1 px-2 py-1 text-[11px] bg-gray-700 border border-gray-600 rounded text-gray-200 placeholder-gray-500 dark:placeholder-gray-500"
               onKeyDown={(e) => e.key === 'Enter' && handleSaveScenario()}
             />
             <button
               onClick={handleSaveScenario}
               disabled={!newScenarioName.trim()}
-              className="p-1 text-gray-400 hover:text-cyan-400 disabled:opacity-30 transition-colors"
+              className="p-1 text-gray-400 dark:text-gray-500 hover:text-cyan-400 disabled:opacity-30 transition-colors"
               aria-label="Save current values as scenario"
               title="Save current values as scenario"
             >
@@ -655,7 +655,7 @@ export const SimulationSidebar: React.FC = () => {
           badge={firedAlarms.length > 0 ? firedAlarms.length : undefined}
         >
           {alarmRules.length === 0 ? (
-            <p className="text-[11px] text-gray-400 italic">No alarm rules defined</p>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">No alarm rules defined</p>
           ) : firedAlarms.length === 0 ? (
             <p className="text-[11px] text-green-400">No alarms triggered</p>
           ) : (
@@ -675,7 +675,7 @@ export const SimulationSidebar: React.FC = () => {
                     </span>
                     <span className="text-[11px] text-gray-200 truncate">{alarm.message}</span>
                   </div>
-                  <div className="text-[10px] text-gray-400">
+                  <div className="text-[10px] text-gray-400 dark:text-gray-500">
                     {alarm.tag}: {alarm.currentValue} {alarm.condition} {alarm.threshold}
                   </div>
                 </div>
@@ -694,7 +694,7 @@ export const SimulationSidebar: React.FC = () => {
           >
             {/* Scan interval selector */}
             <div className="flex items-center gap-2 mb-2">
-              <span className="text-[10px] text-gray-400">Scan:</span>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">Scan:</span>
               <select
                 value={scanInterval}
                 onChange={(e) => setScanInterval(Number(e.target.value))}
@@ -733,7 +733,7 @@ export const SimulationSidebar: React.FC = () => {
                       <span className="text-[11px] text-gray-200 font-medium truncate">
                         {binding.programName}
                       </span>
-                      <span className="text-[10px] text-gray-400">
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500">
                         {boundCount}/{totalCount}
                       </span>
                     </div>

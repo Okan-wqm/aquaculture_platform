@@ -26,10 +26,10 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       header: 'Şablon',
       render: (_value, tmpl) => (
         <div>
-          <p className="text-sm font-medium text-gray-900">{tmpl.title}</p>
-          <p className="text-xs text-gray-500">{tmpl.description ? (tmpl.description.length > 60 ? `${tmpl.description.substring(0, 60)}...` : tmpl.description) : ''}</p>
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{tmpl.title}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{tmpl.description ? (tmpl.description.length > 60 ? `${tmpl.description.substring(0, 60)}...` : tmpl.description) : ''}</p>
           {tmpl.checklistItems.length > 0 && (
-            <p className="text-xs text-gray-400 mt-0.5">{tmpl.checklistItems.length} kontrol maddesi</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{tmpl.checklistItems.length} kontrol maddesi</p>
           )}
         </div>
       ),
@@ -57,7 +57,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
               {freq.label}
             </span>
             {tmpl.frequencyDetail && (
-              <p className="text-xs text-gray-500 mt-0.5">{tmpl.frequencyDetail}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{tmpl.frequencyDetail}</p>
             )}
           </div>
         );
@@ -110,7 +110,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
             }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 transition-transform ${
                 tmpl.isActive ? 'translate-x-6' : 'translate-x-1'
               }`}
             />
@@ -130,9 +130,9 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Şablon ara..."
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
           />
-          <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </div>
@@ -142,7 +142,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <DataTable<TmplRow>
           data={filtered}
           columns={tmplRowColumns}

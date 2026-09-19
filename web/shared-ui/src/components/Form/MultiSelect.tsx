@@ -148,11 +148,11 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
 
     const inputStateStyles = error
       ? 'border-red-500 focus-within:ring-red-500 focus-within:border-red-500'
-      : 'border-gray-300 focus-within:ring-blue-500 focus-within:border-blue-500';
+      : 'border-gray-300 dark:border-gray-600 focus-within:ring-blue-500 focus-within:border-blue-500';
 
     const disabledStyles = disabled
-      ? 'bg-gray-100 cursor-not-allowed'
-      : 'bg-white cursor-pointer';
+      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed'
+      : 'bg-white dark:bg-gray-900 cursor-pointer';
 
     return (
       <div ref={ref} className={`${fullWidth ? 'w-full' : ''} ${className}`}>
@@ -162,7 +162,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
         {label && (
           <span
             id={labelId}
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
             aria-hidden="false"
           >
             {label}
@@ -230,13 +230,13 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                 </span>
               ))
             ) : (
-              <span className="text-gray-500">{placeholder}</span>
+              <span className="text-gray-500 dark:text-gray-400">{placeholder}</span>
             )}
 
             {/* Dropdown ikonu */}
             <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
               <svg
-                className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -251,10 +251,10 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
             <div
               role="listbox"
               aria-multiselectable="true"
-              className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-lg shadow-lg max-h-60 overflow-auto"
+              className="absolute z-50 w-full mt-1 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto"
             >
               {options.length === 0 ? (
-                <div className="px-3 py-2 text-gray-500 text-sm">No options available</div>
+                <div className="px-3 py-2 text-gray-500 dark:text-gray-400 text-sm">No options available</div>
               ) : (
                 options.map((option) => (
                   <div
@@ -264,7 +264,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                     onClick={() => !option.disabled && handleToggle(option.value)}
                     className={`
                       flex items-center gap-2 px-3 py-2
-                      ${option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100'}
+                      ${option.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
                       ${value.includes(option.value) ? 'bg-blue-50' : ''}
                     `}
                   >
@@ -273,9 +273,9 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
                       checked={value.includes(option.value)}
                       disabled={option.disabled}
                       onChange={() => {}}
-                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
                     />
-                    <span className="text-sm text-gray-700">{option.label}</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{option.label}</span>
                   </div>
                 ))
               )}
@@ -292,7 +292,7 @@ export const MultiSelect = forwardRef<HTMLDivElement, MultiSelectProps>(
 
         {/* Yardım metni */}
         {!error && helperText && (
-          <p id={`${selectId}-helper`} className="mt-1 text-sm text-gray-500">
+          <p id={`${selectId}-helper`} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {helperText}
           </p>
         )}

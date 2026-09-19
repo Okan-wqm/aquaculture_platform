@@ -14,7 +14,7 @@ const movementTypeBadge: Record<string, string> = {
   IN: 'bg-green-100 text-green-800',
   OUT: 'bg-red-100 text-red-800',
   TRANSFER: 'bg-blue-100 text-blue-800',
-  WASTE: 'bg-gray-100 text-gray-800',
+  WASTE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   ADJUSTMENT: 'bg-yellow-100 text-yellow-800',
   RETURN: 'bg-purple-100 text-purple-800',
 };
@@ -172,25 +172,25 @@ export const OverviewTab: React.FC = () => {
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <div className="text-sm font-medium text-gray-500">Total Stock Value</div>
-          <div className="mt-1 text-2xl font-bold text-gray-900">{formatCurrency(parseMoney(overview?.totalStockValueDecimal), DEFAULT_CURRENCY)}</div>
-          <div className="mt-1 text-xs text-gray-400">{overview?.totalItems || 0} items</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Stock Value</div>
+          <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">{formatCurrency(parseMoney(overview?.totalStockValueDecimal), DEFAULT_CURRENCY)}</div>
+          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">{overview?.totalItems || 0} items</div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <div className="text-sm font-medium text-gray-500">Low Stock Alerts</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Low Stock Alerts</div>
           <div className="mt-1 text-2xl font-bold text-red-600">{overview?.lowStockAlertCount || 0}</div>
-          <div className="mt-1 text-xs text-gray-400">Items below minimum threshold</div>
+          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">Items below minimum threshold</div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <div className="text-sm font-medium text-gray-500">Recent Movements</div>
-          <div className="mt-1 text-2xl font-bold text-gray-900">{overview?.recentMovementsCount || 0}</div>
-          <div className="mt-1 text-xs text-gray-400">Last 7 days</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Recent Movements</div>
+          <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">{overview?.recentMovementsCount || 0}</div>
+          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">Last 7 days</div>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
-          <div className="text-sm font-medium text-gray-500">Storage Locations</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Storage Locations</div>
           <div className="mt-1 text-2xl font-bold text-blue-600">{overview?.locationFillRates?.length || 0}</div>
-          <div className="mt-1 text-xs text-gray-400">Active locations</div>
+          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">Active locations</div>
         </div>
       </div>
 
@@ -212,7 +212,7 @@ export const OverviewTab: React.FC = () => {
                   {pendingDeliveries!.slice(0, 3).map(po => (
                     <button key={po.id}
                       onClick={() => setReceiveTarget(po)}
-                      className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-white border border-amber-300 rounded-full text-amber-700 hover:bg-amber-100 transition-colors">
+                      className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-white dark:bg-gray-900 border border-amber-300 rounded-full text-amber-700 hover:bg-amber-100 transition-colors">
                       {po.orderNumber} - {po.supplierName}
                       <span className="text-amber-500">Mark Received</span>
                     </button>
@@ -230,9 +230,9 @@ export const OverviewTab: React.FC = () => {
       {/* Charts Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Stock Distribution by Category - Donut Chart */}
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Stock Distribution by Category</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Stock Distribution by Category</h3>
           </div>
 
           {/* Category filter checkboxes */}
@@ -243,7 +243,7 @@ export const OverviewTab: React.FC = () => {
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer border transition-all ${
                   visibleCategories.has(cat)
                     ? `${CATEGORY_CONFIG[cat].bgColor} ${CATEGORY_CONFIG[cat].borderColor}`
-                    : 'bg-gray-50 border-gray-200 text-gray-400'
+                    : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-400 dark:text-gray-500'
                 }`}
               >
                 <input
@@ -274,7 +274,7 @@ export const OverviewTab: React.FC = () => {
               />
             </div>
           ) : (
-            <div className="flex items-center justify-center py-12 text-sm text-gray-500">
+            <div className="flex items-center justify-center py-12 text-sm text-gray-500 dark:text-gray-400">
               No inventory data available
             </div>
           )}
@@ -293,7 +293,7 @@ export const OverviewTab: React.FC = () => {
                     className={`text-xs px-3 py-1 rounded-full border transition-all ${
                       drillDownCategory === cat.category
                         ? 'bg-gray-900 text-white border-gray-900'
-                        : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                        : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                     }`}
                   >
                     {CATEGORY_CONFIG[cat.category]?.label || cat.category}: {cat.itemCount} items
@@ -304,9 +304,9 @@ export const OverviewTab: React.FC = () => {
         </div>
 
         {/* Stock Value by Category - Donut Chart */}
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Stock Value by Category</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Stock Value by Category</h3>
           </div>
 
           {categoryValueChartData.length > 0 && categoryValueChartData.some(d => d.value > 0) ? (
@@ -322,7 +322,7 @@ export const OverviewTab: React.FC = () => {
               />
             </div>
           ) : (
-            <div className="flex items-center justify-center py-12 text-sm text-gray-500">
+            <div className="flex items-center justify-center py-12 text-sm text-gray-500 dark:text-gray-400">
               No value data available
             </div>
           )}
@@ -331,14 +331,14 @@ export const OverviewTab: React.FC = () => {
 
       {/* Drill-down panel */}
       {drillDownCategory && (
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {CATEGORY_CONFIG[drillDownCategory]?.label || drillDownCategory} Inventory Details
             </h3>
             <button
               onClick={() => setDrillDownCategory(null)}
-              className="text-gray-400 hover:text-gray-600"
+              className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -367,26 +367,26 @@ export const OverviewTab: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Low Stock Alerts */}
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="px-5 py-4 border-b border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900">Low Stock Alerts</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Low Stock Alerts</h3>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {(overview?.lowStockAlerts || []).length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-gray-500">No low stock alerts</div>
+              <div className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No low stock alerts</div>
             ) : (
               overview?.lowStockAlerts.map((alert, idx) => (
                 <div key={`${alert.itemId}-${idx}`} className="px-5 py-3 flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium text-gray-900">{alert.itemName}</div>
-                    <div className="text-xs text-gray-500">{alert.itemType}</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{alert.itemName}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">{alert.itemType}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm">
                       <span className={alert.currentQuantity === 0 ? 'text-red-600 font-semibold' : 'text-yellow-600 font-medium'}>
                         {alert.currentQuantity}
                       </span>
-                      <span className="text-gray-400"> / {alert.minStock} {alert.unit}</span>
+                      <span className="text-gray-400 dark:text-gray-500"> / {alert.minStock} {alert.unit}</span>
                     </div>
                   </div>
                 </div>
@@ -396,30 +396,30 @@ export const OverviewTab: React.FC = () => {
         </div>
 
         {/* Recent Movements */}
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="px-5 py-4 border-b border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900">Recent Movements</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Recent Movements</h3>
           </div>
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {recentMovements.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-gray-500">No recent movements</div>
+              <div className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No recent movements</div>
             ) : (
               recentMovements.map(m => (
                 <div key={m.id} className="px-5 py-3 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${movementTypeBadge[m.movementType] || 'bg-gray-100 text-gray-800'}`}>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${movementTypeBadge[m.movementType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
                       {m.movementType}
                     </span>
                     <div>
-                      <div className="text-sm font-medium text-gray-900">{m.itemName}</div>
-                      <div className="text-xs text-gray-500">{m.performedBy}</div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{m.itemName}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">{m.performedBy}</div>
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
                       {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                     </div>
                   </div>
@@ -432,24 +432,24 @@ export const OverviewTab: React.FC = () => {
 
       {/* Location Fill Rates - Donut Chart + Bars */}
       {(overview?.locationFillRates || []).length > 0 && (
-        <div className="bg-white rounded-lg border border-gray-200 p-5">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Location Fill Rates</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Location Fill Rates</h3>
 
             {/* Location filter dropdown */}
             {(locations?.items || []).length > 0 && (
               <div className="relative" ref={locationDropdownRef}>
                 <button
                   onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}
-                  className="text-xs px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 flex items-center gap-1"
+                  className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
                 >
                   {selectedLocationIds.size > 0 ? `${selectedLocationIds.size} selected` : 'All locations'}
-                  <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 {locationDropdownOpen && (
-                  <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-lg border border-gray-200 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
+                  <div className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
                     {selectedLocationIds.size > 0 && (
                       <button
                         onClick={() => { setSelectedLocationIds(new Set()); setLocationDropdownOpen(false); }}
@@ -459,14 +459,14 @@ export const OverviewTab: React.FC = () => {
                       </button>
                     )}
                     {(locations?.items || []).map((loc: any) => (
-                      <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer">
+                      <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
                         <input
                           type="checkbox"
                           checked={selectedLocationIds.has(loc.id)}
                           onChange={() => toggleLocation(loc.id)}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                         />
-                        <span className="text-xs text-gray-700">{loc.name}</span>
+                        <span className="text-xs text-gray-700 dark:text-gray-300">{loc.name}</span>
                       </label>
                     ))}
                   </div>
@@ -497,19 +497,19 @@ export const OverviewTab: React.FC = () => {
                 : overview?.locationFillRates
               )?.map(loc => (
                 <div key={loc.locationId} className="flex items-center gap-4">
-                  <div className="w-32 text-sm font-medium text-gray-900 truncate">{loc.locationName}</div>
+                  <div className="w-32 text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{loc.locationName}</div>
                   <div className="flex-1">
-                    <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full transition-all duration-500 ${loc.fillPercentage > 90 ? 'bg-red-500' : loc.fillPercentage > 70 ? 'bg-yellow-500' : 'bg-blue-500'}`}
                         style={{ width: `${Math.min(loc.fillPercentage, 100)}%` }}
                       />
                     </div>
                   </div>
-                  <div className="w-20 text-right text-xs text-gray-500">
+                  <div className="w-20 text-right text-xs text-gray-500 dark:text-gray-400">
                     {loc.usedCapacity} / {loc.capacity || 0}
                   </div>
-                  <div className="w-10 text-right text-xs font-medium text-gray-700">{Math.round(loc.fillPercentage)}%</div>
+                  <div className="w-10 text-right text-xs font-medium text-gray-700 dark:text-gray-300">{Math.round(loc.fillPercentage)}%</div>
                 </div>
               ))}
             </div>

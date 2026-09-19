@@ -99,7 +99,7 @@ export function ReportsDuePage(): JSX.Element {
         )}
 
         {isOnline && deadlinesQuery.isLoading && (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <Spinner size="lg" block />
           </div>
         )}
@@ -113,7 +113,7 @@ export function ReportsDuePage(): JSX.Element {
         )}
 
         {isOnline && deadlinesQuery.isSuccess && rows.length === 0 && (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <FileText size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No reports due</p>
             <p className="text-sm mt-1">Scheduled drafts appear here each period.</p>
@@ -138,8 +138,8 @@ export function ReportsDuePage(): JSX.Element {
               <DueChip row={row} />
             </div>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs text-gray-500">{periodLabel(row)}</span>
-              <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+              <span className="text-xs text-gray-500 dark:text-gray-400">{periodLabel(row)}</span>
+              <span className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
                 {row.status}
               </span>
             </div>

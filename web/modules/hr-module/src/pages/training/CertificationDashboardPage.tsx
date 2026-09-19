@@ -190,7 +190,7 @@ const CertificationTypeCard: React.FC<{
       <div className="mt-4 grid grid-cols-2 gap-4 border-t border-gray-100 pt-3 dark:border-gray-700">
         <div>
           <p className="text-2xl font-bold text-gray-900 dark:text-white">{activeCount}</p>
-          <p className="text-xs text-gray-500">Active</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Active</p>
         </div>
         <div>
           <p
@@ -203,11 +203,11 @@ const CertificationTypeCard: React.FC<{
           >
             {expiringCount}
           </p>
-          <p className="text-xs text-gray-500">Expiring</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Expiring</p>
         </div>
       </div>
       {type.validityMonths && (
-        <p className="mt-3 text-xs text-gray-500">
+        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
           Valid for {type.validityMonths} months
         </p>
       )}
@@ -290,7 +290,7 @@ export function CertificationDashboardPage() {
                 <p className="font-medium text-gray-900 dark:text-white">
                   {row.employee.firstName} {row.employee.lastName}
                 </p>
-                <p className="text-sm text-gray-500">{row.employee.employeeNumber}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{row.employee.employeeNumber}</p>
               </div>
             </>
           )}
@@ -312,7 +312,7 @@ export function CertificationDashboardPage() {
               <p className="font-medium text-gray-900 dark:text-white">
                 {row.certificationType?.name}
               </p>
-              <p className="text-sm text-gray-500">{row.certificationNumber}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{row.certificationNumber}</p>
             </div>
           </div>
         );
@@ -349,7 +349,7 @@ export function CertificationDashboardPage() {
                   ? 'text-red-600 dark:text-red-400'
                   : isExpiringSoon
                   ? 'text-amber-600 dark:text-amber-400'
-                  : 'text-gray-500'
+                  : 'text-gray-500 dark:text-gray-400'
               )}
             >
               {isExpired
@@ -498,7 +498,7 @@ export function CertificationDashboardPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'overview'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Overview
@@ -509,7 +509,7 @@ export function CertificationDashboardPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'certifications'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           All Certifications
@@ -520,7 +520,7 @@ export function CertificationDashboardPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'types'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Certification Types
@@ -531,7 +531,7 @@ export function CertificationDashboardPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'compliance'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Compliance Report
@@ -597,7 +597,7 @@ export function CertificationDashboardPage() {
           {/* Search and Filters */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 placeholder="Search certifications..."
@@ -745,7 +745,7 @@ export function CertificationDashboardPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">Fully Compliant</p>
-                      <p className="text-sm text-gray-500">All mandatory certifications</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">All mandatory certifications</p>
                     </div>
                   </div>
                   <span className="text-2xl font-bold text-green-600">
@@ -760,7 +760,7 @@ export function CertificationDashboardPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">Expiring Soon</p>
-                      <p className="text-sm text-gray-500">Within 30 days</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Within 30 days</p>
                     </div>
                   </div>
                   <span className="text-2xl font-bold text-amber-600">{expiringIn30Days}</span>
@@ -773,7 +773,7 @@ export function CertificationDashboardPage() {
                     </div>
                     <div>
                       <p className="font-medium text-gray-900 dark:text-white">Non-Compliant</p>
-                      <p className="text-sm text-gray-500">Missing mandatory certs</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Missing mandatory certs</p>
                     </div>
                   </div>
                   <span className="text-2xl font-bold text-red-600">
@@ -807,7 +807,7 @@ export function CertificationDashboardPage() {
                         <span className="font-medium text-gray-900 dark:text-white">
                           {type.name}
                         </span>
-                        <span className="text-gray-500">
+                        <span className="text-gray-500 dark:text-gray-400">
                           {certifiedCount}/{totalEmployees} ({percentage}%)
                         </span>
                       </div>

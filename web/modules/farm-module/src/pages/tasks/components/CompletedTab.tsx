@@ -63,11 +63,11 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
         <>
           <button
             onClick={() => setSelectedTask(task)}
-            className="text-sm font-medium text-gray-900 hover:text-blue-600 text-left"
+            className="text-sm font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600 text-left"
           >
             {task.title}
           </button>
-          {task.location && <p className="text-xs text-gray-500">{task.location}</p>}
+          {task.location && <p className="text-xs text-gray-500 dark:text-gray-400">{task.location}</p>}
         </>
       ),
     },
@@ -109,10 +109,10 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
       {/* Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {statsCards.map(card => (
-          <div key={card.label} className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <p className="text-sm text-gray-500">{card.label}</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              {card.value} <span className="text-sm font-normal text-gray-400">{card.suffix}</span>
+          <div key={card.label} className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">{card.label}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+              {card.value} <span className="text-sm font-normal text-gray-400 dark:text-gray-500">{card.suffix}</span>
             </p>
           </div>
         ))}
@@ -120,19 +120,19 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
 
       {/* Date Filter */}
       <div className="flex items-center gap-3">
-        <label className="text-sm text-gray-600">Tarih Aralığı:</label>
+        <label className="text-sm text-gray-600 dark:text-gray-400">Tarih Aralığı:</label>
         <input
           type="date"
           value={dateFrom}
           onChange={(e) => setDateFrom(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
         />
-        <span className="text-gray-400">-</span>
+        <span className="text-gray-400 dark:text-gray-500">-</span>
         <input
           type="date"
           value={dateTo}
           onChange={(e) => setDateTo(e.target.value)}
-          className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
         />
         {(dateFrom || dateTo) && (
           <button
@@ -145,7 +145,7 @@ export const CompletedTab: React.FC<CompletedTabProps> = ({
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <DataTable<TaskRow>
           data={completedTasks}
           columns={taskRowColumns}

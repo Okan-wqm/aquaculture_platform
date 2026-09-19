@@ -49,7 +49,7 @@ function formatRelativeTime(dateStr: string | undefined): string {
 
 /** RSSI sinyal guc gostergesi — renk kodlu */
 function RssiIndicator({ rssi }: { rssi?: number }) {
-  if (rssi == null) return <span className="text-gray-500">--</span>;
+  if (rssi == null) return <span className="text-gray-500 dark:text-gray-400">--</span>;
 
   let color: string;
   let Icon: typeof Signal;
@@ -152,8 +152,8 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
     });
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden';
-  const labelCls = 'block text-xs font-medium text-gray-600 mb-1';
+  const inputCls = 'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden';
+  const labelCls = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1';
 
   return (
     <Modal
@@ -186,7 +186,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
             maxLength={16}
             required
           />
-          <p className="text-xs text-gray-500 mt-0.5">{devEui.length}/16 hex karakter</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{devEui.length}/16 hex karakter</p>
         </div>
 
         {/* AppKey */}
@@ -205,13 +205,13 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
             <button
               type="button"
               onClick={() => setShowAppKey(!showAppKey)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-600"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               aria-label={showAppKey ? 'Gizle' : 'Goster'}
             >
               {showAppKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
-          <p className="text-xs text-gray-500 mt-0.5">{appKey.length}/32 hex karakter</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{appKey.length}/32 hex karakter</p>
         </div>
 
         {/* Cihaz Adi + Tag Prefix */}
@@ -236,7 +236,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
               placeholder="LORA_WQ_01"
               maxLength={30}
             />
-            <p className="text-xs text-gray-500 mt-0.5">Bos birakilirsa isimden uretilir</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Bos birakilirsa isimden uretilir</p>
           </div>
         </div>
 
@@ -252,7 +252,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                 className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   activationMode === mode
                     ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
-                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                    : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 {mode}
@@ -273,7 +273,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
                 className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   deviceClass === cls
                     ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
-                    : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
+                    : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 Class {cls}
@@ -301,7 +301,7 @@ const AddDeviceDialog: React.FC<AddDeviceDialogProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Iptal
           </button>
@@ -349,7 +349,7 @@ const DeleteDialog: React.FC<DeleteDialogProps> = ({
       message={
         <>
           <strong>{deviceName}</strong> (
-          <code className="text-xs font-mono bg-gray-100 px-1 py-0.5 rounded">{devEui}</code>) cihazini
+          <code className="text-xs font-mono bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">{devEui}</code>) cihazini
           silmek istediginizden emin misiniz? Cihaz ile iliskili tum tag verileri kaybolacaktir. Bu
           islem geri alinamaz.
         </>
@@ -416,7 +416,7 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
     onSend(payload.toUpperCase(), port);
   };
 
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden';
+  const inputCls = 'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden';
 
   return (
     <Modal
@@ -443,7 +443,7 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
         )}
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Hex Payload *</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Hex Payload *</label>
           <input
             className={`${inputCls} font-mono uppercase`}
             value={payload}
@@ -454,7 +454,7 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">fPort *</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">fPort *</label>
           <input
             type="number"
             className={inputCls}
@@ -470,7 +470,7 @@ const DownlinkDialog: React.FC<DownlinkDialogProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Iptal
           </button>
@@ -557,7 +557,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center justify-center py-12">
           <Spinner size="md" />
         </div>
@@ -568,13 +568,13 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
   // Bos durum: henuz cihaz eklenmemis
   if (devices.length === 0) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <div className="text-center py-12">
           <div className="w-16 h-16 rounded-full bg-cyan-50 flex items-center justify-center mx-auto mb-4">
             <Radio className="w-8 h-8 text-cyan-400" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Henuz LoRa cihaz eklenmemis</h3>
-          <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Henuz LoRa cihaz eklenmemis</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-sm mx-auto">
             LoRaWAN end-device ekleyerek kablosuz sensor verilerini toplamaya baslayabilirsiniz.
           </p>
           <button
@@ -602,7 +602,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
       key: 'deveui',
       header: 'DevEUI',
       render: (_value, dev) => (
-        <code className="text-xs font-mono text-gray-900">{dev.devEui}</code>
+        <code className="text-xs font-mono text-gray-900 dark:text-gray-100">{dev.devEui}</code>
       ),
     },
     {
@@ -610,8 +610,8 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
       header: 'Isim',
       render: (_value, dev) => (
         <div>
-          <span className="font-medium text-gray-900">{dev.name}</span>
-          <span className="block text-xs text-gray-500">{dev.tagPrefix} | Class {dev.deviceClass} | {dev.codec}</span>
+          <span className="font-medium text-gray-900 dark:text-gray-100">{dev.name}</span>
+          <span className="block text-xs text-gray-500 dark:text-gray-400">{dev.tagPrefix} | Class {dev.deviceClass} | {dev.codec}</span>
         </div>
       ),
     },
@@ -663,7 +663,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
           {dev.isJoined && (
             <button
               onClick={() => setDownlinkTarget(dev)}
-              className="p-1.5 hover:bg-cyan-50 rounded-lg text-gray-500 hover:text-cyan-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
+              className="p-1.5 hover:bg-cyan-50 rounded-lg text-gray-500 dark:text-gray-400 hover:text-cyan-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
               title="Downlink gonder"
               aria-label={`${dev.name} cihazina downlink gonder`}
             >
@@ -673,7 +673,7 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
           {/* Sil */}
           <button
             onClick={() => setDeleteTarget(dev)}
-            className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
+            className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 dark:text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 focus:opacity-100 group-focus-within:opacity-100 transition-opacity"
             title="Sil"
             aria-label={`${dev.name} cihazini sil`}
           >
@@ -685,12 +685,12 @@ const LoRaDevicesPanel: React.FC<LoRaDevicesPanelProps> = ({ edgeDeviceId }) => 
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">LoRa Cihazlar</h3>
-          <span className="text-sm text-gray-500">{devices.length} cihaz</span>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">LoRa Cihazlar</h3>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{devices.length} cihaz</span>
         </div>
         <button
           onClick={() => setAddDialogOpen(true)}

@@ -335,7 +335,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                       ${
                         selectedType === type.type
                           ? 'border-cyan-500 bg-cyan-50'
-                          : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800'
                       }
                     `}
                   >
@@ -345,15 +345,15 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                         ${
                           selectedType === type.type
                             ? 'bg-cyan-100 text-cyan-600'
-                            : 'bg-gray-100 text-gray-600'
+                            : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                         }
                       `}
                     >
                       <WidgetIcon type={type.type} />
                     </div>
                     <div>
-                      <h3 className="font-medium text-gray-900">{type.label}</h3>
-                      <p className="text-sm text-gray-500 mt-1">
+                      <h3 className="font-medium text-gray-900 dark:text-gray-100">{type.label}</h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                         {type.description}
                       </p>
                     </div>
@@ -365,7 +365,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
               <div className="space-y-6">
                 {/* Title */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Widget Title
                   </label>
                   <input
@@ -373,26 +373,26 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Enter widget title"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                    className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                   />
                 </div>
 
                 {/* Process Selection (for process-view widget) */}
                 {isProcessView ? (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Select Process
                     </label>
                     {processesLoading ? (
-                      <div className="text-center py-8 text-gray-500">
+                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                         Loading processes...
                       </div>
                     ) : activeProcesses.length === 0 ? (
-                      <div className="text-center py-8 text-gray-500">
+                      <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                         No processes available
                       </div>
                     ) : (
-                      <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                      <div className="border border-gray-200 dark:border-gray-700 rounded-lg max-h-64 overflow-y-auto">
                         {activeProcesses.map((process) => (
                           <label
                             key={process.id}
@@ -400,7 +400,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                               flex items-center gap-3 px-4 py-3 cursor-pointer
                               ${selectedProcessId === process.id
                                 ? 'bg-cyan-50 border-l-2 border-cyan-500'
-                                : 'hover:bg-gray-50'
+                                : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                               }
                             `}
                           >
@@ -412,18 +412,18 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                                 setSelectedProcessId(process.id);
                                 if (!title) setTitle(process.name);
                               }}
-                              className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300"
+                              className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 dark:border-gray-600"
                             />
                             <div className="flex-1">
-                              <p className="font-medium text-gray-900">{process.name}</p>
+                              <p className="font-medium text-gray-900 dark:text-gray-100">{process.name}</p>
                               {process.description && (
-                                <p className="text-sm text-gray-500 truncate">{process.description}</p>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{process.description}</p>
                               )}
                             </div>
                             <span className={`text-xs px-2 py-0.5 rounded-full ${
                               process.status === 'active' ? 'bg-green-100 text-green-700' :
                               process.status === 'draft' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-gray-100 text-gray-600'
+                              'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                             }`}>
                               {process.status}
                             </span>
@@ -435,14 +435,14 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                 ) : (
                   /* Data Channel Selection - Grouped by Sensor */
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Select Data Channel{' '}
                       {isSingleSelect && (
-                        <span className="text-gray-500">(single selection)</span>
+                        <span className="text-gray-500 dark:text-gray-400">(single selection)</span>
                       )}
                     </label>
                     {channelsLoading ? (
-                    <div className="text-center py-8 text-gray-500">
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                       Loading data channels...
                     </div>
                   ) : channelsError ? (
@@ -450,34 +450,34 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                       Error: {channelsError}
                     </div>
                   ) : groupedBySensor.length === 0 ? (
-                    <div className="text-center py-8 text-gray-500">
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                       No data channels found
                     </div>
                   ) : (
-                    <div className="border border-gray-200 rounded-lg max-h-64 overflow-y-auto">
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg max-h-64 overflow-y-auto">
                       {groupedBySensor.map((group) => (
                         <div key={group.sensorId} className="border-b last:border-b-0">
                           {/* Sensor Header (Collapsible) */}
                           <button
                             onClick={() => toggleSensorExpand(group.sensorId)}
-                            className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 hover:bg-gray-100 text-left"
+                            className="w-full flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-left"
                           >
                             {expandedSensors.has(group.sensorId) ? (
-                              <ChevronDown size={16} className="text-gray-500" />
+                              <ChevronDown size={16} className="text-gray-500 dark:text-gray-400" />
                             ) : (
-                              <ChevronRight size={16} className="text-gray-500" />
+                              <ChevronRight size={16} className="text-gray-500 dark:text-gray-400" />
                             )}
-                            <span className="font-medium text-gray-900">
+                            <span className="font-medium text-gray-900 dark:text-gray-100">
                               {group.sensorName}
                             </span>
-                            <span className="text-xs text-gray-500 ml-auto">
+                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
                               {group.channels.length} channels
                             </span>
                           </button>
 
                           {/* Channels List */}
                           {expandedSensors.has(group.sensorId) && (
-                            <div className="divide-y divide-gray-100">
+                            <div className="divide-y divide-gray-100 dark:divide-gray-700">
                               {group.channels.map((channel) => {
                                 // Check if channel is already used in another widget
                                 // Allow if it's part of the currently editing widget
@@ -490,10 +490,10 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                                     className={`
                                       flex items-center gap-3 px-4 py-2 pl-10
                                       ${isAlreadyUsed
-                                        ? 'opacity-50 cursor-not-allowed bg-gray-50'
+                                        ? 'opacity-50 cursor-not-allowed bg-gray-50 dark:bg-gray-800'
                                         : selectedChannelIds.has(channel.id)
                                           ? 'bg-cyan-50 cursor-pointer'
-                                          : 'hover:bg-gray-50 cursor-pointer'
+                                          : 'hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer'
                                       }
                                     `}
                                   >
@@ -503,7 +503,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                                       checked={selectedChannelIds.has(channel.id)}
                                       disabled={isAlreadyUsed}
                                       onChange={() => !isAlreadyUsed && handleChannelToggle(channel, group.sensorName)}
-                                      className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 disabled:opacity-50"
+                                      className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 dark:border-gray-600 disabled:opacity-50"
                                     />
                                     <div
                                       className="w-3 h-3 rounded-full flex-shrink-0"
@@ -513,7 +513,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                                       }}
                                     />
                                     <div className="flex-1 min-w-0">
-                                      <p className={`font-medium truncate ${isAlreadyUsed ? 'text-gray-500' : 'text-gray-900'}`}>
+                                      <p className={`font-medium truncate ${isAlreadyUsed ? 'text-gray-500 dark:text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>
                                         {channel.displayLabel}
                                       </p>
                                       {isAlreadyUsed && (
@@ -522,7 +522,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                                         </p>
                                       )}
                                     </div>
-                                    <span className="text-xs text-gray-500 flex-shrink-0">
+                                    <span className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
                                       {channel.unit || '-'}
                                     </span>
                                   </label>
@@ -566,9 +566,9 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
 
                 {/* Y-Axis Configuration (for chart types) */}
                 {supportsYAxis && (
-                  <div className="border border-gray-200 rounded-lg p-4">
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <label className="text-sm font-medium text-gray-700">
+                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         Y-Axis Configuration
                       </label>
                       <label className="flex items-center gap-2 text-sm">
@@ -576,16 +576,16 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                           type="checkbox"
                           checked={yAxisEnabled}
                           onChange={(e) => setYAxisEnabled(e.target.checked)}
-                          className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 rounded"
+                          className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300 dark:border-gray-600 rounded"
                         />
-                        <span className="text-gray-600">Custom Range</span>
+                        <span className="text-gray-600 dark:text-gray-400">Custom Range</span>
                       </label>
                     </div>
 
                     {yAxisEnabled && (
                       <div className="grid grid-cols-3 gap-3">
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                             Min Value
                           </label>
                           <input
@@ -593,11 +593,11 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                             value={yAxisMin}
                             onChange={(e) => setYAxisMin(e.target.value)}
                             placeholder="Auto"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                             Max Value
                           </label>
                           <input
@@ -605,11 +605,11 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                             value={yAxisMax}
                             onChange={(e) => setYAxisMax(e.target.value)}
                             placeholder="Auto"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-gray-500 mb-1">
+                          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                             Axis Label
                           </label>
                           <input
@@ -617,7 +617,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                             value={yAxisLabel}
                             onChange={(e) => setYAxisLabel(e.target.value)}
                             placeholder="e.g., Temperature (°C)"
-                            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                           />
                         </div>
                       </div>
@@ -628,13 +628,13 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                 {/* Time Range */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Time Range
                     </label>
                     <select
                       value={timeRange}
                       onChange={(e) => setTimeRange(e.target.value as TimeRange)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                     >
                       {TIME_RANGES.map((range) => (
                         <option key={range.value} value={range.value}>
@@ -645,13 +645,13 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Refresh Interval
                     </label>
                     <select
                       value={refreshInterval}
                       onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                      className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                     >
                       {REFRESH_INTERVALS.map((interval) => (
                         <option key={interval.value} value={interval.value}>
@@ -666,12 +666,12 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 bg-gray-50">
+          <div className="flex items-center justify-between px-6 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
             <div>
               {step === 'config' && (
                 <button
                   onClick={() => setStep('type')}
-                  className="text-sm text-gray-500 hover:text-gray-700"
+                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
                 >
                   Change widget type
                 </button>
@@ -680,7 +680,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
             <div className="flex items-center gap-3">
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               >
                 Cancel
               </button>
@@ -693,7 +693,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({
                     ${
                       title && (isProcessView ? selectedProcessId : selectedChannelIds.size > 0)
                         ? 'bg-cyan-600 text-white hover:bg-cyan-700'
-                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                        : 'bg-gray-300 text-gray-500 dark:text-gray-400 cursor-not-allowed'
                     }
                   `}
                 >

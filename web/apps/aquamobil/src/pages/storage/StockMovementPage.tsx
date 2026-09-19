@@ -80,7 +80,7 @@ interface StorageInventoryItem {
 const MOVEMENT_CONFIG: Record<StockMovementType, { label: string; color: string; gradient: string; tone: PageHeaderTone; icon: typeof ArrowDownToLine }> = {
   IN: { label: 'Stock In', color: 'text-green-600', gradient: 'from-green-600 to-green-500', tone: 'green', icon: ArrowDownToLine },
   OUT: { label: 'Stock Out', color: 'text-red-600', gradient: 'from-red-600 to-red-500', tone: 'red', icon: ArrowUpFromLine },
-  WASTE: { label: 'Write Off', color: 'text-gray-600', gradient: 'from-gray-600 to-gray-500', tone: 'gray', icon: Trash2 },
+  WASTE: { label: 'Write Off', color: 'text-gray-600 dark:text-gray-400', gradient: 'from-gray-600 to-gray-500', tone: 'gray', icon: Trash2 },
 };
 
 const ITEM_TYPES: Array<{ type: StorageItemType; label: string; emoji: string }> = [
@@ -409,9 +409,9 @@ export function StockMovementPage(): JSX.Element {
         back={handleBack}
       >
         {/* Progress bar */}
-        <div className="h-1 bg-white/20">
+        <div className="h-1 bg-white/20 dark:bg-gray-900/20">
           <div
-            className="h-full bg-white/80 transition-all duration-300"
+            className="h-full bg-white/80 dark:bg-gray-900/80 transition-all duration-300"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -474,7 +474,7 @@ export function StockMovementPage(): JSX.Element {
                 fills the search, matching items by their printed code. */}
             <div className="flex items-stretch gap-2 mb-4">
               <div className="relative flex-1">
-                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                 <input
                   type="text"
                   placeholder="Search items..."
@@ -488,10 +488,10 @@ export function StockMovementPage(): JSX.Element {
             {itemsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size="lg" />
-                <span className="ml-2 text-gray-500 text-sm">Loading items...</span>
+                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading items...</span>
               </div>
             ) : filteredItems.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
+              <div className="text-center py-12 text-gray-400 dark:text-gray-500">
                 <Package size={40} className="mx-auto mb-2 opacity-30" />
                 <p className="text-sm">{items.length === 0 ? 'No items found for this type' : 'No matches'}</p>
               </div>
@@ -547,7 +547,7 @@ export function StockMovementPage(): JSX.Element {
                 className="w-full text-center text-4xl font-bold py-6 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
               />
               {selectedItem && (
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-gray-400 font-medium">
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-gray-400 dark:text-gray-500 font-medium">
                   {selectedItem.unit}
                 </span>
               )}
@@ -574,10 +574,10 @@ export function StockMovementPage(): JSX.Element {
             {locationsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size="lg" />
-                <span className="ml-2 text-gray-500 text-sm">Loading locations...</span>
+                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading locations...</span>
               </div>
             ) : locations.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
+              <div className="text-center py-12 text-gray-400 dark:text-gray-500">
                 <p className="text-sm">No storage locations configured</p>
               </div>
             ) : (
@@ -673,38 +673,38 @@ export function StockMovementPage(): JSX.Element {
             <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Confirm details</h2>
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">Type</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Type</span>
                 <span className={`text-sm font-bold ${config.color}`}>{config.label}</span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">Item</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Item</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{selectedItem?.name ?? '-'}</span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">Quantity</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">
                   {quantity} {selectedItem?.unit ?? ''}
                 </span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">Location</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Location</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{selectedLocation?.name ?? '-'}</span>
               </div>
               {lotNumber && (
                 <div className="p-4 flex justify-between">
-                  <span className="text-sm text-gray-500">Lot Number</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Lot Number</span>
                   <span className="text-sm font-bold text-gray-900 dark:text-white">{lotNumber}</span>
                 </div>
               )}
               {expiryDate && (
                 <div className="p-4 flex justify-between">
-                  <span className="text-sm text-gray-500">Expiry Date</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Expiry Date</span>
                   <span className="text-sm font-bold text-gray-900 dark:text-white">{expiryDate}</span>
                 </div>
               )}
               {notes && (
                 <div className="p-4">
-                  <span className="text-sm text-gray-500 block mb-1">{movementType === 'WASTE' ? 'Reason' : 'Notes'}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400 block mb-1">{movementType === 'WASTE' ? 'Reason' : 'Notes'}</span>
                   <span className="text-sm text-gray-900 dark:text-white">{notes}</span>
                 </div>
               )}

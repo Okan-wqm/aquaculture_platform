@@ -115,13 +115,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
       : isGlass
         ? 'border-[var(--surface-field-border)] focus:ring-[var(--surface-field-focus-ring)] focus:border-[var(--surface-field-focus-border)]'
-        : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500';
+        : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500';
 
     const disabledStyles = disabled
-      ? 'bg-gray-100 cursor-not-allowed text-gray-500'
+      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400'
       : isGlass
         ? 'bg-[var(--surface-field-bg)] text-[var(--surface-field-fg)] placeholder:text-[var(--surface-field-placeholder)]'
-        : 'bg-white';
+        : 'bg-white dark:bg-gray-900';
 
     // Sol ikon için padding
     const leftPadding = leftIcon ? 'pl-10' : '';
@@ -135,7 +135,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           <label
             htmlFor={inputId}
             className={`block text-sm font-medium mb-1 ${
-              isGlass ? 'text-[var(--surface-label-fg)]' : 'text-gray-700'
+              isGlass ? 'text-[var(--surface-label-fg)]' : 'text-gray-700 dark:text-gray-300'
             }`}
           >
             {label}
@@ -148,7 +148,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           {/* Sol ikon */}
           {leftIcon && (
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <span className={`text-gray-500 ${sizeStyles[size].icon}`}>
+              <span className={`text-gray-500 dark:text-gray-400 ${sizeStyles[size].icon}`}>
                 {leftIcon}
               </span>
             </div>
@@ -191,7 +191,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
 
         {/* Yardım metni */}
         {!error && helperText && (
-          <p id={`${inputId}-helper`} className="mt-1 text-sm text-gray-500">
+          <p id={`${inputId}-helper`} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {helperText}
           </p>
         )}
@@ -241,18 +241,18 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
 
     const inputStateStyles = error
       ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500';
+      : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500';
 
     const disabledStyles = disabled
-      ? 'bg-gray-100 cursor-not-allowed text-gray-500'
-      : 'bg-white';
+      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400'
+      : 'bg-white dark:bg-gray-900';
 
     return (
       <div className={`${fullWidth ? 'w-full' : ''} ${className}`}>
         {label && (
           <label
             htmlFor={textareaId}
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
           >
             {label}
             {required && <span className="text-red-500 ml-1">*</span>}
@@ -286,7 +286,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         )}
 
         {!error && helperText && (
-          <p id={`${textareaId}-helper`} className="mt-1 text-sm text-gray-500">{helperText}</p>
+          <p id={`${textareaId}-helper`} className="mt-1 text-sm text-gray-500 dark:text-gray-400">{helperText}</p>
         )}
       </div>
     );

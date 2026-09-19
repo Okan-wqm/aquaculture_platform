@@ -27,11 +27,11 @@ interface ReadReceiptProps {
 export const ReadReceipt = React.memo(function ReadReceipt({ status }: ReadReceiptProps) {
   switch (status) {
     case 'pending':
-      return <Clock size={12} className="text-gray-400 shrink-0" aria-label="Sending" />;
+      return <Clock size={12} className="text-gray-400 dark:text-gray-500 shrink-0" aria-label="Sending" />;
     case 'sent':
-      return <Check size={12} className="text-gray-400 shrink-0" aria-label="Sent" />;
+      return <Check size={12} className="text-gray-400 dark:text-gray-500 shrink-0" aria-label="Sent" />;
     case 'delivered':
-      return <CheckCheck size={12} className="text-gray-400 shrink-0" aria-label="Delivered" />;
+      return <CheckCheck size={12} className="text-gray-400 dark:text-gray-500 shrink-0" aria-label="Delivered" />;
     case 'read':
       return <CheckCheck size={12} className={clsx('text-ocean-600 shrink-0')} aria-label="Read" />;
   }

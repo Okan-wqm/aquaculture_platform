@@ -91,7 +91,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
 
   // Performance rating
   const getPerformanceRating = (actual: number, target: number): { label: string; color: string } => {
-    if (actual === 0) return { label: 'No Data', color: 'text-gray-500' };
+    if (actual === 0) return { label: 'No Data', color: 'text-gray-500 dark:text-gray-400' };
     const variance = ((actual - target) / target) * 100;
     if (variance <= -10) return { label: 'Excellent', color: 'text-green-600' };
     if (variance <= 0) return { label: 'Good', color: 'text-green-500' };
@@ -102,7 +102,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
 
   if (batches.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 text-center text-gray-500 dark:text-gray-400">
         No active batches found. Create a batch to analyze FCR.
       </div>
     );
@@ -115,8 +115,8 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       header: 'Batch',
       render: (_value, batch) => (
         <>
-          <div className="text-sm font-medium text-gray-900">{batch.name}</div>
-          <div className="text-sm text-gray-500">{batch.displayName}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{batch.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{batch.displayName}</div>
         </>
       ),
     },
@@ -196,54 +196,54 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
     <div className="space-y-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-gray-500">Average FCR</p>
-          <p className="text-2xl font-semibold text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Average FCR</p>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             {avgActualFCR.toFixed(2)}
           </p>
           <p className={`text-sm ${getPerformanceRating(avgActualFCR, avgTargetFCR).color}`}>
             {getPerformanceRating(avgActualFCR, avgTargetFCR).label}
           </p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-gray-500">Target FCR</p>
-          <p className="text-2xl font-semibold text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Target FCR</p>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             {avgTargetFCR.toFixed(2)}
           </p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Industry standard
           </p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-gray-500">Average SGR</p>
-          <p className="text-2xl font-semibold text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Average SGR</p>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             {avgSGR.toFixed(2)}%
           </p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Daily growth rate
           </p>
         </div>
-        <div className="bg-white rounded-lg shadow p-4">
-          <p className="text-sm text-gray-500">Batches Analyzed</p>
-          <p className="text-2xl font-semibold text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Batches Analyzed</p>
+          <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
             {batchFCRData.length}
           </p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             of {batches.length} total
           </p>
         </div>
       </div>
 
       {/* Metric Toggle */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
         <div className="flex items-center space-x-4 mb-4">
-          <span className="text-sm font-medium text-gray-700">View:</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">View:</span>
           <button
             onClick={() => setSelectedMetric('fcr')}
             className={`px-3 py-1 text-sm rounded-md ${
               selectedMetric === 'fcr'
                 ? 'bg-blue-100 text-blue-700'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             FCR Comparison
@@ -253,7 +253,7 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
             className={`px-3 py-1 text-sm rounded-md ${
               selectedMetric === 'sgr'
                 ? 'bg-blue-100 text-blue-700'
-                : 'text-gray-500 hover:text-gray-700'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             SGR Analysis
@@ -296,21 +296,21 @@ export const FCRAnalysis: React.FC<FCRAnalysisProps> = ({ batches }) => {
       </div>
 
       {/* Historical Trend */}
-      <div className="bg-white rounded-lg shadow p-4">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">FCR Historical Trend</h3>
-        <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">FCR Historical Trend</h3>
+        <div className="flex flex-col items-center justify-center h-48 text-gray-400 dark:text-gray-500">
           <svg className="w-12 h-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
           </svg>
-          <p className="text-sm font-medium text-gray-500">Not enough historical data yet</p>
-          <p className="text-xs text-gray-400 mt-1">FCR trend will appear once sufficient feeding records are accumulated.</p>
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Not enough historical data yet</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">FCR trend will appear once sufficient feeding records are accumulated.</p>
         </div>
       </div>
 
       {/* Detailed Batch Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Batch FCR Details</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Batch FCR Details</h3>
         </div>
         <DataTable<BatchRow>
           data={batchFCRData}

@@ -136,42 +136,42 @@ const ProgramCard: React.FC<{
   const navigate = useNavigate();
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-2">
           <Workflow className="h-5 w-5 text-indigo-600" />
-          <span className="text-xs text-gray-500 font-mono">
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
             {program.programCode}
           </span>
         </div>
         <div className="relative">
           <button
             onClick={() => setShowMenu(!showMenu)}
-            className="p-1 rounded hover:bg-gray-100"
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
           >
-            <MoreVertical className="h-4 w-4 text-gray-500" />
+            <MoreVertical className="h-4 w-4 text-gray-500 dark:text-gray-400" />
           </button>
           {showMenu && (
-            <div className="absolute right-0 top-8 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+            <div className="absolute right-0 top-8 w-40 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-10">
               <button
                 onClick={() => { navigate(`/sensor/automation/${program.id}`); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
               >
                 <Edit className="h-4 w-4" /> Edit
               </button>
               <button
                 onClick={() => { onClone(); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
               >
                 <Copy className="h-4 w-4" /> Clone
               </button>
               <button
                 onClick={() => { onArchive(); setShowMenu(false); }}
-                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 flex items-center gap-2"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
               >
                 <Archive className="h-4 w-4" /> Archive
               </button>
-              <hr className="my-1 border-gray-200" />
+              <hr className="my-1 border-gray-200 dark:border-gray-700" />
               <button
                 onClick={() => { onDelete(); setShowMenu(false); }}
                 className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
@@ -184,23 +184,23 @@ const ProgramCard: React.FC<{
       </div>
 
       <Link to={`/sensor/automation/${program.id}`}>
-        <h3 className="font-semibold text-gray-900 hover:text-indigo-600 mb-1">
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100 hover:text-indigo-600 mb-1">
           {program.programName}
         </h3>
       </Link>
 
       {program.description && (
-        <p className="text-sm text-gray-500 line-clamp-2 mb-3">
+        <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-3">
           {program.description}
         </p>
       )}
 
       <div className="flex items-center gap-2 mb-3">
         <StatusBadge status={program.status} />
-        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+        <span className="text-xs text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
           {getProgramTypeText(program.programType)}
         </span>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-gray-500 dark:text-gray-400">
           v{program.version}
         </span>
       </div>
@@ -225,7 +225,7 @@ const ProgramCard: React.FC<{
         </div>
       )}
 
-      <div className="flex items-center justify-between text-xs text-gray-500 pt-3 border-t border-gray-100">
+      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-3 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-3">
           <span>{program.stepCount ?? 0} steps</span>
           <span>{program.variableCount ?? 0} variables</span>
@@ -379,12 +379,12 @@ const AutomationProgramsPage: React.FC = () => {
             <Workflow className="h-4 w-4 text-indigo-600" />
             <Link
               to={`/sensor/automation/${program.id}`}
-              className="font-medium text-gray-900 hover:text-indigo-600"
+              className="font-medium text-gray-900 dark:text-gray-100 hover:text-indigo-600"
             >
               {program.programName}
             </Link>
           </div>
-          <div className="text-xs text-gray-500 font-mono mt-0.5">{program.programCode}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">{program.programCode}</div>
         </>
       ),
     },
@@ -438,24 +438,24 @@ const AutomationProgramsPage: React.FC = () => {
           )}
           <button
             onClick={() => navigate(`/sensor/automation/${program.id}`)}
-            className="p-1.5 rounded hover:bg-gray-100"
+            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
             title="Edit"
           >
-            <Edit className="h-4 w-4 text-gray-500" />
+            <Edit className="h-4 w-4 text-gray-500 dark:text-gray-400" />
           </button>
           <button
             onClick={() => handleClone(program)}
-            className="p-1.5 rounded hover:bg-gray-100"
+            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
             title="Clone"
           >
-            <Copy className="h-4 w-4 text-gray-500" />
+            <Copy className="h-4 w-4 text-gray-500 dark:text-gray-400" />
           </button>
           <button
             onClick={() => handleArchive(program)}
-            className="p-1.5 rounded hover:bg-gray-100"
+            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
             title="Archive"
           >
-            <Archive className="h-4 w-4 text-gray-500" />
+            <Archive className="h-4 w-4 text-gray-500 dark:text-gray-400" />
           </button>
           <button
             onClick={() => void handleDelete(program)}
@@ -495,8 +495,8 @@ const AutomationProgramsPage: React.FC = () => {
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-          <StatCard label="Total" value={stats.total} color="bg-gray-100 text-gray-900" />
-          <StatCard label="Draft" value={stats.byStatus?.draft ?? 0} color="bg-gray-100 text-gray-700" />
+          <StatCard label="Total" value={stats.total} color="bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+          <StatCard label="Draft" value={stats.byStatus?.draft ?? 0} color="bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300" />
           <StatCard label="Approved" value={stats.byStatus?.approved ?? 0} color="bg-blue-100 text-blue-700" />
           <StatCard label="Deployed" value={stats.byStatus?.deployed ?? 0} color="bg-green-100 text-green-700" />
           <StatCard label="Pending Review" value={stats.byStatus?.pending_review ?? 0} color="bg-yellow-100 text-yellow-700" />
@@ -506,20 +506,20 @@ const AutomationProgramsPage: React.FC = () => {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-4 mb-6">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search programs..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
+            className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
           />
         </div>
 
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value as ProgramStatus | ''); setPage(1); }}
-          className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
+          className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
         >
           <option value="">All Statuses</option>
           {Object.values(ProgramStatus).map((status) => (
@@ -532,7 +532,7 @@ const AutomationProgramsPage: React.FC = () => {
         <select
           value={typeFilter}
           onChange={(e) => { setTypeFilter(e.target.value as ProgramType | ''); setPage(1); }}
-          className="px-3 py-2 border border-gray-200 rounded-lg bg-white text-gray-900"
+          className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
         >
           <option value="">All Types</option>
           {Object.values(ProgramType).map((type) => (
@@ -542,16 +542,16 @@ const AutomationProgramsPage: React.FC = () => {
           ))}
         </select>
 
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
           <button
             onClick={() => setViewMode('grid')}
-            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white shadow' : ''}`}
+            className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}
           >
             <LayoutGrid className="h-4 w-4" />
           </button>
           <button
             onClick={() => setViewMode('list')}
-            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white shadow' : ''}`}
+            className={`p-2 rounded ${viewMode === 'list' ? 'bg-white dark:bg-gray-900 shadow' : ''}`}
           >
             <List className="h-4 w-4" />
           </button>
@@ -559,7 +559,7 @@ const AutomationProgramsPage: React.FC = () => {
 
         <button
           onClick={() => refetch()}
-          className="p-2 rounded-lg border border-gray-200 hover:bg-gray-100"
+          className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700"
         >
           <RefreshCw className="h-4 w-4" />
         </button>
@@ -573,7 +573,7 @@ const AutomationProgramsPage: React.FC = () => {
       ) : isError ? (
         <div className="text-center py-12 bg-red-50 rounded-lg">
           <AlertCircle className="h-12 w-12 mx-auto text-red-400 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
             Failed to load programs
           </h3>
           <p className="text-red-600 text-sm mb-4">
@@ -588,12 +588,12 @@ const AutomationProgramsPage: React.FC = () => {
           </button>
         </div>
       ) : filteredPrograms.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg">
-          <Workflow className="h-12 w-12 mx-auto text-gray-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">
+        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          <Workflow className="h-12 w-12 mx-auto text-gray-500 dark:text-gray-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
             No programs found
           </h3>
-          <p className="text-gray-500 mb-4">
+          <p className="text-gray-500 dark:text-gray-400 mb-4">
             Create a new automation program
           </p>
           <button
@@ -633,7 +633,7 @@ const AutomationProgramsPage: React.FC = () => {
       {/* Pagination Controls */}
       {!isLoading && filteredPrograms.length > 0 && (
         <div className="flex items-center justify-between mt-6 px-1">
-          <span className="text-sm text-gray-500">
+          <span className="text-sm text-gray-500 dark:text-gray-400">
             {totalPrograms > 0
               ? `${(page - 1) * limit + 1} - ${Math.min(page * limit, totalPrograms)} / ${totalPrograms} programs`
               : `${filteredPrograms.length} programs`}
@@ -642,18 +642,18 @@ const AutomationProgramsPage: React.FC = () => {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page <= 1}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="h-4 w-4" />
               Previous
             </button>
-            <span className="text-sm text-gray-700 px-2">
+            <span className="text-sm text-gray-700 dark:text-gray-300 px-2">
               {page} / {totalPages}
             </span>
             <button
               onClick={() => setPage((p) => p + 1)}
               disabled={isLastPage}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Next
               <ChevronRight className="h-4 w-4" />

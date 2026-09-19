@@ -29,7 +29,7 @@ import {
 } from '../../hooks/useScadaPackage';
 
 const statusConfig: Record<string, { label: string; color: string }> = {
-  DRAFT: { label: 'Draft', color: 'bg-gray-100 text-gray-700' },
+  DRAFT: { label: 'Draft', color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' },
   PUBLISHED: { label: 'Published', color: 'bg-green-100 text-green-700' },
   ARCHIVED: { label: 'Archived', color: 'bg-red-100 text-red-700' },
 };
@@ -95,7 +95,7 @@ const ScadaPackageListPage: React.FC = () => {
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <Spinner size="lg" block />
-            <p className="mt-2 text-sm text-gray-500">Loading SCADA packages...</p>
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading SCADA packages...</p>
           </div>
         </div>
       </div>
@@ -109,8 +109,8 @@ const ScadaPackageListPage: React.FC = () => {
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
-            <p className="mt-2 text-sm text-gray-900 font-medium">Failed to load packages</p>
-            <p className="mt-1 text-sm text-gray-500">{error}</p>
+            <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">Failed to load packages</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
             <button
               onClick={refetch}
               className="mt-4 px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700"
@@ -133,10 +133,10 @@ const ScadaPackageListPage: React.FC = () => {
             to={`/sensor/scada-builder/${pkg.id}`}
             className="block"
           >
-            <div className="font-medium text-gray-900 hover:text-purple-600">
+            <div className="font-medium text-gray-900 dark:text-gray-100 hover:text-purple-600">
               {pkg.name}
             </div>
-            <div className="text-sm text-gray-500 line-clamp-1">
+            <div className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1">
               {pkg.description || 'No description'}
             </div>
           </Link>
@@ -184,7 +184,7 @@ const ScadaPackageListPage: React.FC = () => {
       key: 'lastUpdated',
       header: 'Last Updated',
       render: (_value, pkg) => (
-        <div className="flex items-center gap-1 text-sm text-gray-500">
+        <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
           <Clock className="w-4 h-4" />
           {formatDate(pkg.updatedAt)}
         </div>
@@ -200,16 +200,16 @@ const ScadaPackageListPage: React.FC = () => {
             onClick={() =>
               setActiveDropdown(activeDropdown === pkg.id ? null : pkg.id)
             }
-            className="p-2 hover:bg-gray-100 rounded-lg"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
           >
-            <MoreVertical className="w-4 h-4 text-gray-500" />
+            <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </button>
 
           {activeDropdown === pkg.id && (
-            <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
+            <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10">
               <Link
                 to={`/sensor/scada-builder/${pkg.id}`}
-                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Edit className="w-4 h-4" />
                 Edit
@@ -219,12 +219,12 @@ const ScadaPackageListPage: React.FC = () => {
                   setActiveDropdown(null);
                   navigate(`/sensor/scada-builder/${pkg.id}?deploy=true`);
                 }}
-                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Upload className="w-4 h-4" />
                 Deploy
               </button>
-              <hr className="my-1 border-gray-200" />
+              <hr className="my-1 border-gray-200 dark:border-gray-700" />
               <button
                 onClick={() => handleDelete(pkg)}
                 className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
@@ -249,7 +249,7 @@ const ScadaPackageListPage: React.FC = () => {
           <div className="flex gap-3">
             <button
               onClick={refetch}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               <RefreshCw className="w-4 h-4" />
               Refresh
@@ -270,23 +270,23 @@ const ScadaPackageListPage: React.FC = () => {
       <div className="flex gap-4 mb-6">
         {/* Search */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search packages..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
           />
         </div>
 
         {/* Status Filter */}
         <div className="relative">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="pl-9 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500 appearance-none bg-white"
+            className="pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500 appearance-none bg-white dark:bg-gray-900"
           >
             <option value="all">All Statuses</option>
             <option value="DRAFT">Draft</option>
@@ -298,10 +298,10 @@ const ScadaPackageListPage: React.FC = () => {
 
       {/* Package List */}
       {filteredPackages.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <Package className="w-12 h-12 mx-auto text-gray-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No packages found</h3>
-          <p className="text-gray-500 mb-4">
+        <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <Package className="w-12 h-12 mx-auto text-gray-500 dark:text-gray-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">No packages found</h3>
+          <p className="text-gray-500 dark:text-gray-400 mb-4">
             {searchTerm || statusFilter !== 'all'
               ? 'Try changing the search or filter'
               : 'Get started by creating your first SCADA package'}

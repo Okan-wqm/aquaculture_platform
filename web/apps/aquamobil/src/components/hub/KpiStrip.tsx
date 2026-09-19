@@ -59,14 +59,14 @@ export function KpiStrip({ items }: KpiStripProps): ReactElement | null {
       {items.map((item) => (
         <div
           key={item.label}
-          className="bg-white/10 backdrop-blur-sm rounded-xl p-2.5 text-center"
+          className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-2.5 text-center"
           aria-label={item.ariaLabel ?? `${item.label}: ${item.value}`}
           role="status"
         >
           {item.isLoading ? (
             /* WHY motion-safe: respects the user's prefers-reduced-motion OS setting,
                which is common on accessibility-configured field devices. */
-            <div className="h-7 w-12 mx-auto rounded bg-white/20 motion-safe:animate-pulse" />
+            <div className="h-7 w-12 mx-auto rounded bg-white/20 dark:bg-gray-900/20 motion-safe:animate-pulse" />
           ) : (
             <div
               className={clsx(

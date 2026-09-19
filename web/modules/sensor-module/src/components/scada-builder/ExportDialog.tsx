@@ -296,14 +296,14 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
         <div className="px-5 py-4 space-y-4">
           {/* Format selector */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2">Format</label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Format</label>
             <div className="flex gap-2">
               <button
                 onClick={() => setFormat('png')}
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
                   format === 'png'
                     ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 <Image className="w-4 h-4" />
@@ -314,7 +314,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                 className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border text-sm font-medium transition-colors ${
                   format === 'pdf'
                     ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                    : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 <FileText className="w-4 h-4" />
@@ -325,7 +325,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
 
           {/* Resolution */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2">Resolution</label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Resolution</label>
             <div className="flex gap-2">
               {([1, 2, 3] as ExportResolution[]).map((res) => (
                 <button
@@ -334,7 +334,7 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
                   className={`flex-1 px-3 py-2 rounded-lg border text-xs font-medium transition-colors ${
                     resolution === res
                       ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                      : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                      : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   {res}x {res === 1 ? '(Screen)' : res === 2 ? '(Print)' : '(HiDPI)'}
@@ -345,12 +345,12 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
 
           {/* Filename */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-2">Filename</label>
+            <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Filename</label>
             <input
               type="text"
               value={filename}
               onChange={(e) => setFilename(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               placeholder="scada-export"
             />
           </div>
@@ -362,10 +362,10 @@ export const ExportDialog: React.FC<ExportDialogProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 bg-gray-50">
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>

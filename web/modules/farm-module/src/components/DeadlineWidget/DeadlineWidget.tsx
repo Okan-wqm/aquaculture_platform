@@ -266,7 +266,7 @@ export const DeadlineItemCard: React.FC<DeadlineItemCardProps> = ({
   return (
     <div
       className={`
-        p-3 hover:bg-gray-50 transition-colors cursor-pointer border-l-4
+        p-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer border-l-4
         ${config.borderColor}
       `}
       onClick={handleClick}
@@ -280,7 +280,7 @@ export const DeadlineItemCard: React.FC<DeadlineItemCardProps> = ({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-medium text-gray-900 truncate">
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
               {reportConfig.icon} {deadline.reportName}
             </p>
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${config.bgColor} ${config.textColor}`}>
@@ -288,11 +288,11 @@ export const DeadlineItemCard: React.FC<DeadlineItemCardProps> = ({
             </span>
           </div>
 
-          <p className="text-sm text-gray-600 truncate">{deadline.siteName}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 truncate">{deadline.siteName}</p>
 
           {!compact && (
             <div className="flex items-center justify-between mt-1">
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-gray-500 dark:text-gray-400">
                 {deadline.weekNumber
                   ? `Week ${deadline.weekNumber}, ${deadline.year}`
                   : deadline.month
@@ -349,7 +349,7 @@ export const UrgencyFilter: React.FC<UrgencyFilterProps> = ({
             onClick={() => toggleUrgency(urgency)}
             className={`
               px-2 py-1 text-xs rounded-full transition-colors
-              ${isSelected ? `${config.bgColor} ${config.iconColor}` : 'bg-gray-100 text-gray-500'}
+              ${isSelected ? `${config.bgColor} ${config.iconColor}` : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}
               ${count === 0 ? 'opacity-50' : ''}
             `}
             data-testid={`filter-${urgency}`}
@@ -385,7 +385,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
         />
       </svg>
     </div>
-    <p className="text-sm text-gray-500">{message}</p>
+    <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
 );
 
@@ -397,10 +397,10 @@ export const LoadingState: React.FC<LoadingStateProps> = ({ count = 3 }) => (
   <div className="p-4 space-y-3" data-testid="loading-state">
     {Array.from({ length: count }).map((_, i) => (
       <div key={i} className="animate-pulse flex space-x-3">
-        <div className="w-8 h-8 bg-gray-200 rounded-full" />
+        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full" />
         <div className="flex-1 space-y-2">
-          <div className="h-4 bg-gray-200 rounded w-3/4" />
-          <div className="h-3 bg-gray-200 rounded w-1/2" />
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+          <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
         </div>
       </div>
     ))}
@@ -480,13 +480,13 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
 
   return (
     <div
-      className={`bg-white rounded-lg shadow border border-gray-200 ${className}`}
+      className={`bg-white dark:bg-gray-900 rounded-lg shadow border border-gray-200 dark:border-gray-700 ${className}`}
       data-testid="deadline-widget"
     >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-200">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Report Deadlines</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Deadlines</h3>
           <div className="flex items-center space-x-2">
             {overdueCount > 0 && (
               <span
@@ -528,7 +528,7 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
       </div>
 
       {/* Content */}
-      <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
+      <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-80 overflow-y-auto">
         {isLoading ? (
           <LoadingState />
         ) : error ? (
@@ -555,9 +555,9 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
 
       {/* Footer */}
       {!isLoading && !error && deadlines.length > 0 && (
-        <div className="px-4 py-3 border-t border-gray-100 bg-gray-50">
+        <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               Total: {totalPending} pending ({overdueCount} overdue, {thisWeekCount} this
               week)
             </span>

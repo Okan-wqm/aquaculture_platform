@@ -167,10 +167,10 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
             placeholder={`Search ${itemLabel}...`}
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <svg
-            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -247,13 +247,13 @@ export const GenericStockTab: React.FC<StockTabProps> = ({ itemType, itemLabel, 
 function getCellClassName(col: StockTabColumn): string {
   switch (col) {
     case 'itemName':
-      return 'font-medium text-gray-900';
+      return 'font-medium text-gray-900 dark:text-gray-100';
     case 'quantity':
-      return 'font-medium text-gray-900';
+      return 'font-medium text-gray-900 dark:text-gray-100';
     case 'lotNumber':
-      return 'text-gray-500 font-mono';
+      return 'text-gray-500 dark:text-gray-400 font-mono';
     default:
-      return 'text-gray-500';
+      return 'text-gray-500 dark:text-gray-400';
   }
 }
 

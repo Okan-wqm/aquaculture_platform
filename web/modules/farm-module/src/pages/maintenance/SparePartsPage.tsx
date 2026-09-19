@@ -25,7 +25,7 @@ const statusColors: Record<SparePartStatus, string> = {
   LOW_STOCK: 'bg-yellow-100 text-yellow-800',
   OUT_OF_STOCK: 'bg-red-100 text-red-800',
   ON_ORDER: 'bg-blue-100 text-blue-800',
-  DISCONTINUED: 'bg-gray-100 text-gray-800',
+  DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 // Status labels
@@ -287,10 +287,10 @@ export const SparePartsPage: React.FC = () => {
       header: 'Kod / İsim',
       render: (_value, item) => (
         <>
-          <div className="text-sm font-medium text-gray-900">
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
             {item.code}
           </div>
-          <div className="text-sm text-gray-500">{item.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{item.name}</div>
         </>
       ),
     },
@@ -319,7 +319,7 @@ export const SparePartsPage: React.FC = () => {
                 ? 'text-red-600'
                 : item.quantity <= item.reorderPoint
                 ? 'text-yellow-600'
-                : 'text-gray-900'
+                : 'text-gray-900 dark:text-gray-100'
             }`}
           >
             {item.quantity} {item.unit}
@@ -395,23 +395,23 @@ export const SparePartsPage: React.FC = () => {
       {stockSummary && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Toplam Parça</div>
-            <div className="text-2xl font-bold text-gray-900">{stockSummary.totalParts}</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Parça</div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stockSummary.totalParts}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Stokta</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Stokta</div>
             <div className="text-2xl font-bold text-green-600">{stockSummary.inStockCount}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Az Stok</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Az Stok</div>
             <div className="text-2xl font-bold text-yellow-600">{stockSummary.lowStockCount}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Stok Yok</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Stok Yok</div>
             <div className="text-2xl font-bold text-red-600">{stockSummary.outOfStockCount}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Toplam Değer</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Değer</div>
             <div className="text-2xl font-bold text-blue-600">{formatCurrency(parseMoney(stockSummary.totalValueDecimal))}</div>
           </Card>
         </div>
@@ -459,8 +459,8 @@ export const SparePartsPage: React.FC = () => {
 
         {/* Pagination */}
         {data && data.totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
+          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
               Toplam {data.total} kayıt, Sayfa {data.page} / {data.totalPages}
             </div>
             <div className="flex gap-2">
@@ -641,9 +641,9 @@ export const SparePartsPage: React.FC = () => {
       >
         <form onSubmit={handleStockMovementSubmit} className="space-y-4">
           {selectedPartForStock && (
-            <div className="bg-gray-50 p-4 rounded-lg mb-4">
-              <div className="text-sm text-gray-500">Mevcut Stok</div>
-              <div className="text-2xl font-bold text-gray-900">
+            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg mb-4">
+              <div className="text-sm text-gray-500 dark:text-gray-400">Mevcut Stok</div>
+              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {selectedPartForStock.quantity} {selectedPartForStock.unit}
               </div>
             </div>

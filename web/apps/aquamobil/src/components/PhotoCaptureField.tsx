@@ -140,10 +140,10 @@ export function PhotoCaptureField({
   return (
     <div className="px-4 mt-5">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+        <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
           Photos (Optional)
         </h3>
-        <span className="text-xs text-gray-400 tabular-nums">
+        <span className="text-xs text-gray-400 dark:text-gray-500 tabular-nums">
           {value.length}/{MAX_INCIDENT_PHOTOS}
         </span>
       </div>

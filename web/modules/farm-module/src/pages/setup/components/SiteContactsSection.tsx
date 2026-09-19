@@ -130,9 +130,9 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
 
   if (!siteId) {
     return (
-      <div className="mt-6 p-4 bg-gray-50 border border-dashed border-gray-300 rounded-lg">
-        <h3 className="text-sm font-semibold text-gray-700">İrtibat Kişileri</h3>
-        <p className="mt-1 text-xs text-gray-500">
+      <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">İrtibat Kişileri</h3>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Site oluşturulduktan sonra irtibat kişileri eklenebilir.
           Önce yukarıdaki "Kaydet" butonu ile siteyi oluşturun.
         </p>
@@ -144,19 +144,19 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
     // Read-only render for users who can see contacts but not edit.
     return (
       <div className="mt-6">
-        <h3 className="text-sm font-semibold text-gray-700">İrtibat Kişileri</h3>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">İrtibat Kişileri</h3>
         {contactsQuery.isLoading ? (
-          <p className="mt-1 text-xs text-gray-500">Yükleniyor…</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Yükleniyor…</p>
         ) : (contactsQuery.data ?? []).length === 0 ? (
-          <p className="mt-1 text-xs text-gray-500">Tanımlı irtibat yok.</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Tanımlı irtibat yok.</p>
         ) : (
           <ul className="mt-2 space-y-1 text-sm">
             {(contactsQuery.data ?? []).map((c) => (
               <li key={c.id}>
                 <span className="font-medium">{c.name}</span>
-                {c.role && <span className="text-gray-500"> · {c.role}</span>}
-                {c.email && <span className="text-gray-500"> · {c.email}</span>}
-                {c.phone && <span className="text-gray-500"> · {c.phone}</span>}
+                {c.role && <span className="text-gray-500 dark:text-gray-400"> · {c.role}</span>}
+                {c.email && <span className="text-gray-500 dark:text-gray-400"> · {c.email}</span>}
+                {c.phone && <span className="text-gray-500 dark:text-gray-400"> · {c.phone}</span>}
                 {c.isPrimary && (
                   <span className="ml-2 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
                     Ana
@@ -224,9 +224,9 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
   };
 
   return (
-    <div className="mt-6 border-t border-gray-200 pt-4">
+    <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700">İrtibat Kişileri</h3>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">İrtibat Kişileri</h3>
         <button
           type="button"
           onClick={handleAddRow}
@@ -235,15 +235,15 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
           + Yeni Kişi
         </button>
       </div>
-      <p className="mt-1 text-xs text-gray-500">
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
         Sitenin operatif irtibat kişileri. En fazla bir kişi "ana
         irtibat" olarak işaretlenebilir.
       </p>
 
       {contactsQuery.isLoading ? (
-        <p className="mt-3 text-sm text-gray-500">Yükleniyor…</p>
+        <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Yükleniyor…</p>
       ) : rows.length === 0 ? (
-        <div className="mt-3 p-3 bg-gray-50 border border-dashed border-gray-300 rounded text-sm text-gray-500 text-center">
+        <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded text-sm text-gray-500 dark:text-gray-400 text-center">
           Tanımlı irtibat yok. "Yeni Kişi" ile satır ekleyin.
         </div>
       ) : (
@@ -251,7 +251,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
           {rows.map((row) => (
             <div
               key={row.localKey}
-              className="grid grid-cols-1 md:grid-cols-12 gap-2 p-2 border border-gray-200 rounded"
+              className="grid grid-cols-1 md:grid-cols-12 gap-2 p-2 border border-gray-200 dark:border-gray-700 rounded"
             >
               <input
                 type="text"
@@ -260,7 +260,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
                 onChange={(e) =>
                   handleChange(row.localKey, { name: e.target.value })
                 }
-                className="md:col-span-3 px-2 py-1 text-sm border border-gray-300 rounded"
+                className="md:col-span-3 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded"
                 maxLength={100}
               />
               <input
@@ -270,7 +270,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
                 onChange={(e) =>
                   handleChange(row.localKey, { role: e.target.value })
                 }
-                className="md:col-span-2 px-2 py-1 text-sm border border-gray-300 rounded"
+                className="md:col-span-2 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded"
                 maxLength={100}
               />
               <input
@@ -280,7 +280,7 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
                 onChange={(e) =>
                   handleChange(row.localKey, { email: e.target.value })
                 }
-                className="md:col-span-3 px-2 py-1 text-sm border border-gray-300 rounded"
+                className="md:col-span-3 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded"
                 maxLength={150}
               />
               <input
@@ -290,11 +290,11 @@ const SiteContactsSection: React.FC<SiteContactsSectionProps> = ({ siteId }) => 
                 onChange={(e) =>
                   handleChange(row.localKey, { phone: e.target.value })
                 }
-                className="md:col-span-2 px-2 py-1 text-sm border border-gray-300 rounded"
+                className="md:col-span-2 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded"
                 maxLength={50}
               />
               <div className="md:col-span-2 flex items-center justify-end gap-2">
-                <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+                <label className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
                   <input
                     type="radio"
                     name="primaryContact"

@@ -119,7 +119,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
               updateReceived(item.itemId, 'qty', parseFloat(e.target.value) || 0)
             }
             placeholder={String(remaining)}
-            className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+            className="w-20 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
           />
         );
       },
@@ -133,7 +133,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
           value={receivedItems[item.itemId]?.lotNumber ?? ''}
           onChange={(e) => updateReceived(item.itemId, 'lotNumber', e.target.value)}
           placeholder="LOT-"
-          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
         />
       ),
     },
@@ -147,7 +147,7 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
           onChange={(e) =>
             updateReceived(item.itemId, 'expiryDate', e.target.value)
           }
-          className="w-32 border border-gray-300 rounded px-2 py-1 text-sm"
+          className="w-32 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
         />
       ),
     }
@@ -165,12 +165,12 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
         <div className="space-y-4">
           {/* Storage Location */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Storage Location *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Storage Location *</label>
             <select
               value={storageLocationId}
               onChange={(e) => setStorageLocationId(e.target.value)}
               required
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Select location...</option>
               {(locations?.items || []).map((loc: any) => (
@@ -193,17 +193,17 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
           />
 
           {pendingItems.length === 0 && (
-            <div className="text-center py-4 text-sm text-gray-500">
+            <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
               All items have been received.
             </div>
           )}
         </div>
 
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>

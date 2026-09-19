@@ -116,7 +116,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
     <>
       <button
         onClick={onClose}
-        className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-200 rounded"
+        className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-200 rounded"
       >
         Cancel
       </button>
@@ -139,7 +139,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
       <button
         onClick={handleDownload}
         disabled={bundleSize > 1_048_576}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 dark:disabled:text-gray-400 text-white rounded"
       >
         <Download className="w-3.5 h-3.5" />
         Download .json
@@ -165,26 +165,26 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
     >
       {/* Program Info */}
       <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-        <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
           Program
         </h3>
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
-            <span className="text-gray-500">Code: </span>
+            <span className="text-gray-500 dark:text-gray-400">Code: </span>
             <span className="text-gray-200 font-mono">
               {program.programCode}
             </span>
           </div>
           <div>
-            <span className="text-gray-500">Name: </span>
+            <span className="text-gray-500 dark:text-gray-400">Name: </span>
             <span className="text-gray-200">{program.programName}</span>
           </div>
           <div>
-            <span className="text-gray-500">Type: </span>
+            <span className="text-gray-500 dark:text-gray-400">Type: </span>
             <span className="text-blue-300">{program.programType}</span>
           </div>
           <div>
-            <span className="text-gray-500">Mode: </span>
+            <span className="text-gray-500 dark:text-gray-400">Mode: </span>
             <span className="text-blue-300">{program.executionMode}</span>
           </div>
         </div>
@@ -196,34 +196,34 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           <div className="text-lg font-semibold text-gray-100">
             {variables.length}
           </div>
-          <div className="text-xs text-gray-500">Variables</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Variables</div>
         </div>
         <div className="bg-gray-800 rounded p-2 text-center">
           <div className="text-lg font-semibold text-gray-100">
             {steps.length}
           </div>
-          <div className="text-xs text-gray-500">Steps</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Steps</div>
         </div>
         <div className="bg-gray-800 rounded p-2 text-center">
           <div className="text-lg font-semibold text-gray-100">
             {transitions.length}
           </div>
-          <div className="text-xs text-gray-500">Transitions</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Transitions</div>
         </div>
         <div className="bg-gray-800 rounded p-2 text-center">
           <div className="text-lg font-semibold text-gray-100">
             {formatFileSize(codeSize)}
           </div>
-          <div className="text-xs text-gray-500">Code Size</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Code Size</div>
         </div>
       </div>
 
       {/* Options */}
       <div className="bg-gray-800 rounded-lg p-3 space-y-2">
-        <h3 className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+        <h3 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
           Options
         </h3>
-        <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 cursor-pointer">
           <input
             type="checkbox"
             checked={includeSteps}
@@ -232,7 +232,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
           />
           Include SFC steps ({steps.length})
         </label>
-        <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer">
+        <label className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 cursor-pointer">
           <input
             type="checkbox"
             checked={includeTransitions}
@@ -245,7 +245,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
 
       {/* Bundle Size */}
       <div className="flex items-center justify-between text-sm">
-        <span className="text-gray-500">
+        <span className="text-gray-500 dark:text-gray-400">
           Bundle size: {formatFileSize(bundleSize)}
         </span>
         {bundleSize > 1_048_576 && (
@@ -258,7 +258,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
       {/* Preview Toggle */}
       <button
         onClick={() => setShowPreview(!showPreview)}
-        className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-200"
+        className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-200"
       >
         {showPreview ? (
           <EyeOff className="w-3.5 h-3.5" />
@@ -271,7 +271,7 @@ const ExportDialog: React.FC<ExportDialogProps> = ({
       {/* Preview Pane */}
       {showPreview && (
         <div className="bg-gray-950 rounded border border-gray-700 p-3 max-h-64 overflow-auto">
-          <pre className="text-xs text-gray-500 font-mono whitespace-pre-wrap break-all">
+          <pre className="text-xs text-gray-500 dark:text-gray-400 font-mono whitespace-pre-wrap break-all">
             {bundleJson}
           </pre>
         </div>

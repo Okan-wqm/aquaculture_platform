@@ -138,7 +138,7 @@ export const AreaChart: React.FC<AreaChartProps> = ({
   if (!data || data.length === 0) {
     return (
       <div className={`flex items-center justify-center ${className}`} style={{ width, height }}>
-        <span className="text-gray-500 text-sm">No data available</span>
+        <span className="text-gray-500 dark:text-gray-400 text-sm">No data available</span>
       </div>
     );
   }
@@ -176,7 +176,7 @@ export const AreaChart: React.FC<AreaChartProps> = ({
         )}
 
         {/* Y axis labels */}
-        <g className="text-gray-500 text-xs">
+        <g className="text-gray-500 dark:text-gray-400 text-xs">
           {yTicks.map((tick, i) => (
             <text
               key={i}
@@ -193,7 +193,7 @@ export const AreaChart: React.FC<AreaChartProps> = ({
 
         {/* X axis labels */}
         {showLabels && (
-          <g className="text-gray-500 text-xs">
+          <g className="text-gray-500 dark:text-gray-400 text-xs">
             {points.map((p, i) => (
               // Show every nth label to prevent overlap
               (data.length <= 7 || i % Math.ceil(data.length / 7) === 0) && (

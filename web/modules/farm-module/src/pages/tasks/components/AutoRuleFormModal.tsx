@@ -80,26 +80,26 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
         <div className="space-y-4">
           {/* Rule Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Kural Adı *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kural Adı *</label>
             <input
               type="text"
               value={formData.name}
               onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
               placeholder="Stok azaldığında sipariş görevi oluştur"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               required
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
               rows={2}
               placeholder="Kuralın ne yaptığını kısaca açıklayın..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
 
@@ -109,7 +109,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
             {/* Trigger Type */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Tetikleyici Tipi *
               </label>
               <select
@@ -117,7 +117,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, trigger: e.target.value as AutoRuleTrigger }))
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900"
               >
                 {Object.entries(TRIGGER_CONFIG).map(([key, val]) => (
                   <option key={key} value={key}>
@@ -129,7 +129,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
             {/* Trigger Condition */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Tetikleyici Koşul *
               </label>
               <input
@@ -139,7 +139,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                   setFormData((prev) => ({ ...prev, triggerCondition: e.target.value }))
                 }
                 placeholder={TRIGGER_PLACEHOLDERS[formData.trigger]}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
               />
             </div>
@@ -151,7 +151,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
             {/* Task Title */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Görev Başlığı *
               </label>
               <input
@@ -159,14 +159,14 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                 value={formData.taskTitle}
                 onChange={(e) => setFormData((prev) => ({ ...prev, taskTitle: e.target.value }))}
                 placeholder="Yem siparişi ver"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 required
               />
             </div>
 
             {/* Task Description */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Görev Açıklaması
               </label>
               <textarea
@@ -176,14 +176,14 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                 }
                 rows={2}
                 placeholder="Görev detayları..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
             {/* Category + Priority */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Kategori *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kategori *</label>
                 <select
                   value={formData.taskCategory}
                   onChange={(e) =>
@@ -192,7 +192,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                       taskCategory: e.target.value as TaskCategory,
                     }))
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900"
                 >
                   {Object.entries(CATEGORY_CONFIG).map(([key, val]) => (
                     <option key={key} value={key}>
@@ -202,7 +202,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Öncelik *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Öncelik *</label>
                 <select
                   value={formData.taskPriority}
                   onChange={(e) =>
@@ -211,7 +211,7 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
                       taskPriority: e.target.value as TaskPriority,
                     }))
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900"
                 >
                   {Object.entries(PRIORITY_CONFIG).map(([key, val]) => (
                     <option key={key} value={key}>
@@ -224,11 +224,11 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
 
             {/* Assign To */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Atanacak Kişi</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Atanacak Kişi</label>
               <select
                 value={formData.assignTo}
                 onChange={(e) => setFormData((prev) => ({ ...prev, assignTo: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 bg-white dark:bg-gray-900"
               >
                 <option value="">
                   {users.length === 0 ? 'Yükleniyor...' : 'Seçin (opsiyonel)'}
@@ -244,11 +244,11 @@ export const AutoRuleFormModal: React.FC<AutoRuleFormModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-100"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
             disabled={saving}
           >
             İptal

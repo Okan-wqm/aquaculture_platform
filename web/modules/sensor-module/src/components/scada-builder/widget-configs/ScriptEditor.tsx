@@ -19,7 +19,7 @@ import type { ScadaScript } from '../../../engine/events/types';
 
 /** Shared input class to match existing panel styling. */
 const INPUT_CLASS =
-  'w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 interface ScriptEditorProps {
   script: ScadaScript;
@@ -120,7 +120,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
           value={script.name}
           onChange={(e) => onChange({ name: e.target.value })}
           placeholder="Script name"
-          className="flex-1 px-2 py-1.5 text-xs font-medium border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="flex-1 px-2 py-1.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           data-testid="script-name-input"
         />
         <button
@@ -128,7 +128,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
           className={`p-1.5 rounded-lg border transition-colors ${
             script.enabled
               ? 'bg-green-50 border-green-300 text-green-600'
-              : 'bg-gray-50 border-gray-300 text-gray-400'
+              : 'bg-gray-50 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-400 dark:text-gray-500'
           }`}
           title={script.enabled ? 'Disable script' : 'Enable script'}
           data-testid="script-enabled-toggle"
@@ -137,7 +137,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
         </button>
         <button
           onClick={onDelete}
-          className="p-1.5 text-red-400 hover:text-red-600 rounded-lg border border-gray-200 hover:border-red-200 transition-colors"
+          className="p-1.5 text-red-400 hover:text-red-600 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-red-200 transition-colors"
           title="Delete script"
           data-testid="script-delete-btn"
         >
@@ -146,10 +146,10 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       </div>
 
       {/* Code editor with line number gutter */}
-      <div className="relative flex border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-cyan-500 focus-within:border-cyan-500">
+      <div className="relative flex border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-cyan-500 focus-within:border-cyan-500">
         {/* Line number gutter -- read-only, styled to match textarea lines */}
         <div
-          className="flex-shrink-0 bg-gray-100 text-gray-400 text-right select-none px-2 py-2 text-xs leading-[1.375rem] font-mono border-r border-gray-300"
+          className="flex-shrink-0 bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 text-right select-none px-2 py-2 text-xs leading-[1.375rem] font-mono border-r border-gray-300 dark:border-gray-600"
           aria-hidden="true"
           data-testid="line-numbers"
         >
@@ -194,10 +194,10 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
       </div>
 
       {/* Collapsible API reference */}
-      <div className="pt-1 border-t border-gray-200">
+      <div className="pt-1 border-t border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setShowApiRef(!showApiRef)}
-          className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+          className="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
           data-testid="api-ref-toggle"
         >
           {showApiRef ? (
@@ -215,7 +215,7 @@ export const ScriptEditor: React.FC<ScriptEditorProps> = ({
                 <code className="text-cyan-700 font-mono whitespace-nowrap bg-cyan-50 px-1 rounded">
                   {item.fn}
                 </code>
-                <span className="text-gray-500">{item.desc}</span>
+                <span className="text-gray-500 dark:text-gray-400">{item.desc}</span>
               </div>
             ))}
           </div>

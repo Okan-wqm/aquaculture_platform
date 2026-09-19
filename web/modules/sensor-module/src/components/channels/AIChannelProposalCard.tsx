@@ -59,7 +59,7 @@ const confidenceConfig = {
 const dataTypeBadgeColor: Record<string, string> = {
   number: 'bg-blue-100 text-blue-800',
   boolean: 'bg-purple-100 text-purple-800',
-  string: 'bg-gray-100 text-gray-700',
+  string: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   enum: 'bg-orange-100 text-orange-800',
 };
 
@@ -74,7 +74,7 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
   onEdit,
 }) => {
   const conf = confidenceConfig[proposal.confidence] || confidenceConfig.medium;
-  const typeBadge = dataTypeBadgeColor[proposal.dataType] || 'bg-gray-100 text-gray-700';
+  const typeBadge = dataTypeBadgeColor[proposal.dataType] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
 
   const hasRange =
     proposal.operationalMin != null || proposal.operationalMax != null;
@@ -83,11 +83,11 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
     proposal.alertThresholds?.warning || proposal.alertThresholds?.critical;
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors bg-white">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 hover:border-gray-300 dark:hover:border-gray-500 transition-colors bg-white dark:bg-gray-900">
       {/* Top row: channel key, type badge, confidence */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span className="font-mono text-xs text-gray-500">{proposal.channelKey}</span>
+          <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{proposal.channelKey}</span>
           <span
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeBadge}`}
           >
@@ -102,13 +102,13 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
       </div>
 
       {/* Label */}
-      <p className="text-sm font-medium text-gray-900 mb-1">{proposal.displayLabel}</p>
+      <p className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">{proposal.displayLabel}</p>
 
       {/* Details row */}
-      <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
+      <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mb-3">
         {proposal.unit && (
           <span>
-            Birim: <span className="text-gray-700 font-medium">{proposal.unit}</span>
+            Birim: <span className="text-gray-700 dark:text-gray-300 font-medium">{proposal.unit}</span>
           </span>
         )}
         {hasRange && (
@@ -118,14 +118,14 @@ export const AIChannelProposalCard: React.FC<AIChannelProposalCardProps> = ({
         )}
         {proposal.widgetType && (
           <span>
-            Widget: <span className="text-gray-700">{proposal.widgetType}</span>
+            Widget: <span className="text-gray-700 dark:text-gray-300">{proposal.widgetType}</span>
           </span>
         )}
       </div>
 
       {/* Alert thresholds (if present) */}
       {hasThresholds && (
-        <div className="flex items-center gap-2 text-xs text-gray-500 mb-3">
+        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 mb-3">
           <AlertTriangle className="w-3 h-3 text-yellow-500" />
           {proposal.alertThresholds?.warning && (
             <span>

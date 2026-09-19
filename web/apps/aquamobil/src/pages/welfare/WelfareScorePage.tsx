@@ -56,7 +56,7 @@ function ScoreDial(props: {
   const { label, value, onChange } = props;
   return (
     <div className="px-4 mt-4">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">{label}</h3>
       <div className="grid grid-cols-4 gap-2">
         {SCORE_LABELS.map((scoreLabel, score) => {
           const selected = value === score;

@@ -184,16 +184,16 @@ const TabButton: React.FC<{
       onClick={disabled ? undefined : onClick}
       className={`flex items-center gap-2 px-4 py-2 border-b-2 transition-colors ${
         disabled
-          ? 'border-transparent text-gray-500 cursor-not-allowed'
+          ? 'border-transparent text-gray-500 dark:text-gray-400 cursor-not-allowed'
           : active
             ? 'border-indigo-600 text-indigo-600'
-            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
       }`}
     >
       {icon}
       <span>{label}</span>
       {count !== undefined && (
-        <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100">
+        <span className="ml-1 px-2 py-0.5 text-xs rounded-full bg-gray-100 dark:bg-gray-800">
           {count}
         </span>
       )}
@@ -210,18 +210,18 @@ const StepCard: React.FC<{
   step: ProgramStep;
   onRemove: () => void;
 }> = ({ step, onRemove }) => (
-  <div className="bg-white rounded-lg border border-gray-200 p-4">
+  <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
     <div className="flex items-start justify-between">
       <div className="flex items-center gap-3">
         <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-          step.stepType === 'initial' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+          step.stepType === 'initial' ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
         }`}>
           {step.stepOrder}
         </div>
         <div>
-          <h4 className="font-medium text-gray-900">{step.stepName}</h4>
+          <h4 className="font-medium text-gray-900 dark:text-gray-100">{step.stepName}</h4>
           {step.description && (
-            <p className="text-sm text-gray-500">{step.description}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{step.description}</p>
           )}
         </div>
       </div>
@@ -281,8 +281,8 @@ const IoTagAnalysisPanel: React.FC<{
 
   if (ioVariables.length === 0 && parseErrors.length === 0) {
     return (
-      <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-        <div className="flex items-center gap-2 text-gray-500 text-sm">
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-sm">
           <Unlink className="h-4 w-4" />
           <span>
             No VAR_INPUT / VAR_OUTPUT / VAR_IN_OUT variables found in ST code.
@@ -312,7 +312,7 @@ const IoTagAnalysisPanel: React.FC<{
       key: 'direction',
       header: 'Direction',
       render: (_value, b) => (
-        <span className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 text-gray-600'}`}>
+        <span className={`text-xs px-1.5 py-0.5 rounded ${directionBadge[b.direction] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
           {directionLabel[b.direction] || b.direction}
         </span>
       ),
@@ -337,7 +337,7 @@ const IoTagAnalysisPanel: React.FC<{
               {b.boundTagName}
             </span>
           ) : (
-            <span className="text-gray-500 text-xs">-</span>
+            <span className="text-gray-500 dark:text-gray-400 text-xs">-</span>
           )}
         </>
       ),
@@ -356,11 +356,11 @@ const IoTagAnalysisPanel: React.FC<{
   return (
     <div className="space-y-3">
       {/* Summary bar */}
-      <div className="bg-white rounded-lg border border-gray-200 p-3">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="h-4 w-4 text-indigo-600" />
-            <span className="text-sm font-medium text-gray-700">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
               I/O Tag Analysis
             </span>
           </div>
@@ -376,8 +376,8 @@ const IoTagAnalysisPanel: React.FC<{
                 {inoutCount} In/Out
               </span>
             )}
-            <span className="mx-1 text-gray-500">|</span>
-            <span className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'}`}>
+            <span className="mx-1 text-gray-500 dark:text-gray-400">|</span>
+            <span className={`flex items-center gap-1 px-2 py-0.5 rounded ${boundCount > 0 ? 'bg-green-50 text-green-700' : 'bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
               <Link2 className="h-3 w-3" />
               {boundCount} Bound
             </span>
@@ -445,13 +445,13 @@ const IoTagAnalysisPanel: React.FC<{
             {suggestions.map((s) => (
               <div
                 key={s.variableName}
-                className="flex items-center justify-between bg-white rounded px-3 py-1.5 border border-indigo-100"
+                className="flex items-center justify-between bg-white dark:bg-gray-900 rounded px-3 py-1.5 border border-indigo-100"
               >
                 <div className="flex items-center gap-2 text-xs">
-                  <span className="font-mono font-medium text-gray-900">{s.variableName}</span>
-                  <span className="text-gray-500">&#8594;</span>
+                  <span className="font-mono font-medium text-gray-900 dark:text-gray-100">{s.variableName}</span>
+                  <span className="text-gray-500 dark:text-gray-400">&#8594;</span>
                   <span className="font-mono text-indigo-700">{s.suggestedTag.tagName}</span>
-                  <span className="text-gray-500">({s.suggestedTag.ioType} {s.suggestedTag.dataType})</span>
+                  <span className="text-gray-500 dark:text-gray-400">({s.suggestedTag.ioType} {s.suggestedTag.dataType})</span>
                   {s.matchType === 'exact' && (
                     <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700 text-[10px]">Exact Match</span>
                   )}
@@ -459,7 +459,7 @@ const IoTagAnalysisPanel: React.FC<{
                     <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px]">Similar</span>
                   )}
                   {s.matchType === 'partial' && (
-                    <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 text-[10px]">Partial</span>
+                    <span className="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-[10px]">Partial</span>
                   )}
                 </div>
                 <button
@@ -1014,10 +1014,10 @@ const AutomationProgramEditorPage: React.FC = () => {
           failed: 'bg-red-100 text-red-700',
           pending: 'bg-yellow-100 text-yellow-700',
           in_progress: 'bg-blue-100 text-blue-700',
-          rolled_back: 'bg-gray-100 text-gray-700',
+          rolled_back: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
         };
         return (
-          <span className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 text-gray-600'}`}>
+          <span className={`text-xs px-2 py-0.5 rounded ${statusBadge[dep.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
             {dep.status}
           </span>
         );
@@ -1081,10 +1081,10 @@ const AutomationProgramEditorPage: React.FC = () => {
             {variable.ioTagName}
           </span>
         ) : (
-          <span className="text-gray-500">-</span>
+          <span className="text-gray-500 dark:text-gray-400">-</span>
         ),
     },
-    { key: 'description', header: 'Description', render: (_value, variable) => <span className="text-gray-500">{variable.description || '-'}</span> },
+    { key: 'description', header: 'Description', render: (_value, variable) => <span className="text-gray-500 dark:text-gray-400">{variable.description || '-'}</span> },
     {
       key: 'actions',
       header: '',
@@ -1148,7 +1148,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               <button
                 type="button"
                 onClick={closeRejectModal}
-                className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+                className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Cancel
               </button>
@@ -1168,7 +1168,7 @@ const AutomationProgramEditorPage: React.FC = () => {
             onChange={(e) => setRejectReason(e.target.value)}
             placeholder="Enter rejection reason..."
             rows={4}
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white mb-4"
+            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 mb-4"
           />
         </Modal>
       )}
@@ -1191,7 +1191,7 @@ const AutomationProgramEditorPage: React.FC = () => {
         leading={
           <Link
             to="/sensor/automation"
-            className="p-2 rounded-lg hover:bg-gray-100"
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <ArrowLeft className="h-5 w-5" />
           </Link>
@@ -1202,7 +1202,7 @@ const AutomationProgramEditorPage: React.FC = () => {
               <button
                 onClick={() => submitForReviewMutation.mutate()}
                 disabled={submitForReviewMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50"
+                className="flex items-center gap-2 px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Send className="h-4 w-4" />
                 Submit for Review
@@ -1286,14 +1286,14 @@ const AutomationProgramEditorPage: React.FC = () => {
                           ? 'bg-green-500 text-white'
                           : isCurrent
                             ? 'bg-indigo-600 text-white ring-4 ring-indigo-100'
-                            : 'bg-gray-200 text-gray-500'
+                            : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
                       }`}
                     >
                       {isCompleted ? <CheckCircle className="h-4 w-4" /> : index + 1}
                     </div>
                     <span
                       className={`mt-1 text-xs ${
-                        isCurrent ? 'font-semibold text-indigo-600' : 'text-gray-500'
+                        isCurrent ? 'font-semibold text-indigo-600' : 'text-gray-500 dark:text-gray-400'
                       }`}
                     >
                       {step.label}
@@ -1302,7 +1302,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   {index < arr.length - 1 && (
                     <div
                       className={`flex-1 h-0.5 mx-1 mt-[-12px] ${
-                        stepIndex < currentIndex ? 'bg-green-500' : 'bg-gray-200'
+                        stepIndex < currentIndex ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
                       }`}
                     />
                   )}
@@ -1314,7 +1314,7 @@ const AutomationProgramEditorPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200 mb-6">
+      <div className="flex border-b border-gray-200 dark:border-gray-700 mb-6">
         <TabButton
           active={activeTab === 'info'}
           onClick={() => setActiveTab('info')}
@@ -1358,10 +1358,10 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Info Tab / New Form */}
       {activeTab === 'info' && (
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
           <div className="grid grid-cols-2 gap-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Code *
               </label>
               <input
@@ -1370,11 +1370,11 @@ const AutomationProgramEditorPage: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, programCode: e.target.value })}
                 disabled={!isNew}
                 placeholder="PRG_001"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white disabled:bg-gray-100"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 disabled:bg-gray-100 dark:disabled:bg-gray-800"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Name *
               </label>
               <input
@@ -1382,19 +1382,19 @@ const AutomationProgramEditorPage: React.FC = () => {
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder="Feeding Automation"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Program Type
               </label>
-              <div className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-100 text-gray-700">
+              <div className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                 Structured Text (ST)
               </div>
             </div>
             <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Description
               </label>
               <textarea
@@ -1402,7 +1402,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={3}
                 placeholder="Program description..."
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               />
             </div>
           </div>
@@ -1411,7 +1411,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Variables Tab */}
       {activeTab === 'variables' && isNew && (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center text-gray-500 dark:text-gray-400">
           <Variable className="h-12 w-12 mx-auto mb-3 opacity-50" />
           <p>Save the program first to use this tab.</p>
         </div>
@@ -1453,7 +1453,7 @@ const AutomationProgramEditorPage: React.FC = () => {
           </div>
 
           {showAddVariable && (
-            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
               <h3 className="font-medium mb-3">New Variable</h3>
               <div className="grid grid-cols-4 gap-4">
                 <input
@@ -1461,12 +1461,12 @@ const AutomationProgramEditorPage: React.FC = () => {
                   value={newVariable.varName}
                   onChange={(e) => setNewVariable({ ...newVariable, varName: e.target.value })}
                   placeholder="Variable name"
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <select
                   value={newVariable.dataType}
                   onChange={(e) => setNewVariable({ ...newVariable, dataType: e.target.value })}
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 >
                   <option value="BOOL">BOOL</option>
                   <option value="INT">INT</option>
@@ -1479,7 +1479,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                   value={newVariable.initialValue}
                   onChange={(e) => setNewVariable({ ...newVariable, initialValue: e.target.value })}
                   placeholder="Initial value"
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 />
                 <select
                   value={newVariable.scope}
@@ -1491,7 +1491,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                       setIoDeviceId('');
                     }
                   }}
-                  className="px-3 py-2 border border-gray-200 rounded-lg"
+                  className="px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg"
                 >
                   <option value="LOCAL">LOCAL</option>
                   <option value="INPUT">INPUT</option>
@@ -1507,14 +1507,14 @@ const AutomationProgramEditorPage: React.FC = () => {
                   <h4 className="text-sm font-medium text-blue-700 mb-3">I/O Tag Binding</h4>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">Edge Device</label>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Edge Device</label>
                       <select
                         value={ioDeviceId}
                         onChange={(e) => {
                           setIoDeviceId(e.target.value);
                           setNewVariable({ ...newVariable, ioTagName: '', ioConfigId: '' });
                         }}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm"
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm"
                       >
                         <option value="">Select device...</option>
                         {allActiveDevices.map((device: EdgeDevice) => (
@@ -1525,7 +1525,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs font-medium text-gray-600 mb-1">I/O Tag</label>
+                      <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">I/O Tag</label>
                       <select
                         value={newVariable.ioConfigId}
                         onChange={(e) => {
@@ -1544,7 +1544,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                           }
                         }}
                         disabled={!ioDeviceId || ioTags.length === 0}
-                        className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white text-sm disabled:bg-gray-100"
+                        className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800"
                       >
                         <option value="">{!ioDeviceId ? 'Select device first...' : ioTags.length === 0 ? 'No I/O tags found' : 'Select tag...'}</option>
                         {ioTags.map((tag) => (
@@ -1571,7 +1571,7 @@ const AutomationProgramEditorPage: React.FC = () => {
                     setShowAddVariable(false);
                     setIoDeviceId('');
                   }}
-                  className="px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-100"
+                  className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   Cancel
                 </button>
@@ -1603,8 +1603,8 @@ const AutomationProgramEditorPage: React.FC = () => {
         <div className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: 400 }}>
           {/* I/O Tag status bar */}
           {tagAnalysis.ioVariables.length > 0 && (
-            <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-t-lg text-xs flex-shrink-0">
-              <span className="flex items-center gap-1 text-gray-600">
+            <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-t-lg text-xs flex-shrink-0">
+              <span className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
                 <Zap className="h-3.5 w-3.5" />
                 I/O Variables:
               </span>
@@ -1646,7 +1646,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Deploy Tab */}
       {activeTab === 'deploy' && isNew && (
-        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-12 text-center text-gray-500 dark:text-gray-400">
           <Upload className="h-12 w-12 mx-auto mb-3 opacity-50" />
           <p>Save the program first to use this tab.</p>
         </div>
@@ -1654,8 +1654,8 @@ const AutomationProgramEditorPage: React.FC = () => {
       {activeTab === 'deploy' && !isNew && (
         <div className="space-y-6">
           {/* Deploy Target Selection */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
               Target Platform
             </h3>
             <DeployTargetSelector
@@ -1667,20 +1667,20 @@ const AutomationProgramEditorPage: React.FC = () => {
           </div>
 
           {/* Edge Device Selector */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
               Select Edge Device
             </h3>
             {onlineDevices.length === 0 ? (
-              <div className="text-center py-4 text-gray-500 text-sm">
-                <WifiOff className="h-8 w-8 mx-auto text-gray-500 mb-2" />
+              <div className="text-center py-4 text-gray-500 dark:text-gray-400 text-sm">
+                <WifiOff className="h-8 w-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" />
                 No active and online devices found
               </div>
             ) : (
               <select
                 value={selectedDeviceId}
                 onChange={(e) => setSelectedDeviceId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900"
               >
                 <option value="">Select device...</option>
                 {onlineDevices.map((device: EdgeDevice) => (
@@ -1702,13 +1702,13 @@ const AutomationProgramEditorPage: React.FC = () => {
           </div>
 
           {/* Deploy Action */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <div className="text-center py-4">
-              <Server className="h-12 w-12 mx-auto text-gray-500 mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
+              <Server className="h-12 w-12 mx-auto text-gray-500 dark:text-gray-400 mb-4" />
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
                 Deploy to Edge Device
               </h3>
-              <p className="text-gray-500 mb-4 text-sm">
+              <p className="text-gray-500 dark:text-gray-400 mb-4 text-sm">
                 {program?.status === ProgramStatus.APPROVED
                   ? `Will deploy to ${deployTarget === DeployTarget.RUST_ENGINE ? 'Rust Engine' : deployTarget === DeployTarget.CODESYS_PLC ? 'Codesys PLC' : 'PLC Setpoint'} target`
                   : 'Program must be approved before deployment'}
@@ -1743,15 +1743,15 @@ const AutomationProgramEditorPage: React.FC = () => {
           </div>
 
           {/* Deployment History */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center gap-2 mb-4">
-              <History className="h-4 w-4 text-gray-500" />
-              <h3 className="text-sm font-medium text-gray-700">
+              <History className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Deployment History
               </h3>
             </div>
             {deploymentHistory.length === 0 ? (
-              <div className="text-center py-6 text-gray-500 text-sm">
+              <div className="text-center py-6 text-gray-500 dark:text-gray-400 text-sm">
                 No deployments yet
               </div>
             ) : (

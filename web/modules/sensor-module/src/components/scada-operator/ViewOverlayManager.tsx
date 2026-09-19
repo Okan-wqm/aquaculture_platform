@@ -213,7 +213,7 @@ const OverlayTitleBar = memo<OverlayTitleBarProps>(
     >
       <GripHorizontal
         size={14}
-        className="text-gray-500 shrink-0"
+        className="text-gray-500 dark:text-gray-400 shrink-0"
         aria-hidden="true"
       />
       <span className="flex-1 truncate text-xs font-medium text-gray-200">
@@ -311,7 +311,7 @@ const DialogOverlay = memo<OverlayItemProps>(
                 sandbox="allow-scripts allow-same-origin allow-forms"
               />
             ) : (
-              <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+              <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
                 Screen: {overlay.screenId ?? '—'}
               </div>
             )}
@@ -400,7 +400,7 @@ const CardOverlay = memo<OverlayItemProps>(
               sandbox="allow-scripts allow-same-origin allow-forms"
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+            <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
               Screen: {overlay.screenId ?? '—'}
             </div>
           )}
@@ -462,7 +462,7 @@ const IframeOverlay = memo<OverlayItemProps>(
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
             />
           ) : (
-            <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+            <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
               No URL configured
             </div>
           )}

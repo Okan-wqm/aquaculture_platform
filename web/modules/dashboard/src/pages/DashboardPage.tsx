@@ -212,9 +212,9 @@ const DashboardPage: React.FC = () => {
           />
         </div>
       ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-          <p className="text-sm text-gray-500">Henuz veri yok</p>
-          <p className="text-xs text-gray-500 mt-1">
+        <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Henuz veri yok</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Ciftlik ve sensor verileriniz burada gorunecektir.
           </p>
         </div>

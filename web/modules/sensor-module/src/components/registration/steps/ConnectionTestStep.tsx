@@ -78,8 +78,8 @@ export function ConnectionTestStep({
       {loading && !currentResult && (
         <div className="text-center py-8">
           <Spinner size="xl" block />
-          <p className="mt-4 text-gray-600">Testing connection to sensor...</p>
-          <p className="text-sm text-gray-500 mt-2">This may take up to 15 seconds</p>
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Testing connection to sensor...</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">This may take up to 15 seconds</p>
         </div>
       )}
 
@@ -124,17 +124,17 @@ export function ConnectionTestStep({
           {/* Details */}
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <span className="text-sm font-medium text-gray-500">Protocol</span>
-              <p className="text-gray-900">{protocolCode}</p>
+              <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Protocol</span>
+              <p className="text-gray-900 dark:text-gray-100">{protocolCode}</p>
             </div>
             <div>
-              <span className="text-sm font-medium text-gray-500">Tested At</span>
-              <p className="text-gray-900">{new Date(currentResult.testedAt).toLocaleString()}</p>
+              <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Tested At</span>
+              <p className="text-gray-900 dark:text-gray-100">{new Date(currentResult.testedAt).toLocaleString()}</p>
             </div>
             {currentResult.latencyMs !== undefined && (
               <div>
-                <span className="text-sm font-medium text-gray-500">Latency</span>
-                <p className="text-gray-900">{currentResult.latencyMs} ms</p>
+                <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Latency</span>
+                <p className="text-gray-900 dark:text-gray-100">{currentResult.latencyMs} ms</p>
               </div>
             )}
           </div>
@@ -150,9 +150,9 @@ export function ConnectionTestStep({
 
           {/* Sample data */}
           {currentResult.sampleData && Object.keys(currentResult.sampleData).length > 0 && (
-            <div className="bg-white rounded-md p-3 border border-gray-200">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Sample Data Received</h4>
-              <pre className="text-xs text-gray-600 overflow-auto max-h-32">
+            <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-gray-200 dark:border-gray-700">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sample Data Received</h4>
+              <pre className="text-xs text-gray-600 dark:text-gray-400 overflow-auto max-h-32">
                 {JSON.stringify(currentResult.sampleData, null, 2)}
               </pre>
             </div>

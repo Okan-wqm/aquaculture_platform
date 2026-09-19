@@ -243,7 +243,7 @@ export const KioskMode = React.memo<KioskModeProps>(
 
         {/* Fullscreen indicator (dev/diagnostic) */}
         {process.env.NODE_ENV === 'development' && (
-          <div className="absolute bottom-2 left-2 text-[10px] text-gray-700 pointer-events-none select-none">
+          <div className="absolute bottom-2 left-2 text-[10px] text-gray-700 dark:text-gray-300 pointer-events-none select-none">
             {isFullscreen ? 'fullscreen' : 'windowed'} kiosk
           </div>
         )}

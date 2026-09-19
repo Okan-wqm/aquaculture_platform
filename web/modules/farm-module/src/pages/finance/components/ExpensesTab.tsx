@@ -110,7 +110,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
       render: (_value, item) => (
         <>
           {item.origin === 'MANUAL' ? (
-            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
+            <span className="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 text-xs text-gray-600 dark:text-gray-400">
               manual
             </span>
           ) : (
@@ -145,7 +145,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
                 </button>
               )}
               {!canUpdate && !canDelete && (
-                <span className="text-xs text-gray-400">—</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">—</span>
               )}
             </span>
           ) : (
@@ -165,7 +165,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center space-x-3">
-          <label htmlFor="origin-filter" className="text-sm text-gray-600">
+          <label htmlFor="origin-filter" className="text-sm text-gray-600 dark:text-gray-400">
             Show:
           </label>
           <select
@@ -175,7 +175,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
               setOriginFilter(e.target.value as typeof originFilter);
               setOffset(0);
             }}
-            className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="ALL">All entries</option>
             <option value="MANUAL">Manual entries</option>
@@ -193,7 +193,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
       </div>
 
       {ledgerQuery.isLoading && (
-        <div className="py-16 text-center text-gray-500">Loading ledger…</div>
+        <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading ledger…</div>
       )}
       {Boolean(ledgerQuery.error) && (
         <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">
@@ -202,7 +202,7 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
       )}
 
       {!ledgerQuery.isLoading && !ledgerQuery.error && (
-        <div className="overflow-hidden rounded-lg bg-white shadow">
+        <div className="overflow-hidden rounded-lg bg-white dark:bg-gray-900 shadow">
           <DataTable<ItemRow>
             data={items}
             columns={itemRowColumns}
@@ -214,21 +214,21 @@ export const ExpensesTab: React.FC<ExpensesTabProps> = ({ period }) => {
           />
 
           {/* Pagination */}
-          <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">
+          <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-3">
             <button
               onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
               disabled={offset === 0}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 disabled:opacity-40"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 disabled:opacity-40"
             >
               ← Previous
             </button>
-            <span className="text-sm text-gray-500">
+            <span className="text-sm text-gray-500 dark:text-gray-400">
               {offset + 1}–{offset + items.length}
             </span>
             <button
               onClick={() => setOffset(offset + PAGE_SIZE)}
               disabled={(ledgerQuery.data?.length ?? 0) < PAGE_SIZE}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-700 disabled:opacity-40"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 disabled:opacity-40"
             >
               Next →
             </button>

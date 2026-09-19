@@ -199,7 +199,7 @@ export const RecordTab: React.FC = () => {
                   ? 'bg-yellow-100 text-yellow-800'
                   : entry.overallStatus === 'CRITICAL'
                     ? 'bg-red-100 text-red-800'
-                    : 'bg-gray-100 text-gray-800'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
             {entry.overallStatus}
@@ -217,13 +217,13 @@ export const RecordTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Selectors Row */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* System selector (optional) */}
           <div>
             <label
               htmlFor="record-system-select"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
               System (optional)
             </label>
@@ -231,7 +231,7 @@ export const RecordTab: React.FC = () => {
               id="record-system-select"
               value={selectedSystemId ?? ''}
               onChange={(e) => handleSystemChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+              className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
             >
               <option value="">All Systems</option>
               {systems.map((sys) => (
@@ -246,7 +246,7 @@ export const RecordTab: React.FC = () => {
           <div>
             <label
               htmlFor="record-equipment-select"
-              className="block text-sm font-medium text-gray-700 mb-1"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
             >
               Equipment
             </label>
@@ -254,7 +254,7 @@ export const RecordTab: React.FC = () => {
               id="record-equipment-select"
               value={selectedEquipmentId ?? ''}
               onChange={(e) => handleEquipmentChange(e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
+              className="w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
             >
               <option value="">Select equipment...</option>
               {sortedEquipment.map((eq) => (
@@ -270,9 +270,9 @@ export const RecordTab: React.FC = () => {
 
       {/* Empty state: no equipment selected */}
       {!selectedEquipmentId && (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
           <svg
-            className="mx-auto h-12 w-12 text-gray-400"
+            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -284,10 +284,10 @@ export const RecordTab: React.FC = () => {
               d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
             />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
             Select equipment to start recording
           </h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Choose a system and equipment above to record water quality measurements.
           </p>
         </div>
@@ -297,7 +297,7 @@ export const RecordTab: React.FC = () => {
       {selectedEquipmentId &&
         !parameterConfigs.isLoading &&
         (parameterConfigs.data?.length ?? 0) === 0 && (
-          <div className="bg-white rounded-lg shadow p-8 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
             <svg
               className="mx-auto h-12 w-12 text-yellow-400"
               fill="none"
@@ -311,10 +311,10 @@ export const RecordTab: React.FC = () => {
                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
               />
             </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
               No parameters configured for this equipment
             </h3>
-            <p className="mt-1 text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Go to the Parameters tab to configure and map parameters to{' '}
               <strong>{selectedEquipmentName}</strong>.
             </p>
@@ -323,9 +323,9 @@ export const RecordTab: React.FC = () => {
 
       {/* Loading state */}
       {selectedEquipmentId && parameterConfigs.isLoading && (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
           <Spinner size="lg" block />
-          <p className="mt-2 text-sm text-gray-500">Loading parameter configuration...</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading parameter configuration...</p>
         </div>
       )}
 
@@ -333,8 +333,8 @@ export const RecordTab: React.FC = () => {
       {selectedEquipmentId &&
         !parameterConfigs.isLoading &&
         (parameterConfigs.data?.length ?? 0) > 0 && (
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-base font-semibold text-gray-900 mb-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-4">
               Record Measurement — {selectedEquipmentName}
             </h3>
             <DynamicMeasurementForm
@@ -362,9 +362,9 @@ export const RecordTab: React.FC = () => {
 
       {/* Recent Entries Panel */}
       {selectedEquipmentId && recentEntries.length > 0 && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="text-sm font-semibold text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               Recent Entries — {selectedEquipmentName}
             </h3>
           </div>

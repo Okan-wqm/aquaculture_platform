@@ -54,8 +54,8 @@ const EVENT_CHIP_COLOURS: Record<string, string> = {
   FEEDING: 'bg-amber-100 text-amber-800',
   GROWTH_SAMPLE: 'bg-teal-100 text-teal-800',
   HARVEST: 'bg-green-100 text-green-800',
-  CLOSED: 'bg-gray-200 text-gray-700',
-  UPDATED: 'bg-gray-100 text-gray-700',
+  CLOSED: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
+  UPDATED: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
 };
 
 const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) => {
@@ -72,7 +72,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
   if (isLoading) {
     return (
-      <div className="animate-pulse text-gray-500">Loading traceability report…</div>
+      <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading traceability report…</div>
     );
   }
 
@@ -89,8 +89,8 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
   if (!traceability) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
-        <p className="text-sm text-gray-500">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6 text-center">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           No traceability data is available for this batch.
         </p>
       </div>
@@ -130,7 +130,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
       header: 'Tank',
       render: (_value, residency) => (
         <>
-          <div className="font-medium text-gray-900">
+          <div className="font-medium text-gray-900 dark:text-gray-100">
             {residency.tankName ?? '—'}
             {residency.isCurrent && (
               <span className="ml-2 px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800">
@@ -138,7 +138,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
               </span>
             )}
           </div>
-          <div className="text-xs text-gray-500">{residency.tankCode ?? '—'}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{residency.tankCode ?? '—'}</div>
         </>
       ),
     },
@@ -210,8 +210,8 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
       {/* Residency table — where the fish lived */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-900">Where the fish lived</h3>
-        <p className="text-sm text-gray-500">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Where the fish lived</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Every tank this batch stayed in, with water temperature and feed
           consumption aggregated per stay.
         </p>
@@ -229,7 +229,7 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
       {/* Feed totals */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-900">Feed totals</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Feed totals</h3>
         <DataTable<FeedRow>
           data={feedTotals}
           columns={feedRowColumns}
@@ -244,35 +244,35 @@ const BatchTraceabilityTab: React.FC<BatchTraceabilityTabProps> = ({ batch }) =>
 
       {/* Events timeline */}
       <section>
-        <h3 className="text-lg font-semibold text-gray-900">Events timeline</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Events timeline</h3>
         {sortedEvents.length === 0 ? (
-          <div className="mt-3 bg-white border border-gray-200 rounded-lg p-6 text-center">
-            <p className="text-sm text-gray-500">No events recorded for this batch.</p>
+          <div className="mt-3 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-6 text-center">
+            <p className="text-sm text-gray-500 dark:text-gray-400">No events recorded for this batch.</p>
           </div>
         ) : (
           <ol className="mt-3 space-y-2">
             {sortedEvents.map((event) => (
               <li
                 key={event.id}
-                className="bg-white border border-gray-200 rounded-lg p-3"
+                className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={`px-2 py-0.5 text-xs font-semibold rounded-full capitalize ${
-                      EVENT_CHIP_COLOURS[event.eventType] ?? 'bg-gray-100 text-gray-700'
+                      EVENT_CHIP_COLOURS[event.eventType] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                     }`}
                   >
                     {formatEventTypeLabel(event.eventType)}
                   </span>
-                  <span className="text-xs text-gray-500">
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
                     {formatTraceabilityDateTime(event.timestamp)}
                   </span>
                   {event.tankCode && (
-                    <span className="text-xs text-gray-500">· {event.tankCode}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">· {event.tankCode}</span>
                   )}
                 </div>
-                <p className="mt-1 text-sm text-gray-700">{event.description}</p>
-                <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-500">
+                <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{event.description}</p>
+                <div className="mt-1 flex flex-wrap gap-4 text-xs text-gray-500 dark:text-gray-400">
                   {event.quantityChange !== null && (
                     <span>Qty change: {formatSignedNumber(event.quantityChange)}</span>
                   )}
@@ -296,17 +296,17 @@ const SummaryHeader: React.FC<{ traceability: BatchTraceability }> = ({ traceabi
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           Traceability — {summary.batchNumber}
         </h2>
-        <p className="text-sm text-gray-500">
-          Status: <span className="font-medium text-gray-700">{summary.status}</span>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Status: <span className="font-medium text-gray-700 dark:text-gray-300">{summary.status}</span>
           {' · '}Species:{' '}
-          <span className="font-medium text-gray-700">{summary.speciesName ?? '—'}</span>
+          <span className="font-medium text-gray-700 dark:text-gray-300">{summary.speciesName ?? '—'}</span>
           {' · '}Protocol:{' '}
-          <span className="font-medium text-gray-700">{summary.protocolName ?? '—'}</span>
+          <span className="font-medium text-gray-700 dark:text-gray-300">{summary.protocolName ?? '—'}</span>
         </p>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Stocked {formatTraceabilityDate(summary.stockedAt)}
           {summary.harvestedAt && ` · Harvested ${formatTraceabilityDate(summary.harvestedAt)}`}
         </p>
@@ -323,9 +323,9 @@ const SummaryHeader: React.FC<{ traceability: BatchTraceability }> = ({ traceabi
 };
 
 const KpiCard: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div className="bg-white border border-gray-200 rounded-lg p-3">
-    <div className="text-xs font-semibold text-gray-500 uppercase">{label}</div>
-    <div className="mt-1 text-base font-medium text-gray-900">{value}</div>
+  <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">{label}</div>
+    <div className="mt-1 text-base font-medium text-gray-900 dark:text-gray-100">{value}</div>
   </div>
 );
 

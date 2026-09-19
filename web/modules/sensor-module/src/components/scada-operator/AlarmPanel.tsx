@@ -67,7 +67,7 @@ const SEVERITY_STYLES: Record<AlarmSeverity, { badge: string; row: string; icon:
     icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
   },
   warning: {
-    badge: 'bg-yellow-400 text-gray-900',
+    badge: 'bg-yellow-400 text-gray-900 dark:text-gray-100',
     row: 'bg-yellow-50 dark:bg-yellow-950/20',
     icon: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
   },
@@ -435,7 +435,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
       <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-850">
         {/* Text search */}
         <div className="relative flex-1 min-w-40">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Search alarms…"
@@ -528,7 +528,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
               className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600
                          bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
             />
-            <span className="text-gray-400 text-xs">to</span>
+            <span className="text-gray-400 dark:text-gray-500 text-xs">to</span>
             <input
               type="datetime-local"
               value={historyTo}

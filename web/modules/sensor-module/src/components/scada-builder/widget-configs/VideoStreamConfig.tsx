@@ -25,23 +25,23 @@ export const VideoStreamConfig: React.FC<WidgetConfigProps> = ({ config, onChang
     <div className="space-y-3">
       {/* Stream URL */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Stream URL</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stream URL</label>
         <input
           type="text"
           value={streamUrl}
           onChange={(e) => onChange({ streamUrl: e.target.value })}
           placeholder="http://192.168.1.100/mjpg/video.mjpg"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Stream Mode */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Stream Mode</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stream Mode</label>
         <select
           value={streamMode}
           onChange={(e) => onChange({ streamMode: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         >
           {STREAM_MODE_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -52,38 +52,38 @@ export const VideoStreamConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Refresh Interval (Image mode only) */}
       {streamMode === 'image' && (
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Refresh Interval (seconds)</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Refresh Interval (seconds)</label>
           <input
             type="number"
             min={1}
             max={300}
             value={refreshInterval}
             onChange={(e) => onChange({ refreshInterval: Math.max(1, Number(e.target.value)) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
       )}
 
       {/* Label */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Label</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <input
           type="text"
           value={label}
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="Camera 1"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Show Controls (HLS mode only) */}
       {streamMode === 'hls' && (
-        <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
           <input
             type="checkbox"
             checked={showControls}
             onChange={(e) => onChange({ showControls: e.target.checked })}
-            className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
           />
           Show video controls
         </label>
@@ -91,7 +91,7 @@ export const VideoStreamConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* HLS info note */}
       {streamMode === 'hls' && (
-        <p className="text-[10px] text-gray-400 italic">
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 italic">
           Native HLS playback is supported in Safari. For Chrome/Firefox, an HLS.js library is required at the application level.
         </p>
       )}

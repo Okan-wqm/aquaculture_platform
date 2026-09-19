@@ -37,8 +37,8 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
 
   if (batches.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow p-8 text-center">
-        <div className="mx-auto h-12 w-12 text-gray-400">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+        <div className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
@@ -48,8 +48,8 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
             />
           </svg>
         </div>
-        <h3 className="mt-2 text-sm font-medium text-gray-900">No cleaner fish batches</h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No cleaner fish batches</h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Get started by creating a new cleaner fish batch.
         </p>
       </div>
@@ -70,8 +70,8 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
       header: 'Species',
       render: (_value, batch) => (
         <>
-          <div className="text-sm text-gray-900">{batch.speciesName}</div>
-          <div className="text-xs text-gray-500">{batch.speciesCode}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{batch.speciesName}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{batch.speciesCode}</div>
         </>
       ),
     },
@@ -80,7 +80,7 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
       header: 'Initial',
       align: 'right',
       render: (_value, batch) => (
-        <div className="text-sm text-gray-900">
+        <div className="text-sm text-gray-900 dark:text-gray-100">
           {batch.initialQuantity.toLocaleString()}
         </div>
       ),
@@ -93,13 +93,13 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
         <>
           <div
             className={`text-sm font-medium ${
-              batch.currentQuantity === 0 ? 'text-gray-400' : 'text-gray-900'
+              batch.currentQuantity === 0 ? 'text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-gray-100'
             }`}
           >
             {batch.currentQuantity.toLocaleString()}
           </div>
           {batch.currentQuantity === 0 && (
-            <span className="text-xs text-gray-400">Depleted</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">Depleted</span>
           )}
         </>
       ),
@@ -139,7 +139,7 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
         <>
           <span
             className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              BatchStatusColors[batch.status] || 'bg-gray-100 text-gray-800'
+              BatchStatusColors[batch.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
             {BatchStatusLabels[batch.status] || batch.status}
@@ -176,9 +176,9 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
   ];
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="px-4 py-4 sm:px-6 flex items-center justify-between border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900">Cleaner Fish Batches</h3>
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+      <div className="px-4 py-4 sm:px-6 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Cleaner Fish Batches</h3>
         <Button variant="secondary" size="sm" onClick={onRefresh}>
           <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
@@ -203,21 +203,21 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
       />
 
       {/* Summary Footer */}
-      <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
+      <div className="bg-gray-50 dark:bg-gray-800 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-gray-400">
             {batches.length} batch{batches.length !== 1 ? 'es' : ''}
           </span>
           <div className="flex items-center space-x-6">
-            <span className="text-gray-500">
+            <span className="text-gray-500 dark:text-gray-400">
               Total Available:{' '}
-              <span className="font-medium text-gray-900">
+              <span className="font-medium text-gray-900 dark:text-gray-100">
                 {batches
                   .reduce((sum, b) => sum + b.currentQuantity, 0)
                   .toLocaleString()}
               </span>
             </span>
-            <span className="text-gray-500">
+            <span className="text-gray-500 dark:text-gray-400">
               Total Deployed:{' '}
               <span className="font-medium text-green-600">
                 {batches

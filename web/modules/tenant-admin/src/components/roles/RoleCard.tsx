@@ -85,7 +85,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
   onDelete,
 }) => {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 p-5 hover:shadow-lg transition-shadow">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5 hover:shadow-lg transition-shadow">
       {/* Role Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
@@ -100,7 +100,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             />
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900">{role.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">{role.name}</h3>
             {role.isSystem && (
               <span className="text-xs text-amber-600 font-medium">
                 System Role
@@ -121,7 +121,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             {onEdit && (
               <button
                 onClick={() => onEdit(role)}
-                className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
                 title="Edit role"
                 aria-label={`Edit ${role.name} role`}
               >
@@ -131,7 +131,7 @@ export const RoleCard: React.FC<RoleCardProps> = ({
             {onDelete && !role.isSystem && (
               <button
                 onClick={() => onDelete(role)}
-                className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
                 title="Delete role"
                 aria-label={`Delete ${role.name} role`}
               >
@@ -144,18 +144,18 @@ export const RoleCard: React.FC<RoleCardProps> = ({
 
       {/* Description */}
       {role.description && (
-        <p className="text-sm text-gray-500 mb-4 line-clamp-2">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 line-clamp-2">
           {role.description}
         </p>
       )}
 
       {/* Stats */}
-      <div className="flex items-center gap-4 pt-4 border-t border-gray-100">
-        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+      <div className="flex items-center gap-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+        <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
           <Users className="w-4 h-4" aria-hidden="true" />
           <span>{role.userCount} users</span>
         </div>
-        <div className="flex items-center gap-1.5 text-sm text-gray-500">
+        <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
           <Shield className="w-4 h-4" aria-hidden="true" />
           <span>Level {role.level}</span>
         </div>

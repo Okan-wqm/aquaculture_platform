@@ -303,7 +303,7 @@ export function RecordFeedingPage(): JSX.Element {
                 <h3 className="font-semibold text-gray-900 dark:text-white">
                   {selectedPlan.unitName}
                 </h3>
-                <p className="text-sm text-gray-500">{selectedPlan.unitCode}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{selectedPlan.unitCode}</p>
               </div>
             </div>
             <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">
@@ -328,20 +328,20 @@ export function RecordFeedingPage(): JSX.Element {
               <p className="text-lg font-bold text-gray-900 dark:text-gray-200">
                 {selectedPlan.feedCode}
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {t('feeding.biomass')} {Number(selectedPlan.biomassKg).toFixed(1)} kg
               </p>
             </div>
           </div>
           {/* Sıcaklık provenansı — P-20: sessiz varsayılan yok */}
           <div className="mt-3 flex items-center gap-2 text-xs">
-            <Thermometer size={14} className="text-gray-400" />
+            <Thermometer size={14} className="text-gray-400 dark:text-gray-500" />
             {selectedPlan.usingDefaultTemperature ? (
               <span className="text-amber-600 dark:text-amber-400 font-medium">
                 {t('feeding.defaultTempWarning')}
               </span>
             ) : (
-              <span className="text-gray-500">
+              <span className="text-gray-500 dark:text-gray-400">
                 {t('feeding.waterTemp')}: {Number(selectedPlan.waterTempC ?? 0).toFixed(1)}°C (
                 {selectedPlan.temperatureSource})
               </span>
@@ -353,7 +353,7 @@ export function RecordFeedingPage(): JSX.Element {
       {/* Öğün listesi */}
       {selectedPlan && (
         <div className="px-4 mt-5">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
             {t('feeding.meals')}
           </h3>
           <div className="space-y-2">
@@ -378,7 +378,7 @@ export function RecordFeedingPage(): JSX.Element {
                       <span className="text-base font-bold text-gray-900 dark:text-white">
                         {timeOf(meal.scheduledAt)}
                       </span>
-                      <span className="text-sm text-gray-500">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
                         {t('feeding.meal', { index: meal.mealIndex + 1 })}
                       </span>
                     </div>
@@ -410,7 +410,7 @@ export function RecordFeedingPage(): JSX.Element {
       {selectedMeal && (
         <>
           <div className="px-4 mt-5">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
               {t('feeding.pour.amountTitle')}
             </h3>
             <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
@@ -427,8 +427,8 @@ export function RecordFeedingPage(): JSX.Element {
                 }}
                 className="w-full text-center text-4xl font-bold text-gray-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder:text-gray-300"
               />
-              <p className="text-center text-xs text-gray-400 mt-1 font-medium">kg</p>
-              <p className="text-center text-xs text-gray-500 mt-1">
+              <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-1 font-medium">kg</p>
+              <p className="text-center text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {t('feeding.pour.remaining', {
                   kg: Math.max(0, selectedMeal.plannedKg - selectedMeal.actualKg).toFixed(2),
                 })}
@@ -454,7 +454,7 @@ export function RecordFeedingPage(): JSX.Element {
                 >
                   {t('feeding.pour.finalize')}
                 </label>
-                <span className="block text-xs text-gray-500 mt-0.5">
+                <span className="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   {t('feeding.pour.finalizeHint')}
                 </span>
               </span>
@@ -463,7 +463,7 @@ export function RecordFeedingPage(): JSX.Element {
 
           {/* Yöntem */}
           <div className="px-4 mt-5">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
               {t('feeding.method.title')}
             </h3>
             <div className="grid grid-cols-3 gap-2">
@@ -482,7 +482,7 @@ export function RecordFeedingPage(): JSX.Element {
                   >
                     <Icon
                       size={24}
-                      className={feedingMethod === m.value ? 'text-green-600' : 'text-gray-400'}
+                      className={feedingMethod === m.value ? 'text-green-600' : 'text-gray-400 dark:text-gray-500'}
                     />
                     <span className="text-xs font-semibold mt-1.5">{t(m.labelKey)}</span>
                   </button>

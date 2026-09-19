@@ -76,7 +76,7 @@ export const ProcessViewWidgetContent: React.FC<ProcessViewWidgetContentProps> =
   // Error state
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         {error}
       </div>
     );
@@ -85,7 +85,7 @@ export const ProcessViewWidgetContent: React.FC<ProcessViewWidgetContentProps> =
   // No process
   if (!process) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         No process data
       </div>
     );
@@ -94,7 +94,7 @@ export const ProcessViewWidgetContent: React.FC<ProcessViewWidgetContentProps> =
   // No nodes
   if (!process.nodes || process.nodes.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         <p>Process: {process.name}</p>
         <p className="text-xs mt-1">No equipment nodes defined</p>
       </div>
@@ -105,7 +105,7 @@ export const ProcessViewWidgetContent: React.FC<ProcessViewWidgetContentProps> =
     <div className="h-full w-full overflow-hidden">
       {/* Process name header */}
       <div className="absolute top-1 left-2 z-10">
-        <span className="text-xs text-gray-500 bg-white/80 px-1 rounded">
+        <span className="text-xs text-gray-500 dark:text-gray-400 bg-white/80 dark:bg-gray-900/80 px-1 rounded">
           {process.name}
         </span>
       </div>

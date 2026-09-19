@@ -152,7 +152,9 @@ once, on the `theme-color` meta tag in `index.html`, where both the
 pre-paint script and `useDarkMode` read them; the leave-type dot falls
 back to an ocean class through `LeaveTypeSwatch` when a type carries no
 colour; the Konsta surface note names tokens, not hex. Every package holds
-at zero. **Owner:** okan · **Expiry:** 2027-03-31.
+at zero. **Closed** — raw hex at zero in every web package since batch 23
+(PR #1592); the `rawHex` ratchet keeps it there. **Owner:** okan ·
+**Expiry:** 2027-03-31.
 
 #### FE-HIGH-068 — Browser confirm()/alert()/prompt() used for product dialogs
 
@@ -349,7 +351,9 @@ cannot import shared-ui, gets the same component under `components/ui/`
 loader icon or an inline `<svg>` spun by a literal `animate-spin`, or a
 bordered ring spun the same way. An icon whose spin is conditional (a refresh
 arrow while refetching) is an affordance, not a loading indicator, and is not
-counted. **Owner:** okan · **Expiry:** 2027-06-30.
+counted. **Closed** — hand-rolled spinners at zero in every web package
+since batch 22 (PR #1591); the `rawSpinner` ratchet keeps it there.
+**Owner:** okan · **Expiry:** 2027-06-30.
 
 #### FE-MEDIUM-071 — Page title rows hand-written beside no `PageHeader`
 
@@ -417,7 +421,33 @@ the toggle's "system" setting. `Modal` and `Drawer` take `theme="dark"`;
 white class with a dark one, pinned by the strict form of the ratchet. The
 ratchet gains a per-package `darkSurface` ceiling (light-only surfaces,
 shared-ui included) so the count only shrinks; the shell's override block is
-deleted when it reaches zero. **Owner:** okan · **Expiry:** 2027-06-30.
+deleted when it reaches zero. Batch 27: a converter pairs every light gray
+or white class in a file's class strings (quoted, template and `${}`
+expressions, comments skipped) with the dark counterpart the override
+palette implies in Tailwind grays (surface → gray-900, muted → gray-800,
+borders → gray-700/600, text → gray-100…400, hover and disabled variants
+alike), so a paired file looks as it did under the override; shell,
+dashboard, messaging, hydroponics and hr are paired (1 037 classes in 78
+files; darkSurface 2 593 → 2 400). Form controls get a base-layer dark
+default in `theme.css` (`:where()` under `[data-theme='dark']`, so any
+utility overrides it), which replaces the shell's `!important` input
+rules; the remaining class override rules take `:not([class*='dark:…'])`
+guards, so paired markup renders its own variants at once and the block
+is dead code the day the ratchet reaches zero; the shell's component
+classes (`.card`, `.data-table`, `.form-label`, …) are paired in their
+`@apply`. Batch 28: tenant-admin and admin-panel (3 236 classes in 90
+files; the converter learned to step over regex literals inside template
+expressions); darkSurface 2 400 → 1 800. Batch 29: farm-module (4 748
+classes in 155 files); darkSurface 1 800 → 1 084. Batch 30: sensor-module
+(5 315 classes in 242 files); darkSurface 1 084 → 136. Batch 31: shared-ui
+(331 classes in 34 files) and AquaMobil (282 in 53, with the app's own
+convention — page surface gray-950, headline white, hairlines gray-800);
+darkSurface 136 → 0 in every package, the ratchet holds it there, and the
+shell's override block and the six palette variables only it read are
+deleted: the page keeps `--color-bg` and `--color-text`, and everything on
+it says what it looks like in the dark with its own classes. The one
+`!important` left under `data-theme` pins the login card's glass fields
+light on purpose. **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -434,8 +464,6 @@ deleted when it reaches zero. **Owner:** okan · **Expiry:** 2027-06-30.
   configuration drives columns and colours), the two feeding matrix editors (editable
   header cells, add/remove rows and columns — a spreadsheet, not a list),
   three report-export HTML strings, two calendar grids and a print document.
-- Light-only surfaces: 2.593 after batch 26 (`darkSurface` ratchet); the
-  shell's `!important` override block goes when the count reaches zero.
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, i18n reach) — design
   work with product decisions attached; not gated here.

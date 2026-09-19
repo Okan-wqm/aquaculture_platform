@@ -92,8 +92,8 @@ const AlarmStatsCards: React.FC<{ stats: PlcAlarmStats }> = ({ stats }) => {
     { label: 'Onaylanmamis', value: stats.totalUnacknowledged, icon: BellOff, color: 'text-yellow-600 bg-yellow-50 border-yellow-200' },
     { label: 'Kritik', value: stats.criticalCount, icon: AlertOctagon, color: 'text-red-700 bg-red-50 border-red-300' },
     { label: 'Acil', value: stats.emergencyCount, icon: Shield, color: 'text-red-800 bg-red-100 border-red-400' },
-    { label: 'Son 24 Saat', value: stats.last24HoursCount, icon: Clock, color: 'text-gray-600 bg-gray-50 border-gray-200' },
-    { label: 'Son 7 Gun', value: stats.last7DaysCount, icon: Clock, color: 'text-gray-500 bg-gray-50 border-gray-200' },
+    { label: 'Son 24 Saat', value: stats.last24HoursCount, icon: Clock, color: 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700' },
+    { label: 'Son 7 Gun', value: stats.last7DaysCount, icon: Clock, color: 'text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700' },
   ];
 
   return (
@@ -136,7 +136,7 @@ const AcknowledgeDialog: React.FC<{
         <>
           <button
             onClick={onClose}
-            className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Iptal
           </button>
@@ -151,13 +151,13 @@ const AcknowledgeDialog: React.FC<{
         </>
       }
     >
-      <label className="block text-sm font-medium text-gray-700 mb-1">Notlar (opsiyonel)</label>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notlar (opsiyonel)</label>
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         rows={3}
         maxLength={1000}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         placeholder="Alarm hakkinda notlariniz..."
       />
     </Modal>
@@ -258,7 +258,7 @@ const PlcAlarmsPage: React.FC = () => {
             )}
             <button
               onClick={() => refetch()}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <RefreshCw className="h-4 w-4" />
               Yenile
@@ -274,19 +274,19 @@ const PlcAlarmsPage: React.FC = () => {
       {/* Filters */}
       <div className="mt-4 mb-4 flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Alarm ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
         <select
           value={severityFilter}
           onChange={(e) => setSeverityFilter(e.target.value as AlarmSeverity | '')}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm"
         >
           <option value="">Tum Seviyeler</option>
           <option value="EMERGENCY">Acil</option>
@@ -297,7 +297,7 @@ const PlcAlarmsPage: React.FC = () => {
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value as AlarmSource | '')}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm"
         >
           <option value="">Tum Kaynaklar</option>
           {Object.entries(SOURCE_LABELS).map(([key, label]) => (
@@ -307,14 +307,14 @@ const PlcAlarmsPage: React.FC = () => {
         <select
           value={connectionFilter}
           onChange={(e) => setConnectionFilter(e.target.value)}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm"
         >
           <option value="">Tum Baglantilar</option>
           {connections?.map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
-        <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+        <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
           {(['all', 'unacknowledged', 'acknowledged'] as const).map((tab) => (
             <button
               key={tab}
@@ -322,7 +322,7 @@ const PlcAlarmsPage: React.FC = () => {
               className={`px-3 py-2 text-sm font-medium transition-colors ${
                 ackFilter === tab
                   ? 'bg-indigo-50 text-indigo-700'
-                  : 'text-gray-600 hover:bg-gray-50'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               {tab === 'all' ? 'Tumu' : tab === 'unacknowledged' ? 'Onaylanmamis' : 'Onaylandi'}
@@ -339,12 +339,12 @@ const PlcAlarmsPage: React.FC = () => {
       ) : alarms && alarms.length > 0 ? (
         <div className="space-y-2">
           {/* Select All */}
-          <div className="flex items-center gap-2 px-2 text-sm text-gray-500">
+          <div className="flex items-center gap-2 px-2 text-sm text-gray-500 dark:text-gray-400">
             <input
               type="checkbox"
               checked={selectedIds.size === alarms.length && alarms.length > 0}
               onChange={toggleSelectAll}
-              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
             />
             <span>Tumu sec ({alarms.length} alarm)</span>
           </div>
@@ -357,14 +357,14 @@ const PlcAlarmsPage: React.FC = () => {
             return (
               <div
                 key={alarm.id}
-                className={`rounded-lg border bg-white shadow-sm border-l-4 ${severityCfg.borderColor} ${alarm.acknowledged ? 'opacity-70' : ''}`}
+                className={`rounded-lg border bg-white dark:bg-gray-900 shadow-sm border-l-4 ${severityCfg.borderColor} ${alarm.acknowledged ? 'opacity-70' : ''}`}
               >
                 <div className="flex items-start gap-3 p-4">
                   <input
                     type="checkbox"
                     checked={selectedIds.has(alarm.id)}
                     onChange={() => toggleSelect(alarm.id)}
-                    className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                    className="mt-1 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
                   />
                   <SeverityIcon className={`mt-0.5 h-5 w-5 flex-shrink-0 ${alarm.severity === 'EMERGENCY' || alarm.severity === 'CRITICAL' ? 'text-red-500' : alarm.severity === 'WARNING' ? 'text-yellow-500' : 'text-blue-400'}`} />
                   <div className="flex-1 min-w-0">
@@ -372,8 +372,8 @@ const PlcAlarmsPage: React.FC = () => {
                       <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${severityCfg.color}`}>
                         {severityCfg.label}
                       </span>
-                      <span className="text-xs font-mono text-gray-500">{alarm.alarmCode}</span>
-                      <span className="text-xs text-gray-400">{SOURCE_LABELS[alarm.source] || alarm.source}</span>
+                      <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{alarm.alarmCode}</span>
+                      <span className="text-xs text-gray-400 dark:text-gray-500">{SOURCE_LABELS[alarm.source] || alarm.source}</span>
                       {alarm.acknowledged && (
                         <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
                           <CheckCircle className="h-3 w-3" />
@@ -381,8 +381,8 @@ const PlcAlarmsPage: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <p className="mt-1 text-sm font-medium text-gray-900">{alarm.message}</p>
-                    <div className="mt-1 flex items-center gap-4 text-xs text-gray-500">
+                    <p className="mt-1 text-sm font-medium text-gray-900 dark:text-gray-100">{alarm.message}</p>
+                    <div className="mt-1 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
                         {timeAgo(alarm.timestamp)}
@@ -399,13 +399,13 @@ const PlcAlarmsPage: React.FC = () => {
                       )}
                     </div>
                     {alarm.notes && (
-                      <div className="mt-2 flex items-start gap-1 text-xs text-gray-600 bg-gray-50 rounded p-2">
+                      <div className="mt-2 flex items-start gap-1 text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded p-2">
                         <MessageSquare className="h-3 w-3 mt-0.5 flex-shrink-0" />
                         {alarm.notes}
                       </div>
                     )}
                     {alarm.acknowledged && alarm.acknowledgedAt && (
-                      <div className="mt-1 text-xs text-gray-400">
+                      <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
                         Onaylayan: {alarm.acknowledgedBy || '-'} - {formatDate(alarm.acknowledgedAt)}
                       </div>
                     )}
@@ -420,7 +420,7 @@ const PlcAlarmsPage: React.FC = () => {
                         Onayla
                       </button>
                     )}
-                    <span className="text-xs text-gray-400 text-right">
+                    <span className="text-xs text-gray-400 dark:text-gray-500 text-right">
                       {formatDate(alarm.timestamp)}
                     </span>
                   </div>
@@ -434,29 +434,29 @@ const PlcAlarmsPage: React.FC = () => {
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
             >
               Onceki
             </button>
-            <span className="text-sm text-gray-500">Sayfa {page}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Sayfa {page}</span>
             <button
               onClick={() => setPage((p) => p + 1)}
               disabled={alarms.length < 50}
-              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
             >
               Sonraki
             </button>
           </div>
         </div>
       ) : (
-        <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
-          <Bell className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-semibold text-gray-900">
+        <div className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-12 text-center">
+          <Bell className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+          <h3 className="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
             {searchTerm || severityFilter || sourceFilter || connectionFilter || ackFilter !== 'all'
               ? 'Filtrelerle eslesen alarm yok'
               : 'Alarm bulunamadi'}
           </h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Aktif alarm bulunmamaktadir.
           </p>
         </div>

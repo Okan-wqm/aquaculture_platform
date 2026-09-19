@@ -46,7 +46,7 @@ const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) =>
   if (!timestamp) return null;
   const diffSec = Math.floor((Date.now() - timestamp.getTime()) / 1000);
   const label = diffSec < 60 ? `${diffSec}s ago` : `${Math.floor(diffSec / 60)}m ago`;
-  return <span className="text-xs text-gray-500">{label}</span>;
+  return <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>;
 };
 
 export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> = ({
@@ -64,7 +64,7 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
 
   if (error || !data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         {error || 'No data'}
       </div>
     );
@@ -180,12 +180,12 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
           >
             {value.toFixed(config.settings?.decimalPlaces ?? 1)}
           </span>
-          <span className="text-sm text-gray-500">{unit}</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{unit}</span>
         </div>
 
         {/* Min/Max labels */}
         <div
-          className="absolute flex justify-between text-xs text-gray-500"
+          className="absolute flex justify-between text-xs text-gray-500 dark:text-gray-400"
           style={{
             left: strokeWidth / 2,
             right: strokeWidth / 2,
@@ -203,11 +203,11 @@ export const RadialGaugeWidgetContent: React.FC<RadialGaugeWidgetContentProps> =
           className="w-2 h-2 rounded-full"
           style={{ backgroundColor: valueColor }}
         />
-        <span className="text-xs text-gray-600 capitalize">{status}</span>
+        <span className="text-xs text-gray-600 dark:text-gray-400 capitalize">{status}</span>
       </div>
 
       {/* Last update time — only the leaf TimeSinceUpdate re-renders every second (PERF-004) */}
-      <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+      <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mt-1">
         <Clock size={10} />
         <TimeSinceUpdate timestamp={reading.timestamp} />
       </div>

@@ -11,8 +11,8 @@ interface ResultsPanelProps {
 const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
   if (!outputs) {
     return (
-      <div className="bg-white rounded-lg shadow p-4">
-        <p className="text-sm text-gray-400 text-center">Calculating...</p>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <p className="text-sm text-gray-400 dark:text-gray-500 text-center">Calculating...</p>
       </div>
     );
   }
@@ -49,7 +49,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
             value={isNaN(outputs.deltaPH) ? 'N/A' : `${outputs.deltaPH > 0 ? '+' : ''}${outputs.deltaPH.toFixed(2)}`}
             unit="pH"
             color={
-              isNaN(outputs.deltaPH) ? 'text-gray-400' :
+              isNaN(outputs.deltaPH) ? 'text-gray-400 dark:text-gray-500' :
               outputs.deltaPH > 0.2 ? 'text-green-600' :
               outputs.deltaPH > 0 ? 'text-yellow-600' : 'text-red-600'
             }
@@ -100,7 +100,7 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
                 value={isNaN(outputs.h2sDeltaPH) ? 'N/A' : `${outputs.h2sDeltaPH > 0 ? '+' : ''}${outputs.h2sDeltaPH.toFixed(2)}`}
                 unit="pH"
                 color={
-                  isNaN(outputs.h2sDeltaPH) ? 'text-gray-400' :
+                  isNaN(outputs.h2sDeltaPH) ? 'text-gray-400 dark:text-gray-500' :
                   outputs.h2sDeltaPH > 0.2 ? 'text-green-600' :
                   outputs.h2sDeltaPH > 0 ? 'text-yellow-600' : 'text-red-600'
                 }
@@ -118,8 +118,8 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
       })()}
 
       {/* Column 3: Calculated Values */}
-      <div className="bg-white rounded-lg shadow p-4">
-        <h4 className="text-sm font-semibold text-gray-800 mb-3 border-b pb-1">Calculated Values</h4>
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3 border-b pb-1">Calculated Values</h4>
         <div className="space-y-2">
           <ResultRow
             label="Toxic CO₂ pH Border"
@@ -152,28 +152,28 @@ const ResultsPanel: React.FC<ResultsPanelProps> = ({ outputs }) => {
       </div>
 
       {/* Column 4: Dosing Recipes */}
-      <div className="bg-white rounded-lg shadow p-4">
-        <h4 className="text-sm font-semibold text-gray-800 mb-3 border-b pb-1">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+        <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3 border-b pb-1">
           Dosing Recipes {outputs.dosingRecipes.length > 0 && `(${outputs.dosingRecipes.length})`}
         </h4>
         {outputs.dosingRecipes.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-4">No recipes available. Select reagents and set target.</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-4">No recipes available. Select reagents and set target.</p>
         ) : (
           <div className="space-y-2 max-h-48 overflow-y-auto">
             {outputs.dosingRecipes.map((recipe, idx) => (
-              <div key={idx} className="border rounded p-2 bg-gray-50">
-                <p className="text-xs font-medium text-gray-700 mb-1">
+              <div key={idx} className="border rounded p-2 bg-gray-50 dark:bg-gray-800">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {idx + 1}. {recipe.description}
                 </p>
                 {recipe.steps.map((step, si) => (
-                  <div key={si} className="flex items-center gap-2 text-xs text-gray-600 ml-3">
+                  <div key={si} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400 ml-3">
                     <span className="text-blue-600 font-medium">{step.formula}</span>
                     <span>
                       {step.amountGrams < 1000
                         ? `${step.amountGrams.toFixed(1)} g`
                         : `${step.amountKg.toFixed(3)} kg`}
                     </span>
-                    <span className="text-gray-400">
+                    <span className="text-gray-400 dark:text-gray-500">
                       (ΔAlk: {step.deltaAlk >= 0 ? '+' : ''}{step.deltaAlk.toFixed(3)},
                       {' '}ΔDIC: {step.deltaDIC >= 0 ? '+' : ''}{step.deltaDIC.toFixed(3)})
                     </span>
@@ -195,9 +195,9 @@ const ResultRow: React.FC<{
   color?: string;
 }> = ({ label, value, unit, color }) => (
   <div className="flex items-center justify-between">
-    <span className="text-xs text-gray-600">{label}</span>
-    <span className={`text-xs font-medium ${color || 'text-gray-900'}`}>
-      {value} <span className="text-gray-400 font-normal">{unit}</span>
+    <span className="text-xs text-gray-600 dark:text-gray-400">{label}</span>
+    <span className={`text-xs font-medium ${color || 'text-gray-900 dark:text-gray-100'}`}>
+      {value} <span className="text-gray-400 dark:text-gray-500 font-normal">{unit}</span>
     </span>
   </div>
 );

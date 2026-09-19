@@ -25,11 +25,11 @@ const stateColors: Record<string, string> = {
   pending_approval: 'bg-amber-100 text-amber-800',
   registered: 'bg-blue-100 text-blue-800',
   provisioning: 'bg-sky-100 text-sky-800',
-  offline: 'bg-gray-100 text-gray-800',
+  offline: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   maintenance: 'bg-purple-100 text-purple-800',
   error: 'bg-red-100 text-red-800',
   revoked: 'bg-red-100 text-red-800',
-  decommissioned: 'bg-gray-200 text-gray-500',
+  decommissioned: 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
 };
 
 const stateIcons: Record<string, React.ReactNode> = {
@@ -100,14 +100,14 @@ const EdgeDevicesPage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {[
-          { label: 'Total', value: stats.total, color: 'bg-gray-50 border-gray-200', textColor: 'text-gray-900' },
+          { label: 'Total', value: stats.total, color: 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700', textColor: 'text-gray-900 dark:text-gray-100' },
           { label: 'Online', value: stats.online, color: 'bg-emerald-50 border-emerald-200', textColor: 'text-emerald-700' },
-          { label: 'Offline', value: stats.offline, color: 'bg-gray-50 border-gray-200', textColor: 'text-gray-600' },
+          { label: 'Offline', value: stats.offline, color: 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700', textColor: 'text-gray-600 dark:text-gray-400' },
           { label: 'Pending', value: getStateCount('PENDING_APPROVAL'), color: 'bg-amber-50 border-amber-200', textColor: 'text-amber-700' },
           { label: 'Maintenance', value: getStateCount('MAINTENANCE'), color: 'bg-purple-50 border-purple-200', textColor: 'text-purple-700' },
         ].map((stat) => (
           <div key={stat.label} className={`${stat.color} border rounded-xl p-4`}>
-            <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">{stat.label}</p>
+            <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{stat.label}</p>
             <p className={`text-2xl font-bold mt-1 ${stat.textColor}`}>{stat.value}</p>
           </div>
         ))}
@@ -116,20 +116,20 @@ const EdgeDevicesPage: React.FC = () => {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px] max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search devices..."
             value={searchInput}
             onChange={(e) => { setSearchInput(e.target.value); }}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
         </div>
 
         <select
           value={stateFilter}
           onChange={(e) => { setStateFilter(e.target.value); setPage(1); }}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
         >
           <option value="">All States</option>
           <option value="active">Active</option>
@@ -141,7 +141,7 @@ const EdgeDevicesPage: React.FC = () => {
           <option value="decommissioned">Decommissioned</option>
         </select>
 
-        <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-0.5">
+        <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
           {[
             { label: 'All', value: undefined },
             { label: 'Online', value: true },
@@ -152,8 +152,8 @@ const EdgeDevicesPage: React.FC = () => {
               onClick={() => { setOnlineFilter(opt.value); setPage(1); }}
               className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                 onlineFilter === opt.value
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                  ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
               {opt.label}
@@ -163,7 +163,7 @@ const EdgeDevicesPage: React.FC = () => {
 
         <button
           onClick={handleRefresh}
-          className="p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           title="Refresh"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -173,14 +173,14 @@ const EdgeDevicesPage: React.FC = () => {
       {/* Device Grid */}
       {loading && devices.length === 0 ? (
         <div className="flex items-center justify-center py-20">
-          <RefreshCw className="w-6 h-6 animate-spin text-gray-500" />
-          <span className="ml-2 text-gray-500">Loading devices...</span>
+          <RefreshCw className="w-6 h-6 animate-spin text-gray-500 dark:text-gray-400" />
+          <span className="ml-2 text-gray-500 dark:text-gray-400">Loading devices...</span>
         </div>
       ) : devices.length === 0 ? (
         <div className="text-center py-20">
-          <Cpu className="w-12 h-12 mx-auto text-gray-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900">No devices found</h3>
-          <p className="text-sm text-gray-500 mt-1">
+          <Cpu className="w-12 h-12 mx-auto text-gray-500 dark:text-gray-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">No devices found</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Create an installer link to start adding edge devices
           </p>
           <button
@@ -196,28 +196,28 @@ const EdgeDevicesPage: React.FC = () => {
             <div
               key={device.id}
               onClick={() => navigate(`/tenant/devices/${device.id}`)}
-              className="bg-white border border-gray-200 rounded-xl p-5 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group"
+              className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-5 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group"
             >
               {/* Header */}
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                    device.isOnline ? 'bg-emerald-100' : 'bg-gray-100'
+                    device.isOnline ? 'bg-emerald-100' : 'bg-gray-100 dark:bg-gray-800'
                   }`}>
-                    <Cpu className={`w-5 h-5 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500'}`} />
+                    <Cpu className={`w-5 h-5 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500 dark:text-gray-400'}`} />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors">
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 group-hover:text-indigo-600 transition-colors">
                       {device.deviceName}
                     </h3>
-                    <p className="text-xs text-gray-500">{device.deviceCode}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{device.deviceCode}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5">
                   {device.isOnline ? (
                     <Wifi className="w-4 h-4 text-emerald-500" />
                   ) : (
-                    <WifiOff className="w-4 h-4 text-gray-500" />
+                    <WifiOff className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                   )}
                 </div>
               </div>
@@ -225,13 +225,13 @@ const EdgeDevicesPage: React.FC = () => {
               {/* State Badge */}
               <div className="flex items-center gap-2 mb-3">
                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
-                  stateColors[device.lifecycleState] || 'bg-gray-100 text-gray-600'
+                  stateColors[device.lifecycleState] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                 }`}>
                   {stateIcons[device.lifecycleState]}
                   {device.lifecycleState.replace(/_/g, ' ')}
                 </span>
                 {device.agentVersion && (
-                  <span className="text-xs text-gray-500">v{device.agentVersion}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">v{device.agentVersion}</span>
                 )}
               </div>
 
@@ -241,10 +241,10 @@ const EdgeDevicesPage: React.FC = () => {
                   {device.cpuUsage != null && (
                     <div className="flex-1">
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-gray-500">CPU</span>
+                        <span className="text-gray-500 dark:text-gray-400">CPU</span>
                         <span className="font-medium">{device.cpuUsage}%</span>
                       </div>
-                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all ${
                             device.cpuUsage > 80 ? 'bg-red-500' : device.cpuUsage > 60 ? 'bg-amber-500' : 'bg-emerald-500'
@@ -257,10 +257,10 @@ const EdgeDevicesPage: React.FC = () => {
                   {device.memoryUsage != null && (
                     <div className="flex-1">
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="text-gray-500">MEM</span>
+                        <span className="text-gray-500 dark:text-gray-400">MEM</span>
                         <span className="font-medium">{device.memoryUsage}%</span>
                       </div>
-                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all ${
                             device.memoryUsage > 80 ? 'bg-red-500' : device.memoryUsage > 60 ? 'bg-amber-500' : 'bg-emerald-500'
@@ -274,7 +274,7 @@ const EdgeDevicesPage: React.FC = () => {
               )}
 
               {/* Footer */}
-              <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-100">
+              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-100 dark:border-gray-700">
                 <span>{device.ipAddress || device.deviceModel}</span>
                 <span>{formatRelativeTime(device.lastSeenAt ?? null)}</span>
               </div>
@@ -286,21 +286,21 @@ const EdgeDevicesPage: React.FC = () => {
       {/* Pagination */}
       {total > limit && (
         <div className="flex items-center justify-between pt-4">
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Showing {(page - 1) * limit + 1}-{Math.min(page * limit, total)} of {total}
           </p>
           <div className="flex gap-2">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm disabled:opacity-50 hover:bg-gray-50"
+              className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Previous
             </button>
             <button
               onClick={() => setPage(p => p + 1)}
               disabled={page * limit >= total}
-              className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm disabled:opacity-50 hover:bg-gray-50"
+              className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Next
             </button>

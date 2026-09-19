@@ -11,11 +11,11 @@ import type { LeaveBalance, LeaveRequest } from '@/types';
 
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'bg-gray-100 text-gray-600',
+  DRAFT: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
   PENDING: 'bg-amber-100 text-amber-700',
   APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700',
-  CANCELLED: 'bg-gray-100 text-gray-500',
+  CANCELLED: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
 };
 
 type Tab = 'balances' | 'requests';
@@ -63,7 +63,7 @@ export function MyLeavesPage(): JSX.Element {
         actions={
           <button
             onClick={() => navigate('/leave/request')}
-            className="p-2 rounded-xl bg-white/20 hover:bg-white/30 touch-feedback"
+            className="p-2 rounded-xl bg-white/20 dark:bg-gray-900/20 hover:bg-white/30 dark:hover:bg-gray-800/30 touch-feedback"
           >
             <Plus size={20} />
           </button>
@@ -116,24 +116,24 @@ export function MyLeavesPage(): JSX.Element {
                     {leaveTypeById.get(balance.leaveTypeId)?.name || 'Leave'}
                   </h3>
                 </div>
-                <span className="text-sm text-gray-400">{balance.year}</span>
+                <span className="text-sm text-gray-400 dark:text-gray-500">{balance.year}</span>
               </div>
 
               <div className="grid grid-cols-4 gap-2 text-center">
                 <div>
-                  <p className="text-xs text-gray-400">Total</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Total</p>
                   <p className="font-bold text-gray-900 dark:text-white">{balance.totalEntitlement}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400">Used</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Used</p>
                   <p className="font-bold text-red-500">{balance.usedDays}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400">Pending</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Pending</p>
                   <p className="font-bold text-amber-500">{balance.pendingDays}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400">Left</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500">Left</p>
                   <p className="font-bold text-green-600">{balance.remainingDays}</p>
                 </div>
               </div>
@@ -150,7 +150,7 @@ export function MyLeavesPage(): JSX.Element {
             </div>
           ))}
           {!balancesLoading && balances.length === 0 && (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-gray-400 dark:text-gray-500">
               <CalendarOff size={32} className="mx-auto mb-2 opacity-50" />
               <p className="text-sm">No leave balances found</p>
             </div>
@@ -180,12 +180,12 @@ export function MyLeavesPage(): JSX.Element {
                 </span>
               </div>
 
-              <div className="text-sm text-gray-500 space-y-1">
+              <div className="text-sm text-gray-500 dark:text-gray-400 space-y-1">
                 <p>
                   {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
                 </p>
                 <p>{request.totalDays} day{request.totalDays !== 1 ? 's' : ''}{request.isHalfDayStart || request.isHalfDayEnd ? ' (half day)' : ''}</p>
-                {request.reason && <p className="text-gray-400 italic">{request.reason}</p>}
+                {request.reason && <p className="text-gray-400 dark:text-gray-500 italic">{request.reason}</p>}
               </div>
 
               {(request.status === 'PENDING' || request.status === 'DRAFT') && (
@@ -200,7 +200,7 @@ export function MyLeavesPage(): JSX.Element {
             </div>
           ))}
           {!requestsLoading && requests.length === 0 && (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-gray-400 dark:text-gray-500">
               <Clock size={32} className="mx-auto mb-2 opacity-50" />
               <p className="text-sm">No leave requests</p>
             </div>

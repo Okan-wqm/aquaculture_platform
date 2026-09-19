@@ -194,7 +194,7 @@ const RoleModal = memo<RoleModalProps>(({
             {/* Basic Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Role Name *
                 </label>
                 <input
@@ -204,12 +204,12 @@ const RoleModal = memo<RoleModalProps>(({
                   placeholder="e.g., Supervisor, Technician"
                   required
                   disabled={role?.isSystem}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Priority Level
                 </label>
                 <input
@@ -218,16 +218,16 @@ const RoleModal = memo<RoleModalProps>(({
                   max="100"
                   value={formData.level}
                   onChange={handleLevelChange}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Higher = more authority (1-100)
                 </p>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Description
               </label>
               <textarea
@@ -235,13 +235,13 @@ const RoleModal = memo<RoleModalProps>(({
                 onChange={handleDescriptionChange}
                 placeholder="Describe what this role is for..."
                 rows={2}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 resize-none"
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 resize-none"
               />
             </div>
 
             {/* Color Selection */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 <Palette className="w-4 h-4 inline mr-1" />
                 Role Color
               </label>
@@ -258,13 +258,13 @@ const RoleModal = memo<RoleModalProps>(({
                 id="isDefault"
                 checked={formData.isDefault}
                 onChange={handleIsDefaultChange}
-                className="rounded border-gray-300 text-tenant-600 focus:ring-tenant-500"
+                className="rounded border-gray-300 dark:border-gray-600 text-tenant-600 focus:ring-tenant-500"
               />
               <label htmlFor="isDefault" className="flex-1">
-                <span className="text-sm font-medium text-gray-900">
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                   Set as default role
                 </span>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   New users will be assigned this role by default
                 </p>
               </label>
@@ -273,7 +273,7 @@ const RoleModal = memo<RoleModalProps>(({
 
             {/* Permissions */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                 Permissions
               </label>
               {categories.length > 0 ? (
@@ -285,9 +285,9 @@ const RoleModal = memo<RoleModalProps>(({
                   readOnly={role?.isSystem}
                 />
               ) : (
-                <div className="p-8 text-center bg-gray-50 rounded-xl">
-                  <RefreshCw className="w-6 h-6 animate-spin text-gray-500 mx-auto" />
-                  <p className="mt-2 text-sm text-gray-500">
+                <div className="p-8 text-center bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <RefreshCw className="w-6 h-6 animate-spin text-gray-500 dark:text-gray-400 mx-auto" />
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                     Loading permission categories...
                   </p>
                 </div>
@@ -296,7 +296,7 @@ const RoleModal = memo<RoleModalProps>(({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+          <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
             {role?.isSystem && (
               <p className="text-xs text-amber-600">
                 System roles cannot be modified
@@ -306,7 +306,7 @@ const RoleModal = memo<RoleModalProps>(({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 Cancel
               </button>
@@ -405,7 +405,7 @@ const DeleteModal = memo<DeleteModalProps>(({
         <div className="mt-6 flex items-center justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>
@@ -554,10 +554,10 @@ const TenantRolesPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={handleRefresh}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Refresh"
             >
-              <RefreshCw className="w-5 h-5 text-gray-500" />
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
             {/* RBAC-HIGH-004: seed + create require the roles:create capability.
                 RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
@@ -569,7 +569,7 @@ const TenantRolesPage: React.FC = () => {
                   <button
                     onClick={handleSeedRoles}
                     disabled={seedMutation.isPending}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
                     {seedMutation.isPending ? (
                       <RefreshCw className="w-4 h-4 animate-spin" />
@@ -628,12 +628,12 @@ const TenantRolesPage: React.FC = () => {
         </div>
       ) : error ? null : (
         // Empty State (confirmed empty — the query succeeded with zero roles)
-        <div className="bg-white rounded-xl border border-gray-100 py-16 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 py-16 text-center">
           <Shield className="w-16 h-16 text-gray-200 mx-auto" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">
+          <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
             No roles defined
           </h3>
-          <p className="mt-2 text-sm text-gray-500 max-w-md mx-auto">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
             Create custom roles to manage user permissions. You can also seed
             default roles to get started quickly.
           </p>
@@ -643,7 +643,7 @@ const TenantRolesPage: React.FC = () => {
               <button
                 onClick={handleSeedRoles}
                 disabled={seedMutation.isPending}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 {seedMutation.isPending ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />

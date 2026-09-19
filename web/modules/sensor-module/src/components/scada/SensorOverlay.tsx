@@ -67,7 +67,7 @@ const getTrendIcon = (trend: 'up' | 'down' | 'stable') => {
     case 'down':
       return <TrendingDown className="w-2.5 h-2.5 text-red-500" />;
     default:
-      return <Minus className="w-2.5 h-2.5 text-gray-500" />;
+      return <Minus className="w-2.5 h-2.5 text-gray-500 dark:text-gray-400" />;
   }
 };
 
@@ -91,9 +91,9 @@ const getStatusConfig = (status: SensorStatus) => {
       icon: <AlertCircle className="w-3 h-3" />,
     },
     offline: {
-      bg: 'bg-gray-100',
-      border: 'border-gray-300',
-      text: 'text-gray-500',
+      bg: 'bg-gray-100 dark:bg-gray-800',
+      border: 'border-gray-300 dark:border-gray-600',
+      text: 'text-gray-500 dark:text-gray-400',
     },
   };
   return configs[status];
@@ -219,7 +219,7 @@ export const SensorOverlay: React.FC<SensorOverlayProps> = ({
                 ? 'bg-red-100 text-red-700'
                 : hasWarning
                 ? 'bg-yellow-100 text-yellow-700'
-                : 'bg-gray-100 text-gray-600'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
               }
             `}
           >

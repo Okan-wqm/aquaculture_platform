@@ -95,10 +95,10 @@ const LiveClock = memo(() => {
       className="flex items-center gap-1.5 text-gray-300 select-none"
       aria-label={`Current date and time: ${date} ${time}`}
     >
-      <Clock size={14} className="text-gray-400 shrink-0" aria-hidden="true" />
+      <Clock size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
       <span className="text-xs font-mono tabular-nums">
         {date}
-        <span className="mx-1 text-gray-600" aria-hidden="true">|</span>
+        <span className="mx-1 text-gray-600 dark:text-gray-400" aria-hidden="true">|</span>
         {time}
       </span>
     </div>
@@ -223,7 +223,7 @@ const AlarmBadge = memo(() => {
       className={`
         relative flex items-center justify-center w-8 h-8 rounded transition-colors
         focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
-        ${alarmPanelOpen ? 'bg-gray-600 text-gray-100' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-700'}
+        ${alarmPanelOpen ? 'bg-gray-600 text-gray-100' : 'text-gray-400 dark:text-gray-500 hover:text-gray-100 hover:bg-gray-700'}
       `}
     >
       {badge ? (
@@ -284,14 +284,14 @@ const UserRoleMenu = memo(() => {
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <User size={14} className="text-gray-400 shrink-0" aria-hidden="true" />
+        <User size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
         <span
           className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${roleClass}`}
           title={`Current role: ${currentUserRole}`}
         >
           {currentUserRole}
         </span>
-        <ChevronDown size={12} className="text-gray-500 shrink-0" aria-hidden="true" />
+        <ChevronDown size={12} className="text-gray-500 dark:text-gray-400 shrink-0" aria-hidden="true" />
       </button>
 
       {open && (
@@ -301,7 +301,7 @@ const UserRoleMenu = memo(() => {
           aria-label="Switch HMI role"
         >
           <li className="px-3 pt-2 pb-1">
-            <span className="text-[10px] text-gray-500 uppercase font-semibold tracking-wider">
+            <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-semibold tracking-wider">
               Switch Role
             </span>
           </li>
@@ -322,7 +322,7 @@ const UserRoleMenu = memo(() => {
               >
                 <Shield
                   size={12}
-                  className={`shrink-0 ${ROLE_BADGE[role].split(' ')[1] ?? 'text-gray-400'}`}
+                  className={`shrink-0 ${ROLE_BADGE[role].split(' ')[1] ?? 'text-gray-400 dark:text-gray-500'}`}
                   aria-hidden="true"
                 />
                 <span className="capitalize flex-1">{role}</span>

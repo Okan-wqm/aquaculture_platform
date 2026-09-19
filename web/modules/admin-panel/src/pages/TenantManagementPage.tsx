@@ -247,7 +247,7 @@ const TenantManagementPage: React.FC = () => {
           aria-label="Select all tenants"
           checked={selectedIds.size === tenants.length && tenants.length > 0}
           onChange={toggleSelectAll}
-          className="w-4 h-4 rounded border-gray-300"
+          className="w-4 h-4 rounded border-gray-300 dark:border-gray-600"
         />
       ),
       render: (tenant) => (
@@ -256,7 +256,7 @@ const TenantManagementPage: React.FC = () => {
           aria-label={`Select ${tenant.name}`}
           checked={selectedIds.has(tenant.id)}
           onChange={() => toggleSelect(tenant.id)}
-          className="w-4 h-4 rounded border-gray-300"
+          className="w-4 h-4 rounded border-gray-300 dark:border-gray-600"
           onClick={(e) => e.stopPropagation()}
         />
       ),
@@ -271,10 +271,10 @@ const TenantManagementPage: React.FC = () => {
           onClick={() => navigate(`/admin/tenants/${tenant.id}`)}
         >
           <div className="flex items-center space-x-2">
-            <p className="font-medium text-gray-900">{tenant.name}</p>
+            <p className="font-medium text-gray-900 dark:text-gray-100">{tenant.name}</p>
             {tenant.isTrialActive && <Badge variant="warning">Trial</Badge>}
           </div>
-          <p className="text-sm text-gray-500">{tenant.slug}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{tenant.slug}</p>
         </div>
       ),
     },
@@ -295,9 +295,9 @@ const TenantManagementPage: React.FC = () => {
       header: 'Usage',
       render: (tenant) => (
         <div className="text-sm">
-          <span className="text-gray-600">{tenant.userCount ?? 0} users</span>
-          <span className="mx-1 text-gray-500">|</span>
-          <span className="text-gray-600">{tenant.farmCount ?? 0} farms</span>
+          <span className="text-gray-600 dark:text-gray-400">{tenant.userCount ?? 0} users</span>
+          <span className="mx-1 text-gray-500 dark:text-gray-400">|</span>
+          <span className="text-gray-600 dark:text-gray-400">{tenant.farmCount ?? 0} farms</span>
         </div>
       ),
     },
@@ -377,25 +377,25 @@ const TenantManagementPage: React.FC = () => {
           arithmetic. */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Total</p>
-          <p className="text-2xl font-bold text-gray-900">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {stats ? stats.totalTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Active</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Active</p>
           <p className="text-2xl font-bold text-green-600">
             {stats ? stats.activeTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Pending</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
           <p className="text-2xl font-bold text-yellow-600">
             {stats ? stats.pendingTenants.toLocaleString() : '—'}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-sm text-gray-500">Suspended</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Suspended</p>
           <p className="text-2xl font-bold text-red-600">
             {stats ? stats.suspendedTenants.toLocaleString() : '—'}
           </p>
@@ -415,7 +415,7 @@ const TenantManagementPage: React.FC = () => {
               }}
               leftIcon={
                 <svg
-                  className="w-5 h-5 text-gray-500"
+                  className="w-5 h-5 text-gray-500 dark:text-gray-400"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -468,7 +468,7 @@ const TenantManagementPage: React.FC = () => {
       {tenantsQuery.isPending ? (
         <div className="text-center py-8">
           <Spinner size="lg" block />
-          <p className="mt-2 text-gray-500">Loading...</p>
+          <p className="mt-2 text-gray-500 dark:text-gray-400">Loading...</p>
         </div>
       ) : (
         <Table
@@ -490,7 +490,7 @@ const TenantManagementPage: React.FC = () => {
           >
             Previous
           </Button>
-          <span className="py-2 px-4 text-sm text-gray-600">
+          <span className="py-2 px-4 text-sm text-gray-600 dark:text-gray-400">
             Page {page} / {expectedTotalPages(matchingTenants, PAGE_SIZE)}
           </span>
           <Button
@@ -515,29 +515,29 @@ const TenantManagementPage: React.FC = () => {
           <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Slug</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Slug</p>
                 <p className="font-medium">{selectedTenant.slug}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Tier</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Tier</p>
                 <Badge variant={getTierVariant(selectedTenant.tier)}>{selectedTenant.tier}</Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Status</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Status</p>
                 <Badge variant={getStatusVariant(selectedTenant.status)}>
                   {selectedTenant.status}
                 </Badge>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Users</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Users</p>
                 <p className="font-medium">{selectedTenant.userCount}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Farm</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Farm</p>
                 <p className="font-medium">{selectedTenant.farmCount}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Created</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Created</p>
                 <p className="font-medium">
                   {formatDate(new Date(selectedTenant.createdAt), 'long')}
                 </p>
@@ -582,7 +582,7 @@ const TenantManagementPage: React.FC = () => {
             access.
           </Alert>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Suspension Reason
             </label>
             <textarea
@@ -645,7 +645,7 @@ const TenantManagementPage: React.FC = () => {
             this action — it will be recorded in the audit log.
           </Alert>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Reason <span className="text-red-500">*</span>
             </label>
             <textarea

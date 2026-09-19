@@ -162,7 +162,7 @@ function getActionButton(
       );
     case 'contact_admin':
       return (
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-gray-500 dark:text-gray-400">
           Yardım için sistem yöneticinize başvurun
         </span>
       );
@@ -215,10 +215,10 @@ export const ApiError: React.FC<ApiErrorProps> = ({
           {/* Technical details (SEC-011: only shown in development — never in production) */}
           {showDetails && import.meta.env.DEV && (
             <details className="mt-2">
-              <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+              <summary className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-100">
                 Teknik detaylar
               </summary>
-              <pre className="mt-1 text-xs bg-gray-100 p-2 rounded overflow-auto max-h-32">
+              <pre className="mt-1 text-xs bg-gray-100 dark:bg-gray-800 p-2 rounded overflow-auto max-h-32">
                 {JSON.stringify(
                   {
                     code: appError.code,

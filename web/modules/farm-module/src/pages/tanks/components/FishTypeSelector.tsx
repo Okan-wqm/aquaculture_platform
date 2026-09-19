@@ -66,7 +66,7 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
           {operationIcons[operation]}
         </div>
 
-        <p className="text-gray-600 mb-6 text-center">
+        <p className="text-gray-600 dark:text-gray-400 mb-6 text-center">
           <span className="font-medium">{tank.name}</span> has both production fish and cleaner fish.
           <br />
           Which would you like to record {operationLabels[operation]} for?
@@ -83,11 +83,11 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
                 <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                 </svg>
-                <span className="text-lg font-semibold text-gray-900 group-hover:text-blue-600">
+                <span className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600">
                   Production Fish
                 </span>
               </div>
-              <div className="text-sm text-gray-500 space-y-1">
+              <div className="text-sm text-gray-500 dark:text-gray-400 space-y-1">
                 <div>{tank.pieces?.toLocaleString() || 0} fish</div>
                 <div>{tank.biomass?.toFixed(1) || 0} kg biomass</div>
                 <div className="text-xs">Batch: {tank.batchNumber}</div>
@@ -106,11 +106,11 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12c0 4-4 6-8 6s-8-2-8-6 4-6 8-6 8 2 8 6z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12l4-2v4l-4-2zM6 12a2 2 0 100-4 2 2 0 000 4z" />
                 </svg>
-                <span className="text-lg font-semibold text-gray-900 group-hover:text-green-600">
+                <span className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-green-600">
                   Cleaner Fish
                 </span>
               </div>
-              <div className="text-sm text-gray-500 space-y-1">
+              <div className="text-sm text-gray-500 dark:text-gray-400 space-y-1">
                 <div>{tank.cleanerFishQuantity?.toLocaleString() || 0} fish</div>
                 <div>{tank.cleanerFishBiomassKg?.toFixed(2) || 0} kg biomass</div>
                 {tank.cleanerFishDetails && tank.cleanerFishDetails.length > 0 && (
@@ -124,7 +124,7 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
         </div>
 
         {operation === 'cull' && hasCleaner && (
-          <p className="mt-4 text-sm text-gray-500 text-center">
+          <p className="mt-4 text-sm text-gray-500 dark:text-gray-400 text-center">
             Note: Cull operations are only available for production fish.
           </p>
         )}
@@ -132,7 +132,7 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
         <div className="mt-6 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-gray-600 hover:text-gray-800 transition-colors"
+            className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
           >
             Cancel
           </button>

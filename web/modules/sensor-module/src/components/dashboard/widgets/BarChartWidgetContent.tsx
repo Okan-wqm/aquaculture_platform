@@ -74,7 +74,7 @@ export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         {error}
       </div>
     );
@@ -117,7 +117,7 @@ export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({
 
   if (finalChartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         No historical data
       </div>
     );
@@ -205,7 +205,7 @@ export const BarChartWidgetContent: React.FC<BarChartWidgetContentProps> = ({
       </div>
       {/* Last update time */}
       {latestTimestamp && (
-        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 pt-1 border-t border-gray-100">
+        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-gray-700">
           <Clock size={10} />
           <span>Last update: {formatTimeSince(latestTimestamp)}</span>
         </div>

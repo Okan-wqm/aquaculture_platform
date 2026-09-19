@@ -51,12 +51,12 @@ import {
 // ============================================================================
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  DRAFT: { label: 'Taslak', color: 'bg-gray-100 text-gray-700 border-gray-200' },
+  DRAFT: { label: 'Taslak', color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700' },
   PENDING: { label: 'Bekliyor', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
   SENT: { label: 'Gönderildi', color: 'bg-blue-100 text-blue-700 border-blue-200' },
   ACKNOWLEDGED: { label: 'Onaylandı', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
   ACTIVE: { label: 'Aktif', color: 'bg-green-100 text-green-700 border-green-200' },
-  SUPERSEDED: { label: 'Geçersiz', color: 'bg-gray-100 text-gray-500 border-gray-200' },
+  SUPERSEDED: { label: 'Geçersiz', color: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700' },
   ERROR: { label: 'Hata', color: 'bg-red-100 text-red-700 border-red-200' },
 };
 
@@ -177,12 +177,12 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
         <div className="grid grid-cols-2 gap-4">
           {!parameter && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">PLC Bağlantı *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PLC Bağlantı *</label>
               <select
                 required
                 value={form.plcConnectionId}
                 onChange={(e) => updateField('plcConnectionId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               >
                 <option value="">Bağlantı seçin...</option>
                 {connections.map((c) => (
@@ -192,69 +192,69 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
             </div>
           )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Adı *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parametre Adı *</label>
             <input
               type="text"
               required
               value={form.name}
               onChange={(e) => updateField('name', e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               placeholder="Tank-01 Yaz Parametreleri"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Versiyon</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Versiyon</label>
             <input
               type="text"
               value={form.version}
               onChange={(e) => updateField('version', e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
           <textarea
             value={form.description}
             onChange={(e) => updateField('description', e.target.value)}
             rows={2}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
 
         {/* Core Parameters */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Temel Parametreler</h3>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Temel Parametreler</h3>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Biyokutle (kg)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Biyokutle (kg)</label>
               <input
                 type="number"
                 min={0} max={1000000} step={0.01}
                 value={form.biomassKg}
                 onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">FCR</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">FCR</label>
               <input
                 type="number"
                 min={0.1} max={10} step={0.01}
                 value={form.fcr}
                 onChange={(e) => updateField('fcr', parseFloat(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Gunluk Hedef (kg)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Gunluk Hedef (kg)</label>
               <input
                 type="number"
                 min={0} max={100000} step={0.01}
                 value={form.targetDailyFeedKg}
                 onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>
           </div>
@@ -263,7 +263,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
         {/* Schedule */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold text-gray-900">Besleme Programı</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Besleme Programı</h3>
             <button
               type="button"
               onClick={addScheduleEntry}
@@ -275,27 +275,27 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
           </div>
           <div className="space-y-2">
             {form.schedule.map((entry, i) => (
-              <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-200 p-2 bg-gray-50">
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 p-2 bg-gray-50 dark:bg-gray-800">
                 <input
                   type="time"
                   value={entry.time}
                   onChange={(e) => updateScheduleEntry(i, 'time', e.target.value)}
-                  className="rounded border border-gray-300 px-2 py-1 text-sm"
+                  className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
                 />
                 <input
                   type="number"
                   min={0} step={0.1}
                   value={entry.amountKg}
                   onChange={(e) => updateScheduleEntry(i, 'amountKg', parseFloat(e.target.value))}
-                  className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+                  className="w-20 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
                   placeholder="kg"
                 />
-                <span className="text-xs text-gray-400">kg</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">kg</span>
                 <input
                   type="text"
                   value={entry.feedType || ''}
                   onChange={(e) => updateScheduleEntry(i, 'feedType', e.target.value)}
-                  className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
+                  className="flex-1 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
                   placeholder="Yem tipi"
                 />
                 <input
@@ -303,10 +303,10 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
                   min={0} max={3600}
                   value={entry.durationSeconds || 0}
                   onChange={(e) => updateScheduleEntry(i, 'durationSeconds', parseInt(e.target.value))}
-                  className="w-16 rounded border border-gray-300 px-2 py-1 text-sm"
+                  className="w-16 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
                   placeholder="sn"
                 />
-                <span className="text-xs text-gray-400">sn</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500">sn</span>
                 <button
                   type="button"
                   onClick={() => removeScheduleEntry(i)}
@@ -321,54 +321,54 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
 
         {/* Thresholds */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Eşik Değerleri</h3>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Eşik Değerleri</h3>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">O2 Min (mg/L)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">O2 Min (mg/L)</label>
               <input type="number" min={0} max={20} step={0.1}
                 value={form.thresholds.oxygenMin}
                 onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">O2 Kritik (mg/L)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">O2 Kritik (mg/L)</label>
               <input type="number" min={0} max={20} step={0.1}
                 value={form.thresholds.oxygenCritical}
                 onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Sıcaklık Max (C)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sıcaklık Max (C)</label>
               <input type="number" min={0} max={50} step={0.1}
                 value={form.thresholds.tempMax}
                 onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Sıcaklık Kritik (C)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sıcaklık Kritik (C)</label>
               <input type="number" min={0} max={50} step={0.1}
                 value={form.thresholds.tempCritical}
                 onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">pH Min</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">pH Min</label>
               <input type="number" min={0} max={14} step={0.1}
                 value={form.thresholds.phMin || 0}
                 onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">pH Max</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">pH Max</label>
               <input type="number" min={0} max={14} step={0.1}
                 value={form.thresholds.phMax || 0}
                 onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
           </div>
@@ -376,38 +376,38 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
 
         {/* VFD Settings */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">VFD Ayarları</h3>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">VFD Ayarları</h3>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Blower Min Hız (%)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Blower Min Hız (%)</label>
               <input type="number" min={0} max={100}
                 value={form.vfdSettings.blowerMinSpeed}
                 onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Blower Max Hız (%)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Blower Max Hız (%)</label>
               <input type="number" min={0} max={100}
                 value={form.vfdSettings.blowerMaxSpeed}
                 onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Doser Min Hız (%)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Doser Min Hız (%)</label>
               <input type="number" min={0} max={100}
                 value={form.vfdSettings.doserMinSpeed}
                 onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Doser Max Hız (%)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Doser Max Hız (%)</label>
               <input type="number" min={0} max={100}
                 value={form.vfdSettings.doserMaxSpeed}
                 onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
-                className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
               />
             </div>
           </div>
@@ -418,7 +418,7 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             İptal
           </button>
@@ -522,8 +522,8 @@ const PlcFeedingParamsPage: React.FC = () => {
       header: 'Parametre',
       render: (_value, param) => (
         <div>
-          <div className="font-medium text-gray-900">{param.name}</div>
-          <div className="text-xs text-gray-500">v{param.version}</div>
+          <div className="font-medium text-gray-900 dark:text-gray-100">{param.name}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">v{param.version}</div>
         </div>
       ),
     },
@@ -599,15 +599,15 @@ const PlcFeedingParamsPage: React.FC = () => {
         <div className="relative" ref={menuOpenId === param.id ? openMenuRef : undefined}>
           <button
             onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="rounded p-1 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
           >
             <MoreVertical className="h-4 w-4" />
           </button>
           {menuOpenId === param.id && (
-            <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white py-1 shadow-lg">
+            <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-lg">
               <button
                 onClick={() => { setEditingParam(param); setShowForm(true); setMenuOpenId(null); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Edit className="h-4 w-4" />
                 Düzenle
@@ -631,7 +631,7 @@ const PlcFeedingParamsPage: React.FC = () => {
               )}
               <button
                 onClick={() => { setCloneDialogId(param.id); setCloneName(param.name + ' (Kopya)'); setMenuOpenId(null); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Copy className="h-4 w-4" />
                 Klonla
@@ -661,7 +661,7 @@ const PlcFeedingParamsPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => refetch()}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               <RefreshCw className="h-4 w-4" />
             </button>
@@ -680,19 +680,19 @@ const PlcFeedingParamsPage: React.FC = () => {
       {/* Filters */}
       <div className="mb-4 flex gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Parametre ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as ParameterStatus | '')}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         >
           <option value="">Tüm Durumlar</option>
           <option value="DRAFT">Taslak</option>
@@ -704,7 +704,7 @@ const PlcFeedingParamsPage: React.FC = () => {
         <select
           value={connectionFilter}
           onChange={(e) => setConnectionFilter(e.target.value)}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         >
           <option value="">Tüm Bağlantılar</option>
           {connections?.map((c) => (
@@ -729,10 +729,10 @@ const PlcFeedingParamsPage: React.FC = () => {
           stickyHeader={false}
         />
       ) : (
-        <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
-          <BarChart3 className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-semibold text-gray-900">Besleme parametresi yok</h3>
-          <p className="mt-1 text-sm text-gray-500">İlk besleme parametre setinizi oluşturun.</p>
+        <div className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-12 text-center">
+          <BarChart3 className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+          <h3 className="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Besleme parametresi yok</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">İlk besleme parametre setinizi oluşturun.</p>
           <button
             onClick={() => setShowForm(true)}
             className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
@@ -770,7 +770,7 @@ const PlcFeedingParamsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={closeCloneDialog}
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 İptal
               </button>
@@ -785,12 +785,12 @@ const PlcFeedingParamsPage: React.FC = () => {
             </>
           }
         >
-          <label className="block text-sm font-medium text-gray-700 mb-1">Yeni Ad</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yeni Ad</label>
           <input
             type="text"
             value={cloneName}
             onChange={(e) => setCloneName(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </Modal>
       )}
@@ -807,7 +807,7 @@ const PlcFeedingParamsPage: React.FC = () => {
             <button
               type="button"
               onClick={() => setSendResult(null)}
-              className="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+              className="w-full rounded-lg bg-gray-100 dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               Kapat
             </button>

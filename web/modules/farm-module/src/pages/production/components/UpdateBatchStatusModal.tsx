@@ -98,18 +98,18 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Update Batch Status" size="md">
       <div className="space-y-6">
-        <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-500">Batch</p>
-          <p className="font-medium text-gray-900">{batchNumber}</p>
-          <p className="mt-2 text-sm text-gray-500">Current status</p>
-          <p className="font-medium text-gray-900">{currentStatus}</p>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Batch</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{batchNumber}</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Current status</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{currentStatus}</p>
         </div>
 
         <div className="space-y-4">
           <div>
             <label
               htmlFor="target-status"
-              className="block text-sm font-medium text-gray-700"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
               Target status <span className="text-orange-500">*</span>
             </label>
@@ -117,7 +117,7 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
               id="target-status"
               value={status}
               onChange={(e) => setStatus(e.target.value as BatchStatus)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option
@@ -135,7 +135,7 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
           <div>
             <label
               htmlFor="status-reason"
-              className="block text-sm font-medium text-gray-700"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
               Reason (optional)
             </label>
@@ -145,7 +145,7 @@ export const UpdateBatchStatusModal: React.FC<UpdateBatchStatusModalProps> = ({
               maxLength={500}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
               placeholder="Explain the transition (written to the audit log)"
             />
           </div>

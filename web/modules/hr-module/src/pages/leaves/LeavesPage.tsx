@@ -77,7 +77,7 @@ export function LeavesPage() {
                 <p className="font-medium text-gray-900 dark:text-white">
                   {row.employee.firstName} {row.employee.lastName}
                 </p>
-                <p className="text-sm text-gray-500">{row.requestNumber}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{row.requestNumber}</p>
               </div>
             </>
           )}
@@ -111,7 +111,7 @@ export function LeavesPage() {
           <p className="text-gray-900 dark:text-white">
             {new Date(row.startDate).toLocaleDateString()} - {new Date(row.endDate).toLocaleDateString()}
           </p>
-          <p className="text-gray-500">
+          <p className="text-gray-500 dark:text-gray-400">
             {row.totalDays} day{row.totalDays !== 1 ? 's' : ''}
             {row.isHalfDayStart && ' (half-day start)'}
             {row.isHalfDayEnd && ' (half-day end)'}
@@ -279,7 +279,7 @@ export function LeavesPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'all'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           All Requests
@@ -290,7 +290,7 @@ export function LeavesPage() {
             'flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'pending'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Pending Approvals
@@ -306,7 +306,7 @@ export function LeavesPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'mine'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           My Requests
@@ -317,7 +317,7 @@ export function LeavesPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
           <label htmlFor="leave-search" className="sr-only">Search leave requests</label>
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             id="leave-search"
             type="text"

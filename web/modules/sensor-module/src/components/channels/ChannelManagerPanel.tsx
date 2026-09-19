@@ -126,7 +126,7 @@ function getSourceBadge(source?: string) {
       );
     default:
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
           Bilinmiyor
         </span>
       );
@@ -203,20 +203,20 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
   // ---- Loading skeleton ----
   if (fetchLoading && channels.length === 0) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center justify-between mb-6">
-          <div className="h-6 w-40 bg-gray-200 rounded animate-pulse" />
-          <div className="h-9 w-32 bg-gray-200 rounded animate-pulse" />
+          <div className="h-6 w-40 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          <div className="h-9 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
         </div>
         <div className="space-y-3">
           {[1, 2, 3].map((i) => (
             <div key={i} className="flex items-center space-x-4">
-              <div className="h-4 w-24 bg-gray-200 rounded animate-pulse" />
-              <div className="h-4 w-32 bg-gray-200 rounded animate-pulse" />
-              <div className="h-4 w-16 bg-gray-200 rounded animate-pulse" />
-              <div className="h-4 w-16 bg-gray-200 rounded animate-pulse" />
-              <div className="h-4 w-20 bg-gray-200 rounded animate-pulse" />
-              <div className="h-4 w-16 bg-gray-200 rounded animate-pulse" />
+              <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-4 w-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-4 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
             </div>
           ))}
         </div>
@@ -227,7 +227,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
   // ---- Error state ----
   if (error) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
           <div>
@@ -281,7 +281,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
               Aktif
             </span>
           ) : (
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
               Devre Disi
             </span>
           )}
@@ -302,7 +302,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
           {/* L3: aria-label */}
           <button
             onClick={() => handleEditChannel(ch)}
-            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors"
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded transition-colors"
             aria-label="Kanali duzenle"
             title="Kanali duzenle"
           >
@@ -312,7 +312,7 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
           <button
             onClick={() => handleDeleteChannel(ch.id, ch.channelKey)}
             disabled={deletingId === ch.id}
-            className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50"
             aria-label="Kanali sil"
             title="Kanali sil"
           >
@@ -328,10 +328,10 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
-        <h3 className="text-lg font-semibold text-gray-900">Veri Kanallari</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Veri Kanallari</h3>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setShowAIDetection((prev) => !prev)}
@@ -377,10 +377,10 @@ export const ChannelManagerPanel: React.FC<ChannelManagerPanelProps> = ({ sensor
       {/* Empty state */}
       {channels.length === 0 ? (
         <div className="text-center py-12">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
-            <AlertCircle className="w-8 h-8 text-gray-500" />
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+            <AlertCircle className="w-8 h-8 text-gray-500 dark:text-gray-400" />
           </div>
-          <p className="text-gray-500 text-sm">
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
             Henuz kanal yapilandirilmadi. Kanal ekleyin veya AI tespiti kullanin.
           </p>
         </div>

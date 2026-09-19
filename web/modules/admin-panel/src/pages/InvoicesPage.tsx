@@ -340,13 +340,13 @@ const InvoicesPage: React.FC = () => {
   const canVoid = selectedInvoice && !['paid', 'void', 'refunded'].includes(selectedInvoice.status);
 
   const statusColors: Record<string, string> = {
-    draft: 'bg-gray-100 text-gray-700',
+    draft: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
     pending: 'bg-yellow-100 text-yellow-700',
     sent: 'bg-blue-100 text-blue-700',
     paid: 'bg-green-100 text-green-700',
     partially_paid: 'bg-orange-100 text-orange-700',
     overdue: 'bg-red-100 text-red-700',
-    void: 'bg-gray-200 text-gray-500',
+    void: 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
     refunded: 'bg-purple-100 text-purple-700',
   };
 
@@ -367,8 +367,8 @@ const InvoicesPage: React.FC = () => {
       header: 'Invoice',
       render: (_value, invoice) => (
         <div>
-          <div className="text-sm font-medium text-gray-900">{invoice.invoiceNumber}</div>
-          <div className="text-xs text-gray-500">{formatDate(invoice.createdAt)}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{invoice.invoiceNumber}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(invoice.createdAt)}</div>
         </div>
       ),
     },
@@ -377,8 +377,8 @@ const InvoicesPage: React.FC = () => {
       header: 'Tenant',
       render: (_value, invoice) => (
         <div>
-          <div className="text-sm font-medium text-gray-900">{invoice.tenantName || 'Unknown'}</div>
-          <div className="text-xs text-gray-500">{invoice.tenantEmail || '-'}</div>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{invoice.tenantName || 'Unknown'}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{invoice.tenantEmail || '-'}</div>
         </div>
       ),
     },
@@ -387,7 +387,7 @@ const InvoicesPage: React.FC = () => {
       header: 'Amount',
       render: (_value, invoice) => (
         <>
-          <div className="text-sm font-semibold text-gray-900">{formatCurrency(invoice.amount, invoice.currency)}</div>
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">{formatCurrency(invoice.amount, invoice.currency)}</div>
           {invoice.amountDue > 0 && invoice.amountDue < invoice.amount && (
             <div className="text-xs text-orange-600">Due: {formatCurrency(invoice.amountDue, invoice.currency)}</div>
           )}
@@ -398,7 +398,7 @@ const InvoicesPage: React.FC = () => {
       key: 'status',
       header: 'Status',
       render: (_value, invoice) => (
-        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[invoice.status] || 'bg-gray-100 text-gray-700'}`}>
+        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[invoice.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
           {statusLabels[invoice.status] || invoice.status}
         </span>
       ),
@@ -408,7 +408,7 @@ const InvoicesPage: React.FC = () => {
       header: 'Due Date',
       render: (_value, invoice) => (
         <>
-          <div className="text-sm text-gray-900">{formatDate(invoice.dueDate)}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{formatDate(invoice.dueDate)}</div>
           {invoice.paidAt && (
             <div className="text-xs text-green-600">Paid: {formatDate(invoice.paidAt)}</div>
           )}
@@ -452,7 +452,7 @@ const InvoicesPage: React.FC = () => {
           <div className="flex gap-2">
             <button
               onClick={handleExportCsv}
-              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+              className="px-4 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             >
               Export
             </button>
@@ -468,24 +468,24 @@ const InvoicesPage: React.FC = () => {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Total Invoices</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{stats.totalInvoices}</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total Invoices</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{stats.totalInvoices}</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Total Amount</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(stats.totalAmount)}</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total Amount</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{formatCurrency(stats.totalAmount)}</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Paid</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Paid</p>
           <p className="text-2xl font-bold text-green-600 mt-1">{formatCurrency(stats.totalPaid)}</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Pending</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Pending</p>
           <p className="text-2xl font-bold text-yellow-600 mt-1">{formatCurrency(stats.totalPending)}</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Overdue</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Overdue</p>
           <p className="text-2xl font-bold text-red-600 mt-1">{formatCurrency(stats.totalOverdue)}</p>
         </div>
       </div>
@@ -507,7 +507,7 @@ const InvoicesPage: React.FC = () => {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <div className="relative">
@@ -516,10 +516,10 @@ const InvoicesPage: React.FC = () => {
                 placeholder="Search invoices..."
                 value={searchTerm}
                 onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
               <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -536,7 +536,7 @@ const InvoicesPage: React.FC = () => {
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize ${
                   statusFilter === status
                     ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
               >
                 {status}
@@ -593,46 +593,46 @@ const InvoicesPage: React.FC = () => {
           }
         >
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Tenant</span>
-            <span className="text-sm font-medium text-gray-900">{selectedInvoice.tenantName || 'Unknown'}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Tenant</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{selectedInvoice.tenantName || 'Unknown'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Email</span>
-            <span className="text-sm text-gray-900">{selectedInvoice.tenantEmail || '-'}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Email</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">{selectedInvoice.tenantEmail || '-'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Status</span>
-            <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedInvoice.status] || 'bg-gray-100 text-gray-700'}`}>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Status</span>
+            <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedInvoice.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
               {statusLabels[selectedInvoice.status] || selectedInvoice.status}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Issue Date</span>
-            <span className="text-sm text-gray-900">{formatDate(selectedInvoice.issueDate)}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Issue Date</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedInvoice.issueDate)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Due Date</span>
-            <span className="text-sm text-gray-900">{formatDate(selectedInvoice.dueDate)}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Due Date</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">{formatDate(selectedInvoice.dueDate)}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Period</span>
-            <span className="text-sm text-gray-900">
+            <span className="text-sm text-gray-500 dark:text-gray-400">Period</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">
               {formatDate(selectedInvoice.periodStart)} - {formatDate(selectedInvoice.periodEnd)}
             </span>
           </div>
 
-          <div className="border-t border-gray-200 pt-4 mt-4">
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
             <div className="flex justify-between py-2">
-              <span className="text-sm text-gray-600">Subtotal</span>
-              <span className="text-sm font-medium text-gray-900">{formatCurrency(selectedInvoice.amount, selectedInvoice.currency)}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">Subtotal</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{formatCurrency(selectedInvoice.amount, selectedInvoice.currency)}</span>
             </div>
             <div className="flex justify-between py-2">
-              <span className="text-sm text-gray-600">Amount Paid</span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">Amount Paid</span>
               <span className="text-sm font-medium text-green-600">{formatCurrency(selectedInvoice.amountPaid, selectedInvoice.currency)}</span>
             </div>
-            <div className="flex justify-between pt-3 border-t border-gray-200 mt-3">
-              <span className="text-sm font-semibold text-gray-900">Amount Due</span>
-              <span className="text-sm font-bold text-gray-900">{formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}</span>
+            <div className="flex justify-between pt-3 border-t border-gray-200 dark:border-gray-700 mt-3">
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Amount Due</span>
+              <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}</span>
             </div>
           </div>
         </Modal>
@@ -659,7 +659,7 @@ const InvoicesPage: React.FC = () => {
               <button
                 type="button"
                 onClick={closeMarkPaidModal}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 disabled={markPaidLoading}
               >
                 Cancel
@@ -678,11 +678,11 @@ const InvoicesPage: React.FC = () => {
           }
         >
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Amount Due: {formatCurrency(selectedInvoice.amountDue, selectedInvoice.currency)}
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
               <input
                 type="number"
                 step="0.01"
@@ -690,7 +690,7 @@ const InvoicesPage: React.FC = () => {
                 max={selectedInvoice.amountDue}
                 value={markPaidAmount}
                 onChange={(e) => setMarkPaidAmount(e.target.value)}
-                className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-green-500"
+                className="w-full pl-7 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-green-500"
                 placeholder="Enter payment amount"
               />
             </div>
@@ -719,7 +719,7 @@ const InvoicesPage: React.FC = () => {
               <button
                 type="button"
                 onClick={closeVoidModal}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 disabled={voidLoading}
               >
                 Cancel
@@ -743,7 +743,7 @@ const InvoicesPage: React.FC = () => {
             </p>
           </div>
           <div>
-            <label htmlFor="invoice-void-reason" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="invoice-void-reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Reason for voiding
             </label>
             <textarea
@@ -751,7 +751,7 @@ const InvoicesPage: React.FC = () => {
               value={voidReason}
               onChange={(e) => setVoidReason(e.target.value)}
               rows={3}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-red-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-red-500"
               placeholder="Enter reason for voiding this invoice..."
             />
           </div>

@@ -80,7 +80,7 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>
@@ -97,14 +97,14 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
     >
       <form id={formId} onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="entry-category" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="entry-category" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Category
           </label>
           <select
             id="entry-category"
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             required
           >
             <option value="">Select a category…</option>
@@ -118,7 +118,7 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="entry-date" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="entry-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Date
             </label>
             <input
@@ -126,12 +126,12 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
               type="date"
               value={entryDate}
               onChange={(e) => setEntryDate(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               required
             />
           </div>
           <div>
-            <label htmlFor="entry-amount" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="entry-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Amount
             </label>
             <input
@@ -141,16 +141,16 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
               step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="0.00"
               required
             />
-            <p className="mt-1 text-xs text-gray-500">Booked in the tenant default currency</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Booked in the tenant default currency</p>
           </div>
         </div>
 
         <div>
-          <label htmlFor="entry-description" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="entry-description" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Description
           </label>
           <textarea
@@ -158,7 +158,7 @@ export const ExpenseEntryFormModal: React.FC<ExpenseEntryFormModalProps> = ({ en
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Optional note (e.g. January electricity invoice)"
           />
         </div>

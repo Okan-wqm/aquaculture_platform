@@ -131,7 +131,7 @@ export function LeaveBalanceWidget({
   if (error || !data) {
     return (
       <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
-        <p className="text-center text-sm text-gray-500">Failed to load leave balances</p>
+        <p className="text-center text-sm text-gray-500 dark:text-gray-400">Failed to load leave balances</p>
       </div>
     );
   }
@@ -143,7 +143,7 @@ export function LeaveBalanceWidget({
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Leave Balance</span>
           <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
             {data.totalAvailable}
-            <span className="text-sm font-normal text-gray-500"> / {data.totalEntitled}</span>
+            <span className="text-sm font-normal text-gray-500 dark:text-gray-400"> / {data.totalEntitled}</span>
           </span>
         </div>
         <BalanceBar
@@ -152,7 +152,7 @@ export function LeaveBalanceWidget({
           entitled={data.totalEntitled}
           color={colors.primary[500]}
         />
-        <div className="mt-2 flex justify-between text-xs text-gray-500">
+        <div className="mt-2 flex justify-between text-xs text-gray-500 dark:text-gray-400">
           <span>Used: {data.totalUsed}</span>
           <span>Pending: {data.totalPending}</span>
         </div>
@@ -169,7 +169,7 @@ export function LeaveBalanceWidget({
             <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
               {data.totalAvailable}
             </span>
-            <span className="text-sm text-gray-500"> days available</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400"> days available</span>
           </div>
         </div>
       </div>
@@ -195,7 +195,7 @@ export function LeaveBalanceWidget({
                 <span className="font-semibold text-gray-900 dark:text-white">
                   {balance.available}
                 </span>
-                <span className="text-sm text-gray-500"> / {balance.entitled}</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400"> / {balance.entitled}</span>
               </div>
             </div>
 
@@ -208,7 +208,7 @@ export function LeaveBalanceWidget({
               />
             </div>
 
-            <div className="mt-1 flex justify-between text-xs text-gray-500">
+            <div className="mt-1 flex justify-between text-xs text-gray-500 dark:text-gray-400">
               <span>Used: {balance.used}</span>
               <span>Pending: {balance.pending}</span>
             </div>

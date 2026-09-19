@@ -244,15 +244,15 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
       key: 'name',
       header: 'Tag',
       render: (_value, entry) => (
-        <span className="block max-w-[200px] truncate font-mono text-gray-900">{entry.name}</span>
+        <span className="block max-w-[200px] truncate font-mono text-gray-900 dark:text-gray-100">{entry.name}</span>
       ),
     },
     {
       key: 'value',
       header: 'Value',
-      render: (_value, entry) => <span className="font-mono text-gray-700">{formatValue(entry.value)}</span>,
+      render: (_value, entry) => <span className="font-mono text-gray-700 dark:text-gray-300">{formatValue(entry.value)}</span>,
     },
-    { key: 'type', header: 'Type', sortable: false, render: (_value, entry) => <span className="text-gray-500">{entry.type}</span> },
+    { key: 'type', header: 'Type', sortable: false, render: (_value, entry) => <span className="text-gray-500 dark:text-gray-400">{entry.type}</span> },
     {
       key: 'history',
       header: 'Sparkline',
@@ -264,24 +264,24 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
       key: 'lastUpdate',
       header: 'Last Update',
       align: 'right',
-      render: (_value, entry) => <span className="font-mono text-gray-500">{formatTimestamp(entry.lastUpdate)}</span>,
+      render: (_value, entry) => <span className="font-mono text-gray-500 dark:text-gray-400">{formatTimestamp(entry.lastUpdate)}</span>,
     },
   ];
 
   return (
     <div
-      className="border-t border-gray-200 bg-white flex flex-col"
+      className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col"
       data-testid="tag-watch-panel"
     >
       {/* Toggle header */}
       <button
         onClick={() => setExpanded((e) => !e)}
-        className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition-colors"
+        className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
       >
-        <div className="flex items-center gap-2 text-xs font-medium text-gray-700">
+        <div className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
           <Activity className="w-3.5 h-3.5 text-cyan-600" />
           Tag Watch
-          <span className="text-gray-400">({entries.size} tags)</span>
+          <span className="text-gray-400 dark:text-gray-500">({entries.size} tags)</span>
           {paused && (
             <span className="text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded text-[10px] font-semibold">
               PAUSED
@@ -289,31 +289,31 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
           )}
         </div>
         {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+          <ChevronDown className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
         ) : (
-          <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+          <ChevronUp className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
         )}
       </button>
 
       {expanded && (
         <div className="flex flex-col" style={{ maxHeight: 280 }}>
           {/* Toolbar */}
-          <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100">
+          <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex-1 relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search tags..."
-                className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
                 data-testid="tag-watch-search"
               />
             </div>
             <button
               onClick={() => setPaused((p) => !p)}
               className={`p-1.5 rounded transition-colors ${
-                paused ? 'bg-yellow-50 text-yellow-600' : 'hover:bg-gray-100 text-gray-500'
+                paused ? 'bg-yellow-50 text-yellow-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400'
               }`}
               title={paused ? 'Resume' : 'Pause'}
             >
@@ -321,14 +321,14 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
             </button>
             <button
               onClick={handleCsvExport}
-              className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
               title="Export CSV"
             >
               <Download className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={handleClearHistory}
-              className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
               title="Clear history"
             >
               <Trash2 className="w-3.5 h-3.5" />

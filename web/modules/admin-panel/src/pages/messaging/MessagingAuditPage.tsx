@@ -48,7 +48,7 @@ const ACTION_COLORS: Record<string, string> = {
   delete: 'bg-red-100 text-red-800',
   create_channel: 'bg-green-100 text-green-800',
   join_channel: 'bg-purple-100 text-purple-800',
-  leave_channel: 'bg-gray-100 text-gray-800',
+  leave_channel: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   upload_file: 'bg-indigo-100 text-indigo-800',
 };
 
@@ -147,7 +147,7 @@ const MessagingAuditPage: React.FC = () => {
       key: 'tenant',
       header: 'Tenant',
       render: (_value, entry) => (
-        <p className="text-sm font-medium text-gray-900">{entry.tenantName}</p>
+        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{entry.tenantName}</p>
       ),
     },
     {
@@ -155,8 +155,8 @@ const MessagingAuditPage: React.FC = () => {
       header: 'User',
       render: (_value, entry) => (
         <>
-          <p className="text-sm text-gray-700">{entry.userName}</p>
-          <p className="text-xs text-gray-400 font-mono">{entry.userId.slice(0, 8)}...</p>
+          <p className="text-sm text-gray-700 dark:text-gray-300">{entry.userName}</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">{entry.userId.slice(0, 8)}...</p>
         </>
       ),
     },
@@ -167,7 +167,7 @@ const MessagingAuditPage: React.FC = () => {
         <>
           <span
             className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-              ACTION_COLORS[entry.action] ?? 'bg-gray-100 text-gray-800'
+              ACTION_COLORS[entry.action] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
             {entry.action.replace(/_/g, ' ')}
@@ -217,31 +217,31 @@ const MessagingAuditPage: React.FC = () => {
         <div className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Tenant ID</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tenant ID</label>
               <input
                 type="text"
                 placeholder="Filter by tenant..."
                 value={filters.tenantId}
                 onChange={(e) => handleFilterChange('tenantId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">User ID</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">User ID</label>
               <input
                 type="text"
                 placeholder="Filter by user..."
                 value={filters.userId}
                 onChange={(e) => handleFilterChange('userId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Action</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Action</label>
               <select
                 value={filters.action}
                 onChange={(e) => handleFilterChange('action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               >
                 {ACTION_OPTIONS.map((opt) => (
                   <option key={opt.value} value={opt.value}>
@@ -251,21 +251,21 @@ const MessagingAuditPage: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Start Date</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Start Date</label>
               <input
                 type="date"
                 value={filters.startDate}
                 onChange={(e) => handleFilterChange('startDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">End Date</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">End Date</label>
               <input
                 type="date"
                 value={filters.endDate}
                 onChange={(e) => handleFilterChange('endDate', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
           </div>
@@ -289,8 +289,8 @@ const MessagingAuditPage: React.FC = () => {
                 <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                 </svg>
-                <p className="text-sm text-gray-500">No audit entries found.</p>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-sm text-gray-500 dark:text-gray-400">No audit entries found.</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                   Audit entries will appear once messaging activity begins.
                 </p>
               </div>
@@ -311,25 +311,25 @@ const MessagingAuditPage: React.FC = () => {
 
         {/* Pagination */}
         {total > PAGE_SIZE && (
-          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-            <p className="text-sm text-gray-500">
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               Showing {(page - 1) * PAGE_SIZE + 1} to {Math.min(page * PAGE_SIZE, total)} of {total}
             </p>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page <= 1}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Previous
               </button>
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-gray-600 dark:text-gray-400">
                 Page {page} of {totalPages}
               </span>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page >= totalPages}
-                className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Next
               </button>

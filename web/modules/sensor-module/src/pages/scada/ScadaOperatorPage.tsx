@@ -84,7 +84,7 @@ const ScadaOperatorPage: React.FC = () => {
         {activeScreen ? (
           <OperatorView screen={activeScreen} onNavigate={setActiveScreen} />
         ) : (
-          <div className="flex h-full items-center justify-center text-gray-400 text-sm">
+          <div className="flex h-full items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
             This package has no screens.
           </div>
         )}

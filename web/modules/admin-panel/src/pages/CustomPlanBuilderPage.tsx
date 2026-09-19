@@ -363,7 +363,7 @@ const CustomPlanBuilderPage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">Plan Details</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Tenant ID <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -373,7 +373,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Plan Name <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -383,7 +383,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
                 <Input
                   placeholder="Description..."
                   value={config.description}
@@ -391,9 +391,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tier</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tier</label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   value={config.tier}
                   onChange={(e) => setConfig({ ...config, tier: e.target.value as PlanTier })}
                 >
@@ -404,9 +404,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Billing Cycle</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Billing Cycle</label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   value={config.billingCycle}
                   onChange={(e) => setConfig({ ...config, billingCycle: e.target.value as BillingCycle })}
                 >
@@ -417,7 +417,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Valid From</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valid From</label>
                 <Input
                   type="date"
                   value={config.validFrom}
@@ -425,7 +425,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Valid To (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valid To (Optional)</label>
                 <Input
                   type="date"
                   value={config.validTo}
@@ -451,7 +451,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                     className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
                       isSelected
                         ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                     }`}
                     onClick={() => toggleModule(module)}
                   >
@@ -459,7 +459,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                       <div className="text-2xl">{module.moduleIcon || '📦'}</div>
                       <div className="flex-1">
                         <div className="font-medium">{module.moduleName}</div>
-                        <div className="text-sm text-gray-500">{formatCurrency(Number(basePrice))}/mo base</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{formatCurrency(Number(basePrice))}/mo base</div>
                       </div>
                       {isSelected && (
                         <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
@@ -489,7 +489,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                   if (!modulePricing) return null;
 
                   return (
-                    <div key={selectedModule.moduleCode} className="p-4 bg-gray-50 rounded-lg">
+                    <div key={selectedModule.moduleCode} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
                       <div className="flex items-center gap-2 mb-4">
                         <span className="text-xl">{modulePricing.moduleIcon || '📦'}</span>
                         <span className="font-medium">{modulePricing.moduleName}</span>
@@ -503,7 +503,7 @@ const CustomPlanBuilderPage: React.FC = () => {
 
                             return (
                               <div key={metric.metricType}>
-                                <label className="block text-xs text-gray-500 mb-1">
+                                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                                   {METRIC_LABELS[metric.metricType]}
                                   {metric.includedQuantity && (
                                     <span className="text-green-600 ml-1">
@@ -539,7 +539,7 @@ const CustomPlanBuilderPage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">Discounts (Optional)</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Discount %</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Discount %</label>
                 <Input
                   type="number"
                   min={0}
@@ -550,7 +550,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Fixed Discount ($)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fixed Discount ($)</label>
                 <Input
                   type="number"
                   min={0}
@@ -560,7 +560,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Discount Reason</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Discount Reason</label>
                 <Input
                   placeholder="Early adopter discount"
                   value={config.discountReason}
@@ -581,7 +581,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 <Spinner size="lg" />
               </div>
             ) : config.modules.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                 Select modules to see pricing
               </div>
             ) : (
@@ -599,7 +599,7 @@ const CustomPlanBuilderPage: React.FC = () => {
 
                     return (
                       <div key={m.moduleCode} className="flex justify-between text-sm">
-                        <span className="text-gray-600">{m.moduleName}</span>
+                        <span className="text-gray-600 dark:text-gray-400">{m.moduleName}</span>
                         <span className="font-medium">{formatCurrency(Number(basePrice))}</span>
                       </div>
                     );
@@ -610,7 +610,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                   {pricing && (
                     <>
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Subtotal</span>
+                        <span className="text-gray-500 dark:text-gray-400">Subtotal</span>
                         <span>{formatCurrency(Number(pricing.subtotal))}</span>
                       </div>
                       {Number(pricing.tierDiscount) > 0 && (
@@ -637,15 +637,15 @@ const CustomPlanBuilderPage: React.FC = () => {
                     </span>
                   </div>
                   {pricing && (
-                    <div className="text-sm text-gray-500 text-right">
+                    <div className="text-sm text-gray-500 dark:text-gray-400 text-right">
                       {formatCurrency(Number(pricing.annualTotal))} /year
                     </div>
                   )}
                 </div>
 
                 {/* Tier Info */}
-                <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-                  <div className="text-xs text-gray-500 mb-1">Selected Tier</div>
+                <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Selected Tier</div>
                   <div className="font-medium capitalize">{config.tier}</div>
                   {config.tier === PlanTier.PROFESSIONAL && (
                     <div className="text-xs text-green-600">10% tier discount applied</div>

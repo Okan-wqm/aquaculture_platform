@@ -69,7 +69,7 @@ const SEVERITY_OPTIONS: { value: AlertSeverity; label: string; className: string
   { value: 'warning', label: 'Uyari', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
   { value: 'medium', label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200' },
   { value: 'low', label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-  { value: 'info', label: 'Bilgi', className: 'bg-gray-100 text-gray-800 border-gray-200' },
+  { value: 'info', label: 'Bilgi', className: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700' },
 ];
 
 const ACTION_OPTIONS: { value: EscalationActionType; label: string }[] = [
@@ -183,7 +183,7 @@ const LevelEditor: React.FC<{
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
           Eskalasyon Seviyeleri <span className="text-red-500">*</span>
         </label>
         <button
@@ -199,12 +199,12 @@ const LevelEditor: React.FC<{
       {levels.map((level, index) => (
         <div
           key={index}
-          className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3"
+          className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3"
         >
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-gray-400" />
-              <span className="text-sm font-semibold text-gray-700">Seviye {level.level}</span>
+              <Layers className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">Seviye {level.level}</span>
             </div>
             {levels.length > 1 && (
               <button
@@ -220,35 +220,35 @@ const LevelEditor: React.FC<{
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Name */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Seviye Adi</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Seviye Adi</label>
               <input
                 type="text"
                 value={level.name}
                 onChange={(e) => updateLevel(index, 'name', e.target.value)}
                 placeholder="Ornegin: Ilk Bildirim"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
 
             {/* Timeout */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Bekleme Suresi (dk)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bekleme Suresi (dk)</label>
               <input
                 type="number"
                 min={0}
                 value={level.timeoutMinutes}
                 onChange={(e) => updateLevel(index, 'timeoutMinutes', parseInt(e.target.value, 10) || 0)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
 
             {/* Action */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Aksiyon</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Aksiyon</label>
               <select
                 value={level.action}
                 onChange={(e) => updateLevel(index, 'action', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {ACTION_OPTIONS.map((a) => (
                   <option key={a.value} value={a.value}>{a.label}</option>
@@ -259,19 +259,19 @@ const LevelEditor: React.FC<{
 
           {/* Notify User IDs */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Bildirilecek Kullanicilar (virgul ile)</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bildirilecek Kullanicilar (virgul ile)</label>
             <input
               type="text"
               value={level.notifyUserIds.join(', ')}
               onChange={(e) => updateLevel(index, 'notifyUserIds', e.target.value.split(',').map((s) => s.trim()).filter(Boolean))}
               placeholder="Kullanici ID'leri"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
             />
           </div>
 
           {/* Channels */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Bildirim Kanallari</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bildirim Kanallari</label>
             <div className="flex flex-wrap gap-1.5">
               {CHANNEL_OPTIONS.map((ch) => (
                 <button
@@ -281,7 +281,7 @@ const LevelEditor: React.FC<{
                   className={`px-3 py-1 rounded-md text-xs font-medium border transition-colors ${
                     level.channels.includes(ch.value)
                       ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                      : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                      : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   {level.channels.includes(ch.value) && <Check className="w-3 h-3 inline mr-1" />}
@@ -329,12 +329,12 @@ const PolicyForm: React.FC<{
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           {mode === 'create' ? 'Yeni Eskalasyon Politikasi' : 'Politikayi Düzenle'}
         </h2>
-        <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
+        <button onClick={onCancel} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
           <X className="w-5 h-5" />
         </button>
       </div>
@@ -343,7 +343,7 @@ const PolicyForm: React.FC<{
         {/* Name & Description */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Politika Adi <span className="text-red-500">*</span>
             </label>
             <input
@@ -353,25 +353,25 @@ const PolicyForm: React.FC<{
               placeholder="Ornegin: Kritik Alarm Eskalasyonu"
               maxLength={200}
               required
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
             <input
               type="text"
               value={form.description}
               onChange={(e) => updateField('description', e.target.value)}
               placeholder="Politikanin kisa aciklamasi"
               maxLength={1000}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
         </div>
 
         {/* Severity Selection */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Onem Seviyeleri <span className="text-red-500">*</span>
           </label>
           <div className="flex flex-wrap gap-2">
@@ -383,7 +383,7 @@ const PolicyForm: React.FC<{
                 className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   form.severity.includes(sev.value)
                     ? sev.className
-                    : 'bg-white text-gray-500 border-gray-200 hover:bg-gray-50'
+                    : 'bg-white dark:bg-gray-900 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 {form.severity.includes(sev.value) && <Check className="w-3.5 h-3.5 inline mr-1" />}
@@ -402,7 +402,7 @@ const PolicyForm: React.FC<{
         {/* Configuration Row */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Tekrar Araligi (dk)
             </label>
             <input
@@ -410,11 +410,11 @@ const PolicyForm: React.FC<{
               min={1}
               value={form.repeatIntervalMinutes}
               onChange={(e) => updateField('repeatIntervalMinutes', parseInt(e.target.value, 10) || 5)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Maks Tekrar
             </label>
             <input
@@ -422,11 +422,11 @@ const PolicyForm: React.FC<{
               min={0}
               value={form.maxRepeats}
               onChange={(e) => updateField('maxRepeats', parseInt(e.target.value, 10) || 0)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Oncelik
             </label>
             <input
@@ -434,11 +434,11 @@ const PolicyForm: React.FC<{
               min={0}
               value={form.priority}
               onChange={(e) => updateField('priority', parseInt(e.target.value, 10) || 0)}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Saat Dilimi
             </label>
             <input
@@ -446,7 +446,7 @@ const PolicyForm: React.FC<{
               value={form.timezone}
               onChange={(e) => updateField('timezone', e.target.value)}
               placeholder="Europe/Istanbul"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
         </div>
@@ -460,18 +460,18 @@ const PolicyForm: React.FC<{
               onChange={(e) => updateField('isDefault', e.target.checked)}
               className="sr-only peer"
             />
-            <div className="w-9 h-5 bg-gray-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
+            <div className="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
           </label>
-          <span className="text-sm text-gray-700">Varsayilan politika olarak ayarla</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">Varsayilan politika olarak ayarla</span>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
           <button
             type="button"
             onClick={onCancel}
             disabled={isPending}
-            className="px-5 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+            className="px-5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
           >
             İptal
           </button>
@@ -522,12 +522,12 @@ const SuppressionWindowManager: React.FC<{
   const now = new Date();
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <PauseCircle className="w-5 h-5 text-amber-500" />
-          <h3 className="font-semibold text-gray-900">Baskim Pencereleri</h3>
-          <span className="text-xs text-gray-400">({windows.length})</span>
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">Baskim Pencereleri</h3>
+          <span className="text-xs text-gray-400 dark:text-gray-500">({windows.length})</span>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -540,49 +540,49 @@ const SuppressionWindowManager: React.FC<{
 
       {/* Add Form */}
       {showForm && (
-        <form onSubmit={handleSubmit} className="bg-gray-50 rounded-lg p-4 mb-4 space-y-3">
+        <form onSubmit={handleSubmit} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-4 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Ad</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ad</label>
               <input
                 type="text"
                 value={windowForm.name}
                 onChange={(e) => setWindowForm((f) => ({ ...f, name: e.target.value }))}
                 placeholder="Ornegin: Planli Bakim"
                 required
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Sebep</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sebep</label>
               <input
                 type="text"
                 value={windowForm.reason}
                 onChange={(e) => setWindowForm((f) => ({ ...f, reason: e.target.value }))}
                 placeholder="Opsiyonel"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Baslangic</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Baslangic</label>
               <input
                 type="datetime-local"
                 value={windowForm.startTime}
                 onChange={(e) => setWindowForm((f) => ({ ...f, startTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))}
                 required
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Bitis</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bitis</label>
               <input
                 type="datetime-local"
                 value={windowForm.endTime}
                 onChange={(e) => setWindowForm((f) => ({ ...f, endTime: e.target.value ? new Date(e.target.value).toISOString() : '' }))}
                 required
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
           </div>
@@ -594,19 +594,19 @@ const SuppressionWindowManager: React.FC<{
                 onChange={(e) => setWindowForm((f) => ({ ...f, isRecurring: e.target.checked }))}
                 className="sr-only peer"
               />
-              <div className="w-9 h-5 bg-gray-200 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
+              <div className="w-9 h-5 bg-gray-200 dark:bg-gray-700 peer-focus:outline-hidden peer-focus:ring-2 peer-focus:ring-cyan-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-cyan-600" />
             </label>
-            <span className="text-sm text-gray-700">Tekrarlayan</span>
+            <span className="text-sm text-gray-700 dark:text-gray-300">Tekrarlayan</span>
           </div>
           {windowForm.isRecurring && (
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Cron Ifadesi</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Cron Ifadesi</label>
               <input
                 type="text"
                 value={windowForm.recurringPattern}
                 onChange={(e) => setWindowForm((f) => ({ ...f, recurringPattern: e.target.value }))}
                 placeholder="0 2 * * 0 (her pazar 02:00)"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
           )}
@@ -614,7 +614,7 @@ const SuppressionWindowManager: React.FC<{
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="px-4 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200"
+              className="px-4 py-1.5 text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               İptal
             </button>
@@ -632,7 +632,7 @@ const SuppressionWindowManager: React.FC<{
 
       {/* Windows List */}
       {windows.length === 0 ? (
-        <p className="text-sm text-gray-400 text-center py-4">Tanimli baskim penceresi yok</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 text-center py-4">Tanimli baskim penceresi yok</p>
       ) : (
         <div className="space-y-2">
           {windows.map((w) => {
@@ -646,12 +646,12 @@ const SuppressionWindowManager: React.FC<{
                 className={`flex items-center justify-between px-4 py-3 rounded-lg border ${
                   isActive
                     ? 'bg-amber-50 border-amber-200'
-                    : 'bg-gray-50 border-gray-200'
+                    : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                 }`}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-medium text-sm text-gray-900">{w.name}</span>
+                    <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{w.name}</span>
                     {isActive && (
                       <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
                         Aktif
@@ -663,7 +663,7 @@ const SuppressionWindowManager: React.FC<{
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     {start.toLocaleString('tr-TR')} - {end.toLocaleString('tr-TR')}
                     {w.reason && <span className="ml-2">| {w.reason}</span>}
                   </div>
@@ -671,7 +671,7 @@ const SuppressionWindowManager: React.FC<{
                 <button
                   onClick={() => onRemove(w.id)}
                   disabled={isRemoving}
-                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                  className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
                 >
                   <Trash2 className="w-4 h-4" />
                 </button>
@@ -691,24 +691,24 @@ const SuppressionWindowManager: React.FC<{
 const OnCallScheduleDisplay: React.FC<{ schedule?: OnCallSchedule[] }> = ({ schedule }) => {
   if (!schedule || schedule.length === 0) {
     return (
-      <div className="text-sm text-gray-400 py-2">Nobetci takvimi tanimlanmamis</div>
+      <div className="text-sm text-gray-400 dark:text-gray-500 py-2">Nobetci takvimi tanimlanmamis</div>
     );
   }
 
   return (
     <div className="space-y-1.5">
       {schedule.map((entry, idx) => (
-        <div key={idx} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2 text-sm">
-          <Calendar className="w-4 h-4 text-gray-400" />
-          <span className="font-medium text-gray-700 w-24">{DAY_NAMES[entry.dayOfWeek]}</span>
-          <Clock className="w-3.5 h-3.5 text-gray-400" />
-          <span className="text-gray-600">{entry.startTime} - {entry.endTime}</span>
-          <UserCheck className="w-3.5 h-3.5 text-gray-400 ml-2" />
-          <span className="font-mono text-xs text-gray-600">{entry.userId.slice(0, 8)}...</span>
+        <div key={idx} className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2 text-sm">
+          <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+          <span className="font-medium text-gray-700 dark:text-gray-300 w-24">{DAY_NAMES[entry.dayOfWeek]}</span>
+          <Clock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+          <span className="text-gray-600 dark:text-gray-400">{entry.startTime} - {entry.endTime}</span>
+          <UserCheck className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 ml-2" />
+          <span className="font-mono text-xs text-gray-600 dark:text-gray-400">{entry.userId.slice(0, 8)}...</span>
           {entry.backupUserId && (
             <>
-              <Phone className="w-3.5 h-3.5 text-gray-400" />
-              <span className="font-mono text-xs text-gray-500">{entry.backupUserId.slice(0, 8)}...</span>
+              <Phone className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+              <span className="font-mono text-xs text-gray-500 dark:text-gray-400">{entry.backupUserId.slice(0, 8)}...</span>
             </>
           )}
         </div>
@@ -782,7 +782,7 @@ const CloneDialog: React.FC<{
           <button
             onClick={onCancel}
             disabled={isPending}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
           >
             İptal
           </button>
@@ -797,16 +797,16 @@ const CloneDialog: React.FC<{
         </>
       }
     >
-      <p className="text-sm text-gray-500 mb-3">
+      <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
         <strong>"{sourceName}"</strong> politikasinin kopyasi olusturulacak.
       </p>
       <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-1">Yeni Ad</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yeni Ad</label>
         <input
           type="text"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+          className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
         />
       </div>
     </Modal>
@@ -830,7 +830,7 @@ const PolicyCard: React.FC<{
 
   return (
     <div
-      className={`bg-white rounded-xl shadow-sm border border-gray-100 p-5 transition-all ${
+      className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 transition-all ${
         !policy.isActive ? 'opacity-60' : ''
       }`}
     >
@@ -838,7 +838,7 @@ const PolicyCard: React.FC<{
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-semibold text-gray-900 truncate">{policy.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{policy.name}</h3>
             {policy.isDefault && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 border border-indigo-200">
                 <Star className="w-3 h-3" />
@@ -849,7 +849,7 @@ const PolicyCard: React.FC<{
               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                 policy.isActive
                   ? 'bg-green-100 text-green-700 border border-green-200'
-                  : 'bg-gray-100 text-gray-500 border border-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
               }`}
             >
               {policy.isActive ? 'Aktif' : 'Pasif'}
@@ -857,7 +857,7 @@ const PolicyCard: React.FC<{
           </div>
 
           {policy.description && (
-            <p className="text-sm text-gray-500 mb-2">{policy.description}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">{policy.description}</p>
           )}
 
           {/* Severity Badges + Summary */}
@@ -867,7 +867,7 @@ const PolicyCard: React.FC<{
             ))}
           </div>
 
-          <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap mt-2">
+          <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap mt-2">
             <span className="flex items-center gap-1">
               <Layers className="w-3.5 h-3.5" />
               {policy.levels.length} seviye
@@ -903,7 +903,7 @@ const PolicyCard: React.FC<{
             className={`p-2 rounded-lg transition-colors ${
               policy.isActive
                 ? 'text-green-600 hover:bg-green-50'
-                : 'text-gray-400 hover:bg-gray-100'
+                : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
             } disabled:opacity-50`}
           >
             {isToggling ? (
@@ -917,21 +917,21 @@ const PolicyCard: React.FC<{
           <button
             onClick={() => onManageSuppression(policy)}
             title="Baskim Pencereleri"
-            className="p-2 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
           >
             <PauseCircle className="w-4 h-4" />
           </button>
           <button
             onClick={() => onClone(policy)}
             title="Kopyala"
-            className="p-2 rounded-lg text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
           >
             <Copy className="w-4 h-4" />
           </button>
           <button
             onClick={() => onEdit(policy)}
             title="Düzenle"
-            className="p-2 rounded-lg text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
           >
             <Edit3 className="w-4 h-4" />
           </button>
@@ -939,14 +939,14 @@ const PolicyCard: React.FC<{
             onClick={() => onDelete(policy)}
             title="Sil"
             disabled={policy.isDefault}
-            className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
             <Trash2 className="w-4 h-4" />
           </button>
           <button
             onClick={() => setExpanded(!expanded)}
             title={expanded ? 'Daralt' : 'Genislet'}
-            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
@@ -955,10 +955,10 @@ const PolicyCard: React.FC<{
 
       {/* Expanded Detail */}
       {expanded && (
-        <div className="mt-4 pt-4 border-t border-gray-100 space-y-4">
+        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 space-y-4">
           {/* Escalation Chain */}
           <div>
-            <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
               <Layers className="w-4 h-4" />
               Eskalasyon Zinciri
             </h4>
@@ -969,19 +969,19 @@ const PolicyCard: React.FC<{
                 .map((level) => (
                   <div
                     key={level.level}
-                    className="flex items-start gap-3 bg-gray-50 rounded-lg px-4 py-3"
+                    className="flex items-start gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-4 py-3"
                   >
                     <div className="flex items-center justify-center w-7 h-7 rounded-full bg-cyan-100 text-cyan-700 text-sm font-bold shrink-0">
                       {level.level}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-sm text-gray-900">{level.name}</span>
-                        <span className="text-xs text-gray-400">
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{level.name}</span>
+                        <span className="text-xs text-gray-400 dark:text-gray-500">
                           {ACTION_OPTIONS.find((a) => a.value === level.action)?.label || level.action}
                         </span>
                       </div>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 flex-wrap">
+                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
                         <span className="flex items-center gap-1">
                           <Clock className="w-3 h-3" />
                           {level.timeoutMinutes} dk sonra eskalasyon
@@ -1004,7 +1004,7 @@ const PolicyCard: React.FC<{
           {/* On-Call Schedule */}
           {policy.onCallSchedule && policy.onCallSchedule.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
                 <Phone className="w-4 h-4" />
                 Nobetci Takvimi
               </h4>
@@ -1015,7 +1015,7 @@ const PolicyCard: React.FC<{
           {/* Suppression Windows */}
           {policy.suppressionWindows && policy.suppressionWindows.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
                 <PauseCircle className="w-4 h-4" />
                 Baskim Pencereleri
               </h4>
@@ -1029,14 +1029,14 @@ const PolicyCard: React.FC<{
                     <div
                       key={w.id}
                       className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm ${
-                        isActive ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50'
+                        isActive ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50 dark:bg-gray-800'
                       }`}
                     >
-                      <span className="font-medium text-gray-700">{w.name}</span>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">{w.name}</span>
                       {isActive && (
                         <span className="text-xs font-medium text-amber-700">AKTIF</span>
                       )}
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         {start.toLocaleString('tr-TR')} - {end.toLocaleString('tr-TR')}
                       </span>
                     </div>
@@ -1047,7 +1047,7 @@ const PolicyCard: React.FC<{
           )}
 
           {/* Metadata */}
-          <div className="text-xs text-gray-400 flex gap-4 flex-wrap">
+          <div className="text-xs text-gray-400 dark:text-gray-500 flex gap-4 flex-wrap">
             <span>Oluşturulma: {new Date(policy.createdAt).toLocaleString('tr-TR')}</span>
             <span>Güncelleme: {new Date(policy.updatedAt).toLocaleString('tr-TR')}</span>
             {policy.timezone && <span>Saat dilimi: {policy.timezone}</span>}
@@ -1221,7 +1221,7 @@ const EscalationPoliciesPage: React.FC = () => {
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Spinner size="lg" block className="mb-3" />
-          <p className="text-gray-500">Eskalasyon politikalari yükleniyor...</p>
+          <p className="text-gray-500 dark:text-gray-400">Eskalasyon politikalari yükleniyor...</p>
         </div>
       </div>
     );
@@ -1276,7 +1276,7 @@ const EscalationPoliciesPage: React.FC = () => {
             <button
               onClick={() => refetch()}
               disabled={isLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Yenile
@@ -1296,10 +1296,10 @@ const EscalationPoliciesPage: React.FC = () => {
       />
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-medium text-gray-700">Durum:</span>
-          <div className="flex bg-gray-100 rounded-lg p-1">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Durum:</span>
+          <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
             {[
               { value: 'all', label: 'Tumu' },
               { value: 'active', label: 'Aktif' },
@@ -1311,8 +1311,8 @@ const EscalationPoliciesPage: React.FC = () => {
                 onClick={() => setFilterStatus(tab.value)}
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   filterStatus === tab.value
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
                 {tab.label}
@@ -1386,7 +1386,7 @@ const EscalationPoliciesPage: React.FC = () => {
         <div className="relative">
           <button
             onClick={() => setSuppressionPolicy(null)}
-            className="absolute -top-2 -right-2 z-10 p-1 bg-gray-100 rounded-full text-gray-500 hover:text-gray-700 hover:bg-gray-200"
+            className="absolute -top-2 -right-2 z-10 p-1 bg-gray-100 dark:bg-gray-800 rounded-full text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600"
           >
             <X className="w-4 h-4" />
           </button>
@@ -1402,10 +1402,10 @@ const EscalationPoliciesPage: React.FC = () => {
 
       {/* Empty State */}
       {filteredPolicies.length === 0 && !isLoading && formMode === 'closed' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Shield className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Eskalasyon Politikasi Bulunamadi</h3>
-          <p className="text-gray-500 text-sm mb-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+          <Shield className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Eskalasyon Politikasi Bulunamadi</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
             {filterStatus !== 'all'
               ? 'Seçili filtrelerle eşleşen politika bulunamadı. Filtreleri değiştirmeyi deneyin.'
               : 'Henuz tanimlanmis eskalasyon politikasi bulunmuyor. Ilk politikayi olusturun.'}

@@ -37,6 +37,26 @@
    a remote that redefined it would fork what `dark:` means. */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
+/* Form controls under the dark theme — a default any utility overrides.
+   WHY the base layer and :where(): specificity stays at the attribute selector
+   alone and the base layer sits under utilities, so `dark:bg-gray-700` on a
+   field still wins; a control that carries no dark class of its own reads on a
+   dark page instead of glaring white. The shell used to force this with
+   !important on every input, which no utility could override (FE-MEDIUM-072).
+   Checkboxes, radios, ranges, files and colour pickers keep their native
+   rendering, which `color-scheme: dark` on <html> already darkens. */
+@layer base {
+  [data-theme='dark'] :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']), select, textarea) {
+    @apply bg-gray-800 text-gray-100 border-gray-600;
+  }
+  [data-theme='dark'] :where(input, textarea)::placeholder {
+    @apply text-gray-500;
+  }
+  [data-theme='dark'] :where(input:disabled, select:disabled, textarea:disabled) {
+    @apply bg-gray-900 text-gray-500;
+  }
+}
+
 @theme {
   /* ============================ Colors ============================ */
   /* WCAG 2.1 AA (FE-MEDIUM-024): darken default gray-400 (#9ca3af, 2.9:1) to

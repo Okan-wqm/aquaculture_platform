@@ -71,7 +71,7 @@ const platformConfig: Record<string, { label: string; color: string }> = {
   RevolutionPi: { label: 'Revolution Pi', color: 'bg-purple-100 text-purple-800' },
   RaspberryPi: { label: 'Raspberry Pi', color: 'bg-green-100 text-green-800' },
   GenericLinux: { label: 'Generic Linux', color: 'bg-blue-100 text-blue-800' },
-  Unknown: { label: 'Unknown', color: 'bg-gray-100 text-gray-800' },
+  Unknown: { label: 'Unknown', color: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200' },
 };
 
 const PlatformBadge: React.FC<{ platform: string }> = ({ platform }) => {
@@ -96,7 +96,7 @@ const ioTypeBadgeColors: Record<string, string> = {
 };
 
 const IoTypeBadge: React.FC<{ ioType: string }> = ({ ioType }) => (
-  <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${ioTypeBadgeColors[ioType] ?? 'bg-gray-100 text-gray-600'}`}>
+  <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${ioTypeBadgeColors[ioType] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}>
     {ioType}
   </span>
 );
@@ -115,7 +115,7 @@ const sourceBadgeConfig: Record<string, { label: string; color: string }> = {
 };
 
 const SourceBadge: React.FC<{ source: string }> = ({ source }) => {
-  const config = sourceBadgeConfig[source] ?? { label: source, color: 'bg-gray-100 text-gray-600' };
+  const config = sourceBadgeConfig[source] ?? { label: source, color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
   return (
     <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${config.color}`}>
       {config.label}
@@ -267,7 +267,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
     return (
       <>
         {ch.moduleAddress}/{ch.channel}
-        {ch.gpioPin != null && <span className="text-gray-500 ml-1">(GPIO {ch.gpioPin})</span>}
+        {ch.gpioPin != null && <span className="text-gray-500 dark:text-gray-400 ml-1">(GPIO {ch.gpioPin})</span>}
       </>
     );
   };
@@ -278,17 +278,17 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
       width: '2rem',
       render: (_value, ch) =>
         existingTagNames.has(ch.tagName) ? (
-          <span className="text-gray-500">--</span>
+          <span className="text-gray-500 dark:text-gray-400">--</span>
         ) : selectedTags.has(ch.tagName) ? (
           <CheckSquare className="w-4 h-4 text-cyan-600" />
         ) : (
-          <Square className="w-4 h-4 text-gray-500" />
+          <Square className="w-4 h-4 text-gray-500 dark:text-gray-400" />
         ),
     },
-    { key: 'tagName', header: 'Tag', render: (_value, ch) => <span className="font-medium text-gray-900">{ch.tagName}</span> },
+    { key: 'tagName', header: 'Tag', render: (_value, ch) => <span className="font-medium text-gray-900 dark:text-gray-100">{ch.tagName}</span> },
     { key: 'ioType', header: 'Tip', render: (_value, ch) => <IoTypeBadge ioType={ch.ioType} /> },
-    { key: 'dataType', header: 'Veri Tipi', render: (_value, ch) => <span className="text-gray-600 font-mono text-xs">{ch.dataType}</span> },
-    { key: 'moduleChannel', header: 'Modul/Kanal', render: (_value, ch) => <span className="text-gray-600">{moduleChannelDisplay(ch)}</span> },
+    { key: 'dataType', header: 'Veri Tipi', render: (_value, ch) => <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">{ch.dataType}</span> },
+    { key: 'moduleChannel', header: 'Modul/Kanal', render: (_value, ch) => <span className="text-gray-600 dark:text-gray-400">{moduleChannelDisplay(ch)}</span> },
     { key: 'source', header: 'Kaynak', render: (_value, ch) => <SourceBadge source={ch.source} /> },
     {
       key: 'status',
@@ -303,16 +303,16 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
   ];
 
   return (
-    <div className="border border-gray-200 rounded-xl bg-white shadow-sm">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 shadow-sm">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center gap-3">
           <Search className="w-5 h-5 text-cyan-600" />
           <div>
-            <h3 className="text-sm font-semibold text-gray-900">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               I/O Auto-Detection Sonuçları
             </h3>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {scanResult.totalFound} kanal bulundu
             </p>
           </div>
@@ -320,10 +320,10 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
         </div>
         <button
           onClick={onClose}
-          className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           aria-label="Kapat"
         >
-          <X className="w-4 h-4 text-gray-500" />
+          <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
         </button>
       </div>
 
@@ -346,10 +346,10 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
       )}
 
       {/* Action bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-100">
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700">
         <button
           onClick={toggleAll}
-          className="flex items-center gap-1.5 text-xs font-medium text-gray-600 hover:text-gray-900 transition-colors"
+          className="flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
           disabled={selectableChannels.length === 0}
         >
           {allSelected ? (
@@ -374,7 +374,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
       </div>
 
       {/* Channel table */}
-      <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100">
+      <div className="max-h-[400px] overflow-y-auto divide-y divide-gray-100 dark:divide-gray-700">
         {groupedChannels.map(([source, channels]) => {
           const isCollapsed = collapsedGroups.has(source);
           return (
@@ -383,15 +383,15 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
                 type="button"
                 onClick={() => toggleGroup(source)}
                 aria-expanded={!isCollapsed}
-                className="flex w-full items-center gap-2 bg-gray-50 px-3 py-2 text-left hover:bg-gray-100 transition-colors"
+                className="flex w-full items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               >
                 {isCollapsed ? (
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                  <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                  <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 )}
                 <SourceBadge source={source} />
-                <span className="text-xs text-gray-500">{channels.length} kanal</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{channels.length} kanal</span>
               </button>
               {!isCollapsed && (
                 <DataTable<DetectedChannelRow>
@@ -401,7 +401,7 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
                   onRowClick={(ch) => {
                     if (!existingTagNames.has(ch.tagName)) toggleChannel(ch.tagName);
                   }}
-                  rowClassName={(ch) => (existingTagNames.has(ch.tagName) ? 'opacity-50 bg-gray-50' : 'cursor-pointer')}
+                  rowClassName={(ch) => (existingTagNames.has(ch.tagName) ? 'opacity-50 bg-gray-50 dark:bg-gray-800' : 'cursor-pointer')}
                   emptyMessage="Kanal yok"
                   searchable={false}
                   sortable={false}
@@ -417,10 +417,10 @@ export const AutoDetectResultsPanel: React.FC<AutoDetectResultsPanelProps> = ({
 
       {/* Empty state */}
       {scanResult.discoveredChannels.length === 0 && (
-        <div className="px-4 py-8 text-center text-gray-500">
-          <Search className="w-8 h-8 mx-auto mb-2 text-gray-500" />
+        <div className="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+          <Search className="w-8 h-8 mx-auto mb-2 text-gray-500 dark:text-gray-400" />
           <p className="text-sm">Hiçbir I/O kanalı bulunamadı.</p>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Cihazda I/O modülleri takıldığından emin olun.
           </p>
         </div>

@@ -61,8 +61,8 @@ const SubscriptionStatusBadge: React.FC<{ status: string }> = ({ status }) => {
         label: 'Past Due',
       },
       CANCELLED: {
-        bg: 'bg-gray-100',
-        text: 'text-gray-700',
+        bg: 'bg-gray-100 dark:bg-gray-800',
+        text: 'text-gray-700 dark:text-gray-300',
         icon: <XCircle className="w-3.5 h-3.5" />,
         label: 'Cancelled',
       },
@@ -94,8 +94,8 @@ const InvoiceStatusBadge: React.FC<{ status: string }> = ({ status }) => {
     PAID: { bg: 'bg-green-100', text: 'text-green-700' },
     PENDING: { bg: 'bg-yellow-100', text: 'text-yellow-700' },
     OVERDUE: { bg: 'bg-red-100', text: 'text-red-700' },
-    DRAFT: { bg: 'bg-gray-100', text: 'text-gray-600' },
-    VOID: { bg: 'bg-gray-100', text: 'text-gray-500' },
+    DRAFT: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400' },
+    VOID: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-500 dark:text-gray-400' },
   };
 
   const c = config[status] || config.DRAFT;
@@ -125,25 +125,25 @@ const UsageBar: React.FC<{
   else if (percentage >= 70) barColor = 'bg-yellow-500';
 
   return (
-    <div className="p-4 bg-white rounded-xl border border-gray-100">
+    <div className="p-4 bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           {icon}
-          <span className="text-sm font-medium text-gray-700">{label}</span>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{label}</span>
         </div>
-        <span className="text-sm text-gray-500">
+        <span className="text-sm text-gray-500 dark:text-gray-400">
           {current.toLocaleString()}
           {unit} / {limit.toLocaleString()}
           {unit}
         </span>
       </div>
-      <div className="w-full bg-gray-200 rounded-full h-2">
+      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
         <div
           className={`${barColor} rounded-full h-2 transition-all duration-300`}
           style={{ width: `${percentage}%` }}
         />
       </div>
-      <p className="text-xs text-gray-500 mt-1 text-right">{percentage.toFixed(1)}% used</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 text-right">{percentage.toFixed(1)}% used</p>
     </div>
   );
 };
@@ -158,13 +158,13 @@ const StatCard: React.FC<{
   icon: React.ReactNode;
   color: string;
 }> = ({ label, value, subtext, icon, color }) => (
-  <div className="bg-white rounded-xl border border-gray-100 p-5">
+  <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5">
     <div className="flex items-center gap-3">
       <div className={`p-2.5 rounded-xl ${color}`}>{icon}</div>
       <div>
-        <p className="text-xs font-medium text-gray-500 uppercase">{label}</p>
-        <p className="text-lg font-bold text-gray-900">{value}</p>
-        {subtext && <p className="text-xs text-gray-500">{subtext}</p>}
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{label}</p>
+        <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{value}</p>
+        {subtext && <p className="text-xs text-gray-500 dark:text-gray-400">{subtext}</p>}
       </div>
     </div>
   </div>
@@ -179,29 +179,29 @@ const BillingSkeleton: React.FC = () => (
     {/* Header skeleton */}
     <div className="flex justify-between">
       <div>
-        <div className="w-48 h-7 bg-gray-200 rounded" />
-        <div className="w-64 h-4 bg-gray-200 rounded mt-2" />
+        <div className="w-48 h-7 bg-gray-200 dark:bg-gray-700 rounded" />
+        <div className="w-64 h-4 bg-gray-200 dark:bg-gray-700 rounded mt-2" />
       </div>
     </div>
     {/* Cards skeleton */}
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-white rounded-xl border border-gray-100 p-5">
-          <div className="w-32 h-4 bg-gray-200 rounded" />
-          <div className="w-24 h-6 bg-gray-200 rounded mt-2" />
+        <div key={i} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5">
+          <div className="w-32 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+          <div className="w-24 h-6 bg-gray-200 dark:bg-gray-700 rounded mt-2" />
         </div>
       ))}
     </div>
     {/* Table skeleton */}
-    <div className="bg-white rounded-xl border border-gray-100 p-6">
-      <div className="w-36 h-5 bg-gray-200 rounded mb-4" />
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
+      <div className="w-36 h-5 bg-gray-200 dark:bg-gray-700 rounded mb-4" />
       {[1, 2, 3, 4].map((i) => (
         <div key={i} className="flex gap-4 py-3 border-b border-gray-50">
-          <div className="w-24 h-4 bg-gray-200 rounded" />
-          <div className="w-16 h-4 bg-gray-200 rounded" />
-          <div className="w-20 h-4 bg-gray-200 rounded" />
+          <div className="w-24 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+          <div className="w-16 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
+          <div className="w-20 h-4 bg-gray-200 dark:bg-gray-700 rounded" />
           <div className="flex-1" />
-          <div className="w-16 h-5 bg-gray-200 rounded-full" />
+          <div className="w-16 h-5 bg-gray-200 dark:bg-gray-700 rounded-full" />
         </div>
       ))}
     </div>
@@ -238,7 +238,7 @@ const TenantBillingPage: React.FC = () => {
       render: (_value, invoice) => (
         <div className="flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-green-500" />
-          <span className="text-sm text-gray-900">{invoice.invoiceNumber}</span>
+          <span className="text-sm text-gray-900 dark:text-gray-100">{invoice.invoiceNumber}</span>
         </div>
       ),
     },
@@ -247,8 +247,8 @@ const TenantBillingPage: React.FC = () => {
       header: 'Paid Date',
       render: (_value, invoice) => (
         <div className="flex items-center gap-2">
-          <Calendar className="w-3.5 h-3.5 text-gray-500" />
-          <span className="text-sm text-gray-600">
+          <Calendar className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+          <span className="text-sm text-gray-600 dark:text-gray-400">
             {invoice.paidAt
               ? new Date(invoice.paidAt).toLocaleDateString()
               : '--'}
@@ -275,12 +275,12 @@ const TenantBillingPage: React.FC = () => {
       header: 'Invoice',
       render: (_value, invoice) => (
         <div className="flex items-center gap-2">
-          <FileText className="w-4 h-4 text-gray-500" />
+          <FileText className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           <div>
-            <p className="text-sm font-medium text-gray-900">
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
               {invoice.invoiceNumber}
             </p>
-            <p className="text-xs text-gray-500">{invoice.description}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{invoice.description}</p>
           </div>
         </div>
       ),
@@ -289,7 +289,7 @@ const TenantBillingPage: React.FC = () => {
       key: 'date',
       header: 'Date',
       render: (_value, invoice) => (
-        <span className="text-sm text-gray-600">
+        <span className="text-sm text-gray-600 dark:text-gray-400">
           {new Date(invoice.issuedAt).toLocaleDateString()}
         </span>
       ),
@@ -298,7 +298,7 @@ const TenantBillingPage: React.FC = () => {
       key: 'dueDate',
       header: 'Due Date',
       render: (_value, invoice) => (
-        <span className="text-sm text-gray-600">
+        <span className="text-sm text-gray-600 dark:text-gray-400">
           {new Date(invoice.dueDate).toLocaleDateString()}
         </span>
       ),
@@ -308,7 +308,7 @@ const TenantBillingPage: React.FC = () => {
       header: 'Amount',
       align: 'right',
       render: (_value, invoice) => (
-        <span className="text-sm font-medium text-gray-900">
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
           {invoice.currency === 'USD' ? '$' : invoice.currency}
           {parseMoney(invoice.amountDecimal).toFixed(2)}
         </span>
@@ -334,10 +334,10 @@ const TenantBillingPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => refetch()}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Refresh"
             >
-              <RefreshCw className="w-5 h-5 text-gray-500" />
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
             <span className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-medium">
               Read-Only
@@ -365,24 +365,24 @@ const TenantBillingPage: React.FC = () => {
 
       {/* Subscription Card */}
       {subscription ? (
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 bg-gradient-to-r from-tenant-50 to-white">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-tenant-50 to-white">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-xl bg-tenant-100">
                   <CreditCard className="w-6 h-6 text-tenant-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900">{subscription.plan} Plan</h2>
+                  <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{subscription.plan} Plan</h2>
                   <SubscriptionStatusBadge status={subscription.status} />
                 </div>
               </div>
               <div className="text-right">
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {subscription.currency === 'USD' ? '$' : subscription.currency}
                   {parseMoney(subscription.monthlyPriceDecimal).toFixed(2)}
                 </p>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   / {subscription.billingPeriod === 'MONTHLY' ? 'month' : 'year'}
                 </p>
               </div>
@@ -390,36 +390,36 @@ const TenantBillingPage: React.FC = () => {
           </div>
           <div className="p-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase">Billing Period</p>
-              <p className="text-sm text-gray-900 mt-0.5">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Billing Period</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
                 {subscription.billingPeriod === 'MONTHLY' ? 'Monthly' : 'Yearly'}
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-gray-500 uppercase">Current Period</p>
-              <p className="text-sm text-gray-900 mt-0.5">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Current Period</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
                 {new Date(subscription.currentPeriodStart).toLocaleDateString()} -{' '}
                 {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
               </p>
             </div>
             {subscription.trialEndDate && (
               <div>
-                <p className="text-xs font-medium text-gray-500 uppercase">Trial Ends</p>
-                <p className="text-sm text-gray-900 mt-0.5">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Trial Ends</p>
+                <p className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">
                   {new Date(subscription.trialEndDate).toLocaleDateString()}
                 </p>
               </div>
             )}
           </div>
           {isUpgradeable && (
-            <div className="p-6 border-t border-gray-100 bg-gradient-to-r from-tenant-50/50 to-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="p-6 border-t border-gray-100 dark:border-gray-700 bg-gradient-to-r from-tenant-50/50 to-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-start gap-3">
                 <div className="p-2 rounded-lg bg-tenant-100">
                   <ArrowUpCircle className="w-5 h-5 text-tenant-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">Ready for more?</p>
-                  <p className="text-sm text-gray-500 mt-0.5">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Ready for more?</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
                     You&apos;re on the {subscription.status === 'TRIAL' ? 'trial' : 'Free'} plan.
                     Upgrade to unlock higher limits, reports, and API access.
                   </p>
@@ -437,10 +437,10 @@ const TenantBillingPage: React.FC = () => {
           )}
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-100 p-8 text-center">
-          <CreditCard className="w-12 h-12 text-gray-500 mx-auto" />
-          <h3 className="mt-4 text-sm font-medium text-gray-900">No subscription data</h3>
-          <p className="mt-1 text-sm text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-8 text-center">
+          <CreditCard className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+          <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No subscription data</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Subscription information will appear here once billing is configured.
           </p>
         </div>
@@ -449,7 +449,7 @@ const TenantBillingPage: React.FC = () => {
       {/* Plan Limits */}
       {planLimits && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Plan Limits</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Plan Limits</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <UsageBar
               label="Farms"
@@ -483,7 +483,7 @@ const TenantBillingPage: React.FC = () => {
       {/* Usage Metrics */}
       {usageMetrics && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Usage Metrics</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Usage Metrics</h2>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <StatCard
               label="API Calls"
@@ -512,8 +512,8 @@ const TenantBillingPage: React.FC = () => {
 
       {/* Invoices */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Invoices</h2>
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Invoices</h2>
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
           {invoices.length > 0 ? (
             <DataTable<TenantInvoice>
               data={invoices}
@@ -527,9 +527,9 @@ const TenantBillingPage: React.FC = () => {
             />
           ) : (
             <div className="py-12 text-center">
-              <FileText className="w-12 h-12 text-gray-500 mx-auto" />
-              <h3 className="mt-4 text-sm font-medium text-gray-900">No invoices</h3>
-              <p className="mt-1 text-sm text-gray-500">
+              <FileText className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+              <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No invoices</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Invoices will appear here once billing is active.
               </p>
             </div>
@@ -540,8 +540,8 @@ const TenantBillingPage: React.FC = () => {
       {/* Payment History Note */}
       {invoices.filter((inv) => inv.paidAt).length > 0 && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment History</h2>
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Payment History</h2>
+          <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
             <DataTable<TenantInvoice>
               data={invoices.filter((inv) => inv.paidAt)}
               columns={paymentColumns}

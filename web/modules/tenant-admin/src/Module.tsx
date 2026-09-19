@@ -41,7 +41,7 @@ const TenantActivityPage = React.lazy(() => import('./pages/TenantActivityPage')
  * Suspense fallback shown while lazy-loaded page chunks are being fetched.
  */
 const PageLoadingFallback: React.FC = () => (
-  <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+  <div className="flex items-center justify-center h-48 text-gray-500 dark:text-gray-400 text-sm">
     Loading page...
   </div>
 );

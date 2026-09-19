@@ -120,7 +120,7 @@ export interface RuntimeWidgetRendererProps {
 
 const RuntimeSkeleton = memo<{ w: number; h: number }>(({ w, h }) => (
   <div
-    className="flex items-center justify-center bg-gray-100 rounded"
+    className="flex items-center justify-center bg-gray-100 dark:bg-gray-800 rounded"
     style={{ width: w, height: h }}
     aria-hidden="true"
   >
@@ -274,7 +274,7 @@ const RuntimeOnlyRenderer = memo<{
       return <RuntimeChart {...sharedProps} />;
     default:
       return (
-        <div className="flex items-center justify-center text-xs text-gray-400" style={{ width: w, height: h }}>
+        <div className="flex items-center justify-center text-xs text-gray-400 dark:text-gray-500" style={{ width: w, height: h }}>
           Unknown runtime widget: {widgetType}
         </div>
       );

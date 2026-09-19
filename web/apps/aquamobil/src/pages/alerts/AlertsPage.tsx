@@ -21,7 +21,7 @@ const SEVERITY_STYLES: Record<AlertSeverity, { chip: string; icon: string; label
   MEDIUM: { chip: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300', icon: 'text-amber-600', label: 'Medium' },
   WARNING: { chip: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300', icon: 'text-yellow-600', label: 'Warning' },
   LOW: { chip: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300', icon: 'text-blue-600', label: 'Low' },
-  INFO: { chip: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', icon: 'text-gray-500', label: 'Info' },
+  INFO: { chip: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300', icon: 'text-gray-500 dark:text-gray-400', label: 'Info' },
 };
 
 function formatTimeAgo(dateStr: string): string {
@@ -65,7 +65,7 @@ function AlertCard({
             <span className={clsx('px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide', style.chip)}>
               {style.label}
             </span>
-            <span className="text-xs text-gray-400">{formatTimeAgo(alert.triggeredAt)}</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">{formatTimeAgo(alert.triggeredAt)}</span>
           </div>
           <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 break-words">{alert.message}</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{alert.ruleName}</p>
@@ -136,7 +136,7 @@ export function AlertsPage(): JSX.Element {
           <button
             onClick={() => void refetch()}
             aria-label="Refresh alerts"
-            className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center bg-white/10 rounded-xl touch-feedback hover:bg-white/20"
+            className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center bg-white/10 dark:bg-gray-900/10 rounded-xl touch-feedback hover:bg-white/20 dark:hover:bg-gray-800/20"
           >
             <RefreshCw size={18} />
           </button>

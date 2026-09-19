@@ -19,7 +19,7 @@ const statusColors: Record<string, { bg: string; border: string; text: string }>
   maintenance: { bg: 'bg-yellow-50', border: 'border-yellow-400', text: 'text-yellow-700' },
   repair: { bg: 'bg-orange-50', border: 'border-orange-400', text: 'text-orange-700' },
   out_of_service: { bg: 'bg-red-50', border: 'border-red-400', text: 'text-red-700' },
-  decommissioned: { bg: 'bg-gray-50', border: 'border-gray-400', text: 'text-gray-500' },
+  decommissioned: { bg: 'bg-gray-50 dark:bg-gray-800', border: 'border-gray-400', text: 'text-gray-500 dark:text-gray-400' },
   standby: { bg: 'bg-blue-50', border: 'border-blue-400', text: 'text-blue-700' },
   preparing: { bg: 'bg-purple-50', border: 'border-purple-400', text: 'text-purple-700' },
   cleaning: { bg: 'bg-cyan-50', border: 'border-cyan-400', text: 'text-cyan-700' },
@@ -187,10 +187,10 @@ export const EquipmentNode = memo(({ id, data, selected }: NodeProps<Node<Equipm
 
           {/* Equipment Info */}
           <div className="mt-2">
-            <div className="font-medium text-sm text-gray-900 truncate text-center" title={data.equipmentName}>
+            <div className="font-medium text-sm text-gray-900 dark:text-gray-100 truncate text-center" title={data.equipmentName}>
               {data.equipmentName}
             </div>
-            <div className="text-xs text-gray-500 truncate text-center" title={data.equipmentCode}>
+            <div className="text-xs text-gray-500 dark:text-gray-400 truncate text-center" title={data.equipmentCode}>
               {data.equipmentCode}
             </div>
           </div>

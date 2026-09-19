@@ -19,7 +19,7 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
     <div className="space-y-3">
       {/* Tag binding */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Tag</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tag</label>
         <TagBrowser
           deviceId={deviceId || null}
           value={(config.tagName as string) || ''}
@@ -30,45 +30,45 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
 
       {/* Label */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Label</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <input
           type="text"
           value={(config.label as string) || ''}
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="Knob"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Value range */}
       <div className="grid grid-cols-3 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Min</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
           <input
             type="number"
             value={(config.min as number) ?? 0}
             onChange={(e) => onChange({ min: Number(e.target.value) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Max</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
           <input
             type="number"
             value={(config.max as number) ?? 100}
             onChange={(e) => onChange({ max: Number(e.target.value) })}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Step</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Step</label>
           <input
             type="number"
             value={(config.step as number) ?? 1}
             onChange={(e) => onChange({ step: Number(e.target.value) })}
             min={0.01}
             step={0.1}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
       </div>
@@ -76,93 +76,93 @@ export const KnobConfig: React.FC<WidgetConfigProps> = ({ config, onChange, devi
       {/* Angular range */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Start Angle</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Angle</label>
           <input
             type="number"
             value={(config.startAngle as number) ?? 30}
             onChange={(e) => onChange({ startAngle: Number(e.target.value) })}
             min={0}
             max={180}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">End Angle</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Angle</label>
           <input
             type="number"
             value={(config.endAngle as number) ?? 330}
             onChange={(e) => onChange({ endAngle: Number(e.target.value) })}
             min={180}
             max={360}
-            className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
         </div>
       </div>
 
       {/* Tick count */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Tick Count</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tick Count</label>
         <input
           type="number"
           value={(config.tickCount as number) ?? 11}
           onChange={(e) => onChange({ tickCount: Number(e.target.value) })}
           min={2}
           max={25}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Display toggles */}
       <div className="space-y-1">
-        <label className="flex items-center gap-2 text-xs text-gray-500">
+        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <input
             type="checkbox"
             checked={(config.showValue as boolean) ?? true}
             onChange={(e) => onChange({ showValue: e.target.checked })}
-            className="rounded border-gray-300"
+            className="rounded border-gray-300 dark:border-gray-600"
           />
           Show Value
         </label>
-        <label className="flex items-center gap-2 text-xs text-gray-500">
+        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <input
             type="checkbox"
             checked={(config.showTicks as boolean) ?? true}
             onChange={(e) => onChange({ showTicks: e.target.checked })}
-            className="rounded border-gray-300"
+            className="rounded border-gray-300 dark:border-gray-600"
           />
           Show Ticks
         </label>
       </div>
 
       {/* Colors */}
-      <div className="pt-2 border-t border-gray-100">
-        <label className="text-xs text-gray-500 font-medium mb-2 block">Colors</label>
+      <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Colors</label>
         <div className="grid grid-cols-3 gap-2">
           <div>
-            <label className="block text-[10px] text-gray-400 mb-1">Knob</label>
+            <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">Knob</label>
             <input
               type="color"
               value={(config.knobColor as string) ?? colors.neutral[700]}
               onChange={(e) => onChange({ knobColor: e.target.value })}
-              className="w-full h-7 border border-gray-300 rounded cursor-pointer"
+              className="w-full h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
             />
           </div>
           <div>
-            <label className="block text-[10px] text-gray-400 mb-1">Track</label>
+            <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">Track</label>
             <input
               type="color"
               value={(config.trackColor as string) ?? colors.neutral[200]}
               onChange={(e) => onChange({ trackColor: e.target.value })}
-              className="w-full h-7 border border-gray-300 rounded cursor-pointer"
+              className="w-full h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
             />
           </div>
           <div>
-            <label className="block text-[10px] text-gray-400 mb-1">Indicator</label>
+            <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-1">Indicator</label>
             <input
               type="color"
               value={(config.indicatorColor as string) ?? colors.primary[400]}
               onChange={(e) => onChange({ indicatorColor: e.target.value })}
-              className="w-full h-7 border border-gray-300 rounded cursor-pointer"
+              className="w-full h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
             />
           </div>
         </div>

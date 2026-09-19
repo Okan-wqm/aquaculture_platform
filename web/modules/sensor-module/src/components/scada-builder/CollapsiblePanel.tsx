@@ -107,7 +107,7 @@ const IconRail: React.FC<IconRailProps> = ({
               transition-colors duration-150
               ${isActive
                 ? 'bg-cyan-100 text-cyan-700'
-                : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100'
               }
             `}
             aria-label={item.label}
@@ -152,8 +152,8 @@ const ToggleButton: React.FC<ToggleButtonProps> = ({ side, collapsed, onToggle }
       className={`
         absolute ${positionClasses} z-10
         flex items-center justify-center w-6 h-6
-        bg-white border border-gray-200 rounded-full shadow-sm
-        text-gray-500 hover:text-gray-700 hover:bg-gray-50
+        bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-full shadow-sm
+        text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800
         transition-colors duration-150
       `}
       aria-label={collapsed ? 'Expand panel' : 'Collapse panel'}
@@ -209,7 +209,7 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
 
   return (
     <div
-      className={`relative flex-shrink-0 bg-white ${borderClass} border-gray-200 overflow-hidden`}
+      className={`relative flex-shrink-0 bg-white dark:bg-gray-900 ${borderClass} border-gray-200 dark:border-gray-700 overflow-hidden`}
       style={{
         width: currentWidth,
         minWidth: currentWidth,
@@ -221,7 +221,7 @@ export const CollapsiblePanel: React.FC<CollapsiblePanelProps> = ({
 
       {/* Collapsed: icon rail */}
       {collapsed && (
-        <div className="h-full bg-gray-50">
+        <div className="h-full bg-gray-50 dark:bg-gray-800">
           <IconRail
             icons={railIcons}
             side={side}

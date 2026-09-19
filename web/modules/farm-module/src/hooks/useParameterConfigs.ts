@@ -449,7 +449,7 @@ export function getGroupColor(group: ParameterGroup): string {
     case 'NITROGEN_CYCLE':
       return 'text-green-600 bg-green-100';
     case 'METALS':
-      return 'text-gray-600 bg-gray-100';
+      return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800';
     case 'BIOLOGICAL':
       return 'text-purple-600 bg-purple-100';
     case 'ORGANIC':
@@ -457,7 +457,7 @@ export function getGroupColor(group: ParameterGroup): string {
     case 'CUSTOM':
       return 'text-teal-600 bg-teal-100';
     default:
-      return 'text-gray-600 bg-gray-100';
+      return 'text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800';
   }
 }
 

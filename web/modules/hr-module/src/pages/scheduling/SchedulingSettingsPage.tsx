@@ -284,13 +284,13 @@ export function SchedulingSettingsPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-6">
         <div className="max-w-3xl mx-auto">
           <div className="animate-pulse space-y-6">
-            <div className="h-8 bg-gray-200 rounded w-1/3" />
-            <div className="bg-white rounded-xl p-6 space-y-4">
+            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
+            <div className="bg-white dark:bg-gray-900 rounded-xl p-6 space-y-4">
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-12 bg-gray-100 rounded" />
+                <div key={i} className="h-12 bg-gray-100 dark:bg-gray-800 rounded" />
               ))}
             </div>
           </div>
@@ -301,7 +301,7 @@ export function SchedulingSettingsPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-6">
         <div className="max-w-3xl mx-auto">
           <div className="bg-red-50 rounded-xl p-6 text-center">
             <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
@@ -316,9 +316,9 @@ export function SchedulingSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <PageHeader
           title={
             <>
@@ -333,7 +333,7 @@ export function SchedulingSettingsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={handleReset}
-                    className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                   >
                     Iptal
                   </button>
@@ -363,16 +363,16 @@ export function SchedulingSettingsPage() {
       {/* Content */}
       <div className="max-w-3xl mx-auto p-6">
         {/* Schedule Categories Section */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Tag className="h-5 w-5 text-indigo-600" />
-              <h2 className="font-semibold text-gray-900">Cizelge Kategorileri</h2>
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">Cizelge Kategorileri</h2>
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={handleResetCategories}
-                className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                className="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                 title="Varsayilanlara sifirla"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
@@ -390,24 +390,24 @@ export function SchedulingSettingsPage() {
           </div>
 
           <div className="p-6">
-            <p className="text-xs text-gray-500 mb-4">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
               Cizelge tablosunda hucrelere atanacak kategorileri yonetin. Calisma kategorileri gun ve saat hesabina dahil edilir.
             </p>
 
             {/* Category Form */}
             {showCategoryForm && (
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-800">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     {editingCategoryCode ? 'Kategori Duzenle' : 'Yeni Kategori Ekle'}
                   </h3>
-                  <button onClick={resetCategoryForm} className="p-1 text-gray-400 hover:text-gray-600">
+                  <button onClick={resetCategoryForm} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Kod</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Kod</label>
                     <input
                       type="text"
                       maxLength={4}
@@ -415,21 +415,21 @@ export function SchedulingSettingsPage() {
                       onChange={(e) => setCategoryForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
                       disabled={!!editingCategoryCode}
                       placeholder="D, X, P, OT..."
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Ad</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Ad</label>
                     <input
                       type="text"
                       value={categoryForm.name}
                       onChange={(e) => setCategoryForm((p) => ({ ...p, name: e.target.value }))}
                       placeholder="Calisma, Off, Izin..."
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Saat</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Saat</label>
                     <input
                       type="number"
                       min={0}
@@ -438,7 +438,7 @@ export function SchedulingSettingsPage() {
                       value={categoryForm.hours}
                       onChange={(e) => setCategoryForm((p) => ({ ...p, hours: parseFloat(e.target.value) || 0 }))}
                       disabled={!categoryForm.isWorking}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
                     />
                   </div>
                   <div className="flex items-center pt-5">
@@ -447,16 +447,16 @@ export function SchedulingSettingsPage() {
                       id="catIsWorking"
                       checked={categoryForm.isWorking}
                       onChange={(e) => setCategoryForm((p) => ({ ...p, isWorking: e.target.checked, hours: e.target.checked ? p.hours || 9 : 0 }))}
-                      className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                      className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded focus:ring-indigo-500"
                     />
-                    <label htmlFor="catIsWorking" className="ml-2 text-sm text-gray-700">
+                    <label htmlFor="catIsWorking" className="ml-2 text-sm text-gray-700 dark:text-gray-300">
                       Calisma gunu sayilsin
                     </label>
                   </div>
                 </div>
                 {/* Color Picker */}
                 <div className="mt-4">
-                  <label className="block text-xs font-medium text-gray-600 mb-2">Renk</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Renk</label>
                   <div className="flex gap-2 flex-wrap">
                     {CATEGORY_COLORS.map((color) => (
                       <button
@@ -477,7 +477,7 @@ export function SchedulingSettingsPage() {
                   <button
                     type="button"
                     onClick={resetCategoryForm}
-                    className="px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                   >
                     Iptal
                   </button>
@@ -503,7 +503,7 @@ export function SchedulingSettingsPage() {
                 {categories.map((cat) => (
                   <div
                     key={cat.code}
-                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-200 bg-white transition-colors"
+                    className="flex items-center gap-3 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 transition-colors"
                   >
                     <div
                       className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold flex-shrink-0"
@@ -513,13 +513,13 @@ export function SchedulingSettingsPage() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm text-gray-900">{cat.name}</span>
+                        <span className="font-medium text-sm text-gray-900 dark:text-gray-100">{cat.name}</span>
                         {cat.isWorking ? (
                           <span className="px-1.5 py-0.5 text-[10px] font-medium bg-green-100 text-green-700 rounded">
                             Calisma - {cat.hours}h
                           </span>
                         ) : (
-                          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 text-gray-500 rounded">
+                          <span className="px-1.5 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded">
                             Calisma disi
                           </span>
                         )}
@@ -528,14 +528,14 @@ export function SchedulingSettingsPage() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleEditCategory(cat)}
-                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                         title="Duzenle"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
                       <button
                         onClick={() => handleDeleteCategory(cat.code)}
-                        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
                         title="Sil"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -547,7 +547,7 @@ export function SchedulingSettingsPage() {
             ) : (
               <div className="text-center py-8">
                 <Tag className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm text-gray-500 mb-3">Henuz kategori tanimlanmamis</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Henuz kategori tanimlanmamis</p>
                 <button
                   onClick={handleResetCategories}
                   className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
@@ -560,11 +560,11 @@ export function SchedulingSettingsPage() {
         </div>
 
         {/* Shift Management Section */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
-          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Layers className="h-5 w-5 text-indigo-600" />
-              <h2 className="font-semibold text-gray-900">Vardiya Yonetimi</h2>
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">Vardiya Yonetimi</h2>
             </div>
             {!showShiftForm && (
               <button
@@ -580,18 +580,18 @@ export function SchedulingSettingsPage() {
           <div className="p-6">
             {/* Shift Form */}
             {showShiftForm && (
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-800">
+                  <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
                     {editingShiftId ? 'Vardiya Duzenle' : 'Yeni Vardiya Ekle'}
                   </h3>
-                  <button onClick={resetShiftForm} className="p-1 text-gray-400 hover:text-gray-600">
+                  <button onClick={resetShiftForm} className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Kod</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Kod</label>
                     <input
                       type="text"
                       maxLength={10}
@@ -599,39 +599,39 @@ export function SchedulingSettingsPage() {
                       onChange={(e) => setShiftForm((p) => ({ ...p, code: e.target.value.toUpperCase() }))}
                       disabled={!!editingShiftId}
                       placeholder="S, A, G..."
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Ad</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Ad</label>
                     <input
                       type="text"
                       value={shiftForm.name}
                       onChange={(e) => setShiftForm((p) => ({ ...p, name: e.target.value }))}
                       placeholder="Sabah, Aksam..."
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Baslangic</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Baslangic</label>
                     <input
                       type="time"
                       value={shiftForm.startTime}
                       onChange={(e) => setShiftForm((p) => ({ ...p, startTime: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Bitis</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Bitis</label>
                     <input
                       type="time"
                       value={shiftForm.endTime}
                       onChange={(e) => setShiftForm((p) => ({ ...p, endTime: e.target.value }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Toplam Dakika</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Toplam Dakika</label>
                     <input
                       type="number"
                       min={60}
@@ -639,11 +639,11 @@ export function SchedulingSettingsPage() {
                       step={30}
                       value={shiftForm.totalMinutes}
                       onChange={(e) => setShiftForm((p) => ({ ...p, totalMinutes: parseInt(e.target.value) || 480 }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Mola (dk)</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Mola (dk)</label>
                     <input
                       type="number"
                       min={0}
@@ -651,13 +651,13 @@ export function SchedulingSettingsPage() {
                       step={15}
                       value={shiftForm.breakMinutes}
                       onChange={(e) => setShiftForm((p) => ({ ...p, breakMinutes: parseInt(e.target.value) || 0 }))}
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
                   </div>
                 </div>
                 {/* Color Picker */}
                 <div className="mt-4">
-                  <label className="block text-xs font-medium text-gray-600 mb-2">Renk</label>
+                  <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">Renk</label>
                   <div className="flex gap-2 flex-wrap">
                     {SHIFT_COLORS.map((color) => (
                       <button
@@ -678,7 +678,7 @@ export function SchedulingSettingsPage() {
                   <button
                     type="button"
                     onClick={resetShiftForm}
-                    className="px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                    className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                   >
                     Iptal
                   </button>
@@ -711,7 +711,7 @@ export function SchedulingSettingsPage() {
                     key={shift.id}
                     className={cn(
                       'flex items-center gap-3 px-4 py-3 rounded-lg border transition-colors',
-                      shift.isActive ? 'bg-white border-gray-200' : 'bg-gray-50 border-gray-100 opacity-60'
+                      shift.isActive ? 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700' : 'bg-gray-50 dark:bg-gray-800 border-gray-100 dark:border-gray-700 opacity-60'
                     )}
                   >
                     <div
@@ -723,9 +723,9 @@ export function SchedulingSettingsPage() {
                         <span className="font-semibold text-sm" style={{ color: shift.colorCode || colors.neutral[700] }}>
                           {shift.code}
                         </span>
-                        <span className="text-sm text-gray-700">{shift.name}</span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{shift.name}</span>
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
                         {shift.startTime?.substring(0, 5)} - {shift.endTime?.substring(0, 5)}
                         {(shift as Shift & { totalMinutes?: number }).totalMinutes && ` (${formatMinutesAsHours((shift as Shift & { totalMinutes?: number }).totalMinutes!)})`}
                       </div>
@@ -733,7 +733,7 @@ export function SchedulingSettingsPage() {
                     <div className="flex items-center gap-1">
                       <button
                         onClick={() => handleEditShift(shift)}
-                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                        className="p-1.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                         title="Duzenle"
                       >
                         <Pencil className="h-3.5 w-3.5" />
@@ -745,7 +745,7 @@ export function SchedulingSettingsPage() {
                           'px-2 py-1 text-xs rounded-full font-medium transition-colors',
                           shift.isActive
                             ? 'text-green-700 bg-green-100 hover:bg-green-200'
-                            : 'text-gray-500 bg-gray-100 hover:bg-gray-200'
+                            : 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600'
                         )}
                       >
                         {shift.isActive ? 'Aktif' : 'Pasif'}
@@ -757,7 +757,7 @@ export function SchedulingSettingsPage() {
             ) : (
               <div className="text-center py-8">
                 <Layers className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-                <p className="text-sm text-gray-500 mb-3">Henuz vardiya tanimlanmamis</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Henuz vardiya tanimlanmamis</p>
                 <button
                   onClick={() => { resetShiftForm(); setShowShiftForm(true); }}
                   className="text-sm text-indigo-600 hover:text-indigo-700 font-medium"
@@ -771,15 +771,15 @@ export function SchedulingSettingsPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* Work Hours Section */}
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
               <Clock className="h-5 w-5 text-indigo-600" />
-              <h2 className="font-semibold text-gray-900">Calisma Saatleri</h2>
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">Calisma Saatleri</h2>
             </div>
             <div className="p-6 space-y-4">
               {/* Standard Weekly Hours */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Standart Haftalik Calisma Suresi
                 </label>
                 <div className="flex items-center gap-3">
@@ -792,20 +792,20 @@ export function SchedulingSettingsPage() {
                     onChange={(e) =>
                       handleChange('standardWeeklyMinutes', parseInt(e.target.value))
                     }
-                    className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
                     dakika ({formatMinutesAsHours(formData.standardWeeklyMinutes || 2700)})
                   </span>
                 </div>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Ornek: 2700 dakika = 45 saat
                 </p>
               </div>
 
               {/* Max Weekly Overtime */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Maksimum Haftalik Fazla Mesai
                 </label>
                 <div className="flex items-center gap-3">
@@ -818,9 +818,9 @@ export function SchedulingSettingsPage() {
                     onChange={(e) =>
                       handleChange('maxOvertimeMinutesPerWeek', parseInt(e.target.value))
                     }
-                    className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
                     dakika ({formatMinutesAsHours(formData.maxOvertimeMinutesPerWeek || 900)})
                   </span>
                 </div>
@@ -828,7 +828,7 @@ export function SchedulingSettingsPage() {
 
               {/* Max Monthly Overtime */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Maksimum Aylik Fazla Mesai
                 </label>
                 <div className="flex items-center gap-3">
@@ -841,9 +841,9 @@ export function SchedulingSettingsPage() {
                     onChange={(e) =>
                       handleChange('maxOvertimeMinutesPerMonth', parseInt(e.target.value))
                     }
-                    className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
                     dakika ({formatMinutesAsHours(formData.maxOvertimeMinutesPerMonth || 2700)})
                   </span>
                 </div>
@@ -851,7 +851,7 @@ export function SchedulingSettingsPage() {
 
               {/* Min Rest Between Shifts */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Vardiyalar Arasi Minimum Dinlenme
                 </label>
                 <div className="flex items-center gap-3">
@@ -864,9 +864,9 @@ export function SchedulingSettingsPage() {
                     onChange={(e) =>
                       handleChange('minRestMinutesBetweenShifts', parseInt(e.target.value))
                     }
-                    className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
                     dakika ({formatMinutesAsHours(formData.minRestMinutesBetweenShifts || 660)})
                   </span>
                 </div>
@@ -875,15 +875,15 @@ export function SchedulingSettingsPage() {
           </div>
 
           {/* Schedule Settings Section */}
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
               <CalendarDays className="h-5 w-5 text-indigo-600" />
-              <h2 className="font-semibold text-gray-900">Program Ayarlari</h2>
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">Program Ayarlari</h2>
             </div>
             <div className="p-6 space-y-4">
               {/* Work Week Start Day */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Hafta Baslangic Gunu
                 </label>
                 <select
@@ -891,7 +891,7 @@ export function SchedulingSettingsPage() {
                   onChange={(e) =>
                     handleChange('workWeekStartDay', e.target.value as WeekDay)
                   }
-                  className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 >
                   {WEEKDAY_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>
@@ -903,7 +903,7 @@ export function SchedulingSettingsPage() {
 
               {/* Default Shift */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Varsayilan Vardiya
                 </label>
                 <select
@@ -911,7 +911,7 @@ export function SchedulingSettingsPage() {
                   onChange={(e) =>
                     handleChange('defaultShiftId', e.target.value || undefined)
                   }
-                  className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 >
                   <option value="">Secilmedi</option>
                   {shifts?.map((shift) => (
@@ -920,14 +920,14 @@ export function SchedulingSettingsPage() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Yeni plan olusturulurken kullanilacak varsayilan vardiya
                 </p>
               </div>
 
               {/* Max Consecutive Work Days */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Maksimum Ardisik Calisma Gunu
                 </label>
                 <input
@@ -938,9 +938,9 @@ export function SchedulingSettingsPage() {
                   onChange={(e) =>
                     handleChange('maxConsecutiveWorkDays', parseInt(e.target.value))
                   }
-                  className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Bu limite ulasinca uyari gosterilir
                 </p>
               </div>
@@ -954,11 +954,11 @@ export function SchedulingSettingsPage() {
                   onChange={(e) =>
                     handleChange('allowOvertimeWithoutApproval', e.target.checked)
                   }
-                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded focus:ring-indigo-500"
                 />
                 <label
                   htmlFor="allowOvertimeWithoutApproval"
-                  className="text-sm text-gray-700"
+                  className="text-sm text-gray-700 dark:text-gray-300"
                 >
                   Fazla mesai onay gerektirmesin
                 </label>
@@ -967,10 +967,10 @@ export function SchedulingSettingsPage() {
           </div>
 
           {/* Notification Settings Section */}
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200 flex items-center gap-2">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
               <Bell className="h-5 w-5 text-indigo-600" />
-              <h2 className="font-semibold text-gray-900">Bildirim Ayarlari</h2>
+              <h2 className="font-semibold text-gray-900 dark:text-gray-100">Bildirim Ayarlari</h2>
             </div>
             <div className="p-6 space-y-4">
               {/* Auto Notify Employees */}
@@ -982,11 +982,11 @@ export function SchedulingSettingsPage() {
                   onChange={(e) =>
                     handleChange('autoNotifyEmployees', e.target.checked)
                   }
-                  className="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                  className="h-4 w-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded focus:ring-indigo-500"
                 />
                 <label
                   htmlFor="autoNotifyEmployees"
-                  className="text-sm text-gray-700"
+                  className="text-sm text-gray-700 dark:text-gray-300"
                 >
                   Plan yayinlaninca calisanlari otomatik bilgilendir
                 </label>
@@ -994,11 +994,11 @@ export function SchedulingSettingsPage() {
 
               {/* Notify Days Before */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Bildirim Zamani
                 </label>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">Hafta baslamadan</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Hafta baslamadan</span>
                   <input
                     type="number"
                     min="0"
@@ -1007,9 +1007,9 @@ export function SchedulingSettingsPage() {
                     onChange={(e) =>
                       handleChange('notifyDaysBefore', parseInt(e.target.value))
                     }
-                    className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                   />
-                  <span className="text-sm text-gray-500">gun once</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">gun once</span>
                 </div>
               </div>
             </div>
@@ -1021,7 +1021,7 @@ export function SchedulingSettingsPage() {
               <button
                 type="button"
                 onClick={handleReset}
-                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
                 Iptal
               </button>

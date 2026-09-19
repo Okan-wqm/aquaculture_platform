@@ -31,9 +31,9 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
   );
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-6">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
           </svg>
@@ -44,7 +44,7 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
         <select
           value={selectedTankId || ''}
           onChange={(e) => onTankSelect(e.target.value || null)}
-          className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm min-w-[200px] focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm min-w-[200px] focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         >
           <option value="">Select Tank...</option>
           {tanksWithFish.map((tank) => (
@@ -59,21 +59,21 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
 
       {/* Selected Tank Info */}
       {selectedTank && (
-        <div className="mb-3 p-3 bg-gray-50 rounded-lg text-sm">
-          <div className="font-medium text-gray-900 mb-1">{selectedTank.name}</div>
+        <div className="mb-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm">
+          <div className="font-medium text-gray-900 dark:text-gray-100 mb-1">{selectedTank.name}</div>
           <div className="flex flex-wrap gap-4">
             {selectedTank.batchNumber && (
               <div className="flex items-center gap-1">
                 <span className="text-blue-600 font-medium">Production:</span>
-                <span className="text-gray-700">
+                <span className="text-gray-700 dark:text-gray-300">
                   {selectedTank.pieces?.toLocaleString() || 0} fish
                 </span>
-                <span className="text-gray-400">•</span>
-                <span className="text-gray-700">
+                <span className="text-gray-400 dark:text-gray-500">•</span>
+                <span className="text-gray-700 dark:text-gray-300">
                   {selectedTank.biomass?.toFixed(1) || 0} kg
                 </span>
-                <span className="text-gray-400">•</span>
-                <span className="text-gray-500 text-xs">
+                <span className="text-gray-400 dark:text-gray-500">•</span>
+                <span className="text-gray-500 dark:text-gray-400 text-xs">
                   Batch: {selectedTank.batchNumber}
                 </span>
               </div>
@@ -81,13 +81,13 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
             {selectedTank.hasCleanerFish && (
               <div className="flex items-center gap-1">
                 <span className="text-green-600 font-medium">Cleaner Fish:</span>
-                <span className="text-gray-700">
+                <span className="text-gray-700 dark:text-gray-300">
                   {selectedTank.cleanerFishQuantity?.toLocaleString() || 0} fish
                 </span>
                 {selectedTank.cleanerFishDetails && selectedTank.cleanerFishDetails.length > 1 && (
                   <>
-                    <span className="text-gray-400">•</span>
-                    <span className="text-gray-500 text-xs">
+                    <span className="text-gray-400 dark:text-gray-500">•</span>
+                    <span className="text-gray-500 dark:text-gray-400 text-xs">
                       {selectedTank.cleanerFishDetails.length} batches
                     </span>
                   </>
@@ -140,7 +140,7 @@ export const QuickActionsPanel: React.FC<QuickActionsPanelProps> = ({
 
       {/* Help Text */}
       {!selectedTankId && (
-        <p className="mt-3 text-xs text-gray-500 text-center">
+        <p className="mt-3 text-xs text-gray-500 dark:text-gray-400 text-center">
           Select a tank to record mortality, transfer, or cull operations
         </p>
       )}

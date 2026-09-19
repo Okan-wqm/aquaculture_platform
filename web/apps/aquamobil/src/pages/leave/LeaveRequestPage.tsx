@@ -146,7 +146,7 @@ export function LeaveRequestPage(): JSX.Element {
 
       {/* Leave Type Selector */}
       <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Leave Type</h3>
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Leave Type</h3>
         <div className="grid grid-cols-2 gap-2">
           {leaveTypes.map((type: LeaveType) => (
             <button
@@ -215,7 +215,7 @@ export function LeaveRequestPage(): JSX.Element {
             type="checkbox"
             checked={isHalfDay}
             onChange={(e) => setIsHalfDay(e.target.checked)}
-            className="w-5 h-5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+            className="w-5 h-5 rounded border-gray-300 dark:border-gray-600 text-violet-600 focus:ring-violet-500"
           />
           <span className="text-sm font-medium text-gray-900 dark:text-white">Half Day</span>
         </label>

@@ -278,13 +278,13 @@ export function WaterQualityRecordPage(): JSX.Element {
       {equipmentLoading && !routeEquipmentId && (
         <div className="flex items-center justify-center py-12">
           <Spinner size="lg" />
-          <span className="ml-2 text-gray-500 text-sm">Loading equipment...</span>
+          <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading equipment...</span>
         </div>
       )}
       {selectedEquipmentId && paramsLoading && (
         <div className="flex items-center justify-center py-12">
           <Spinner size="lg" />
-          <span className="ml-2 text-gray-500 text-sm">Loading parameters...</span>
+          <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading parameters...</span>
         </div>
       )}
 

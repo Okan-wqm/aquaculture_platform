@@ -52,7 +52,7 @@ const SEVERITY_OPTIONS: { value: AlertSeverity; label: string; className: string
   { value: 'warning', label: 'Uyarı', className: 'bg-yellow-100 text-yellow-800 border-yellow-200' },
   { value: 'medium', label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200' },
   { value: 'low', label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-  { value: 'info', label: 'Bilgi', className: 'bg-gray-100 text-gray-800 border-gray-200' },
+  { value: 'info', label: 'Bilgi', className: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700' },
 ];
 
 const OPERATOR_OPTIONS: { value: AlertOperator; label: string; symbol: string }[] = [
@@ -166,7 +166,7 @@ const ConditionEditor: React.FC<{
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
           Koşullar <span className="text-red-500">*</span>
         </label>
         <button
@@ -182,10 +182,10 @@ const ConditionEditor: React.FC<{
       {conditions.map((condition, index) => (
         <div
           key={index}
-          className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3"
+          className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3"
         >
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500">Koşul #{index + 1}</span>
+            <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Koşul #{index + 1}</span>
             {conditions.length > 1 && (
               <button
                 type="button"
@@ -200,11 +200,11 @@ const ConditionEditor: React.FC<{
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {/* Parameter */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Parametre</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Parametre</label>
               <select
                 value={condition.parameter}
                 onChange={(e) => updateCondition(index, 'parameter', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {PARAMETER_OPTIONS.map((p) => (
                   <option key={p.value} value={p.value}>
@@ -216,11 +216,11 @@ const ConditionEditor: React.FC<{
 
             {/* Operator */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Operator</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Operator</label>
               <select
                 value={condition.operator}
                 onChange={(e) => updateCondition(index, 'operator', e.target.value as AlertOperator)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {OPERATOR_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -232,23 +232,23 @@ const ConditionEditor: React.FC<{
 
             {/* Threshold */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Eşik Değer</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Eşik Değer</label>
               <input
                 type="number"
                 step="any"
                 value={condition.threshold}
                 onChange={(e) => updateCondition(index, 'threshold', parseFloat(e.target.value) || 0)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               />
             </div>
 
             {/* Severity */}
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Önem Derecesi</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Önem Derecesi</label>
               <select
                 value={condition.severity}
                 onChange={(e) => updateCondition(index, 'severity', e.target.value as AlertSeverity)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
               >
                 {SEVERITY_OPTIONS.map((s) => (
                   <option key={s.value} value={s.value}>
@@ -298,12 +298,12 @@ const RuleForm: React.FC<{
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
           {mode === 'create' ? 'Yeni Alarm Kuralı' : 'Alarm Kuralını Düzenle'}
         </h2>
-        <button onClick={onCancel} className="text-gray-400 hover:text-gray-600">
+        <button onClick={onCancel} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
           <X className="w-5 h-5" />
         </button>
       </div>
@@ -312,7 +312,7 @@ const RuleForm: React.FC<{
         {/* Name & Description */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Kural Adı <span className="text-red-500">*</span>
             </label>
             <input
@@ -322,18 +322,18 @@ const RuleForm: React.FC<{
               placeholder="Örneğin: Yüksek Sıcaklık Alarmı"
               maxLength={100}
               required
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
             <input
               type="text"
               value={form.description}
               onChange={(e) => updateField('description', e.target.value)}
               placeholder="Kuralın kisa aciklamasi"
               maxLength={500}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
         </div>
@@ -341,33 +341,33 @@ const RuleForm: React.FC<{
         {/* Farm, Pond, Sensor IDs */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Farm ID</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Farm ID</label>
             <input
               type="text"
               value={form.farmId}
               onChange={(e) => updateField('farmId', e.target.value)}
               placeholder="Opsiyonel"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Havuz ID</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Havuz ID</label>
             <input
               type="text"
               value={form.pondId}
               onChange={(e) => updateField('pondId', e.target.value)}
               placeholder="Opsiyonel"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Sensor ID</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sensor ID</label>
             <input
               type="text"
               value={form.sensorId}
               onChange={(e) => updateField('sensorId', e.target.value)}
               placeholder="Opsiyonel"
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             />
           </div>
         </div>
@@ -380,7 +380,7 @@ const RuleForm: React.FC<{
 
         {/* Notification Channels */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Bildirim Kanalları</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Bildirim Kanalları</label>
           <div className="flex flex-wrap gap-2">
             {CHANNEL_OPTIONS.map((ch) => (
               <button
@@ -390,7 +390,7 @@ const RuleForm: React.FC<{
                 className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                   form.notificationChannels.includes(ch.value)
                     ? 'bg-cyan-50 text-cyan-700 border-cyan-200'
-                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                    : 'bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 {form.notificationChannels.includes(ch.value) && (
@@ -404,7 +404,7 @@ const RuleForm: React.FC<{
 
         {/* Recipients */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Alıcılar
           </label>
           <input
@@ -412,14 +412,14 @@ const RuleForm: React.FC<{
             value={form.recipients}
             onChange={(e) => updateField('recipients', e.target.value)}
             placeholder="Virgul ile ayrilmis e-posta adresleri veya kullanici ID'leri"
-            className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+            className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
           />
-          <p className="text-xs text-gray-400 mt-1">Birden fazla alici icin virgul kullanin</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Birden fazla alici icin virgul kullanin</p>
         </div>
 
         {/* Cooldown */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Bekleme Süresi (dakika)
           </label>
           <input
@@ -427,20 +427,20 @@ const RuleForm: React.FC<{
             min={1}
             value={form.cooldownMinutes}
             onChange={(e) => updateField('cooldownMinutes', parseInt(e.target.value, 10) || 5)}
-            className="w-32 px-3 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+            className="w-32 px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
           />
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
             Aynı kural için tekrar alarm göndermeden önceki minimum bekleme süresi
           </p>
         </div>
 
         {/* Actions */}
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-700">
           <button
             type="button"
             onClick={onCancel}
             disabled={isPending}
-            className="px-5 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors disabled:opacity-50"
+            className="px-5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50"
           >
             İptal
           </button>
@@ -513,7 +513,7 @@ const RuleCard: React.FC<{
 
   return (
     <div
-      className={`bg-white rounded-xl shadow-sm border border-gray-100 p-5 transition-all ${
+      className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-5 transition-all ${
         !rule.isActive ? 'opacity-60' : ''
       }`}
     >
@@ -521,24 +521,24 @@ const RuleCard: React.FC<{
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-semibold text-gray-900 truncate">{rule.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{rule.name}</h3>
             <SeverityBadge severity={rule.severity || maxSeverity} />
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                 rule.isActive
                   ? 'bg-green-100 text-green-700 border border-green-200'
-                  : 'bg-gray-100 text-gray-500 border border-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
               }`}
             >
               {rule.isActive ? 'Aktif' : 'Pasif'}
             </span>
           </div>
           {rule.description && (
-            <p className="text-sm text-gray-500 mb-2">{rule.description}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">{rule.description}</p>
           )}
 
           {/* Summary row */}
-          <div className="flex items-center gap-4 text-sm text-gray-500 flex-wrap">
+          <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
             <span>{rule.conditions.length} kosul</span>
             {rule.cooldownMinutes > 0 && <span>Bekleme: {rule.cooldownMinutes} dk</span>}
             {rule.notificationChannels && rule.notificationChannels.length > 0 && (
@@ -561,7 +561,7 @@ const RuleCard: React.FC<{
             className={`p-2 rounded-lg transition-colors ${
               rule.isActive
                 ? 'text-green-600 hover:bg-green-50'
-                : 'text-gray-400 hover:bg-gray-100'
+                : 'text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
             } disabled:opacity-50`}
           >
             {isToggling ? (
@@ -575,21 +575,21 @@ const RuleCard: React.FC<{
           <button
             onClick={() => onEdit(rule)}
             title="Düzenle"
-            className="p-2 rounded-lg text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 transition-colors"
           >
             <Edit3 className="w-4 h-4" />
           </button>
           <button
             onClick={() => onDelete(rule)}
             title="Sil"
-            className="p-2 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
           >
             <Trash2 className="w-4 h-4" />
           </button>
           <button
             onClick={() => setExpanded(!expanded)}
             title={expanded ? 'Daralt' : 'Genişlet'}
-            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            className="p-2 rounded-lg text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </button>
@@ -598,19 +598,19 @@ const RuleCard: React.FC<{
 
       {/* Expanded Conditions Detail */}
       {expanded && (
-        <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
-          <h4 className="text-sm font-medium text-gray-700">Koşul Detaylari</h4>
+        <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 space-y-3">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Koşul Detaylari</h4>
           <div className="space-y-2">
             {rule.conditions.map((condition, idx) => (
               <div
                 key={idx}
-                className="flex items-center gap-3 bg-gray-50 rounded-lg px-4 py-2.5 text-sm"
+                className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-lg px-4 py-2.5 text-sm"
               >
-                <span className="font-medium text-gray-700">
+                <span className="font-medium text-gray-700 dark:text-gray-300">
                   {parameterLabel(condition.parameter)}
                 </span>
                 <OperatorLabel operator={condition.operator} />
-                <span className="font-semibold text-gray-900">{condition.threshold}</span>
+                <span className="font-semibold text-gray-900 dark:text-gray-100">{condition.threshold}</span>
                 <SeverityBadge severity={condition.severity} />
               </div>
             ))}
@@ -619,12 +619,12 @@ const RuleCard: React.FC<{
           {/* Recipients */}
           {rule.recipients && rule.recipients.length > 0 && (
             <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-1">Alıcılar</h4>
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Alıcılar</h4>
               <div className="flex flex-wrap gap-1.5">
                 {rule.recipients.map((r, i) => (
                   <span
                     key={i}
-                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs bg-gray-100 text-gray-700"
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                   >
                     {r}
                   </span>
@@ -634,7 +634,7 @@ const RuleCard: React.FC<{
           )}
 
           {/* Metadata */}
-          <div className="text-xs text-gray-400 flex gap-4">
+          <div className="text-xs text-gray-400 dark:text-gray-500 flex gap-4">
             <span>Oluşturulma: {new Date(rule.createdAt).toLocaleString('tr-TR')}</span>
             <span>Güncelleme: {new Date(rule.updatedAt).toLocaleString('tr-TR')}</span>
           </div>
@@ -765,7 +765,7 @@ const AlertRulesPage: React.FC = () => {
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Spinner size="lg" block className="mb-3" />
-          <p className="text-gray-500">Alarm kuralları yükleniyor...</p>
+          <p className="text-gray-500 dark:text-gray-400">Alarm kuralları yükleniyor...</p>
         </div>
       </div>
     );
@@ -812,7 +812,7 @@ const AlertRulesPage: React.FC = () => {
             <button
               onClick={() => refetch()}
               disabled={isLoading}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Yenile
@@ -832,15 +832,15 @@ const AlertRulesPage: React.FC = () => {
       />
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
           <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-500" />
-            <span className="text-sm font-medium text-gray-700">Filtreler:</span>
+            <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Filtreler:</span>
           </div>
 
           {/* Active/Inactive Filter */}
-          <div className="flex bg-gray-100 rounded-lg p-1">
+          <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
             {[
               { value: 'all', label: 'Tümü' },
               { value: 'true', label: 'Aktif' },
@@ -851,8 +851,8 @@ const AlertRulesPage: React.FC = () => {
                 onClick={() => setFilterIsActive(tab.value)}
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   filterIsActive === tab.value
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
                 {tab.label}
@@ -867,12 +867,12 @@ const AlertRulesPage: React.FC = () => {
               value={filterFarmId}
               onChange={(e) => setFilterFarmId(e.target.value)}
               placeholder="Farm ID ile filtrele..."
-              className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500 w-64"
+              className="px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-cyan-500 w-64"
             />
             {filterFarmId && (
               <button
                 onClick={() => setFilterFarmId('')}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -937,10 +937,10 @@ const AlertRulesPage: React.FC = () => {
 
       {/* Empty State */}
       {ruleList.length === 0 && !isLoading && formMode === 'closed' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Shield className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Alarm Kuralı Bulunamadı</h3>
-          <p className="text-gray-500 text-sm mb-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+          <Shield className="w-12 h-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Alarm Kuralı Bulunamadı</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm mb-6">
             {filterFarmId || filterIsActive !== 'all'
               ? 'Seçili filtrelerle eşleşen alarm kuralı bulunamadı. Filtreleri değiştirmeyi deneyin.'
               : 'Henüz tanımlanmış alarm kuralı bulunmuyor. İlk kuralı oluşturun.'}

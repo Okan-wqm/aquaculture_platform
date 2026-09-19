@@ -93,7 +93,7 @@ const BillingReportsPage: React.FC = () => {
           <div className="flex gap-2">
             <Link
               to="/admin/billing"
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Back to Billing
             </Link>
@@ -125,9 +125,9 @@ const BillingReportsPage: React.FC = () => {
       {loading ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, index) => (
-            <div key={index} className="h-28 animate-pulse rounded-xl border border-gray-200 bg-white p-4">
-              <div className="h-4 w-24 rounded bg-gray-200" />
-              <div className="mt-4 h-8 w-32 rounded bg-gray-200" />
+            <div key={index} className="h-28 animate-pulse rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+              <div className="h-4 w-24 rounded bg-gray-200 dark:bg-gray-700" />
+              <div className="mt-4 h-8 w-32 rounded bg-gray-200 dark:bg-gray-700" />
             </div>
           ))}
         </div>
@@ -154,9 +154,9 @@ interface ReportCardProps {
 }
 
 const ReportCard: React.FC<ReportCardProps> = ({ label, value, tone = 'default' }) => (
-  <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-    <p className="text-sm text-gray-500">{label}</p>
-    <p className={`mt-2 text-2xl font-bold ${tone === 'danger' ? 'text-red-600' : 'text-gray-900'}`}>
+  <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 shadow-sm">
+    <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+    <p className={`mt-2 text-2xl font-bold ${tone === 'danger' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
       {value}
     </p>
   </div>

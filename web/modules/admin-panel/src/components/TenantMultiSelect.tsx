@@ -97,15 +97,15 @@ export const TenantMultiSelect: React.FC<TenantMultiSelectProps> = ({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        className="w-full flex items-center justify-between px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
       >
         <span className="text-left truncate flex-1">
           {value.length === 0 ? (
-            <span className="text-gray-500">{placeholder}</span>
+            <span className="text-gray-500 dark:text-gray-400">{placeholder}</span>
           ) : value.length <= 2 ? (
-            <span className="text-gray-900">{selectedNames.join(', ')}</span>
+            <span className="text-gray-900 dark:text-gray-100">{selectedNames.join(', ')}</span>
           ) : (
-            <span className="text-gray-900">
+            <span className="text-gray-900 dark:text-gray-100">
               {value.length} of {totalCount} tenants selected
             </span>
           )}
@@ -114,28 +114,28 @@ export const TenantMultiSelect: React.FC<TenantMultiSelectProps> = ({
           {value.length > 0 && (
             <span
               onClick={handleClear}
-              className="p-0.5 text-gray-400 hover:text-gray-600 rounded"
+              className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 rounded"
             >
               <X size={14} />
             </span>
           )}
-          <ChevronDown size={16} className="text-gray-400" />
+          <ChevronDown size={16} className="text-gray-400 dark:text-gray-500" />
         </div>
       </button>
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg max-h-72 flex flex-col">
+        <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-72 flex flex-col">
           {/* Search */}
-          <div className="p-2 border-b border-gray-100">
+          <div className="p-2 border-b border-gray-100 dark:border-gray-700">
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={14} />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search tenants..."
-                className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                 autoFocus
               />
             </div>
@@ -146,16 +146,16 @@ export const TenantMultiSelect: React.FC<TenantMultiSelectProps> = ({
             <button
               type="button"
               onClick={handleSelectAll}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 border-b border-gray-100"
+              className="flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700"
             >
               <div className={`w-4 h-4 rounded border flex items-center justify-center ${
                 allSelected
                   ? 'bg-blue-600 border-blue-600'
-                  : 'border-gray-300'
+                  : 'border-gray-300 dark:border-gray-600'
               }`}>
                 {allSelected && <Check size={12} className="text-white" />}
               </div>
-              <span className="font-medium text-gray-700">
+              <span className="font-medium text-gray-700 dark:text-gray-300">
                 Select All ({totalCount})
               </span>
             </button>
@@ -168,7 +168,7 @@ export const TenantMultiSelect: React.FC<TenantMultiSelectProps> = ({
                 <Spinner size="md" />
               </div>
             ) : filteredTenants.length === 0 ? (
-              <div className="text-center py-6 text-sm text-gray-500">
+              <div className="text-center py-6 text-sm text-gray-500 dark:text-gray-400">
                 {search ? 'No tenants match your search' : 'No active tenants found'}
               </div>
             ) : (
@@ -179,19 +179,19 @@ export const TenantMultiSelect: React.FC<TenantMultiSelectProps> = ({
                     key={tenant.id}
                     type="button"
                     onClick={() => handleToggleTenant(tenant.id)}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${
                       isSelected
                         ? 'bg-blue-600 border-blue-600'
-                        : 'border-gray-300'
+                        : 'border-gray-300 dark:border-gray-600'
                     }`}>
                       {isSelected && <Check size={12} className="text-white" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <span className="text-gray-900 truncate block">{tenant.name}</span>
+                      <span className="text-gray-900 dark:text-gray-100 truncate block">{tenant.name}</span>
                     </div>
-                    <span className="text-xs text-gray-500 capitalize flex-shrink-0">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 capitalize flex-shrink-0">
                       {tenant.tier}
                     </span>
                   </button>
@@ -202,7 +202,7 @@ export const TenantMultiSelect: React.FC<TenantMultiSelectProps> = ({
 
           {/* Footer */}
           {value.length > 0 && (
-            <div className="border-t border-gray-100 px-3 py-2 text-xs text-gray-500">
+            <div className="border-t border-gray-100 dark:border-gray-700 px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
               {value.length} of {totalCount} tenants selected
             </div>
           )}

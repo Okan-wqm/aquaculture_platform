@@ -45,7 +45,7 @@ const TypeIcon: React.FC<{ type: string }> = ({ type }) => {
     water_level: <Activity className="w-5 h-5 text-indigo-500" />,
   };
 
-  return <>{icons[normalized] || <Activity className="w-5 h-5 text-gray-500" />}</>;
+  return <>{icons[normalized] || <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />}</>;
 };
 
 // ============================================================================
@@ -121,7 +121,7 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
         placeholder="-"
       />
     ) : (
-      <span className="text-sm text-gray-700">{threshold.alertThresholds[level]?.[bound] ?? '-'}</span>
+      <span className="text-sm text-gray-700 dark:text-gray-300">{threshold.alertThresholds[level]?.[bound] ?? '-'}</span>
     );
   };
 
@@ -131,8 +131,8 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
       header: 'Sensör',
       render: (_value, threshold) => (
         <div>
-          <span className="font-medium text-gray-900">{threshold.sensorName}</span>
-          {threshold.dataPath && <p className="text-xs text-gray-500 font-mono">{threshold.dataPath}</p>}
+          <span className="font-medium text-gray-900 dark:text-gray-100">{threshold.sensorName}</span>
+          {threshold.dataPath && <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{threshold.dataPath}</p>}
         </div>
       ),
     },
@@ -168,7 +168,7 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
       key: 'unit',
       header: 'Birim',
       align: 'center',
-      render: (_value, threshold) => <span className="text-gray-500">{threshold.unit}</span>,
+      render: (_value, threshold) => <span className="text-gray-500 dark:text-gray-400">{threshold.unit}</span>,
     },
     {
       key: 'actions',
@@ -188,7 +188,7 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
             <button
               onClick={cancelEdit}
               disabled={savingId === threshold.sensorId}
-              className="p-1.5 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               title="İptal"
             >
               <X className="w-4 h-4" />
@@ -198,7 +198,7 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
           <button
             onClick={() => startEdit(threshold)}
             disabled={updating}
-            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
             title="Düzenle"
           >
             <Edit className="w-4 h-4" />
@@ -208,12 +208,12 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Header */}
-      <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+      <div className="p-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
         <TypeIcon type={type} />
-        <h3 className="font-semibold text-gray-900">{getSensorTypeLabel(type)}</h3>
-        <span className="text-sm text-gray-500">({thresholds.length} sensör)</span>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">{getSensorTypeLabel(type)}</h3>
+        <span className="text-sm text-gray-500 dark:text-gray-400">({thresholds.length} sensör)</span>
       </div>
 
       <DataTable<SensorThreshold>
@@ -258,7 +258,7 @@ const ThresholdsPage: React.FC = () => {
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
           <Spinner size="lg" block className="mb-3" />
-          <p className="text-gray-500">Eşik değerleri yükleniyor...</p>
+          <p className="text-gray-500 dark:text-gray-400">Eşik değerleri yükleniyor...</p>
         </div>
       </div>
     );
@@ -292,7 +292,7 @@ const ThresholdsPage: React.FC = () => {
           <button
             onClick={() => refetch()}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             Yenile
@@ -317,10 +317,10 @@ const ThresholdsPage: React.FC = () => {
 
       {/* Empty State */}
       {sensorTypes.length === 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Henüz Sensör Yok</h3>
-          <p className="text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+          <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Henüz Sensör Yok</h3>
+          <p className="text-gray-500 dark:text-gray-400">
             Eşik değerlerini düzenlemek için önce sensör kaydetmeniz gerekiyor.
           </p>
         </div>
@@ -339,9 +339,9 @@ const ThresholdsPage: React.FC = () => {
 
       {/* Success Toast (optional) */}
       {updating && (
-        <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
           <Spinner size="md" />
-          <span className="text-sm text-gray-700">Kaydediliyor...</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">Kaydediliyor...</span>
         </div>
       )}
     </div>

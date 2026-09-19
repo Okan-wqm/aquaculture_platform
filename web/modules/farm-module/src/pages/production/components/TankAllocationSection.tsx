@@ -101,20 +101,20 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
           Tank Allocations <span className="text-red-500">*</span>
         </h4>
         <div className="text-sm">
           <span className={remainingQuantity === 0 ? 'text-green-600' : isOverAllocated ? 'text-red-600' : 'text-amber-600'}>
             {allocatedQuantity.toLocaleString()}
           </span>
-          <span className="text-gray-500"> / {totalQuantity.toLocaleString()} allocated</span>
+          <span className="text-gray-500 dark:text-gray-400"> / {totalQuantity.toLocaleString()} allocated</span>
         </div>
       </div>
 
       {/* Progress bar */}
       <div className="relative">
-        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+        <div className="h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
           <div
             className={`h-full transition-all ${
               isOverAllocated
@@ -156,19 +156,19 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
             return (
               <div
                 key={allocation.id}
-                className="p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-3"
+                className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-3"
               >
                 <div className="grid grid-cols-12 gap-3">
                   {/* Tank Selection */}
                   <div className="col-span-5">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Tank <span className="text-red-500">*</span>
                     </label>
                     <select
                       value={allocation.tankId}
                       onChange={(e) => handleAllocationChange(allocation.id, 'tankId', e.target.value)}
                       className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        !allocation.tankId ? 'border-amber-300' : 'border-gray-300'
+                        !allocation.tankId ? 'border-amber-300' : 'border-gray-300 dark:border-gray-600'
                       }`}
                       disabled={isLoadingTanks}
                     >
@@ -189,7 +189,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
                   {/* Quantity */}
                   <div className="col-span-3">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Quantity <span className="text-red-500">*</span>
                     </label>
                     <input
@@ -198,7 +198,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
                       value={allocation.quantity || ''}
                       onChange={(e) => handleAllocationChange(allocation.id, 'quantity', e.target.value)}
                       className={`w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                        !capacityCheck.hasCapacity ? 'border-amber-400' : 'border-gray-300'
+                        !capacityCheck.hasCapacity ? 'border-amber-400' : 'border-gray-300 dark:border-gray-600'
                       }`}
                       placeholder="0"
                     />
@@ -214,14 +214,14 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
                   {/* Biomass (calculated) */}
                   <div className="col-span-2">
-                    <label className="block text-xs font-medium text-gray-700 mb-1">
+                    <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Biomass (kg)
                     </label>
                     <input
                       type="text"
                       readOnly
                       value={calculateBiomass(allocation.quantity).toFixed(2)}
-                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-gray-100 text-gray-600"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
                     />
                   </div>
 
@@ -230,7 +230,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => handleRemoveAllocation(allocation.id)}
-                      className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                      className="p-2 text-gray-400 dark:text-gray-500 hover:text-red-600 transition-colors"
                       title="Remove allocation"
                     >
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -242,7 +242,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
                 {/* Tank Info */}
                 {selectedTank && (
-                  <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-200">
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-700">
                     <span>
                       Department: {selectedTank.departmentName}
                       {selectedTank.siteName && ` | Site: ${selectedTank.siteName}`}
@@ -265,7 +265,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
         <button
           type="button"
           onClick={handleAddAllocation}
-          className="w-full py-2 px-4 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-600 hover:border-gray-400 hover:text-gray-800 transition-colors"
+          className="w-full py-2 px-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
         >
           <span className="flex items-center justify-center">
             <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -278,7 +278,7 @@ export const TankAllocationSection: React.FC<TankAllocationSectionProps> = ({
 
       {/* No Tanks Available Message */}
       {isLoadingTanks ? (
-        <div className="text-center py-4 text-gray-500">
+        <div className="text-center py-4 text-gray-500 dark:text-gray-400">
           <Spinner size="md" color="inherit" block className="mb-2" />
           Loading available tanks...
         </div>

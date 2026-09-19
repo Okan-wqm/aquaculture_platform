@@ -35,10 +35,10 @@ export function ForecastTab(): React.ReactElement {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm text-gray-700">
+        <label className="text-sm text-gray-700 dark:text-gray-300">
           {t('feedingV2.forecast.siteLabel')}
           <select
-            className="ml-2 border border-gray-300 rounded px-2 py-1 text-sm"
+            className="ml-2 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
             value={effectiveSiteId ?? ''}
             onChange={(e) => setSiteId(e.target.value)}
           >
@@ -49,10 +49,10 @@ export function ForecastTab(): React.ReactElement {
             ))}
           </select>
         </label>
-        <label className="text-sm text-gray-700">
+        <label className="text-sm text-gray-700 dark:text-gray-300">
           {t('feedingV2.forecast.horizonLabel')}
           <select
-            className="ml-2 border border-gray-300 rounded px-2 py-1 text-sm"
+            className="ml-2 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
             value={horizonDays}
             onChange={(e) => setHorizonDays(Number(e.target.value))}
           >
@@ -65,10 +65,10 @@ export function ForecastTab(): React.ReactElement {
         </label>
       </div>
 
-      {isLoading && <p className="text-sm text-gray-500 py-8">{t('common.loading')}</p>}
+      {isLoading && <p className="text-sm text-gray-500 dark:text-gray-400 py-8">{t('common.loading')}</p>}
       {isError && <p className="text-sm text-red-600 py-8">{t('common.error')}</p>}
       {!isLoading && !isError && !forecast && (
-        <p className="text-sm text-gray-500 py-8">{t('feedingV2.forecast.notComputed')}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8">{t('feedingV2.forecast.notComputed')}</p>
       )}
       {forecast && (
         <>

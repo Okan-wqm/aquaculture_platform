@@ -182,7 +182,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           onChange={(e) =>
             updateItem(item.itemId, 'quantity', parseFloat(e.target.value) || 0)
           }
-          className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
+          className="w-20 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
         />
       ),
     },
@@ -208,7 +208,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
             )
           }
           placeholder="0.00"
-          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
+          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
         />
       ),
     },
@@ -258,7 +258,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
         <div className="space-y-4">
           {/* Category */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Category *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
             <div className="mt-1 grid grid-cols-4 gap-2">
               {CATEGORIES.map((cat) => (
                 <button
@@ -271,7 +271,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                   className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                     category === cat.value
                       ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   {cat.label}
@@ -283,47 +283,47 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
           {/* Supplier */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Supplier Name *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name *</label>
               <input
                 type="text"
                 required
                 value={supplierName}
                 onChange={(e) => setSupplierName(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Contact</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact</label>
               <input
                 type="text"
                 value={supplierContact}
                 onChange={(e) => setSupplierContact(e.target.value)}
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
           </div>
 
           {/* Expected Delivery */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Expected Delivery Date
             </label>
             <input
               type="date"
               value={expectedDeliveryDate}
               onChange={(e) => setExpectedDeliveryDate(e.target.value)}
-              className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full max-w-xs border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           {/* Add Items */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Items *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Items *</label>
             <div className="flex gap-2">
               <select
                 value={selectedItemId}
                 onChange={(e) => setSelectedItemId(e.target.value)}
-                className="flex-1 border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
+                className="flex-1 border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="">Select item to add...</option>
                 {itemOptions
@@ -347,7 +347,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
 
           {/* Items Table */}
           {items.length > 0 && (
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
               <DataTable<ItemRow>
                 data={items}
                 columns={itemRowColumns}
@@ -358,7 +358,7 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
                 stickyHeader={false}
               />
               {totalAmount > 0 && (
-                <div className="bg-gray-50 px-4 py-2 text-right text-sm font-medium text-gray-900">
+                <div className="bg-gray-50 dark:bg-gray-800 px-4 py-2 text-right text-sm font-medium text-gray-900 dark:text-gray-100">
                   Total: {formatCurrency(totalAmount, DEFAULT_CURRENCY)}
                 </div>
               )}
@@ -367,21 +367,21 @@ export const CreatePurchaseOrderModal: React.FC<Props> = ({ isOpen, onClose }) =
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Notes</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
             <textarea
               rows={2}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>

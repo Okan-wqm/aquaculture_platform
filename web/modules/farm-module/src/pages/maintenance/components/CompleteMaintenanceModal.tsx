@@ -170,12 +170,12 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
       size="md"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Plan</p>
-          <p className="font-medium text-gray-900">
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Plan</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">
             {schedule.scheduleCode} — {schedule.name}
           </p>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Şu ana kadar {schedule.executionCount} kez tamamlandı
             {schedule.lastExecutedDate && (
               <>
@@ -188,10 +188,10 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
 
         {checklistItems.length > 0 && (
           <div>
-            <p className="text-sm font-medium text-gray-700">
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Kontrol Listesi (referans)
             </p>
-            <p className="mt-0.5 text-xs text-gray-500">
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
               Bu liste planın şablonudur — bu kapanış işlemi tek başına
               kontrol durumlarını kaydetmez. Detaylı tik takibi için iş
               emri akışını kullanın.
@@ -200,9 +200,9 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
               {checklistItems.map((item, idx) => (
                 <li
                   key={idx}
-                  className="flex items-start gap-2 text-gray-700"
+                  className="flex items-start gap-2 text-gray-700 dark:text-gray-300"
                 >
-                  <span className="mt-0.5 inline-block h-4 w-4 rounded border border-gray-300 bg-white" />
+                  <span className="mt-0.5 inline-block h-4 w-4 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900" />
                   <span>
                     {item.description}
                     {item.isRequired && (
@@ -221,7 +221,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
           <div>
             <label
               htmlFor="complete-maint-meter"
-              className="block text-sm font-medium text-gray-700"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
             >
               Sayaç Okuması{' '}
               <span className="text-red-600">*</span>
@@ -233,11 +233,11 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
               min={lastMeter ?? 0}
               value={meterReadingRaw}
               onChange={(e) => setMeterReadingRaw(e.target.value)}
-              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               required
             />
             {lastMeter != null && (
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                 Son bakım okuması: {lastMeter}
               </p>
             )}
@@ -247,7 +247,7 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
         <div>
           <label
             htmlFor="complete-maint-notes"
-            className="block text-sm font-medium text-gray-700"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
           >
             Notlar
           </label>
@@ -257,10 +257,10 @@ const CompleteMaintenanceModal: React.FC<CompleteMaintenanceModalProps> = ({
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             maxLength={NOTES_MAX}
-            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             placeholder="(opsiyonel) yapılan iş, gözlemler, sorunlar"
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {notes.length} / {NOTES_MAX}
           </p>
         </div>

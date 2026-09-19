@@ -409,7 +409,7 @@ export function HRDashboardPage() {
             <QuickAction
               title="Departments"
               description="Organization structure and hierarchy"
-              icon={<Building2 className="h-5 w-5 text-gray-600" />}
+              icon={<Building2 className="h-5 w-5 text-gray-600 dark:text-gray-400" />}
               to="/hr/departments"
               color="bg-gray-50 dark:bg-gray-700"
             />

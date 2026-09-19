@@ -303,7 +303,7 @@ export function SensorRegistrationWizard({
         <div className="flex w-full items-center justify-between">
           <button
             onClick={currentStep === 0 ? handleClose : prevStep}
-            className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
+            className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
           >
             {currentStep === 0 ? 'Cancel' : 'Back'}
           </button>
@@ -338,7 +338,7 @@ export function SensorRegistrationWizard({
       }
     >
       {/* Progress stepper */}
-      <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+      <div className="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           {STEPS.map((step, index) => (
             <div key={step.id} className="flex items-center">
@@ -355,7 +355,7 @@ export function SensorRegistrationWizard({
                       ? 'bg-green-500 text-white'
                       : index === currentStep
                       ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 text-gray-600'
+                      : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                   }`}
                 >
                   {index < currentStep ? (
@@ -373,7 +373,7 @@ export function SensorRegistrationWizard({
                 <div className="ml-2 hidden md:block">
                   <p
                     className={`text-sm font-medium ${
-                      index === currentStep ? 'text-blue-600' : 'text-gray-600'
+                      index === currentStep ? 'text-blue-600' : 'text-gray-600 dark:text-gray-400'
                     }`}
                   >
                     {step.title}
@@ -383,7 +383,7 @@ export function SensorRegistrationWizard({
               {index < STEPS.length - 1 && (
                 <div
                   className={`hidden md:block w-12 h-0.5 mx-2 ${
-                    index < currentStep ? 'bg-green-500' : 'bg-gray-200'
+                    index < currentStep ? 'bg-green-500' : 'bg-gray-200 dark:bg-gray-700'
                   }`}
                 />
               )}

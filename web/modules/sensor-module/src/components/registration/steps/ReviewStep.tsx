@@ -46,9 +46,9 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
-      <div className="flex justify-between items-center bg-gray-50 px-4 py-3 border-b">
-        <h3 className="font-medium text-gray-900">{title}</h3>
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b">
+        <h3 className="font-medium text-gray-900 dark:text-gray-100">{title}</h3>
         <button
           onClick={() => onEdit(stepIndex)}
           className="text-sm text-blue-600 hover:text-blue-800"
@@ -63,9 +63,9 @@ function Section({
 
 function DataRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex justify-between py-2 border-b border-gray-100 last:border-0">
-      <span className="text-gray-600">{label}</span>
-      <span className="text-gray-900 font-medium">{value || '-'}</span>
+    <div className="flex justify-between py-2 border-b border-gray-100 dark:border-gray-700 last:border-0">
+      <span className="text-gray-600 dark:text-gray-400">{label}</span>
+      <span className="text-gray-900 dark:text-gray-100 font-medium">{value || '-'}</span>
     </div>
   );
 }
@@ -97,17 +97,17 @@ export function ReviewStep({
         {protocol ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-lg font-semibold text-gray-900">{protocol.displayName}</span>
+              <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">{protocol.displayName}</span>
               <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
                 {protocol.category}
               </span>
             </div>
-            <p className="text-sm text-gray-600">{protocol.description}</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">{protocol.description}</p>
             <div className="flex gap-2">
-              <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+              <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
                 {protocol.subcategory}
               </span>
-              <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+              <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
                 {protocol.connectionType}
               </span>
             </div>
@@ -126,7 +126,7 @@ export function ReviewStep({
               label={key}
               value={
                 typeof value === 'object' ? (
-                  <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
+                  <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
                     {JSON.stringify(value)}
                   </code>
                 ) : (
@@ -136,7 +136,7 @@ export function ReviewStep({
             />
           ))}
           {Object.keys(protocolConfig).length === 0 && (
-            <p className="text-gray-500 italic">No configuration values set</p>
+            <p className="text-gray-500 dark:text-gray-400 italic">No configuration values set</p>
           )}
         </div>
       </Section>
@@ -159,12 +159,12 @@ export function ReviewStep({
               )}
             </div>
             {connectionTestResult.latencyMs !== undefined && (
-              <p className="text-sm text-gray-600">Latency: {connectionTestResult.latencyMs} ms</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">Latency: {connectionTestResult.latencyMs} ms</p>
             )}
             {connectionTestResult.error && (
               <p className="text-sm text-red-600">Error: {connectionTestResult.error}</p>
             )}
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               Tested at: {new Date(connectionTestResult.testedAt).toLocaleString()}
             </p>
           </div>
@@ -186,31 +186,31 @@ export function ReviewStep({
           <DataRow label="Location" value={basicInfo.location} />
           {basicInfo.description && (
             <div className="py-2">
-              <span className="text-gray-600">Description</span>
-              <p className="text-gray-900 mt-1">{basicInfo.description}</p>
+              <span className="text-gray-600 dark:text-gray-400">Description</span>
+              <p className="text-gray-900 dark:text-gray-100 mt-1">{basicInfo.description}</p>
             </div>
           )}
         </div>
         {(basicInfo.farmId || basicInfo.pondId || basicInfo.tankId) && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <h4 className="text-sm font-medium text-gray-700 mb-2">Assignment</h4>
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Assignment</h4>
             <div className="grid grid-cols-3 gap-4">
               {basicInfo.farmId && (
                 <div>
-                  <span className="text-xs text-gray-500">Farm</span>
-                  <p className="text-sm text-gray-900">{basicInfo.farmId}</p>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Farm</span>
+                  <p className="text-sm text-gray-900 dark:text-gray-100">{basicInfo.farmId}</p>
                 </div>
               )}
               {basicInfo.pondId && (
                 <div>
-                  <span className="text-xs text-gray-500">Pond</span>
-                  <p className="text-sm text-gray-900">{basicInfo.pondId}</p>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Pond</span>
+                  <p className="text-sm text-gray-900 dark:text-gray-100">{basicInfo.pondId}</p>
                 </div>
               )}
               {basicInfo.tankId && (
                 <div>
-                  <span className="text-xs text-gray-500">Tank</span>
-                  <p className="text-sm text-gray-900">{basicInfo.tankId}</p>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">Tank</span>
+                  <p className="text-sm text-gray-900 dark:text-gray-100">{basicInfo.tankId}</p>
                 </div>
               )}
             </div>
@@ -222,10 +222,10 @@ export function ReviewStep({
       <Section title="Child Sensors" stepIndex={4} onEdit={onEdit}>
         {selectedChildSensors.length > 0 ? (
           <div className="space-y-2">
-            <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
               {selectedChildSensors.length} sensor{selectedChildSensors.length !== 1 ? 's' : ''} will be registered
             </p>
-            <div className="divide-y divide-gray-100">
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {selectedChildSensors.map((sensor, index) => (
                 <div key={sensor.dataPath} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-center justify-between">
@@ -234,9 +234,9 @@ export function ReviewStep({
                         {index + 1}
                       </span>
                       <div>
-                        <span className="font-medium text-gray-900">{sensor.name}</span>
+                        <span className="font-medium text-gray-900 dark:text-gray-100">{sensor.name}</span>
                         <div className="flex items-center mt-0.5 space-x-2">
-                          <code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">
+                          <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400">
                             {sensor.dataPath}
                           </code>
                         </div>
@@ -247,7 +247,7 @@ export function ReviewStep({
                         {SENSOR_TYPE_LABELS[sensor.type] || sensor.type}
                       </span>
                       {sensor.unit && (
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                        <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
                           {sensor.unit}
                         </span>
                       )}
@@ -280,7 +280,7 @@ export function ReviewStep({
                         Configured
                       </span>
                     ) : (
-                      <span className="px-1.5 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                      <span className="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
                         Default settings
                       </span>
                     )}
@@ -300,20 +300,20 @@ export function ReviewStep({
       </Section>
 
       {/* Summary box */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <h4 className="font-medium text-gray-900 mb-2">Registration Summary</h4>
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <h4 className="font-medium text-gray-900 dark:text-gray-100 mb-2">Registration Summary</h4>
         <div className="grid grid-cols-3 gap-4 text-center">
-          <div className="bg-white rounded-lg p-3">
+          <div className="bg-white dark:bg-gray-900 rounded-lg p-3">
             <div className="text-2xl font-bold text-blue-600">1</div>
-            <div className="text-xs text-gray-500">Parent Device</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Parent Device</div>
           </div>
-          <div className="bg-white rounded-lg p-3">
+          <div className="bg-white dark:bg-gray-900 rounded-lg p-3">
             <div className="text-2xl font-bold text-green-600">{selectedChildSensors.length}</div>
-            <div className="text-xs text-gray-500">Child Sensors</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Child Sensors</div>
           </div>
-          <div className="bg-white rounded-lg p-3">
+          <div className="bg-white dark:bg-gray-900 rounded-lg p-3">
             <div className="text-2xl font-bold text-purple-600">{1 + selectedChildSensors.length}</div>
-            <div className="text-xs text-gray-500">Total Records</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Total Records</div>
           </div>
         </div>
       </div>

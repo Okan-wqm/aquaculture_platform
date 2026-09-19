@@ -102,7 +102,7 @@ export function PageHeader({
               aria-label={backLabel}
               className={clsx(
                 'min-h-touch min-w-touch -ml-2 flex shrink-0 items-center justify-center rounded-xl touch-feedback transition-colors',
-                plain ? 'hover:bg-gray-100 dark:hover:bg-gray-800' : 'hover:bg-white/10',
+                plain ? 'hover:bg-gray-100 dark:hover:bg-gray-800' : 'hover:bg-white/10 dark:hover:bg-gray-800/10',
               )}
             >
               <ArrowLeft size={22} />
@@ -110,7 +110,7 @@ export function PageHeader({
           )}
           {Icon &&
             (hub ? (
-              <div className="w-10 h-10 shrink-0 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 shrink-0 bg-white/15 dark:bg-gray-900/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
                 <Icon size={22} className="text-white" />
               </div>
             ) : (

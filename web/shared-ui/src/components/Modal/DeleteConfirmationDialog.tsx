@@ -205,7 +205,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
       {isLoading && (
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-600">Yükleniyor...</span>
+          <span className="ml-3 text-gray-600 dark:text-gray-400">Yükleniyor...</span>
         </div>
       )}
 
@@ -246,15 +246,15 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
 
           {/* Affected items */}
           {totalAffected > 0 && (
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-                <h4 className="text-sm font-medium text-gray-900">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+              <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
                   Etkilenecek Öğeler
-                  <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-800">
+                  <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200">
                     {totalAffected}
                   </span>
                 </h4>
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Aşağıdaki öğeler de silinecektir (soft delete)
                 </p>
               </div>
@@ -266,11 +266,11 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                   const IconComponent = getIconForType(group.type);
 
                   return (
-                    <div key={group.type} className="border-b border-gray-100 last:border-b-0">
+                    <div key={group.type} className="border-b border-gray-100 dark:border-gray-700 last:border-b-0">
                       {/* Group header */}
                       <div className="flex items-center px-4 py-2 bg-gray-25">
-                        <IconComponent className="w-4 h-4 text-gray-500" />
-                        <span className="ml-2 text-sm font-medium text-gray-700">
+                        <IconComponent className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                        <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                           {group.label}
                         </span>
                         <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
@@ -288,11 +288,11 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                             }`}
                           >
                             <div className="flex items-center min-w-0">
-                              <span className="text-sm text-gray-900 truncate">
+                              <span className="text-sm text-gray-900 dark:text-gray-100 truncate">
                                 {item.name}
                               </span>
                               {item.code && (
-                                <span className="ml-2 text-xs text-gray-500">
+                                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
                                   ({item.code})
                                 </span>
                               )}
@@ -303,7 +303,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                               </span>
                             )}
                             {item.status && !item.hasBlocker && (
-                              <span className="ml-2 text-xs text-gray-500 flex-shrink-0">
+                              <span className="ml-2 text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
                                 {item.status}
                               </span>
                             )}
@@ -327,8 +327,8 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
           )}
 
           {/* Warning message */}
-          <div className="p-3 bg-gray-50 rounded-lg">
-            <p className="text-xs text-gray-500">
+          <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               <strong>Not:</strong> Silme işlemi soft delete olarak yapılacaktır.
               Veriler tamamen silinmez, sadece gizlenir ve gerektiğinde geri alınabilir.
             </p>
@@ -337,7 +337,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-end space-x-3 mt-6 pt-4 border-t border-gray-200">
+      <div className="flex items-center justify-end space-x-3 mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
         <Button
           variant="secondary"
           onClick={onClose}

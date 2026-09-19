@@ -51,7 +51,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       {label && (
         <label
           htmlFor={htmlFor}
-          className="block text-sm font-medium text-gray-700 mb-1"
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
         >
           {label}
           {/* FE-HIGH-018: aria-required communicated visually AND semantically */}
@@ -112,7 +112,7 @@ export const FormField: React.FC<FormFieldProps> = ({
       )}
 
       {!showError && helperText && (
-        <p id={helperId} className="mt-1 text-sm text-gray-500">
+        <p id={helperId} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           {helperText}
         </p>
       )}

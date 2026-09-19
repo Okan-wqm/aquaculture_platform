@@ -430,14 +430,14 @@ const ProcessEditorPage: React.FC = () => {
   }, [widgetConfigModal.nodeId, sendToCanvas]);
 
   return (
-    <div className="process-editor-container flex flex-col h-screen bg-gray-100">
+    <div className="process-editor-container flex flex-col h-screen bg-gray-100 dark:bg-gray-800">
       {/* Toolbar */}
-      <div className="toolbar flex items-center justify-between px-4 py-2 bg-white border-b border-gray-200 shadow-sm">
+      <div className="toolbar flex items-center justify-between px-4 py-2 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 shadow-sm">
         {/* Left Section */}
         <div className="flex items-center gap-4">
           <Link
             to="/sensor/processes"
-            className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
           >
             <ArrowLeft className="w-5 h-5" />
             <span>Back</span>
@@ -450,7 +450,7 @@ const ProcessEditorPage: React.FC = () => {
             value={processName}
             onChange={(e) => setProcessName(e.target.value)}
             placeholder="Process Name"
-            className="text-lg font-medium text-gray-900 border-none bg-transparent focus:outline-hidden focus:ring-0 w-64"
+            className="text-lg font-medium text-gray-900 dark:text-gray-100 border-none bg-transparent focus:outline-hidden focus:ring-0 w-64"
           />
 
           {isDirty && (
@@ -463,7 +463,7 @@ const ProcessEditorPage: React.FC = () => {
         {/* Center Section - Controls */}
         <div className="flex items-center gap-2">
           <button
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
             title="Undo"
             disabled={!isCanvasReady}
             onClick={() => sendToCanvas('undo')}
@@ -471,7 +471,7 @@ const ProcessEditorPage: React.FC = () => {
             <Undo className="w-4 h-4" />
           </button>
           <button
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
             title="Redo"
             disabled={!isCanvasReady}
             onClick={() => sendToCanvas('redo')}
@@ -481,7 +481,7 @@ const ProcessEditorPage: React.FC = () => {
           <div className="h-6 w-px bg-gray-300 mx-2" />
           <button
             onClick={handleZoomOut}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
             title="Zoom Out"
             disabled={!isCanvasReady}
           >
@@ -489,7 +489,7 @@ const ProcessEditorPage: React.FC = () => {
           </button>
           <button
             onClick={handleZoomIn}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
             title="Zoom In"
             disabled={!isCanvasReady}
           >
@@ -497,7 +497,7 @@ const ProcessEditorPage: React.FC = () => {
           </button>
           <button
             onClick={handleFitView}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-50"
+            className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg disabled:opacity-50"
             title="Fit View"
             disabled={!isCanvasReady}
           >
@@ -520,7 +520,7 @@ const ProcessEditorPage: React.FC = () => {
         {/* Right Section */}
         <div className="flex items-center gap-3">
           <button
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
             disabled={!isCanvasReady}
           >
             <Play className="w-4 h-4" />
@@ -541,13 +541,13 @@ const ProcessEditorPage: React.FC = () => {
               <ChevronDown className="w-4 h-4" />
             </button>
             {isDeployMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-30 py-1">
+              <div className="absolute right-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-30 py-1">
                 <button
                   onClick={() => {
                     setIsDeployMenuOpen(false);
                     setIsDeployModalOpen(true);
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-indigo-50 text-left"
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-indigo-50 text-left"
                   title="Deploy automation program to edge device"
                 >
                   <Cpu className="w-4 h-4 text-indigo-600" />
@@ -559,13 +559,13 @@ const ProcessEditorPage: React.FC = () => {
                     setIsEdgeDeployOpen(true);
                   }}
                   disabled={!processId || processId === 'new'}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-cyan-50 text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-cyan-50 text-left disabled:opacity-50 disabled:cursor-not-allowed"
                   title="SCADA proses diyagramini edge device'a deploy et"
                 >
                   <Monitor className="w-4 h-4 text-cyan-600" />
                   Edge'e Deploy
                 </button>
-                <div className="my-1 border-t border-gray-100" />
+                <div className="my-1 border-t border-gray-100 dark:border-gray-700" />
                 <button
                   onClick={() => {
                     setIsDeployMenuOpen(false);
@@ -573,7 +573,7 @@ const ProcessEditorPage: React.FC = () => {
                       `/sensor/scada-builder/new${processId && processId !== 'new' ? `?processId=${processId}` : ''}`,
                     );
                   }}
-                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 text-left"
+                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-purple-50 text-left"
                   title="SCADA Paketi Olustur"
                 >
                   <Monitor className="w-4 h-4 text-purple-600" />
@@ -604,12 +604,12 @@ const ProcessEditorPage: React.FC = () => {
         <EquipmentPanel onDragStart={handleEquipmentDragStart} />
 
         {/* Center - Canvas (iframe) */}
-        <div className="flex-1 bg-gray-50 relative">
+        <div className="flex-1 bg-gray-50 dark:bg-gray-800 relative">
           {!isCanvasReady && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/80 z-10">
+            <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-gray-900/80 z-10">
               <div className="flex flex-col items-center gap-3">
                 <Spinner size="lg" />
-                <p className="text-gray-600">Loading Process Editor...</p>
+                <p className="text-gray-600 dark:text-gray-400">Loading Process Editor...</p>
               </div>
             </div>
           )}
@@ -623,15 +623,15 @@ const ProcessEditorPage: React.FC = () => {
         </div>
 
         {/* Right Panel - Properties / Equipment */}
-        <div className="w-80 flex flex-col border-l border-gray-200 bg-white">
+        <div className="w-80 flex flex-col border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
           {/* Panel Tabs */}
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setRightPanelMode('properties')}
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
                 rightPanelMode === 'properties'
                   ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               <Settings className="w-4 h-4" />
@@ -645,7 +645,7 @@ const ProcessEditorPage: React.FC = () => {
               className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
                 rightPanelMode === 'attachments'
                   ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               <Paperclip className="w-4 h-4" />
@@ -665,7 +665,7 @@ const ProcessEditorPage: React.FC = () => {
       </div>
 
       {/* Status Bar */}
-      <div className="px-4 py-1 bg-white border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+      <div className="px-4 py-1 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <div className="flex items-center gap-4">
           <span>{canvasNodes.length} nodes</span>
           <span>{canvasEdges.length} connections</span>

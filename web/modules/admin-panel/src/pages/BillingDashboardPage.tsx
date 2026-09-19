@@ -135,18 +135,18 @@ const TransactionItem: React.FC<TransactionItemProps> = ({ transaction }) => {
   }, [transaction.status]);
 
   return (
-    <div className="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+    <div className="flex items-center justify-between py-3 border-b border-gray-100 dark:border-gray-700 last:border-0">
       <div className="flex items-center gap-3 min-w-0">
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${iconConfig.bg}`}>
           {iconConfig.icon}
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-medium text-gray-900 truncate">{transaction.tenant}</p>
-          <p className="text-xs text-gray-500">{transaction.date}</p>
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{transaction.tenant}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{transaction.date}</p>
         </div>
       </div>
       <div className="text-right flex-shrink-0 ml-4">
-        <p className={`text-sm font-semibold ${transaction.type === 'refund' ? 'text-red-600' : 'text-gray-900'}`}>
+        <p className={`text-sm font-semibold ${transaction.type === 'refund' ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
           {transaction.type === 'refund' ? '-' : '+'}{formatCurrency(transaction.amount)}
         </p>
         <span className={`text-xs px-2 py-0.5 rounded-full ${statusConfig}`}>
@@ -168,14 +168,14 @@ interface QuickStatProps {
 const QuickStat: React.FC<QuickStatProps> = ({
   title,
   value,
-  valueColor = 'text-gray-900',
+  valueColor = 'text-gray-900 dark:text-gray-100',
   action,
   subtitle,
 }) => (
-  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+  <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
     <div className="flex items-center justify-between">
       <div>
-        <p className="text-sm text-gray-500">{title}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
         <p className={`text-xl font-bold mt-1 ${valueColor}`}>{value}</p>
       </div>
       {action && (
@@ -183,7 +183,7 @@ const QuickStat: React.FC<QuickStatProps> = ({
           {action.label}
         </Link>
       )}
-      {subtitle && <span className="text-xs text-gray-500">{subtitle}</span>}
+      {subtitle && <span className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</span>}
     </div>
   </div>
 );
@@ -193,15 +193,15 @@ const QuickStat: React.FC<QuickStatProps> = ({
 // ============================================================================
 
 const MetricCardSkeleton: React.FC = () => (
-  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 animate-pulse">
+  <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 animate-pulse">
     <div className="flex items-center justify-between">
       <div className="flex-1">
-        <div className="h-4 bg-gray-200 rounded w-24 mb-2" />
-        <div className="h-8 bg-gray-200 rounded w-32" />
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-24 mb-2" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-32" />
       </div>
-      <div className="w-12 h-12 bg-gray-200 rounded-lg" />
+      <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-lg" />
     </div>
-    <div className="h-4 bg-gray-200 rounded w-20 mt-3" />
+    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-20 mt-3" />
   </div>
 );
 
@@ -209,12 +209,12 @@ const LoadingSkeleton: React.FC = () => (
   <div className="space-y-6">
     <div className="flex items-center justify-between">
       <div>
-        <div className="h-8 bg-gray-200 rounded w-48 mb-2 animate-pulse" />
-        <div className="h-4 bg-gray-200 rounded w-64 animate-pulse" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-48 mb-2 animate-pulse" />
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-64 animate-pulse" />
       </div>
       <div className="flex gap-2">
-        <div className="h-10 w-28 bg-gray-200 rounded-lg animate-pulse" />
-        <div className="h-10 w-28 bg-gray-200 rounded-lg animate-pulse" />
+        <div className="h-10 w-28 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse" />
+        <div className="h-10 w-28 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse" />
       </div>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -362,7 +362,7 @@ const BillingDashboardPage: React.FC = () => {
         description="Monitor revenue, subscriptions, and financial metrics"
         actions={
           <div className="flex gap-2">
-            <button className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors">
+            <button className="px-4 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
               Export Report
             </button>
             <Link
@@ -416,14 +416,14 @@ const BillingDashboardPage: React.FC = () => {
       {/* Charts and Transactions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Revenue Trend */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Revenue Trend</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Revenue Trend</h3>
             <select
               aria-label="Revenue trend range"
               value={trendRange}
               onChange={(e) => setTrendRange(e.target.value as AnalyticsRange)}
-              className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="1y">Last 12 months</option>
               <option value="90d">Last 3 months</option>
@@ -431,9 +431,9 @@ const BillingDashboardPage: React.FC = () => {
             </select>
           </div>
           {trendLoading || !trendSeries ? (
-            <div className="h-64 bg-gray-50 rounded-lg animate-pulse" />
+            <div className="h-64 bg-gray-50 dark:bg-gray-800 rounded-lg animate-pulse" />
           ) : trendSeries.data.length === 0 ? (
-            <div className="h-64 flex items-center justify-center text-sm text-gray-500">
+            <div className="h-64 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
               No revenue data for this range
             </div>
           ) : (
@@ -447,16 +447,16 @@ const BillingDashboardPage: React.FC = () => {
         </div>
 
         {/* Recent Transactions */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900">Recent Transactions</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Transactions</h3>
             <Link to="/admin/billing/invoices" className="text-sm text-blue-600 hover:text-blue-700">
               View all
             </Link>
           </div>
           <div className="space-y-1">
             {(!transactions || transactions.length === 0) ? (
-              <div className="py-8 text-center text-gray-500">
+              <div className="py-8 text-center text-gray-500 dark:text-gray-400">
                 No recent transactions
               </div>
             ) : (
@@ -484,7 +484,7 @@ const BillingDashboardPage: React.FC = () => {
         <QuickStat
           title="Payment Success Rate"
           value={metrics.paymentSuccessRate != null ? formatPercentage(metrics.paymentSuccessRate * 100) : '—'}
-          valueColor={metrics.paymentSuccessRate != null ? 'text-green-600' : 'text-gray-400'}
+          valueColor={metrics.paymentSuccessRate != null ? 'text-green-600' : 'text-gray-400 dark:text-gray-500'}
           subtitle={metrics.paymentSuccessRate != null ? 'Last 30 days' : 'No payment attempts yet'}
         />
       </div>

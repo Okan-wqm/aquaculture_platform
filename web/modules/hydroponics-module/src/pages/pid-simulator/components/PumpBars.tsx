@@ -26,7 +26,7 @@ const PumpBar: React.FC<{
           className="w-2 h-2 rounded-full flex-shrink-0"
           style={{ backgroundColor: isOn ? color : colors.neutral[300] }}
         />
-        <span className="text-[11px] text-gray-600 truncate">{label}</span>
+        <span className="text-[11px] text-gray-600 dark:text-gray-400 truncate">{label}</span>
       </div>
       <div className="flex-1 h-4 rounded-sm overflow-hidden" style={{ backgroundColor: bgColor }}>
         <div
@@ -38,7 +38,7 @@ const PumpBar: React.FC<{
           }}
         />
       </div>
-      <span className="text-[10px] font-mono text-gray-500 w-[36px] text-right">
+      <span className="text-[10px] font-mono text-gray-500 dark:text-gray-400 w-[36px] text-right">
         {value.toFixed(1)}%
       </span>
     </div>
@@ -46,8 +46,8 @@ const PumpBar: React.FC<{
 };
 
 const PumpBars: React.FC<PumpBarsProps> = ({ acidPump, basePump, nutPump, dilPump }) => (
-  <div className="bg-white rounded-lg border border-gray-200 p-3">
-    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Pumps</h4>
+  <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+    <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Pumps</h4>
     <div className="space-y-1.5">
       <PumpBar label="ACID" value={acidPump} color={colors.error[500]} bgColor={colors.error[50]} />
       <PumpBar label="BASE" value={basePump} color={colors.success[600]} bgColor={colors.success[50]} />

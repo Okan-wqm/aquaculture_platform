@@ -267,14 +267,14 @@ export const PropertiesPanel: React.FC = () => {
   // No selection
   if (!selectedNode && !selectedEdge) {
     return (
-      <div className="properties-panel w-72 bg-white border-l border-gray-200 flex flex-col h-full">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Properties</h3>
+      <div className="properties-panel w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col h-full">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Properties</h3>
         </div>
 
         <div className="flex-1 flex items-center justify-center p-6">
-          <div className="text-center text-gray-500">
-            <Settings className="w-12 h-12 mx-auto mb-3 text-gray-500" />
+          <div className="text-center text-gray-500 dark:text-gray-400">
+            <Settings className="w-12 h-12 mx-auto mb-3 text-gray-500 dark:text-gray-400" />
             <p className="text-sm">Select a node or connection to view properties</p>
           </div>
         </div>
@@ -287,30 +287,30 @@ export const PropertiesPanel: React.FC = () => {
     const Icon = getEquipmentIcon(selectedNode.data.equipmentType || selectedNode.type || 'default');
 
     return (
-      <div className="properties-panel w-72 bg-white border-l border-gray-200 flex flex-col h-full">
+      <div className="properties-panel w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col h-full">
         {/* Header */}
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Equipment</h3>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Equipment</h3>
           <button
             onClick={() => selectNode(null)}
-            className="p-1 hover:bg-gray-100 rounded"
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
           >
-            <X className="w-4 h-4 text-gray-500" />
+            <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Icon and Name */}
-          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-            <div className="p-2 bg-white rounded-lg shadow-sm">
-              <Icon size={32} className="text-gray-700" />
+          <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
+              <Icon size={32} className="text-gray-700 dark:text-gray-300" />
             </div>
             <div className="flex-1 min-w-0">
-              <h4 className="font-medium text-gray-900 truncate">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 truncate">
                 {selectedNode.data.equipmentName || selectedNode.data.label || 'New Node'}
               </h4>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {selectedNode.data.equipmentCode || (selectedNode.data.equipmentType?.replace(/-|_/g, ' ')) || 'Template Node'}
               </p>
             </div>
@@ -320,8 +320,8 @@ export const PropertiesPanel: React.FC = () => {
           <div className="space-y-3">
             {selectedNode.data.equipmentType && (
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-gray-500 w-20">Type:</span>
-                <span className="text-gray-900 capitalize">
+                <span className="text-gray-500 dark:text-gray-400 w-20">Type:</span>
+                <span className="text-gray-900 dark:text-gray-100 capitalize">
                   {selectedNode.data.equipmentType.replace(/-/g, ' ')}
                 </span>
               </div>
@@ -329,8 +329,8 @@ export const PropertiesPanel: React.FC = () => {
 
             {selectedNode.data.equipmentCategory && (
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-gray-500 w-20">Category:</span>
-                <span className="text-gray-900 capitalize">
+                <span className="text-gray-500 dark:text-gray-400 w-20">Category:</span>
+                <span className="text-gray-900 dark:text-gray-100 capitalize">
                   {selectedNode.data.equipmentCategory.replace(/_/g, ' ')}
                 </span>
               </div>
@@ -338,13 +338,13 @@ export const PropertiesPanel: React.FC = () => {
 
             {selectedNode.data.status && (
               <div className="flex items-center gap-2 text-sm">
-                <span className="text-gray-500 w-20">Status:</span>
+                <span className="text-gray-500 dark:text-gray-400 w-20">Status:</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                   selectedNode.data.status === 'operational' || selectedNode.data.status === 'active'
                     ? 'bg-green-100 text-green-700'
                     : selectedNode.data.status === 'maintenance'
                     ? 'bg-yellow-100 text-yellow-700'
-                    : 'bg-gray-100 text-gray-700'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                 }`}>
                   {selectedNode.data.status.charAt(0).toUpperCase() +
                     selectedNode.data.status.slice(1).replace('_', ' ')}
@@ -353,25 +353,25 @@ export const PropertiesPanel: React.FC = () => {
             )}
 
             <div className="flex items-center gap-2 text-sm">
-              <span className="text-gray-500 w-20">Node ID:</span>
-              <span className="text-gray-600 font-mono text-xs">{selectedNode.id}</span>
+              <span className="text-gray-500 dark:text-gray-400 w-20">Node ID:</span>
+              <span className="text-gray-600 dark:text-gray-400 font-mono text-xs">{selectedNode.id}</span>
             </div>
           </div>
 
           {/* Specifications */}
           {selectedNode.data.specifications && Object.keys(selectedNode.data.specifications).length > 0 && (
-            <div className="pt-3 border-t border-gray-200">
-              <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+            <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+              <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
                 <Info className="w-4 h-4" />
                 Specifications
               </h5>
               <div className="space-y-2 text-sm">
                 {Object.entries(selectedNode.data.specifications).slice(0, 5).map(([key, value]) => (
                   <div key={key} className="flex items-start gap-2">
-                    <span className="text-gray-500 capitalize min-w-[80px]">
+                    <span className="text-gray-500 dark:text-gray-400 capitalize min-w-[80px]">
                       {key.replace(/([A-Z])/g, ' $1').trim()}:
                     </span>
-                    <span className="text-gray-900">
+                    <span className="text-gray-900 dark:text-gray-100">
                       {typeof value === 'object' ? JSON.stringify(value) : String(value)}
                     </span>
                   </div>
@@ -381,8 +381,8 @@ export const PropertiesPanel: React.FC = () => {
           )}
 
           {/* Equipment Linking Section */}
-          <div className="pt-3 border-t border-gray-200">
-            <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+          <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+            <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
               <Link2 className="w-4 h-4" />
               Equipment Link
             </h5>
@@ -403,7 +403,7 @@ export const PropertiesPanel: React.FC = () => {
 
                 {/* Inline Name Edit */}
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-500">Name:</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Name:</span>
                   {isEditingName ? (
                     <div className="flex-1 flex items-center gap-1">
                       <input
@@ -416,20 +416,20 @@ export const PropertiesPanel: React.FC = () => {
                         }}
                         onBlur={handleNameSave}
                         autoFocus
-                        className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        className="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                       />
                     </div>
                   ) : (
                     <div className="flex-1 flex items-center justify-between">
-                      <span className="text-sm text-gray-900">
+                      <span className="text-sm text-gray-900 dark:text-gray-100">
                         {selectedNode.data.equipmentName}
                       </span>
                       <button
                         onClick={handleNameEdit}
-                        className="p-1 hover:bg-gray-100 rounded transition-colors"
+                        className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                         title="Edit Name"
                       >
-                        <Edit3 className="w-4 h-4 text-gray-500 hover:text-gray-600" />
+                        <Edit3 className="w-4 h-4 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300" />
                       </button>
                     </div>
                   )}
@@ -448,7 +448,7 @@ export const PropertiesPanel: React.FC = () => {
                     if (eq) handleEquipmentSelect(eq);
                   }}
                   value=""
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 bg-white dark:bg-gray-900"
                 >
                   <option value="">Select Equipment...</option>
                   {unlinkedEquipment.map((eq) => (
@@ -458,7 +458,7 @@ export const PropertiesPanel: React.FC = () => {
                   ))}
                 </select>
                 {unlinkedEquipment.length === 0 && (
-                  <p className="text-xs text-gray-500 mt-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     No linkable equipment found. Enable "Show in Sensor Module" in equipment settings.
                   </p>
                 )}
@@ -468,15 +468,15 @@ export const PropertiesPanel: React.FC = () => {
 
           {/* SensorWidget Configuration Section */}
           {selectedNode.type === 'sensorWidget' && (
-            <div className="pt-3 border-t border-gray-200">
-              <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+            <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+              <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
                 <Radio className="w-4 h-4" />
                 Widget Configuration
               </h5>
               <div className="space-y-3">
                 {/* Data Mode */}
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Data Mode</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Data Mode</label>
                   <select
                     value={(selectedNode.data as SensorWidgetNodeData).mode || ''}
                     onChange={(e) =>
@@ -484,7 +484,7 @@ export const PropertiesPanel: React.FC = () => {
                         mode: e.target.value as 'push' | 'poll' | 'onChange' | undefined,
                       })
                     }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     <option value="">Static (manual)</option>
                     <option value="push">MQTT Push (WebSocket)</option>
@@ -497,7 +497,7 @@ export const PropertiesPanel: React.FC = () => {
                 {(selectedNode.data as SensorWidgetNodeData).mode === 'push' && (
                   <>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         <Wifi className="w-3 h-3 inline mr-1" />
                         MQTT Broker URL
                       </label>
@@ -508,11 +508,11 @@ export const PropertiesPanel: React.FC = () => {
                         onChange={(e) =>
                           updateNodeData(selectedNode.id, { mqttUrl: e.target.value })
                         }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">MQTT Topic</label>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">MQTT Topic</label>
                       <input
                         type="text"
                         placeholder="sensors/temperature"
@@ -520,7 +520,7 @@ export const PropertiesPanel: React.FC = () => {
                         onChange={(e) =>
                           updateNodeData(selectedNode.id, { mqttTopic: e.target.value })
                         }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                       />
                     </div>
                   </>
@@ -531,7 +531,7 @@ export const PropertiesPanel: React.FC = () => {
                   (selectedNode.data as SensorWidgetNodeData).mode === 'onChange') && (
                   <>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">HTTP URL</label>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">HTTP URL</label>
                       <input
                         type="text"
                         placeholder="https://api.example.com/sensor/1"
@@ -539,11 +539,11 @@ export const PropertiesPanel: React.FC = () => {
                         onChange={(e) =>
                           updateNodeData(selectedNode.id, { httpUrl: e.target.value })
                         }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                         <RotateCcw className="w-3 h-3 inline mr-1" />
                         Poll Interval (seconds)
                       </label>
@@ -557,15 +557,15 @@ export const PropertiesPanel: React.FC = () => {
                             pollInterval: e.target.value ? Number(e.target.value) : undefined,
                           })
                         }
-                        className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                       />
                     </div>
                   </>
                 )}
 
                 {/* Display Settings */}
-                <div className="pt-2 border-t border-gray-100">
-                  <label className="block text-xs text-gray-500 mb-1">Widget Name</label>
+                <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Widget Name</label>
                   <input
                     type="text"
                     placeholder="Temperature"
@@ -576,13 +576,13 @@ export const PropertiesPanel: React.FC = () => {
                         label: e.target.value,
                       })
                     }
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Unit</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit</label>
                     <input
                       type="text"
                       placeholder="°C"
@@ -590,11 +590,11 @@ export const PropertiesPanel: React.FC = () => {
                       onChange={(e) =>
                         updateNodeData(selectedNode.id, { unit: e.target.value })
                       }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Scale Max</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Scale Max</label>
                     <input
                       type="number"
                       placeholder="100"
@@ -604,14 +604,14 @@ export const PropertiesPanel: React.FC = () => {
                           scaleMax: e.target.value ? Number(e.target.value) : undefined,
                         })
                       }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Low Threshold (%)</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Low Threshold (%)</label>
                     <input
                       type="number"
                       min="0"
@@ -623,11 +623,11 @@ export const PropertiesPanel: React.FC = () => {
                           lowThreshold: e.target.value ? Number(e.target.value) : undefined,
                         })
                       }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">High Threshold (%)</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">High Threshold (%)</label>
                     <input
                       type="number"
                       min="0"
@@ -639,7 +639,7 @@ export const PropertiesPanel: React.FC = () => {
                           highThreshold: e.target.value ? Number(e.target.value) : undefined,
                         })
                       }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
                   </div>
                 </div>
@@ -647,7 +647,7 @@ export const PropertiesPanel: React.FC = () => {
                 {/* Manual Value (for static mode) */}
                 {!(selectedNode.data as SensorWidgetNodeData).mode && (
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Static Value</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Static Value</label>
                     <input
                       type="number"
                       placeholder="0"
@@ -657,7 +657,7 @@ export const PropertiesPanel: React.FC = () => {
                           value: e.target.value ? Number(e.target.value) : undefined,
                         })
                       }
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
                   </div>
                 )}
@@ -666,8 +666,8 @@ export const PropertiesPanel: React.FC = () => {
           )}
 
           {/* Sensor Linking Section */}
-          <div className="pt-3 border-t border-gray-200">
-            <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+          <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+            <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
               <Activity className="w-4 h-4" />
               Sensor Link
             </h5>
@@ -704,32 +704,32 @@ export const PropertiesPanel: React.FC = () => {
                 <div className="space-y-2 text-sm">
                   {selectedNode.data.sensorType && (
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500 w-16">Type:</span>
-                      <span className="text-gray-900">
+                      <span className="text-gray-500 dark:text-gray-400 w-16">Type:</span>
+                      <span className="text-gray-900 dark:text-gray-100">
                         {getSensorTypeLabel(selectedNode.data.sensorType)}
                       </span>
                     </div>
                   )}
                   {selectedNode.data.displayType && (
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500 w-16">Display:</span>
-                      <span className="text-gray-900 capitalize">
+                      <span className="text-gray-500 dark:text-gray-400 w-16">Display:</span>
+                      <span className="text-gray-900 dark:text-gray-100 capitalize">
                         {selectedNode.data.displayType}
                       </span>
                     </div>
                   )}
                   {(selectedNode.data.minValue !== undefined || selectedNode.data.maxValue !== undefined) && (
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500 w-16">Range:</span>
-                      <span className="text-gray-900">
+                      <span className="text-gray-500 dark:text-gray-400 w-16">Range:</span>
+                      <span className="text-gray-900 dark:text-gray-100">
                         {selectedNode.data.minValue} - {selectedNode.data.maxValue} {selectedNode.data.displayUnit || ''}
                       </span>
                     </div>
                   )}
                   {selectedNode.data.dataPath && (
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-500 w-16">Path:</span>
-                      <span className="text-gray-900 font-mono text-xs">
+                      <span className="text-gray-500 dark:text-gray-400 w-16">Path:</span>
+                      <span className="text-gray-900 dark:text-gray-100 font-mono text-xs">
                         {selectedNode.data.dataPath}
                       </span>
                     </div>
@@ -760,8 +760,8 @@ export const PropertiesPanel: React.FC = () => {
           Device seçildiğinde o device'ın I/O tag listesi görünür.
           Tag'ler checkbox ile node'a bind edilir.
           =============================================================== */}
-          <div className="pt-3 border-t border-gray-200">
-            <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+          <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+            <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
               <Cpu className="w-4 h-4" />
               Edge Device Binding
             </h5>
@@ -793,8 +793,8 @@ export const PropertiesPanel: React.FC = () => {
                   ------------------------------------------------------- */}
                 {selectedDeviceDetail?.ioConfig && selectedDeviceDetail.ioConfig.length > 0 && (
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">I/O Tags — bind to node:</label>
-                    <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-lg divide-y divide-gray-100">
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">I/O Tags — bind to node:</label>
+                    <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-100 dark:divide-gray-700">
                       {selectedDeviceDetail.ioConfig.filter((io) => io.isActive).map((io) => {
                         const isBound = (selectedNode.data.ioBindings || []).some(
                           (b: IoBinding) => b.ioConfigId === io.id
@@ -803,7 +803,7 @@ export const PropertiesPanel: React.FC = () => {
                           <label
                             key={io.id}
                             className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer transition-colors text-sm ${
-                              isBound ? 'bg-indigo-50' : 'hover:bg-gray-50'
+                              isBound ? 'bg-indigo-50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                             }`}
                           >
                             <input
@@ -825,9 +825,9 @@ export const PropertiesPanel: React.FC = () => {
                             }`}>
                               {io.ioType}
                             </span>
-                            <span className="flex-1 truncate text-gray-700">{io.tagName}</span>
+                            <span className="flex-1 truncate text-gray-700 dark:text-gray-300">{io.tagName}</span>
                             {io.engUnit && (
-                              <span className="text-xs text-gray-500">{io.engUnit}</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">{io.engUnit}</span>
                             )}
                           </label>
                         );
@@ -837,7 +837,7 @@ export const PropertiesPanel: React.FC = () => {
                 )}
 
                 {selectedDeviceDetail?.ioConfig && selectedDeviceDetail.ioConfig.filter((io) => io.isActive).length === 0 && (
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     No active I/O tags on this device. Configure I/O in device settings.
                   </p>
                 )}
@@ -846,7 +846,7 @@ export const PropertiesPanel: React.FC = () => {
               // Bağlanmamış durumu — device dropdown
               <div className="space-y-2">
                 {isEdgeDevicesLoading ? (
-                  <p className="text-xs text-gray-500 animate-pulse">Loading devices...</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 animate-pulse">Loading devices...</p>
                 ) : edgeDevicesError ? (
                   <p className="text-xs text-red-500">Failed to load devices</p>
                 ) : (
@@ -856,7 +856,7 @@ export const PropertiesPanel: React.FC = () => {
                         if (e.target.value) handleEdgeDeviceSelect(e.target.value);
                       }}
                       value=""
-                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-gray-900"
                     >
                       <option value="">Select Edge Device...</option>
                       {edgeDevices.map((device) => (
@@ -867,7 +867,7 @@ export const PropertiesPanel: React.FC = () => {
                       ))}
                     </select>
                     {edgeDevices.length === 0 && (
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         No edge devices registered. Add devices in Edge Device Management.
                       </p>
                     )}
@@ -885,8 +885,8 @@ export const PropertiesPanel: React.FC = () => {
             Her DO değişikliği onay dialogu gerektirir (güvenlik).
             =============================================================== */}
           {selectedNode.data.ioBindings && selectedNode.data.ioBindings.length > 0 && (
-            <div className="pt-3 border-t border-gray-200">
-              <h5 className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+            <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+              <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-1">
                 <Zap className="w-4 h-4" />
                 Output Controls
               </h5>
@@ -916,13 +916,13 @@ export const PropertiesPanel: React.FC = () => {
                   .map((binding: IoBinding) => (
                     <div
                       key={binding.ioConfigId}
-                      className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                      className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg"
                     >
                       <div className="flex items-center gap-2">
                         <span className="inline-block w-6 text-center text-[10px] font-bold rounded px-1 bg-orange-100 text-orange-700">
                           DO
                         </span>
-                        <span className="text-sm text-gray-700">{binding.tagName}</span>
+                        <span className="text-sm text-gray-700 dark:text-gray-300">{binding.tagName}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         {/* OFF butonu */}
@@ -951,7 +951,7 @@ export const PropertiesPanel: React.FC = () => {
                 {selectedNode.data.ioBindings
                   .filter((b: IoBinding) => b.ioType === 'AI' || b.ioType === 'AO')
                   .length > 0 && (
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     Analog tags are read-only in process editor.
                   </p>
                 )}
@@ -981,7 +981,7 @@ export const PropertiesPanel: React.FC = () => {
               <>
                 <button
                   onClick={() => setDoConfirmDialog(null)}
-                  className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded hover:bg-gray-200"
+                  className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded hover:bg-gray-200 dark:hover:bg-gray-600"
                 >
                   Cancel
                 </button>
@@ -999,7 +999,7 @@ export const PropertiesPanel: React.FC = () => {
               </>
             }
           >
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
               Set <strong>{doConfirmDialog.tagName}</strong> to{' '}
               <strong className={doConfirmDialog.newValue ? 'text-green-600' : 'text-red-600'}>
                 {doConfirmDialog.newValue ? 'ON' : 'OFF'}
@@ -1028,7 +1028,7 @@ export const PropertiesPanel: React.FC = () => {
         />
 
         {/* Actions */}
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
           <button
             onClick={() => {
               removeNode(selectedNode.id);
@@ -1050,23 +1050,23 @@ export const PropertiesPanel: React.FC = () => {
     const currentConfig = getConnectionTypeConfig(currentConnectionType);
 
     return (
-      <div className="properties-panel w-72 bg-white border-l border-gray-200 flex flex-col h-full">
+      <div className="properties-panel w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col h-full">
         {/* Header */}
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Connection</h3>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Connection</h3>
           <button
             onClick={() => selectEdge(null)}
-            className="p-1 hover:bg-gray-100 rounded"
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
           >
-            <X className="w-4 h-4 text-gray-500" />
+            <X className="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Connection Preview */}
-          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-            <div className="p-2 bg-white rounded-lg shadow-sm">
+          <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <div className="p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm">
               <svg width="32" height="16" className="flex-shrink-0">
                 <line
                   x1="4" y1="8" x2="28" y2="8"
@@ -1078,14 +1078,14 @@ export const PropertiesPanel: React.FC = () => {
               </svg>
             </div>
             <div>
-              <h4 className="font-medium text-gray-900">{currentConfig.label}</h4>
-              <p className="text-xs text-gray-500">{currentConfig.description}</p>
+              <h4 className="font-medium text-gray-900 dark:text-gray-100">{currentConfig.label}</h4>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{currentConfig.description}</p>
             </div>
           </div>
 
           {/* Connection Type - P&ID Standard Types */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Connection Type (P&ID)
             </label>
             <div className="space-y-1.5 max-h-64 overflow-y-auto">
@@ -1098,7 +1098,7 @@ export const PropertiesPanel: React.FC = () => {
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border transition-colors ${
                     currentConnectionType === type.id
                       ? 'border-blue-500 bg-blue-50'
-                      : 'border-gray-200 hover:bg-gray-50'
+                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   {/* SVG Line Preview */}
@@ -1112,7 +1112,7 @@ export const PropertiesPanel: React.FC = () => {
                     />
                   </svg>
                   <div className="flex-1 text-left min-w-0">
-                    <span className="text-sm text-gray-700 block truncate">{type.label}</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300 block truncate">{type.label}</span>
                   </div>
                 </button>
               ))}
@@ -1122,23 +1122,23 @@ export const PropertiesPanel: React.FC = () => {
           {/* Connection Details */}
           <div className="space-y-3 text-sm">
             <div className="flex items-center gap-2">
-              <span className="text-gray-500 w-16">From:</span>
-              <span className="text-gray-900 font-mono text-xs">{selectedEdge.source}</span>
+              <span className="text-gray-500 dark:text-gray-400 w-16">From:</span>
+              <span className="text-gray-900 dark:text-gray-100 font-mono text-xs">{selectedEdge.source}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500 w-16">To:</span>
-              <span className="text-gray-900 font-mono text-xs">{selectedEdge.target}</span>
+              <span className="text-gray-500 dark:text-gray-400 w-16">To:</span>
+              <span className="text-gray-900 dark:text-gray-100 font-mono text-xs">{selectedEdge.target}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-gray-500 w-16">Edge ID:</span>
-              <span className="text-gray-600 font-mono text-xs truncate">{selectedEdge.id}</span>
+              <span className="text-gray-500 dark:text-gray-400 w-16">Edge ID:</span>
+              <span className="text-gray-600 dark:text-gray-400 font-mono text-xs truncate">{selectedEdge.id}</span>
             </div>
           </div>
 
           {/* Flow Rate (for pipe/steam/hydraulic connections) */}
           {(currentConnectionType === 'process-pipe' || currentConnectionType === 'steam' || currentConnectionType === 'hydraulic') && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Flow Rate (optional)
               </label>
               <div className="flex gap-2">
@@ -1151,14 +1151,14 @@ export const PropertiesPanel: React.FC = () => {
                       flowRate: e.target.value ? Number(e.target.value) : undefined,
                     })
                   }
-                  className="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                  className="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 />
                 <select
                   value={selectedEdge.data?.flowUnit || 'L/min'}
                   onChange={(e) =>
                     updateEdgeData(selectedEdge.id, { flowUnit: e.target.value })
                   }
-                  className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="L/min">L/min</option>
                   <option value="m3/h">m³/h</option>
@@ -1170,7 +1170,7 @@ export const PropertiesPanel: React.FC = () => {
         </div>
 
         {/* Actions */}
-        <div className="p-4 border-t border-gray-200">
+        <div className="p-4 border-t border-gray-200 dark:border-gray-700">
           <button
             onClick={() => {
               removeEdge(selectedEdge.id);

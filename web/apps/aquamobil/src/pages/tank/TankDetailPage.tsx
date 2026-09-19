@@ -31,8 +31,8 @@ function StatCard({ icon: Icon, label, value, unit, warning }: {
       warning ? 'border-red-200 dark:border-red-800' : 'border-gray-100 dark:border-gray-800',
     )}>
       <div className="flex items-center gap-2 mb-2">
-        <Icon size={16} className={warning ? 'text-red-500' : 'text-gray-400'} />
-        <span className="text-xs font-medium text-gray-500">{label}</span>
+        <Icon size={16} className={warning ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'} />
+        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</span>
       </div>
       <div className="flex items-baseline gap-1">
         <span className={clsx(
@@ -41,7 +41,7 @@ function StatCard({ icon: Icon, label, value, unit, warning }: {
         )}>
           {value}
         </span>
-        {unit && <span className="text-sm text-gray-400">{unit}</span>}
+        {unit && <span className="text-sm text-gray-400 dark:text-gray-500">{unit}</span>}
       </div>
     </div>
   );
@@ -77,7 +77,7 @@ export function TankDetailPage(): JSX.Element {
         <PageHeader
           title="Tank Detail"
         />
-        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-20 text-gray-400 dark:text-gray-500">
           <AlertTriangle size={48} className="mb-3 opacity-30" />
           <p className="font-medium">Tank not found</p>
           <button
@@ -115,7 +115,7 @@ export function TankDetailPage(): JSX.Element {
 
         {/* Volume info */}
         <div className="grid grid-cols-2 gap-3 pb-2">
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
+          <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-3 text-center">
             <div className="text-xl font-bold">
               {tank.volume > 0 ? `${tank.volume}` : '--'}
             </div>
@@ -123,7 +123,7 @@ export function TankDetailPage(): JSX.Element {
               {tank.volume > 0 ? 'm\u00B3 Volume' : 'Not configured'}
             </div>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-3 text-center">
+          <div className="bg-white/10 dark:bg-gray-900/10 backdrop-blur-sm rounded-xl p-3 text-center">
             <div className="text-xl font-bold">
               {tank.maxBiomass > 0 ? `${formatNumber(tank.maxBiomass)}` : '--'}
             </div>
@@ -198,7 +198,7 @@ export function TankDetailPage(): JSX.Element {
             )}
           </>
         ) : (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <Fish size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No active batch</p>
             <p className="text-sm mt-1">Assign a batch to this tank to see metrics</p>

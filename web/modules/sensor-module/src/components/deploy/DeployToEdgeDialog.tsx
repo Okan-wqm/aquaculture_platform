@@ -135,9 +135,9 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Artifact info */}
-          <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-            <p className="text-sm text-gray-500">{artifactLabel}</p>
-            <p className="font-medium text-gray-900">{artifactName}</p>
+          <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+            <p className="text-sm text-gray-500 dark:text-gray-400">{artifactLabel}</p>
+            <p className="font-medium text-gray-900 dark:text-gray-100">{artifactName}</p>
           </div>
 
           {/* Artifact-specific preview */}
@@ -160,8 +160,8 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
 
           {/* Online filter */}
           <div className="flex items-center justify-between">
-            <label className="block text-sm font-medium text-gray-700">Select Edge Device</label>
-            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Select Edge Device</label>
+            <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
               <input
                 type="checkbox"
                 checked={showOnlineOnly}
@@ -176,7 +176,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
           {isLoading && (
             <div className="flex items-center justify-center py-8">
               <Spinner size="md" color="inherit" className={classes.icon} />
-              <span className="ml-2 text-gray-500">Loading devices...</span>
+              <span className="ml-2 text-gray-500 dark:text-gray-400">Loading devices...</span>
             </div>
           )}
 
@@ -189,7 +189,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
 
           {/* Empty state */}
           {!isLoading && !isError && filteredDevices.length === 0 && (
-            <div className="p-4 bg-gray-50 text-gray-500 rounded-lg text-sm text-center">
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-lg text-sm text-center">
               {showOnlineOnly
                 ? 'No online edge devices found.'
                 : 'No edge devices registered yet.'}
@@ -198,7 +198,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
 
           {/* Device list */}
           {!isLoading && !isError && filteredDevices.length > 0 && (
-            <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-72 overflow-y-auto">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-72 overflow-y-auto">
               {filteredDevices.map((device: EdgeDevice) => {
                 const isOnline = device.isOnline;
                 const isDisabled = !isOnline;
@@ -212,7 +212,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
                         ? 'opacity-50 cursor-not-allowed'
                         : isSelected
                           ? classes.rowSelected
-                          : 'hover:bg-gray-50 cursor-pointer'
+                          : 'hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer'
                     }`}
                   >
                     <input
@@ -225,12 +225,12 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-gray-900 truncate">
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                           {device.deviceName}
                         </span>
-                        <span className="text-xs text-gray-500">{device.deviceCode}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">{device.deviceCode}</span>
                       </div>
-                      <div className="text-xs text-gray-500 mt-0.5">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                         Last seen: {formatLastSeen(device.lastSeenAt)}
                       </div>
                     </div>
@@ -243,7 +243,7 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
                       ) : (
                         <>
                           <span className="w-2 h-2 rounded-full bg-gray-400" />
-                          <WifiOff className="w-4 h-4 text-gray-500" />
+                          <WifiOff className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                         </>
                       )}
                     </div>
@@ -255,10 +255,10 @@ export const DeployToEdgeDialog: React.FC<DeployToEdgeDialogProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex gap-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+        <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+            className="flex-1 px-4 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 font-medium transition-colors"
           >
             {deploySuccess ? 'Close' : 'Cancel'}
           </button>

@@ -70,19 +70,19 @@ export function CopyWeekModal({
     >
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
         {/* Source info */}
-        <div className="p-4 bg-gray-50 rounded-lg">
-          <p className="text-sm text-gray-500 mb-1">Kaynak Hafta</p>
-          <p className="font-medium text-gray-900">
+        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Kaynak Hafta</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">
             {employeeName}
           </p>
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             {formatWeekRange(new Date(sourceWeekStart))}
           </p>
         </div>
 
         {/* Target week selection */}
         <fieldset>
-          <legend className="block text-sm font-medium text-gray-700 mb-2">
+          <legend className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Hedef Hafta
           </legend>
           <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Hedef hafta secimi">
@@ -106,7 +106,7 @@ export function CopyWeekModal({
                     'p-3 rounded-lg border text-left transition-colors',
                     isSelected
                       ? 'border-indigo-500 bg-indigo-50'
-                      : 'border-gray-200 hover:bg-gray-50'
+                      : 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
                   )}
                   aria-label={`Hafta ${weekNum}, ${dateStr}`}
                 >
@@ -114,18 +114,18 @@ export function CopyWeekModal({
                     <Calendar
                       className={cn(
                         'h-4 w-4',
-                        isSelected ? 'text-indigo-600' : 'text-gray-400'
+                        isSelected ? 'text-indigo-600' : 'text-gray-400 dark:text-gray-500'
                       )}
                       aria-hidden="true"
                     />
                     <span className={cn(
                       'text-sm font-medium',
-                      isSelected ? 'text-indigo-600' : 'text-gray-700'
+                      isSelected ? 'text-indigo-600' : 'text-gray-700 dark:text-gray-300'
                     )}>
                       Hafta {weekNum}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1 ml-6">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-6">
                     {dateStr}
                   </p>
                 </button>
@@ -154,7 +154,7 @@ export function CopyWeekModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+            className="flex-1 px-4 py-2 text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors font-medium"
             disabled={isLoading}
           >
             Iptal

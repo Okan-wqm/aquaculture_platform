@@ -16,10 +16,10 @@ const statusColors: Record<BatchStatus, string> = {
   GROWING: 'bg-blue-100 text-blue-800',
   PRE_HARVEST: 'bg-purple-100 text-purple-800',
   HARVESTING: 'bg-orange-100 text-orange-800',
-  HARVESTED: 'bg-gray-100 text-gray-800',
+  HARVESTED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   TRANSFERRED: 'bg-indigo-100 text-indigo-800',
   FAILED: 'bg-red-100 text-red-800',
-  CLOSED: 'bg-gray-100 text-gray-600',
+  CLOSED: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
 };
 
 const statusLabels: Record<BatchStatus, string> = {
@@ -115,9 +115,9 @@ export const BatchInputTab: React.FC = () => {
       render: (_value, batch) => (
         <div className="flex items-center">
           <div>
-            <div className="text-sm font-medium text-gray-900">{batch.batchNumber}</div>
+            <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{batch.batchNumber}</div>
             {batch.name && (
-              <div className="text-sm text-gray-500">{batch.name}</div>
+              <div className="text-sm text-gray-500 dark:text-gray-400">{batch.name}</div>
             )}
           </div>
         </div>
@@ -129,10 +129,10 @@ export const BatchInputTab: React.FC = () => {
       render: (_value, batch) => (
         <>
           {/* BUG-009: display resolved species name, fall back to truncated ID */}
-          <div className="text-sm text-gray-900">
+          <div className="text-sm text-gray-900 dark:text-gray-100">
             {speciesById.get(batch.speciesId) ?? batch.speciesId.substring(0, 8) + '…'}
           </div>
-          <div className="text-sm text-gray-500 capitalize">{batch.inputType.replace('_', ' ')}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400 capitalize">{batch.inputType.replace('_', ' ')}</div>
         </>
       ),
     },
@@ -151,8 +151,8 @@ export const BatchInputTab: React.FC = () => {
       align: 'right',
       render: (_value, batch) => (
         <>
-          <div className="text-sm text-gray-900">{batch.currentQuantity.toLocaleString()}</div>
-          <div className="text-sm text-gray-500">/ {batch.initialQuantity.toLocaleString()}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{batch.currentQuantity.toLocaleString()}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">/ {batch.initialQuantity.toLocaleString()}</div>
         </>
       ),
     },
@@ -161,7 +161,7 @@ export const BatchInputTab: React.FC = () => {
       header: 'Biomass (kg)',
       align: 'right',
       render: (_value, batch) => (
-        <div className="text-sm text-gray-900">{getCurrentBiomass(batch).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+        <div className="text-sm text-gray-900 dark:text-gray-100">{getCurrentBiomass(batch).toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
       ),
     },
     {
@@ -212,10 +212,10 @@ export const BatchInputTab: React.FC = () => {
               placeholder="Search batches..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm pl-10"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm pl-10"
             />
             <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-              <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-5 w-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
               </svg>
             </div>
@@ -225,7 +225,7 @@ export const BatchInputTab: React.FC = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as BatchStatus | 'all')}
-            className="block rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="all">All Status</option>
             {Object.entries(statusLabels).map(([value, label]) => (
@@ -258,17 +258,17 @@ export const BatchInputTab: React.FC = () => {
 
       {/* Loading State */}
       {isLoading && (
-        <div className="bg-white shadow rounded-lg p-8">
+        <div className="bg-white dark:bg-gray-900 shadow rounded-lg p-8">
           <div className="flex flex-col items-center justify-center">
             <Spinner size="lg" className="mb-4" />
-            <p className="text-gray-500">Loading batches...</p>
+            <p className="text-gray-500 dark:text-gray-400">Loading batches...</p>
           </div>
         </div>
       )}
 
       {/* Batch Table */}
       {!isLoading && !error && (
-        <div className="bg-white shadow rounded-lg overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
           <DataTable<BatchRow>
             data={filteredBatches}
             columns={batchRowColumns}
@@ -281,11 +281,11 @@ export const BatchInputTab: React.FC = () => {
 
           {filteredBatches.length === 0 && (
             <div className="text-center py-12">
-              <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No batches found</h3>
-              <p className="mt-1 text-sm text-gray-500">
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No batches found</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Get started by creating a new batch.
               </p>
             </div>
@@ -295,7 +295,7 @@ export const BatchInputTab: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="p-3 bg-blue-100 rounded-lg">
@@ -305,15 +305,15 @@ export const BatchInputTab: React.FC = () => {
               </div>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Active Batches</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Active Batches</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {summaryStats.activeBatches}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="p-3 bg-green-100 rounded-lg">
@@ -323,15 +323,15 @@ export const BatchInputTab: React.FC = () => {
               </div>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Stock</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Stock</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {summaryStats.totalStock.toLocaleString()}
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="p-3 bg-purple-100 rounded-lg">
@@ -341,15 +341,15 @@ export const BatchInputTab: React.FC = () => {
               </div>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Biomass</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Biomass</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {summaryStats.totalBiomass.toLocaleString(undefined, { maximumFractionDigits: 0 })} kg
               </p>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <div className="p-3 bg-yellow-100 rounded-lg">
@@ -359,8 +359,8 @@ export const BatchInputTab: React.FC = () => {
               </div>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Avg. FCR</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Avg. FCR</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {summaryStats.avgFCR.toFixed(2)}
               </p>
             </div>

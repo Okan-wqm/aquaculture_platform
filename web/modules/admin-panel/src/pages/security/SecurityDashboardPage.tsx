@@ -346,7 +346,7 @@ const getSeverityColor = (severity: EventSeverity): string => {
     case 'low':
       return 'bg-blue-100 text-blue-800 border-blue-200';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
   }
 };
 
@@ -361,7 +361,7 @@ const getSeverityIcon = (severity: EventSeverity): React.ReactElement => {
     case 'low':
       return <CheckCircle2 className="w-4 h-4 text-blue-600" />;
     default:
-      return <Activity className="w-4 h-4 text-gray-600" />;
+      return <Activity className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
   }
 };
 
@@ -379,9 +379,9 @@ const getStatusColor = (status: EventStatus | IncidentStatus): string => {
     case 'contained':
       return 'bg-purple-100 text-purple-800';
     case 'dismissed':
-      return 'bg-gray-100 text-gray-800';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
     default:
-      return 'bg-gray-100 text-gray-800';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   }
 };
 
@@ -446,8 +446,8 @@ const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'cr
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-3xl font-bold text-gray-900">{safeScore}</span>
-        <span className="text-xs text-gray-500">{status}</span>
+        <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">{safeScore}</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{status}</span>
       </div>
     </div>
   );
@@ -474,7 +474,7 @@ const EventDetailModal: React.FC<{
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
         >
           Close
         </button>
@@ -483,22 +483,22 @@ const EventDetailModal: React.FC<{
       {/* Basic Info */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <span className="text-sm font-medium text-gray-500">Event ID</span>
-          <p className="text-sm text-gray-900 font-mono">{event.id}</p>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Event ID</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{event.id}</p>
         </div>
         <div>
-          <span className="text-sm font-medium text-gray-500">Timestamp</span>
-          <p className="text-sm text-gray-900">{formatDateTime(event.timestamp)}</p>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Timestamp</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDateTime(event.timestamp)}</p>
         </div>
         <div>
-          <span className="text-sm font-medium text-gray-500">Severity</span>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Severity</span>
           <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(event.severity)}`}>
             {getSeverityIcon(event.severity)}
             {event.severity}
           </span>
         </div>
         <div>
-          <span className="text-sm font-medium text-gray-500">Status</span>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</span>
           <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
             {event.status}
           </span>
@@ -507,29 +507,29 @@ const EventDetailModal: React.FC<{
 
       {/* Description */}
       <div>
-        <span className="text-sm font-medium text-gray-500">Description</span>
-        <p className="text-sm text-gray-900 mt-1">{event.description}</p>
+        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Description</span>
+        <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">{event.description}</p>
       </div>
 
       {/* Source Info */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Source Information</h3>
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Source Information</h3>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <span className="text-xs text-gray-500">Source</span>
-            <p className="text-sm text-gray-900">{event.source}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Source</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{event.source}</p>
           </div>
           <div>
-            <span className="text-xs text-gray-500">Source IP</span>
-            <p className="text-sm text-gray-900 font-mono">{event.sourceIp || 'N/A'}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Source IP</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{event.sourceIp || 'N/A'}</p>
           </div>
           <div>
-            <span className="text-xs text-gray-500">Target Resource</span>
-            <p className="text-sm text-gray-900">{event.targetResource || 'N/A'}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Target Resource</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{event.targetResource || 'N/A'}</p>
           </div>
           <div>
-            <span className="text-xs text-gray-500">Location</span>
-            <p className="text-sm text-gray-900">
+            <span className="text-xs text-gray-500 dark:text-gray-400">Location</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">
               {event.geoLocation ? `${event.geoLocation.city}, ${event.geoLocation.country}` : 'N/A'}
             </p>
           </div>
@@ -538,16 +538,16 @@ const EventDetailModal: React.FC<{
 
       {/* User Info */}
       {event.userId && (
-        <div className="bg-gray-50 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">User Information</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <span className="text-xs text-gray-500">User</span>
-              <p className="text-sm text-gray-900">{event.userName}</p>
+              <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{event.userName}</p>
             </div>
             <div>
-              <span className="text-xs text-gray-500">Tenant</span>
-              <p className="text-sm text-gray-900">{event.tenantName || 'N/A'}</p>
+              <span className="text-xs text-gray-500 dark:text-gray-400">Tenant</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{event.tenantName || 'N/A'}</p>
             </div>
           </div>
         </div>
@@ -556,8 +556,8 @@ const EventDetailModal: React.FC<{
       {/* Details */}
       {event.details && typeof event.details === 'object' && Object.keys(event.details).length > 0 && (
         <div>
-          <span className="text-sm font-medium text-gray-500">Additional Details</span>
-          <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto mt-1">
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Additional Details</span>
+          <pre className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto mt-1">
             {JSON.stringify(
               // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
               Object.fromEntries(
@@ -681,7 +681,7 @@ export const SecurityDashboardPage: React.FC = () => {
       key: 'type',
       header: 'Type',
       render: (_value, threat) => (
-        <span className="text-sm font-medium text-gray-900 capitalize">
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 capitalize">
           {(threat.type ?? 'unknown').replace('_', ' ')}
         </span>
       ),
@@ -690,7 +690,7 @@ export const SecurityDashboardPage: React.FC = () => {
       key: 'indicator',
       header: 'Indicator',
       render: (_value, threat) => (
-        <span className="text-sm font-mono text-gray-600">{threat.indicator ?? '-'}</span>
+        <span className="text-sm font-mono text-gray-600 dark:text-gray-400">{threat.indicator ?? '-'}</span>
       ),
     },
     {
@@ -703,7 +703,7 @@ export const SecurityDashboardPage: React.FC = () => {
       header: 'Confidence',
       render: (_value, threat) => (
         <div className="flex items-center gap-2">
-          <div className="w-16 h-2 bg-gray-200 rounded-full">
+          <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full">
             <div
               className={`h-2 rounded-full ${
                 (threat.confidence ?? 0) >= 80 ? 'bg-green-500' :
@@ -712,7 +712,7 @@ export const SecurityDashboardPage: React.FC = () => {
               style={{ width: `${threat.confidence ?? 0}%` }}
             />
           </div>
-          <span className="text-sm text-gray-600">{threat.confidence ?? 0}%</span>
+          <span className="text-sm text-gray-600 dark:text-gray-400">{threat.confidence ?? 0}%</span>
         </div>
       ),
     },
@@ -741,7 +741,7 @@ export const SecurityDashboardPage: React.FC = () => {
       render: (_value, threat) => (
         <>
           <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
-            (threat.isActive ?? false) ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+            (threat.isActive ?? false) ? 'bg-red-100 text-red-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
           }`}>
             {(threat.isActive ?? false) ? 'Active' : 'Inactive'}
           </span>
@@ -769,7 +769,7 @@ export const SecurityDashboardPage: React.FC = () => {
               className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border ${
                 autoRefresh
                   ? 'bg-green-50 text-green-700 border-green-200'
-                  : 'bg-gray-50 text-gray-700 border-gray-200'
+                  : 'bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700'
               }`}
             >
               {autoRefresh ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
@@ -791,15 +791,15 @@ export const SecurityDashboardPage: React.FC = () => {
       {dashboard && (
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Health Score Card */}
-          <div className="bg-white rounded-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">Security Health Score</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Security Health Score</h3>
             <div className="flex items-center justify-center">
               <HealthGauge score={dashboard.healthScore} status={dashboard.healthStatus} />
             </div>
             <div className="mt-4 space-y-2">
               {(dashboard?.metrics ?? []).slice(0, 3).map((metric, idx) => (
                 <div key={idx} className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">{metric.name}</span>
+                  <span className="text-gray-500 dark:text-gray-400">{metric.name}</span>
                   <span className={`font-medium ${
                     metric.status === 'healthy' ? 'text-green-600' :
                     metric.status === 'warning' ? 'text-yellow-600' : 'text-red-600'
@@ -813,91 +813,91 @@ export const SecurityDashboardPage: React.FC = () => {
 
           {/* Stats Grid */}
           <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-blue-100 rounded-lg">
                   <Activity className="w-5 h-5 text-blue-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Events (24h)</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.totalEvents24h ?? 0}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Events (24h)</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.totalEvents24h ?? 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-red-100 rounded-lg">
                   <AlertCircle className="w-5 h-5 text-red-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Critical (24h)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Critical (24h)</p>
                   <p className="text-2xl font-bold text-red-600">{dashboard?.stats?.criticalEvents24h ?? 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-orange-100 rounded-lg">
                   <Target className="w-5 h-5 text-orange-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Open Incidents</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.openIncidents ?? 0}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Open Incidents</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.openIncidents ?? 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-green-100 rounded-lg">
                   <Shield className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Blocked (24h)</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Blocked (24h)</p>
                   <p className="text-2xl font-bold text-green-600">{dashboard?.stats?.blockedAttacks24h ?? 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-purple-100 rounded-lg">
                   <Zap className="w-5 h-5 text-purple-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Active Threats</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.activeThreatIndicators ?? 0}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Active Threats</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.activeThreatIndicators ?? 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-indigo-100 rounded-lg">
                   <Globe className="w-5 h-5 text-indigo-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Unique IPs</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.uniqueSourceIps ?? 0}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Unique IPs</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.uniqueSourceIps ?? 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-cyan-100 rounded-lg">
                   <Users className="w-5 h-5 text-cyan-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Affected Tenants</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.affectedTenants ?? 0}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Affected Tenants</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.affectedTenants ?? 0}</p>
                 </div>
               </div>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4">
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-teal-100 rounded-lg">
                   <CheckCircle2 className="w-5 h-5 text-teal-600" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Resolved</p>
-                  <p className="text-2xl font-bold text-gray-900">{dashboard?.stats?.resolvedIncidents ?? 0}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Resolved</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.resolvedIncidents ?? 0}</p>
                 </div>
               </div>
             </div>
@@ -908,14 +908,14 @@ export const SecurityDashboardPage: React.FC = () => {
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Security Events */}
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="p-4 border-b border-gray-200">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Recent Security Events</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Security Events</h3>
               <select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
-                className="text-sm border border-gray-300 rounded px-2 py-1"
+                className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1"
               >
                 <option value="all">All Severities</option>
                 <option value="critical">Critical</option>
@@ -925,14 +925,14 @@ export const SecurityDashboardPage: React.FC = () => {
               </select>
             </div>
           </div>
-          <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
+          <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-96 overflow-y-auto">
             {events.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">No security events found</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No security events found</div>
             ) : (
               events.slice(0, 10).map((event) => (
                 <div
                   key={event.id}
-                  className="p-4 hover:bg-gray-50 cursor-pointer"
+                  className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
                   onClick={() => setSelectedEvent(event)}
                   onKeyDown={(keyboardEvent) => {
                     if (keyboardEvent.key === 'Enter' || keyboardEvent.key === ' ') {
@@ -946,22 +946,22 @@ export const SecurityDashboardPage: React.FC = () => {
                     {getSeverityIcon(event.severity)}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-gray-900 truncate">
+                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                           {event.eventType}
                         </p>
-                        <span className="text-xs text-gray-500">{formatTimeAgo(event.timestamp)}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">{formatTimeAgo(event.timestamp)}</span>
                       </div>
-                      <p className="text-sm text-gray-500 truncate">{event.description}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{event.description}</p>
                       <div className="mt-1 flex items-center gap-2">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${getSeverityColor(event.severity)}`}>
                           {event.severity}
                         </span>
                         {event.sourceIp && (
-                          <span className="text-xs text-gray-500 font-mono">{event.sourceIp}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{event.sourceIp}</span>
                         )}
                       </div>
                     </div>
-                    <Eye className="w-4 h-4 text-gray-500" />
+                    <Eye className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                   </div>
                 </div>
               ))
@@ -970,16 +970,16 @@ export const SecurityDashboardPage: React.FC = () => {
         </div>
 
         {/* Active Incidents */}
-        <div className="bg-white rounded-lg border border-gray-200">
-          <div className="p-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Active Incidents</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Active Incidents</h3>
           </div>
-          <div className="divide-y divide-gray-200 max-h-96 overflow-y-auto">
+          <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-96 overflow-y-auto">
             {incidents.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">No active incidents</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No active incidents</div>
             ) : (
               incidents.slice(0, 5).map((incident) => (
-                <div key={incident.id} className="p-4 hover:bg-gray-50">
+                <div key={incident.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
@@ -991,19 +991,19 @@ export const SecurityDashboardPage: React.FC = () => {
                           {(incident.status ?? 'open').replace('_', ' ')}
                         </span>
                       </div>
-                      <h4 className="text-sm font-medium text-gray-900 mt-2">{incident.title ?? 'Untitled Incident'}</h4>
-                      <p className="text-sm text-gray-500 mt-1 line-clamp-2">{incident.description ?? ''}</p>
-                      <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
+                      <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-2">{incident.title ?? 'Untitled Incident'}</h4>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{incident.description ?? ''}</p>
+                      <div className="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                         <span>Category: {incident.category ?? 'Unknown'}</span>
                         <span>{incident.affectedUsers ?? 0} users affected</span>
                       </div>
                     </div>
                   </div>
-                  <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
-                    <span className="text-gray-500">
+                  <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between text-xs">
+                    <span className="text-gray-500 dark:text-gray-400">
                       Created {incident.createdAt ? formatTimeAgo(incident.createdAt) : 'Unknown'}
                     </span>
-                    <span className="text-gray-500">
+                    <span className="text-gray-500 dark:text-gray-400">
                       Assigned to: {incident.assignedToName ?? 'Unassigned'}
                     </span>
                   </div>
@@ -1015,9 +1015,9 @@ export const SecurityDashboardPage: React.FC = () => {
       </div>
 
       {/* Threat Intelligence */}
-      <div className="bg-white rounded-lg border border-gray-200">
-        <div className="p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">Threat Intelligence</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Threat Intelligence</h3>
         </div>
         <DataTable<ThreatIndicator>
           data={threatIndicators.slice(0, 10)}

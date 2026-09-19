@@ -11,7 +11,7 @@ export const HepaFilterConfig: React.FC<WidgetConfigProps> = ({ config, onChange
   return (
     <div className="space-y-3">
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Tag</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tag</label>
         <TagBrowser
           deviceId={deviceId || null}
           value={config.tagName || ''}
@@ -20,21 +20,21 @@ export const HepaFilterConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Label</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <input
           type="text"
           value={config.label || ''}
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="HEPA Filter"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Demo Status</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Demo Status</label>
         <select
           value={config.demoStatus || 'running'}
           onChange={(e) => onChange({ demoStatus: e.target.value })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         >
           <option value="running">Running</option>
           <option value="stopped">Stopped</option>

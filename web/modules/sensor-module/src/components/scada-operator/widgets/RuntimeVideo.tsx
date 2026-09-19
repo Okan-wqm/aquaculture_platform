@@ -203,7 +203,7 @@ const RuntimeVideo: React.FC<RuntimeWidgetProps> = ({
         {showPlaceholder ? (
           /* Placeholder: no src or load error */
           <div
-            className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-gray-500"
+            className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-gray-500 dark:text-gray-400"
             aria-label={hasError ? 'Video load error' : 'No video source'}
           >
             {poster ? (

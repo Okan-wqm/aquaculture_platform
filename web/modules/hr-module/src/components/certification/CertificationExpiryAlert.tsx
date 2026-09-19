@@ -193,7 +193,7 @@ export function CertificationExpiryAlert({
                       <span>
                         Expires in {cert.daysUntilExpiry} days
                         {cert.expiryDate && (
-                          <span className="text-gray-500"> ({new Date(cert.expiryDate).toLocaleDateString()})</span>
+                          <span className="text-gray-500 dark:text-gray-400"> ({new Date(cert.expiryDate).toLocaleDateString()})</span>
                         )}
                       </span>
                     )}
@@ -218,10 +218,10 @@ export function CertificationExpiryAlert({
       {/* Summary Footer */}
       <div className="border-t border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="flex justify-between text-sm">
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-gray-400">
             {expiredCerts?.length || 0} expired
           </span>
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-gray-400">
             {expiringCerts?.length || 0} expiring soon
           </span>
         </div>

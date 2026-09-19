@@ -26,7 +26,7 @@ const cyclePrice = (
   plan.cyclePrices.find((price) => price.billingCycle === billingCycle);
 
 const TIER_COLORS: Readonly<Record<PlanDefinition['tier'], string>> = {
-  free: 'bg-gray-100 text-gray-800',
+  free: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   starter: 'bg-blue-100 text-blue-800',
   professional: 'bg-purple-100 text-purple-800',
   enterprise: 'bg-yellow-100 text-yellow-800',
@@ -162,8 +162,8 @@ const PlanManagementPage: React.FC = () => {
               <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getTierColor(plan.tier)}`}>
                 {plan.tier.toUpperCase()}
               </span>
-              <h3 className="mt-3 text-xl font-bold text-gray-900">{plan.name}</h3>
-              <p className="mt-1 text-sm text-gray-500">{plan.shortDescription}</p>
+              <h3 className="mt-3 text-xl font-bold text-gray-900 dark:text-gray-100">{plan.name}</h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{plan.shortDescription}</p>
             </div>
 
             {/* Price — the plan's own default cycle, in its own currency */}
@@ -172,15 +172,15 @@ const PlanManagementPage: React.FC = () => {
                 const price = cyclePrice(plan, plan.defaultBillingCycle);
                 return price ? (
                   <>
-                    <div className="text-3xl font-bold text-gray-900">
+                    <div className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                       {formatCurrencyAmount(price.basePrice, plan.currency)}
                     </div>
-                    <div className="text-sm text-gray-500">
+                    <div className="text-sm text-gray-500 dark:text-gray-400">
                       {CYCLE_LABELS[price.billingCycle]}
                     </div>
                   </>
                 ) : (
-                  <div className="text-sm text-gray-500">Fiyatlandirilmamis</div>
+                  <div className="text-sm text-gray-500 dark:text-gray-400">Fiyatlandirilmamis</div>
                 );
               })()}
             </div>
@@ -188,26 +188,26 @@ const PlanManagementPage: React.FC = () => {
             {/* Key Limits */}
             <div className="space-y-2 mb-4 text-sm">
               <div className="flex justify-between">
-                <span className="text-gray-500">Users</span>
+                <span className="text-gray-500 dark:text-gray-400">Users</span>
                 <span className="font-medium">{formatLimitValue(plan.limits.maxUsers)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Farms</span>
+                <span className="text-gray-500 dark:text-gray-400">Farms</span>
                 <span className="font-medium">{formatLimitValue(plan.limits.maxFarms)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Sensors</span>
+                <span className="text-gray-500 dark:text-gray-400">Sensors</span>
                 <span className="font-medium">{formatLimitValue(plan.limits.maxSensors)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Storage</span>
+                <span className="text-gray-500 dark:text-gray-400">Storage</span>
                 <span className="font-medium">{formatLimitValue(plan.limits.storageGB)} GB</span>
               </div>
             </div>
 
             {/* Features Preview */}
             <div className="mb-4">
-              <div className="text-xs font-medium text-gray-500 mb-2">KEY FEATURES</div>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">KEY FEATURES</div>
               <ul className="space-y-1 text-sm">
                 {plan.features.coreFeatures.slice(0, 3).map((feature, idx) => (
                   <li key={idx} className="flex items-center gap-2">
@@ -218,7 +218,7 @@ const PlanManagementPage: React.FC = () => {
                   </li>
                 ))}
                 {plan.features.coreFeatures.length > 3 && (
-                  <li className="text-gray-500 text-xs">
+                  <li className="text-gray-500 dark:text-gray-400 text-xs">
                     +{plan.features.coreFeatures.length - 3} more features
                   </li>
                 )}
@@ -228,7 +228,7 @@ const PlanManagementPage: React.FC = () => {
             {/* Status & Actions */}
             <div className="border-t pt-4 space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-500">Status</span>
+                <span className="text-gray-500 dark:text-gray-400">Status</span>
                 {plan.isActive ? (
                   <Badge variant="success">Active</Badge>
                 ) : (
@@ -237,7 +237,7 @@ const PlanManagementPage: React.FC = () => {
               </div>
               {plan.trialDays && plan.trialDays > 0 && (
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-500">Trial</span>
+                  <span className="text-gray-500 dark:text-gray-400">Trial</span>
                   <span className="font-medium">{plan.trialDays} days</span>
                 </div>
               )}
@@ -282,7 +282,7 @@ const PlanManagementPage: React.FC = () => {
           <div className="mb-6">
             <h3 className="text-lg font-semibold mb-3">Fiyatlandirma</h3>
             {selectedPlan.cyclePrices.length === 0 ? (
-              <div className="p-4 bg-gray-50 rounded-lg text-sm text-gray-500">
+              <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm text-gray-500 dark:text-gray-400">
                 Bu plan icin fiyat tanimlanmamis.
               </div>
             ) : (
@@ -294,7 +294,7 @@ const PlanManagementPage: React.FC = () => {
                   >
                     <div className="flex items-center justify-between mb-3">
                       <div>
-                        <div className="text-sm text-gray-500 mb-1">
+                        <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">
                           {CYCLE_LABELS[price.billingCycle]} — Temel Fiyat
                         </div>
                         <div className="text-2xl font-bold text-blue-600">
@@ -306,20 +306,20 @@ const PlanManagementPage: React.FC = () => {
                       )}
                     </div>
                     <div className="grid grid-cols-3 gap-4">
-                      <div className="p-3 bg-white rounded-lg">
-                        <div className="text-xs text-gray-500 mb-1">Per User</div>
+                      <div className="p-3 bg-white dark:bg-gray-900 rounded-lg">
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Per User</div>
                         <div className="font-bold">
                           {formatCurrencyAmount(price.perUserPrice, selectedPlan.currency)}
                         </div>
                       </div>
-                      <div className="p-3 bg-white rounded-lg">
-                        <div className="text-xs text-gray-500 mb-1">Per Farm</div>
+                      <div className="p-3 bg-white dark:bg-gray-900 rounded-lg">
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Per Farm</div>
                         <div className="font-bold">
                           {formatCurrencyAmount(price.perFarmPrice, selectedPlan.currency)}
                         </div>
                       </div>
-                      <div className="p-3 bg-white rounded-lg">
-                        <div className="text-xs text-gray-500 mb-1">Per Module</div>
+                      <div className="p-3 bg-white dark:bg-gray-900 rounded-lg">
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Per Module</div>
                         <div className="font-bold">
                           {formatCurrencyAmount(price.perModulePrice, selectedPlan.currency)}
                         </div>
@@ -339,19 +339,19 @@ const PlanManagementPage: React.FC = () => {
                 {selectedPlan.addOns.map((addOn) => (
                   <div
                     key={addOn.code}
-                    className="p-3 bg-gray-50 rounded-lg flex items-center justify-between"
+                    className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex items-center justify-between"
                   >
                     <div>
                       <div className="font-medium">{addOn.name}</div>
                       {addOn.description && (
-                        <div className="text-xs text-gray-500">{addOn.description}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">{addOn.description}</div>
                       )}
                     </div>
                     <div className="text-right">
                       <div className="font-bold">
                         {formatCurrencyAmount(addOn.price, selectedPlan.currency)}
                       </div>
-                      <div className="text-xs text-gray-500">
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
                         {CYCLE_LABELS[addOn.billingCycle]}
                       </div>
                     </div>
@@ -368,8 +368,8 @@ const PlanManagementPage: React.FC = () => {
               {Object.entries(selectedPlan.limits).map(([key, value]) => {
                 if (typeof value === 'boolean') return null;
                 return (
-                  <div key={key} className="p-3 bg-gray-50 rounded-lg">
-                    <div className="text-xs text-gray-500 mb-1">
+                  <div key={key} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
                       {key.replace(/([A-Z])/g, ' $1').trim()}
                     </div>
                     <div className="font-bold">{formatLimitValue(value as number)}</div>
@@ -389,7 +389,7 @@ const PlanManagementPage: React.FC = () => {
                   <div
                     key={key}
                     className={`p-2 rounded-lg flex items-center gap-2 ${
-                      value ? 'bg-green-50' : 'bg-gray-50'
+                      value ? 'bg-green-50' : 'bg-gray-50 dark:bg-gray-800'
                     }`}
                   >
                     {value ? (
@@ -397,11 +397,11 @@ const PlanManagementPage: React.FC = () => {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                     ) : (
-                      <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     )}
-                    <span className={`text-sm ${value ? 'text-green-800' : 'text-gray-500'}`}>
+                    <span className={`text-sm ${value ? 'text-green-800' : 'text-gray-500 dark:text-gray-400'}`}>
                       {key.replace(/([A-Z])/g, ' $1').trim()}
                     </span>
                   </div>
@@ -415,7 +415,7 @@ const PlanManagementPage: React.FC = () => {
             <div className="space-y-4">
               {selectedPlan.features.coreFeatures.length > 0 && (
                 <div>
-                  <div className="text-sm font-medium text-gray-500 mb-2">Core Features</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Core Features</div>
                   <div className="flex flex-wrap gap-2">
                     {selectedPlan.features.coreFeatures.map((feature, idx) => (
                       <Badge key={idx} variant="default">{feature}</Badge>
@@ -425,7 +425,7 @@ const PlanManagementPage: React.FC = () => {
               )}
               {selectedPlan.features.advancedFeatures.length > 0 && (
                 <div>
-                  <div className="text-sm font-medium text-gray-500 mb-2">Advanced Features</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Advanced Features</div>
                   <div className="flex flex-wrap gap-2">
                     {selectedPlan.features.advancedFeatures.map((feature, idx) => (
                       <Badge key={idx} variant="info">{feature}</Badge>
@@ -435,7 +435,7 @@ const PlanManagementPage: React.FC = () => {
               )}
               {selectedPlan.features.premiumFeatures.length > 0 && (
                 <div>
-                  <div className="text-sm font-medium text-gray-500 mb-2">Premium Features</div>
+                  <div className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Premium Features</div>
                   <div className="flex flex-wrap gap-2">
                     {selectedPlan.features.premiumFeatures.map((feature, idx) => (
                       <Badge key={idx} variant="warning">{feature}</Badge>
@@ -447,7 +447,7 @@ const PlanManagementPage: React.FC = () => {
           </div>
 
           {/* Metadata */}
-          <div className="border-t pt-4 text-sm text-gray-500">
+          <div className="border-t pt-4 text-sm text-gray-500 dark:text-gray-400">
             <div className="flex gap-6">
               <div>
                 <span className="font-medium">Plan Code:</span> {selectedPlan.code}

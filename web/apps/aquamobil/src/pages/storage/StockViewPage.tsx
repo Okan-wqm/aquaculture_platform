@@ -214,7 +214,7 @@ export function StockViewPage(): JSX.Element {
               <button
                 onClick={() => { void handleRefresh(); }}
                 disabled={isRefreshing}
-                className="p-2 rounded-xl hover:bg-white/10 touch-feedback"
+                className="p-2 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback"
               >
                 <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
               </button>
@@ -233,14 +233,14 @@ export function StockViewPage(): JSX.Element {
             group's purpose. */}
         <p
           id="stock-location-selector-label"
-          className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2"
+          className="block text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2"
         >
           Storage Location
         </p>
         {locationsLoading ? (
           <div className="flex items-center gap-2 py-3">
             <Spinner size="sm" />
-            <span className="text-sm text-gray-500">Loading locations...</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Loading locations...</span>
           </div>
         ) : (
           <div
@@ -275,7 +275,7 @@ export function StockViewPage(): JSX.Element {
         onTouchEnd={handleTouchEnd}
       >
         {!selectedLocationId && (
-          <div className="text-center py-16 text-gray-400">
+          <div className="text-center py-16 text-gray-400 dark:text-gray-500">
             <MapPin size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">Select a location</p>
             <p className="text-sm mt-1">Choose a storage location above to view stock</p>
@@ -285,12 +285,12 @@ export function StockViewPage(): JSX.Element {
         {selectedLocationId && stockLoading && (
           <div className="flex items-center justify-center py-12">
             <Spinner size="lg" />
-            <span className="ml-2 text-gray-500 text-sm">Loading stock...</span>
+            <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading stock...</span>
           </div>
         )}
 
         {selectedLocationId && !stockLoading && stock.length === 0 && (
-          <div className="text-center py-16 text-gray-400">
+          <div className="text-center py-16 text-gray-400 dark:text-gray-500">
             <Package size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No stock at this location</p>
             {!isOnline && (
@@ -305,7 +305,7 @@ export function StockViewPage(): JSX.Element {
             {isRefreshing && (
               <div className="flex items-center justify-center py-2 mb-2">
                 <Spinner size="sm" />
-                <span className="ml-2 text-xs text-gray-500">Refreshing...</span>
+                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">Refreshing...</span>
               </div>
             )}
 
@@ -340,7 +340,7 @@ export function StockViewPage(): JSX.Element {
                         <span className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
                           {item.quantity}
                         </span>
-                        <span className="text-xs text-gray-500 ml-1">{item.unit}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">{item.unit}</span>
                       </div>
                     </div>
 

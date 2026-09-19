@@ -108,16 +108,16 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     <Modal isOpen={isOpen} onClose={handleClose} title="Transfer Cleaner Fish" size="md">
       <div className="space-y-6">
         {/* Source Tank Info */}
-        <div className="bg-gray-50 rounded-lg p-4">
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <div>
-              <h4 className="font-medium text-gray-900">
+              <h4 className="font-medium text-gray-900 dark:text-gray-100">
                 {sourceTank?.name || 'Unknown Tank'}
               </h4>
-              <p className="text-sm text-gray-500">{sourceTank?.code}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{sourceTank?.code}</p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-gray-500">Source Tank</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Source Tank</p>
             </div>
           </div>
         </div>
@@ -142,14 +142,14 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Destination Tank */}
         <div>
-          <label htmlFor="destinationTank" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="destinationTank" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Destination Tank <span className="text-red-500">*</span>
           </label>
           <select
             id="destinationTank"
             value={destinationTankId}
             onChange={(e) => setDestinationTankId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="">Select destination tank...</option>
             {destinationTanks.map((tank) => (
@@ -162,7 +162,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Quantity */}
         <div>
-          <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Quantity to Transfer <span className="text-red-500">*</span>
           </label>
           <input
@@ -172,17 +172,17 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             max={maxQuantity}
             value={quantity || ''}
             onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Enter quantity"
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Max: {maxQuantity.toLocaleString()}
           </p>
         </div>
 
         {/* Transfer Date */}
         <div>
-          <label htmlFor="transferredAt" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="transferredAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Transfer Date
           </label>
           <input
@@ -191,13 +191,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             value={transferredAt}
             max={new Date().toISOString().split('T')[0]}
             onChange={(e) => setTransferredAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           />
         </div>
 
         {/* Reason */}
         <div>
-          <label htmlFor="reason" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Transfer Reason
           </label>
           <input
@@ -205,14 +205,14 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             id="reason"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="e.g., Rebalancing, Production needs..."
           />
         </div>
 
         {/* Notes */}
         <div>
-          <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
           <textarea
@@ -221,7 +221,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Optional notes..."
           />
         </div>

@@ -205,7 +205,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
       );
     }
     return (
-      <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-6 h-6 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
     );
@@ -214,7 +214,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
   return (
     <div className={className}>
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {label}
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
@@ -230,7 +230,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         className={`
           relative border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
           transition-colors duration-200
-          ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}
+          ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'}
           ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
           ${error ? 'border-red-500' : ''}
         `}
@@ -246,7 +246,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         />
 
         <svg
-          className="mx-auto h-12 w-12 text-gray-500"
+          className="mx-auto h-12 w-12 text-gray-500 dark:text-gray-400"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -260,10 +260,10 @@ export const FileUpload: React.FC<FileUploadProps> = ({
         </svg>
 
         <div className="mt-2">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             <span className="font-medium text-blue-600">Click to upload</span> or drag and drop
           </p>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             {accept ? `Accepted: ${accept}` : 'Any file type'} up to {formatFileSize(maxSize)}
           </p>
         </div>
@@ -276,8 +276,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
             <div
               key={file.id}
               className={`
-                flex items-center gap-3 p-3 bg-gray-50 rounded-lg border
-                ${file.status === 'error' ? 'border-red-200 bg-red-50' : 'border-gray-200'}
+                flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border
+                ${file.status === 'error' ? 'border-red-200 bg-red-50' : 'border-gray-200 dark:border-gray-700'}
               `}
             >
               {/* Preview or Icon */}
@@ -293,8 +293,8 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
               {/* File info */}
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{file.name}</p>
-                <div className="flex items-center gap-2 text-xs text-gray-500">
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{file.name}</p>
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                   <span>{formatFileSize(file.size)}</span>
                   {file.status === 'uploading' && (
                     <>
@@ -309,7 +309,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
                 {/* Progress bar */}
                 {file.status === 'uploading' && (
-                  <div className="mt-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="mt-1 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-blue-500 transition-all duration-300"
                       style={{ width: `${file.progress}%` }}
@@ -332,7 +332,7 @@ export const FileUpload: React.FC<FileUploadProps> = ({
                   e.stopPropagation();
                   handleRemove(file.id);
                 }}
-                className="p-1 text-gray-500 hover:text-red-500 transition-colors"
+                className="p-1 text-gray-500 dark:text-gray-400 hover:text-red-500 transition-colors"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -350,12 +350,12 @@ export const FileUpload: React.FC<FileUploadProps> = ({
 
       {/* Helper text */}
       {!error && helperText && (
-        <p className="mt-1 text-sm text-gray-500">{helperText}</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{helperText}</p>
       )}
 
       {/* File count */}
       {maxFiles > 1 && (
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           {value.length} of {maxFiles} files
         </p>
       )}

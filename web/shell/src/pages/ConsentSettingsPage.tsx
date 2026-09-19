@@ -40,7 +40,7 @@ const ConsentCard: React.FC<{
   const isEssential = consentType === 'ESSENTIAL';
 
   return (
-    <div className="flex items-start gap-4 p-4 bg-white rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
+    <div className="flex items-start gap-4 p-4 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 transition-colors">
       {/* Toggle switch */}
       <button
         type="button"
@@ -58,7 +58,7 @@ const ConsentCard: React.FC<{
       >
         <span
           className={`
-            pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0
+            pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0
             transition duration-200 ease-in-out
             ${(isEssential || granted) ? 'translate-x-5' : 'translate-x-0'}
           `}
@@ -68,7 +68,7 @@ const ConsentCard: React.FC<{
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <h4 className="text-sm font-semibold text-gray-900">{info.label}</h4>
+          <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{info.label}</h4>
           {isEssential && (
             <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700">
               Required
@@ -78,13 +78,13 @@ const ConsentCard: React.FC<{
             className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
               isEssential || granted
                 ? 'bg-green-100 text-green-700'
-                : 'bg-gray-100 text-gray-600'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
             }`}
           >
             {isEssential || granted ? 'Granted' : 'Denied'}
           </span>
         </div>
-        <p className="mt-1 text-sm text-gray-500">{info.description}</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{info.description}</p>
       </div>
     </div>
   );
@@ -98,7 +98,7 @@ const consentHistoryColumns: DataTableColumn<UserConsentRecord>[] = [
     key: 'consentType',
     header: 'Consent Type',
     render: (_value, record) => (
-      <span className="whitespace-nowrap text-gray-900">
+      <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">
         {CONSENT_TYPE_LABELS[record.consentType]?.label ?? record.consentType}
       </span>
     ),
@@ -119,13 +119,13 @@ const consentHistoryColumns: DataTableColumn<UserConsentRecord>[] = [
   {
     key: 'version',
     header: 'Version',
-    render: (_value, record) => <span className="whitespace-nowrap text-gray-500">v{record.version}</span>,
+    render: (_value, record) => <span className="whitespace-nowrap text-gray-500 dark:text-gray-400">v{record.version}</span>,
   },
   {
     key: 'createdAt',
     header: 'Date',
     render: (_value, record) => (
-      <span className="whitespace-nowrap text-gray-500">{new Date(record.createdAt).toLocaleString()}</span>
+      <span className="whitespace-nowrap text-gray-500 dark:text-gray-400">{new Date(record.createdAt).toLocaleString()}</span>
     ),
   },
   {
@@ -137,7 +137,7 @@ const consentHistoryColumns: DataTableColumn<UserConsentRecord>[] = [
           Active
         </span>
       ) : (
-        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">
+        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
           Superseded
         </span>
       ),
@@ -236,18 +236,18 @@ const ConsentSettingsPage: React.FC = () => {
       )}
 
       {/* Version & Status Info */}
-      <div className="bg-white rounded-lg border border-gray-200 p-5">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Consent Status</h2>
-            <div className="mt-1 flex items-center gap-4 text-sm text-gray-500">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Consent Status</h2>
+            <div className="mt-1 flex items-center gap-4 text-sm text-gray-500 dark:text-gray-400">
               {currentVersion && (
-                <span>Policy Version: <span className="font-medium text-gray-700">v{currentVersion}</span></span>
+                <span>Policy Version: <span className="font-medium text-gray-700 dark:text-gray-300">v{currentVersion}</span></span>
               )}
               {status?.lastUpdated && (
                 <span>
                   Last Updated:{' '}
-                  <span className="font-medium text-gray-700">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">
                     {new Date(status.lastUpdated).toLocaleDateString()}
                   </span>
                 </span>
@@ -286,7 +286,7 @@ const ConsentSettingsPage: React.FC = () => {
       {/* Loading State */}
       {isStatusLoading && (
         <div className="flex justify-center py-12">
-          <div className="flex items-center gap-3 text-gray-500">
+          <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
             <Spinner size="md" color="inherit" />
             <span className="text-sm">Loading consent preferences...</span>
           </div>
@@ -330,7 +330,7 @@ const ConsentSettingsPage: React.FC = () => {
       {/* Consent Toggles */}
       {status && !isStatusLoading && (
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Your Consent Preferences</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Your Consent Preferences</h2>
           <div className="space-y-3">
             {consentTypes.map((ct) => (
               <ConsentCard
@@ -346,16 +346,16 @@ const ConsentSettingsPage: React.FC = () => {
       )}
 
       {/* GDPR Rights Information */}
-      <div className="bg-gray-50 rounded-lg border border-gray-200 p-5">
-        <h3 className="text-sm font-semibold text-gray-900 mb-3">Your Data Rights (GDPR)</h3>
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Your Data Rights (GDPR)</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div className="flex items-start gap-2">
             <svg className="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div>
-              <p className="text-xs font-medium text-gray-700">Right to Access</p>
-              <p className="text-xs text-gray-500">View all consent records and history</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Right to Access</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">View all consent records and history</p>
             </div>
           </div>
           <div className="flex items-start gap-2">
@@ -363,8 +363,8 @@ const ConsentSettingsPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div>
-              <p className="text-xs font-medium text-gray-700">Right to Withdraw</p>
-              <p className="text-xs text-gray-500">Withdraw any non-essential consent at any time</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Right to Withdraw</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Withdraw any non-essential consent at any time</p>
             </div>
           </div>
           <div className="flex items-start gap-2">
@@ -372,8 +372,8 @@ const ConsentSettingsPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div>
-              <p className="text-xs font-medium text-gray-700">Right to Information</p>
-              <p className="text-xs text-gray-500">Clear descriptions of each data processing purpose</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Right to Information</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Clear descriptions of each data processing purpose</p>
             </div>
           </div>
           <div className="flex items-start gap-2">
@@ -381,8 +381,8 @@ const ConsentSettingsPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div>
-              <p className="text-xs font-medium text-gray-700">Audit Trail</p>
-              <p className="text-xs text-gray-500">Complete history of all consent changes</p>
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Audit Trail</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Complete history of all consent changes</p>
             </div>
           </div>
         </div>
@@ -390,11 +390,11 @@ const ConsentSettingsPage: React.FC = () => {
 
       {/* Consent History */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Consent History</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Consent History</h2>
 
         {historyQuery.isLoading && (
           <div className="flex justify-center py-8">
-            <div className="flex items-center gap-3 text-gray-500">
+            <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
               <Spinner size="md" color="inherit" />
               <span className="text-sm">Loading history...</span>
             </div>
@@ -419,7 +419,7 @@ const ConsentSettingsPage: React.FC = () => {
         {historyQuery.data && (
           <>
             {historyQuery.data.records.length === 0 ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-8 text-center">
+              <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center">
                 <svg
                   className="mx-auto h-10 w-10 text-gray-300"
                   fill="none"
@@ -433,13 +433,13 @@ const ConsentSettingsPage: React.FC = () => {
                     d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"
                   />
                 </svg>
-                <p className="mt-2 text-sm text-gray-500">No consent history found.</p>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No consent history found.</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                   Consent records will appear here as you update your preferences.
                 </p>
               </div>
             ) : (
-              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <DataTable<UserConsentRecord>
                   data={historyQuery.data.records}
                   columns={consentHistoryColumns}
@@ -453,8 +453,8 @@ const ConsentSettingsPage: React.FC = () => {
 
                 {/* Pagination */}
                 {historyQuery.data.totalCount > historyLimit && (
-                  <div className="flex items-center justify-between px-4 py-3 bg-gray-50 border-t border-gray-200">
-                    <p className="text-sm text-gray-500">
+                  <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                       Showing {historyPage * historyLimit + 1} to{' '}
                       {Math.min((historyPage + 1) * historyLimit, historyQuery.data.totalCount)} of{' '}
                       {historyQuery.data.totalCount} records
@@ -464,7 +464,7 @@ const ConsentSettingsPage: React.FC = () => {
                         type="button"
                         disabled={historyPage === 0}
                         onClick={() => setHistoryPage((p) => Math.max(0, p - 1))}
-                        className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Previous
                       </button>
@@ -474,7 +474,7 @@ const ConsentSettingsPage: React.FC = () => {
                           (historyPage + 1) * historyLimit >= historyQuery.data.totalCount
                         }
                         onClick={() => setHistoryPage((p) => p + 1)}
-                        className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         Next
                       </button>

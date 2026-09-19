@@ -62,16 +62,16 @@ const TrainingPage: React.FC = () => {
                   <GraduationCap className="h-5 w-5 text-indigo-600" />
                 </div>
                 {course.trainingType && (
-                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', categoryColors[course.trainingType.toLowerCase()] || 'bg-gray-100 text-gray-800')}>
+                  <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', categoryColors[course.trainingType.toLowerCase()] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200')}>
                     {course.trainingType.replace('_', ' ')}
                   </span>
                 )}
               </div>
               <h3 className="mb-1 font-medium text-gray-900 dark:text-white">{course.name}</h3>
               {course.description && (
-                <p className="mb-3 text-sm text-gray-500 line-clamp-2">{course.description}</p>
+                <p className="mb-3 text-sm text-gray-500 dark:text-gray-400 line-clamp-2">{course.description}</p>
               )}
-              <div className="flex items-center justify-between text-xs text-gray-500">
+              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                 {course.durationMinutes && (
                   <div className="flex items-center gap-1">
                     <Clock className="h-3.5 w-3.5" />
@@ -95,8 +95,8 @@ const TrainingPage: React.FC = () => {
         </div>
       ) : (
         <div className="flex h-48 flex-col items-center justify-center text-center">
-          <GraduationCap className="mb-3 h-10 w-10 text-gray-400" />
-          <p className="text-gray-500">No training courses found</p>
+          <GraduationCap className="mb-3 h-10 w-10 text-gray-400 dark:text-gray-500" />
+          <p className="text-gray-500 dark:text-gray-400">No training courses found</p>
         </div>
       )}
     </div>

@@ -310,9 +310,9 @@ export function StockTransferPage(): JSX.Element {
         subtitle={<>Step {step} of {TOTAL_STEPS}</>}
         back={handleBack}
       >
-        <div className="h-1 bg-white/20">
+        <div className="h-1 bg-white/20 dark:bg-gray-900/20">
           <div
-            className="h-full bg-white/80 transition-all duration-300"
+            className="h-full bg-white/80 dark:bg-gray-900/80 transition-all duration-300"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -369,7 +369,7 @@ export function StockTransferPage(): JSX.Element {
               <>
                 <div className="flex items-stretch gap-2 mb-3">
                   <div className="relative flex-1">
-                  <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                  <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                   <input
                     type="text"
                     placeholder="Search items..."
@@ -383,10 +383,10 @@ export function StockTransferPage(): JSX.Element {
                 {itemsLoading ? (
                   <div className="flex items-center justify-center py-8">
                     <Spinner size="md" />
-                    <span className="ml-2 text-gray-500 text-sm">Loading...</span>
+                    <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading...</span>
                   </div>
                 ) : filteredItems.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400">
+                  <div className="text-center py-8 text-gray-400 dark:text-gray-500">
                     <Package size={32} className="mx-auto mb-2 opacity-30" />
                     <p className="text-sm">No items found</p>
                   </div>
@@ -436,7 +436,7 @@ export function StockTransferPage(): JSX.Element {
             {locationsLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Spinner size="lg" />
-                <span className="ml-2 text-gray-500 text-sm">Loading locations...</span>
+                <span className="ml-2 text-gray-500 dark:text-gray-400 text-sm">Loading locations...</span>
               </div>
             ) : (
               <div className="space-y-2 max-h-[50vh] overflow-y-auto">
@@ -477,7 +477,7 @@ export function StockTransferPage(): JSX.Element {
               Where should the stock be moved to?
             </p>
             {toLocationOptions.length === 0 ? (
-              <div className="text-center py-12 text-gray-400">
+              <div className="text-center py-12 text-gray-400 dark:text-gray-500">
                 <p className="text-sm">No other locations available</p>
               </div>
             ) : (
@@ -525,7 +525,7 @@ export function StockTransferPage(): JSX.Element {
                 className="w-full text-center text-4xl font-bold py-6 rounded-2xl border-2 border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               {selectedItem && (
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-gray-400 font-medium">
+                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-gray-400 dark:text-gray-500 font-medium">
                   {selectedItem.unit}
                 </span>
               )}
@@ -539,19 +539,19 @@ export function StockTransferPage(): JSX.Element {
             <h2 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Confirm transfer</h2>
             <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-800">
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">Item</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Item</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{selectedItem?.name ?? '-'}</span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">From</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">From</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{fromLocation?.name ?? '-'}</span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">To</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">To</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">{toLocation?.name ?? '-'}</span>
               </div>
               <div className="p-4 flex justify-between">
-                <span className="text-sm text-gray-500">Quantity</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
                 <span className="text-sm font-bold text-gray-900 dark:text-white">
                   {quantity} {selectedItem?.unit ?? ''}
                 </span>

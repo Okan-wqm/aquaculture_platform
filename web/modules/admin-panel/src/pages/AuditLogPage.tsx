@@ -221,11 +221,11 @@ interface StatsCardProps {
   valueColor?: string;
 }
 
-const StatsCard: React.FC<StatsCardProps> = ({ title, value, subtitle, valueColor = 'text-gray-900' }) => (
+const StatsCard: React.FC<StatsCardProps> = ({ title, value, subtitle, valueColor = 'text-gray-900 dark:text-gray-100' }) => (
   <Card className="p-4">
-    <p className="text-sm text-gray-500">{title}</p>
+    <p className="text-sm text-gray-500 dark:text-gray-400">{title}</p>
     <p className={`text-2xl font-bold ${valueColor}`}>{typeof value === 'number' ? value.toLocaleString() : value}</p>
-    {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+    {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>}
   </Card>
 );
 
@@ -261,8 +261,8 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
       </div>
 
       <div>
-        <label className="text-xs text-gray-500">User Agent</label>
-        <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded break-all">
+        <label className="text-xs text-gray-500 dark:text-gray-400">User Agent</label>
+        <p className="text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 p-2 rounded break-all">
           {log.userAgent || '-'}
         </p>
       </div>
@@ -271,8 +271,8 @@ const LogDetailModal: React.FC<LogDetailModalProps> = ({ log, onClose }) => (
         <div>
           {/* `details` is the column (audit.entity.ts). The hand-written
               type called it `metadata`, so this block never rendered. */}
-          <label className="text-xs text-gray-500">Details</label>
-          <pre className="text-sm bg-gray-50 p-3 rounded overflow-auto max-h-64">
+          <label className="text-xs text-gray-500 dark:text-gray-400">Details</label>
+          <pre className="text-sm bg-gray-50 dark:bg-gray-800 p-3 rounded overflow-auto max-h-64">
             {JSON.stringify(log.details, null, 2)}
           </pre>
         </div>
@@ -291,11 +291,11 @@ interface DetailFieldProps {
 
 const DetailField: React.FC<DetailFieldProps> = ({ label, value, subtitle, mono, children }) => (
   <div>
-    <label className="text-xs text-gray-500">{label}</label>
+    <label className="text-xs text-gray-500 dark:text-gray-400">{label}</label>
     {children || (
       <>
         <p className={`font-medium ${mono ? 'font-mono text-sm' : ''}`}>{value}</p>
-        {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+        {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400">{subtitle}</p>}
       </>
     )}
   </div>
@@ -439,8 +439,8 @@ const AuditLogPage: React.FC = () => {
       sortable: true,
       render: (log) => (
         <div>
-          <span className="text-sm text-gray-900">{formatRelativeTime(log.createdAt)}</span>
-          <p className="text-xs text-gray-500">{formatDateTime(log.createdAt)}</p>
+          <span className="text-sm text-gray-900 dark:text-gray-100">{formatRelativeTime(log.createdAt)}</span>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{formatDateTime(log.createdAt)}</p>
         </div>
       ),
     },
@@ -456,8 +456,8 @@ const AuditLogPage: React.FC = () => {
       sortable: true,
       render: (log) => (
         <div>
-          <p className="font-medium text-gray-900">{log.entityType}</p>
-          <p className="text-xs text-gray-500 truncate max-w-[120px]">ID: {log.entityId}</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{log.entityType}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[120px]">ID: {log.entityId}</p>
         </div>
       ),
     },
@@ -467,7 +467,7 @@ const AuditLogPage: React.FC = () => {
       sortable: true,
       render: (log) => (
         <div className="max-w-[180px]">
-          <p className="text-sm text-gray-900 truncate">{log.performedByEmail}</p>
+          <p className="text-sm text-gray-900 dark:text-gray-100 truncate">{log.performedByEmail}</p>
         </div>
       ),
     },
@@ -480,7 +480,7 @@ const AuditLogPage: React.FC = () => {
     {
       key: 'ipAddress',
       header: 'IP',
-      render: (log) => <code className="text-xs bg-gray-100 px-2 py-1 rounded">{log.ipAddress}</code>,
+      render: (log) => <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">{log.ipAddress}</code>,
     },
     {
       key: 'actions',
@@ -566,7 +566,7 @@ const AuditLogPage: React.FC = () => {
               value={filters.search}
               onChange={(e) => setFilter('search', e.target.value)}
               leftIcon={
-                <svg className="w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               }
@@ -598,7 +598,7 @@ const AuditLogPage: React.FC = () => {
           />
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Start Date</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Start Date</label>
             <Input
               type="date"
               value={filters.startDate}
@@ -607,7 +607,7 @@ const AuditLogPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1">End Date</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">End Date</label>
             <Input
               type="date"
               value={filters.endDate}
@@ -639,7 +639,7 @@ const AuditLogPage: React.FC = () => {
       {loading && (
         <Card className="p-8 text-center">
           <Spinner size="lg" block />
-          <p className="mt-4 text-gray-500">Loading...</p>
+          <p className="mt-4 text-gray-500 dark:text-gray-400">Loading...</p>
         </Card>
       )}
 
@@ -656,7 +656,7 @@ const AuditLogPage: React.FC = () => {
           {/* Pagination */}
           {pagination.totalPages > 1 && (
             <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Page {pagination.page} of {pagination.totalPages} ({pagination.total.toLocaleString()} records)
               </p>
               <div className="flex gap-2">

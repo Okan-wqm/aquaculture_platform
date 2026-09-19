@@ -61,7 +61,7 @@ interface SubEquipmentSectionProps {
 const STATUS_BADGES: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
   MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  INACTIVE: 'bg-gray-100 text-gray-800',
+  INACTIVE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   RETIRED: 'bg-red-100 text-red-800',
 };
 
@@ -109,10 +109,10 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
       header: 'Ad',
       render: (_value, item) => (
         <>
-          <div className="font-medium text-gray-900">
+          <div className="font-medium text-gray-900 dark:text-gray-100">
             {item.name}
           </div>
-          <div className="text-xs text-gray-500">{item.code}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{item.code}</div>
         </>
       ),
     },
@@ -128,7 +128,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
         <>
           <span
             className={`px-2 py-0.5 text-xs rounded-full ${
-              STATUS_BADGES[item.status ?? 'ACTIVE'] ?? 'bg-gray-100 text-gray-800'
+              STATUS_BADGES[item.status ?? 'ACTIVE'] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
             {item.status ?? 'ACTIVE'}
@@ -169,7 +169,7 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
   return (
     <div className="mt-4">
       <div className="flex items-center justify-between mb-2">
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
           Alt Ekipmanlar
         </label>
         {canCreate && (
@@ -183,15 +183,15 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
         )}
       </div>
 
-      <div className="border border-gray-200 rounded-md overflow-hidden">
+      <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
         {subEquipmentQuery.isLoading ? (
-          <div className="p-3 text-sm text-gray-500">Yükleniyor…</div>
+          <div className="p-3 text-sm text-gray-500 dark:text-gray-400">Yükleniyor…</div>
         ) : subEquipmentQuery.isError ? (
           <div className="p-3 text-sm text-red-700">
             Alt ekipmanlar yüklenemedi.
           </div>
         ) : items.length === 0 ? (
-          <div className="p-3 text-sm text-gray-500">
+          <div className="p-3 text-sm text-gray-500 dark:text-gray-400">
             Bu ekipmana bağlı alt ekipman yok.
           </div>
         ) : (

@@ -64,7 +64,7 @@ const ASSIGNMENT_STATUS_KEY: Record<ProtocolAssignmentStatus, MessageKey> = {
 const ASSIGNMENT_STATUS_BADGE: Record<ProtocolAssignmentStatus, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
   PAUSED: 'bg-yellow-100 text-yellow-800',
-  ENDED: 'bg-gray-100 text-gray-600',
+  ENDED: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
 };
 
 const TEMP_SOURCE_KEY: Record<EffectiveTemperatureSource, MessageKey> = {
@@ -149,14 +149,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           </div>
         )}
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t('feedingV2.assignments.unit')}
           </label>
           <select
             required
             value={unitId}
             onChange={(e) => setUnitId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
           >
             <option value="">{t('feedingV2.assignments.selectUnit')}</option>
             {units.map((unit) => (
@@ -167,14 +167,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t('feedingV2.assignments.protocol')}
           </label>
           <select
             required
             value={protocolId}
             onChange={(e) => setProtocolId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
           >
             <option value="">{t('feedingV2.assignments.selectProtocol')}</option>
             {activeProtocols.map((protocol) => (
@@ -186,14 +186,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t('feedingV2.assignments.effectiveFrom')}
           </label>
           <input
             type="date"
             value={effectiveFrom}
             onChange={(e) => setEffectiveFrom(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
           />
         </div>
         {needsMismatchReason && (
@@ -201,14 +201,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
             <p className="text-sm text-amber-800 mb-2">
               {t('feedingV2.assignments.speciesMismatch')}
             </p>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               {t('feedingV2.assignments.speciesMismatchReason')}
             </label>
             <input
               maxLength={500}
               value={mismatchReason}
               onChange={(e) => setMismatchReason(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
             />
           </div>
         )}
@@ -216,7 +216,7 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {t('common.cancel')}
           </button>
@@ -323,12 +323,12 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
 
         {/* Operasyonel override'lar */}
         <div>
-          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-3">
+          <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-3">
             {t('feedingV2.assignments.overrides')}
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-gray-600">
+              <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.offset')}
               </label>
               <input
@@ -343,11 +343,11 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                       e.target.value === '' ? undefined : Number(e.target.value),
                   }))
                 }
-                className="mt-1 w-24 rounded-md border-gray-300 shadow-sm text-sm"
+                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">
+              <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.mealsPerDayOverride')}
               </label>
               <input
@@ -361,11 +361,11 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                     mealsPerDayOverride: e.target.value === '' ? undefined : Number(e.target.value),
                   }))
                 }
-                className="mt-1 w-24 rounded-md border-gray-300 shadow-sm text-sm"
+                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">
+              <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.rateAdjustment')}
               </label>
               <input
@@ -381,7 +381,7 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                       e.target.value === '' ? undefined : Number(e.target.value),
                   }))
                 }
-                className="mt-1 w-24 rounded-md border-gray-300 shadow-sm text-sm"
+                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
               />
             </div>
           </div>
@@ -390,7 +390,7 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
         {/* Ünite FCR override'ları (R11) */}
         {bandFeeds.length > 0 && (
           <div>
-            <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-3">
+            <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-3">
               {t('feedingV2.assignments.fcrOverrides')}
             </h4>
             <div className="space-y-2">
@@ -398,8 +398,8 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                 const override = overrideFor(feed.feedId);
                 return (
                   <div key={feed.feedId} className="flex items-center gap-3">
-                    <span className="text-sm text-gray-700 w-56 truncate">{feed.feedName}</span>
-                    <span className="text-xs text-gray-500 w-44">
+                    <span className="text-sm text-gray-700 dark:text-gray-300 w-56 truncate">{feed.feedName}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 w-44">
                       {t('feedingV2.assignments.fcrOverride.protocolDefault', {
                         value: feed.defaultFcr,
                       })}
@@ -417,7 +417,7 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                           e.target.value === '' ? null : Number(e.target.value),
                         )
                       }
-                      className="w-24 rounded-md border-gray-300 shadow-sm text-sm"
+                      className="w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
                     />
                     {override && (
                       <>
@@ -443,13 +443,13 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
         {/* Sıcaklık sensörü (equipment.temperatureSensorId — C-3) */}
         {canEditEquipment && (
           <div>
-            <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-3">
+            <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-3">
               {t('feedingV2.assignments.tempSensor')}
             </h4>
             <select
               value={sensorId}
               onChange={(e) => setSensorId(e.target.value)}
-              className="block w-full sm:w-80 rounded-md border-gray-300 shadow-sm text-sm"
+              className="block w-full sm:w-80 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
             >
               <option value="">{t('feedingV2.assignments.noSensor')}</option>
               {sensors.map((sensor) => (
@@ -461,11 +461,11 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
           </div>
         )}
 
-        <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+        <div className="flex justify-end gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {t('common.cancel')}
           </button>
@@ -564,8 +564,8 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
       header: '{t(\'feedingV2.assignments.unit\')}',
       render: (_value, assignment) => (
         <>
-          <div className="font-medium text-gray-900">{assignment.unitName}</div>
-          <div className="text-xs text-gray-500">
+          <div className="font-medium text-gray-900 dark:text-gray-100">{assignment.unitName}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {assignment.unitCode} · {t(UNIT_TYPE_KEY[assignment.unitType])}
           </div>
         </>
@@ -579,7 +579,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
         const overrideCount = assignment.overrides?.fcrOverrides?.length ?? 0;
         return (
           <>
-            <div className="text-gray-900">{protocol?.name ?? assignment.protocolId}</div>
+            <div className="text-gray-900 dark:text-gray-100">{protocol?.name ?? assignment.protocolId}</div>
             {overrideCount > 0 && (
               <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-2 py-0.5 text-xs mt-0.5">
                 {t('feedingV2.assignments.fcrOverride.overridden')} ({overrideCount})
@@ -637,7 +637,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
                 )}
               </div>
             ) : (
-              <span className="text-gray-400">—</span>
+              <span className="text-gray-400 dark:text-gray-500">—</span>
             )}
           </>
         );
@@ -658,7 +658,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
               </button>
               <button
                 onClick={() => void handleToggleStatus(assignment)}
-                className="text-gray-600 hover:text-gray-800 mr-3"
+                className="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 mr-3"
               >
                 {assignment.status === 'ACTIVE'
                   ? t('feedingV2.assignments.pause')
@@ -677,7 +677,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
           {canUnassign && (
             <button
               onClick={() => void handleUnassign(assignment)}
-              className="text-gray-500 hover:text-red-600"
+              className="text-gray-500 dark:text-gray-400 hover:text-red-600"
             >
               {t('feedingV2.assignments.unassign')}
             </button>
@@ -691,10 +691,10 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {t('feedingV2.assignments.title')}
           </h2>
-          <p className="text-sm text-gray-500">{t('feedingV2.assignments.subtitle')}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('feedingV2.assignments.subtitle')}</p>
         </div>
         {canAssign && (
           <button
@@ -713,7 +713,7 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
       )}
 
       {!isLoading && assignments.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-12 text-center text-sm text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center text-sm text-gray-500 dark:text-gray-400">
           {t('feedingV2.assignments.empty')}
         </div>
       )}
@@ -765,12 +765,12 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
                       .then(() => setTransitionAssignment(null));
                   });
                 }}
-                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+                className="flex w-full items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
               >
                 <span>
                   {band.feedName} ({band.feedCode})
                 </span>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   {band.minWeightG}–{band.maxWeightG} g
                 </span>
               </button>

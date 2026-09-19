@@ -17,7 +17,7 @@ import { CreatePurchaseOrderModal } from './CreatePurchaseOrderModal';
 import { ReceiveDeliveryModal } from './ReceiveDeliveryModal';
 
 const statusColors: Record<string, string> = {
-  DRAFT: 'bg-gray-100 text-gray-800',
+  DRAFT: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   SUBMITTED: 'bg-yellow-100 text-yellow-800',
   APPROVED: 'bg-teal-100 text-teal-800',
   ORDERED: 'bg-indigo-100 text-indigo-800',
@@ -121,7 +121,7 @@ export const PurchaseOrdersTab: React.FC = () => {
       key: 'category',
       header: 'Category',
       render: (_value, po) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[po.category] || 'bg-gray-100 text-gray-800'}`}>
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[po.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
           {po.category}
         </span>
       ),
@@ -141,9 +141,9 @@ export const PurchaseOrdersTab: React.FC = () => {
               {po.items.slice(0, 2).map(item => (
                 <div key={item.id} className="text-xs">{item.itemName} ({item.quantity} {item.unit})</div>
               ))}
-              {po.items.length > 2 && <div className="text-xs text-gray-400">+{po.items.length - 2} more</div>}
+              {po.items.length > 2 && <div className="text-xs text-gray-400 dark:text-gray-500">+{po.items.length - 2} more</div>}
             </div>
-          ) : <span className="text-gray-400">No items</span>}
+          ) : <span className="text-gray-400 dark:text-gray-500">No items</span>}
         </>
       ),
     },
@@ -161,7 +161,7 @@ export const PurchaseOrdersTab: React.FC = () => {
       key: 'status',
       header: 'Status',
       render: (_value, po) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 text-gray-800'}`}>
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
           {po.status.replace('_', ' ')}
         </span>
       ),
@@ -173,12 +173,12 @@ export const PurchaseOrdersTab: React.FC = () => {
         <>
           {po.approvedByName || po.approvedBy ? (
             <div>
-              <div className="text-xs text-gray-700">{po.approvedByName || po.approvedBy}</div>
+              <div className="text-xs text-gray-700 dark:text-gray-300">{po.approvedByName || po.approvedBy}</div>
               {po.approvedAt && (
-                <div className="text-xs text-gray-400">{new Date(po.approvedAt).toLocaleDateString('nb-NO')}</div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">{new Date(po.approvedAt).toLocaleDateString('nb-NO')}</div>
               )}
             </div>
-          ) : <span className="text-gray-400">-</span>}
+          ) : <span className="text-gray-400 dark:text-gray-500">-</span>}
         </>
       ),
     },
@@ -227,12 +227,12 @@ export const PurchaseOrdersTab: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div className="flex gap-3">
           <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
             <option value="">All Status</option>
             {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
           <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
             <option value="">All Categories</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
@@ -260,7 +260,7 @@ export const PurchaseOrdersTab: React.FC = () => {
       )}
 
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<PoRow>
             data={orders}
             columns={poRowColumns}
@@ -271,7 +271,7 @@ export const PurchaseOrdersTab: React.FC = () => {
             stickyHeader={false}
           />
           {orders.length === 0 && (
-            <div className="text-center py-12 text-gray-500 text-sm">No purchase orders found.</div>
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">No purchase orders found.</div>
           )}
         </div>
       )}

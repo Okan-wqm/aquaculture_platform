@@ -41,23 +41,23 @@ const ChatRoomPage: React.FC = () => {
   };
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-3xl flex-col overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-3xl flex-col overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
       {/* Header */}
-      <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3">
+      <div className="flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
         <button
           onClick={() => navigate('/messaging')}
-          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          className="rounded-lg p-1.5 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
           aria-label="Back to channels"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <span className="text-sm font-semibold text-gray-900">Conversation</span>
+        <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Conversation</span>
       </div>
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {isLoading && (
-          <div className="flex items-center gap-2 text-sm text-gray-400">
+          <div className="flex items-center gap-2 text-sm text-gray-400 dark:text-gray-500">
             <RefreshCw className="h-4 w-4 animate-spin" /> Loading…
           </div>
         )}
@@ -67,7 +67,7 @@ const ChatRoomPage: React.FC = () => {
             <div key={m.id} className={mine ? 'flex justify-end' : 'flex justify-start'}>
               <div className="max-w-[80%]">
                 {!mine && (
-                  <div className="mb-0.5 flex items-center gap-1 text-xs text-gray-400">
+                  <div className="mb-0.5 flex items-center gap-1 text-xs text-gray-400 dark:text-gray-500">
                     {m.isAiGenerated && <Sparkles className="h-3 w-3 text-tenant-600" />}
                     {m.isAiGenerated ? 'AI Assistant' : senderName(m)}
                   </div>
@@ -77,8 +77,8 @@ const ChatRoomPage: React.FC = () => {
                     mine
                       ? 'rounded-2xl rounded-br-sm bg-tenant-600 px-3 py-2 text-sm text-white'
                       : m.isAiGenerated
-                        ? 'rounded-2xl rounded-bl-sm border border-tenant-100 bg-tenant-50 px-3 py-2 text-sm text-gray-800'
-                        : 'rounded-2xl rounded-bl-sm bg-gray-100 px-3 py-2 text-sm text-gray-800'
+                        ? 'rounded-2xl rounded-bl-sm border border-tenant-100 bg-tenant-50 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'
+                        : 'rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'
                   }
                 >
                   <span className="whitespace-pre-wrap">{m.content}</span>
@@ -90,7 +90,7 @@ const ChatRoomPage: React.FC = () => {
       </div>
 
       {/* Composer */}
-      <div className="border-t border-gray-200 p-3">
+      <div className="border-t border-gray-200 dark:border-gray-700 p-3">
         <div className="flex items-end gap-2">
           <textarea
             value={draft}
@@ -103,7 +103,7 @@ const ChatRoomPage: React.FC = () => {
             }}
             rows={1}
             placeholder="Type a message…"
-            className="max-h-32 flex-1 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+            className="max-h-32 flex-1 resize-none rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
           />
           <button
             onClick={() => void handleSend()}

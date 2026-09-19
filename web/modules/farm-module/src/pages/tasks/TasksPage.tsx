@@ -203,7 +203,7 @@ const TasksPage: React.FC = () => {
         <div className="flex items-center justify-center py-20">
           <div className="flex flex-col items-center gap-3">
             <Spinner size="lg" />
-            <p className="text-sm text-gray-500">Görevler yükleniyor...</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Görevler yükleniyor...</p>
           </div>
         </div>
       );
@@ -270,9 +270,9 @@ const TasksPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <PageHeader
           title="Görev Yönetimi"
           description="Günlük operasyonlar, tekrarlayan görevler ve otomatik kurallarla çiftlik yönetimi"
@@ -288,7 +288,7 @@ const TasksPage: React.FC = () => {
       </div>
 
       {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6">
           <nav className="-mb-px flex space-x-1 overflow-x-auto">
             {tabs.map((tab) => (
@@ -299,7 +299,7 @@ const TasksPage: React.FC = () => {
                   flex items-center gap-2 px-4 py-3 border-b-2 text-sm font-medium whitespace-nowrap transition-colors
                   ${activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >

@@ -20,7 +20,7 @@ import { InventoryCountDetailModal } from './InventoryCountDetailModal';
 
 /** Badge colors per status — consistent with other tabs in the storage module */
 const statusColors: Record<string, string> = {
-  PLANNED: 'bg-gray-100 text-gray-800',
+  PLANNED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   IN_PROGRESS: 'bg-blue-100 text-blue-800',
   COMPLETED: 'bg-green-100 text-green-800',
   APPROVED: 'bg-purple-100 text-purple-800',
@@ -77,7 +77,7 @@ export const InventoryCountTab: React.FC = () => {
           onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
           className={`text-xs px-2 py-1 rounded ${
             isOwnCount
-              ? 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              ? 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
               : 'bg-green-50 text-green-700 hover:bg-green-100'
           }`}
         >
@@ -89,7 +89,7 @@ export const InventoryCountTab: React.FC = () => {
     return (
       <button
         onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
-        className="text-xs px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100"
+        className="text-xs px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         View
       </button>
@@ -144,7 +144,7 @@ export const InventoryCountTab: React.FC = () => {
       render: (_value, ic) => (
         <>
           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-            statusColors[ic.status] || 'bg-gray-100 text-gray-800'
+            statusColors[ic.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
           }`}>
             {ic.status.replace('_', ' ')}
           </span>
@@ -167,7 +167,7 @@ export const InventoryCountTab: React.FC = () => {
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
           >
             <option value="">All Status</option>
             {STATUS_OPTIONS.map(s => (
@@ -203,7 +203,7 @@ export const InventoryCountTab: React.FC = () => {
 
       {/* Main table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <DataTable<IcRow>
             data={counts}
             columns={icRowColumns}
@@ -214,7 +214,7 @@ export const InventoryCountTab: React.FC = () => {
             stickyHeader={false}
           />
           {counts.length === 0 && (
-            <div className="text-center py-12 text-gray-500 text-sm">
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
               No inventory counts found. Start a new count to reconcile your stock.
             </div>
           )}

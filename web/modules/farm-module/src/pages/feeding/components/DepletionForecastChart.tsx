@@ -57,23 +57,23 @@ export function DepletionForecastChart({ forecast }: Props): React.ReactElement 
 
   if (forecast.perFeed.length === 0) {
     return (
-      <p className="text-sm text-gray-500 py-8 text-center">
+      <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
         {t('feedingV2.forecast.empty')}
       </p>
     );
   }
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-4">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-        <h3 className="font-semibold text-gray-900">{t('feedingV2.forecast.chartTitle')}</h3>
-        <div className="flex items-center gap-2 text-xs text-gray-500">
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">{t('feedingV2.forecast.chartTitle')}</h3>
+        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           {forecast.mortalityAssumption.applied ? (
             <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700">
               {t('feedingV2.forecast.mortalityApplied')}
             </span>
           ) : (
-            <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-600">
+            <span className="px-2 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
               {t('feedingV2.forecast.mortalityNone')}
             </span>
           )}

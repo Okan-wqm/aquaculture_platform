@@ -115,11 +115,11 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
 
     const inputStateStyles = error
       ? 'border-red-500 focus:ring-red-500 focus:border-red-500'
-      : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500';
+      : 'border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500';
 
     const disabledStyles = disabled
-      ? 'bg-gray-100 cursor-not-allowed text-gray-500'
-      : 'bg-white';
+      ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500 dark:text-gray-400'
+      : 'bg-white dark:bg-gray-900';
 
     return (
       <div className={`${fullWidth ? 'w-full' : ''} ${className}`}>
@@ -127,7 +127,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         {label && (
           <label
             htmlFor={selectId}
-            className="block text-sm font-medium text-gray-700 mb-1"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
           >
             {label}
             {required && <span className="text-red-500 ml-1">*</span>}
@@ -208,7 +208,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           {/* Dropdown ikonu */}
           <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
             <svg
-              className="w-5 h-5 text-gray-500"
+              className="w-5 h-5 text-gray-500 dark:text-gray-400"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -232,7 +232,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
 
         {/* Yardım metni */}
         {!error && helperText && (
-          <p id={`${selectId}-helper`} className="mt-1 text-sm text-gray-500">
+          <p id={`${selectId}-helper`} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {helperText}
           </p>
         )}

@@ -145,23 +145,23 @@ const EmployeeDetailPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Work Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-500">Employee Number</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Employee Number</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.employeeNumber || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Employment Type</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Employment Type</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.employmentType || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Department</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Department</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.department || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Position</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Position</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.position || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Personnel Category</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Personnel Category</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.personnelCategory || '-'}</p>
               </div>
             </div>

@@ -81,7 +81,7 @@ export function NotificationsPage(): JSX.Element {
                 onClick={() => {
                   runAsyncAction(markAllAsRead, 'notifications-mark-all-read');
                 }}
-                className="flex items-center gap-1.5 text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
+                className="flex items-center gap-1.5 text-sm font-medium bg-white/20 dark:bg-gray-900/20 px-3 py-1.5 rounded-lg touch-feedback"
               >
                 <CheckCheck size={16} />
                 Mark All Read
@@ -106,7 +106,7 @@ export function NotificationsPage(): JSX.Element {
             <p className="font-medium text-gray-600 dark:text-gray-300">
               Notifications are not available yet
             </p>
-            <p className="text-sm text-gray-400 mt-1">Please try again later</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Please try again later</p>
             <button
               onClick={() => {
                 void refetch();
@@ -118,7 +118,7 @@ export function NotificationsPage(): JSX.Element {
             </button>
           </div>
         ) : notifications.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <Bell size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No notifications yet</p>
             <p className="text-sm mt-1">You will see alerts and updates here</p>
@@ -162,8 +162,8 @@ export function NotificationsPage(): JSX.Element {
                     >
                       {notification.title}
                     </h3>
-                    <p className="text-xs text-gray-500 line-clamp-2">{notification.body}</p>
-                    <p className="text-[11px] text-gray-400 mt-1.5">{formatTimeAgo(notification.createdAt)}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{notification.body}</p>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">{formatTimeAgo(notification.createdAt)}</p>
                   </div>
                 </div>
               </button>

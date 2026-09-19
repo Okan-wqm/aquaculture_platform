@@ -268,9 +268,9 @@ const VariableSection: React.FC<{
         className="w-full flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 text-left transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+          <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+          <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         )}
         <span className="text-xs font-semibold text-gray-700 dark:text-gray-500">
           {section.label}

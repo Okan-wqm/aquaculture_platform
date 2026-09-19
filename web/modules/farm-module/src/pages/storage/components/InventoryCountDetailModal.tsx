@@ -294,10 +294,10 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
               value={item.actualQuantity ?? ''}
               onChange={(e) => handleQuantityChange(item.itemId, e.target.value)}
               placeholder="0"
-              className="w-24 border border-gray-300 rounded px-2 py-1 text-sm text-right focus:ring-blue-500 focus:border-blue-500"
+              className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm text-right focus:ring-blue-500 focus:border-blue-500"
             />
           ) : (
-            <span className="text-sm text-gray-900">
+            <span className="text-sm text-gray-900 dark:text-gray-100">
               {item.actualQuantity != null
                 ? `${item.actualQuantity} ${item.unit}`
                 : '-'}
@@ -325,7 +325,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
                 {variance}
               </span>
             ) : (
-              <span className="text-gray-400 text-sm">-</span>
+              <span className="text-gray-400 dark:text-gray-500 text-sm">-</span>
             )}
           </>
         );
@@ -340,7 +340,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
           value={item.notes}
           onChange={(e) => handleNotesChange(item.itemId, e.target.value)}
           placeholder="Notes..."
-          className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+          className="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
         />
       ),
     }
@@ -358,7 +358,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
         <div className="flex justify-between items-start mb-4">
           <div>
             {count && (
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {count.locationName}
                 {count.startedAt && ` — ${new Date(count.startedAt).toLocaleDateString('nb-NO')}`}
               </p>
@@ -368,7 +368,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
             <span
               className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                 count.status === InventoryCountStatus.PLANNED
-                  ? 'bg-gray-100 text-gray-800'
+                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                   : count.status === InventoryCountStatus.IN_PROGRESS
                     ? 'bg-blue-100 text-blue-800'
                     : count.status === InventoryCountStatus.COMPLETED
@@ -385,29 +385,29 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
         {count && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm mb-4">
             <div>
-              <span className="text-gray-500">Performed by:</span>
-              <span className="ml-1 text-gray-900">
+              <span className="text-gray-500 dark:text-gray-400">Performed by:</span>
+              <span className="ml-1 text-gray-900 dark:text-gray-100">
                 {count.performedByName || count.performedBy}
               </span>
             </div>
             {count.approvedByName && (
               <div>
-                <span className="text-gray-500">Approved by:</span>
-                <span className="ml-1 text-gray-900">{count.approvedByName}</span>
+                <span className="text-gray-500 dark:text-gray-400">Approved by:</span>
+                <span className="ml-1 text-gray-900 dark:text-gray-100">{count.approvedByName}</span>
               </div>
             )}
             {count.approvedAt && (
               <div>
-                <span className="text-gray-500">Approved at:</span>
-                <span className="ml-1 text-gray-900">
+                <span className="text-gray-500 dark:text-gray-400">Approved at:</span>
+                <span className="ml-1 text-gray-900 dark:text-gray-100">
                   {new Date(count.approvedAt).toLocaleDateString('nb-NO')}
                 </span>
               </div>
             )}
             {count.notes && (
               <div className="col-span-2">
-                <span className="text-gray-500">Notes:</span>
-                <span className="ml-1 text-gray-900">{count.notes}</span>
+                <span className="text-gray-500 dark:text-gray-400">Notes:</span>
+                <span className="ml-1 text-gray-900 dark:text-gray-100">{count.notes}</span>
               </div>
             )}
           </div>
@@ -421,11 +421,11 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
                 ? 'bg-green-50 border border-green-200'
                 : Math.abs(count.totalVariance) > 0
                   ? 'bg-amber-50 border border-amber-200'
-                  : 'bg-gray-50 border border-gray-200'
+                  : 'bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
             }`}
           >
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-700">Total Variance</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Total Variance</span>
               <span
                 className={`text-lg font-bold ${
                   count.totalVariance === 0 ? 'text-green-700' : 'text-red-700'
@@ -449,14 +449,14 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
         {isCountingMode && editableItems.length > 0 && (
           <div className="mb-4">
             <div className="flex items-center justify-between text-sm mb-1">
-              <span className="text-gray-600">
+              <span className="text-gray-600 dark:text-gray-400">
                 Counted: {editableItems.length - uncountedItems} / {editableItems.length}
               </span>
               {uncountedItems > 0 && (
                 <span className="text-amber-600">{uncountedItems} remaining</span>
               )}
             </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
               <div
                 className="bg-blue-600 h-2 rounded-full transition-all duration-300"
                 style={{
@@ -493,14 +493,14 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
 
         {/* Empty state — shouldn't happen in normal flow, but handles edge case */}
         {!isLoading && editableItems.length === 0 && count && (
-          <p className="text-sm text-gray-500 text-center py-6">
+          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-6">
             No items found for this location. The location may have empty inventory.
           </p>
         )}
       </div>
 
       {/* Footer with action buttons — varies by mode */}
-      <div className="mt-4 pt-4 border-t border-gray-200 flex justify-between items-center">
+      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center">
         <div>
           {/* Segregation of duties warning for review mode */}
           {isReviewMode && !canApprove && user?.id === count?.performedBy && (
@@ -513,7 +513,7 @@ export const InventoryCountDetailModal: React.FC<Props> = ({ isOpen, onClose, co
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {isViewMode ? 'Close' : 'Cancel'}
           </button>

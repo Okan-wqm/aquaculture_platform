@@ -236,7 +236,7 @@ export function OperationsHubPage(): JSX.Element {
 
         {/* Empty state -- shown when user has no permissions for any hub */}
         {noCardsVisible && (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <ClipboardList size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No operations available</p>
             <p className="text-sm mt-1">Contact your administrator for access</p>

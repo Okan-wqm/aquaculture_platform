@@ -45,12 +45,12 @@ const MEAL_STATUS_KEY: Record<FeedingMealStatus, MessageKey> = {
 };
 
 const MEAL_STATUS_BADGE: Record<FeedingMealStatus, string> = {
-  SCHEDULED: 'bg-gray-100 text-gray-700',
+  SCHEDULED: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   FED: 'bg-green-100 text-green-800',
   PARTIALLY_FED: 'bg-blue-100 text-blue-800',
   SKIPPED: 'bg-yellow-100 text-yellow-800',
   MISSED: 'bg-red-100 text-red-800',
-  CANCELLED: 'bg-gray-100 text-gray-500',
+  CANCELLED: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
 };
 
 const PLAN_STATUS_KEY: Record<FeedingDayPlanStatus, MessageKey> = {
@@ -365,7 +365,7 @@ export function MealBoardTab(): React.ReactElement {
               <button
                 type="button"
                 onClick={() => setSkipModalMeal(meal)}
-                className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 {t('feedingV2.mealBoard.skip')}
               </button>
@@ -380,25 +380,25 @@ export function MealBoardTab(): React.ReactElement {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">{t('feedingV2.mealBoard.title')}</h2>
-          <p className="text-sm text-gray-500">{t('feedingV2.mealBoard.subtitle')}</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('feedingV2.mealBoard.title')}</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('feedingV2.mealBoard.subtitle')}</p>
         </div>
         <div className="flex items-end gap-3">
           <label className="block text-sm">
-            <span className="text-gray-600">{t('feedingV2.mealBoard.date')}</span>
+            <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.date')}</span>
             <input
               type="date"
               value={planDate}
               onChange={(event) => setPlanDate(event.target.value)}
-              className="mt-1 block rounded-md border-gray-300 text-sm"
+              className="mt-1 block rounded-md border-gray-300 dark:border-gray-600 text-sm"
             />
           </label>
           <label className="block text-sm">
-            <span className="text-gray-600">{t('feedingV2.mealBoard.site')}</span>
+            <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.site')}</span>
             <select
               value={siteId}
               onChange={(event) => setSiteId(event.target.value)}
-              className="mt-1 block rounded-md border-gray-300 text-sm"
+              className="mt-1 block rounded-md border-gray-300 dark:border-gray-600 text-sm"
             >
               <option value="">{t('feedingV2.mealBoard.allSites')}</option>
               {(sitesPage?.items ?? []).map((site) => (
@@ -439,10 +439,10 @@ export function MealBoardTab(): React.ReactElement {
         </div>
       )}
 
-      {isLoading && <div className="py-8 text-center text-sm text-gray-500">…</div>}
+      {isLoading && <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">…</div>}
 
       {!isLoading && (plans ?? []).length === 0 && (
-        <div className="rounded-md border border-dashed border-gray-300 py-10 text-center text-sm text-gray-500">
+        <div className="rounded-md border border-dashed border-gray-300 dark:border-gray-600 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
           {t('feedingV2.mealBoard.empty')}
         </div>
       )}
@@ -460,18 +460,18 @@ export function MealBoardTab(): React.ReactElement {
         const snapshot = plan.snapshot;
 
         return (
-          <div key={plan.id} className="rounded-lg border border-gray-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
+          <div key={plan.id} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
               <div className="flex items-center gap-3">
-                <span className="text-base font-semibold text-gray-900">{plan.unitCode}</span>
-                <span className="text-sm text-gray-500">{plan.unitName}</span>
+                <span className="text-base font-semibold text-gray-900 dark:text-gray-100">{plan.unitCode}</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">{plan.unitName}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs ${
                     plan.status === 'COMPLETED'
                       ? 'bg-green-100 text-green-800'
                       : plan.status === 'IN_PROGRESS'
                         ? 'bg-blue-100 text-blue-800'
-                        : 'bg-gray-100 text-gray-700'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                   }`}
                 >
                   {t(PLAN_STATUS_KEY[plan.status])}
@@ -500,7 +500,7 @@ export function MealBoardTab(): React.ReactElement {
                     </span>
                   )}
               </div>
-              <div className="flex items-center gap-3 text-sm text-gray-600">
+              <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
                 <span>
                   {t('feedingV2.mealBoard.planned')}: <strong>{planned.toFixed(2)} kg</strong>
                 </span>
@@ -516,7 +516,7 @@ export function MealBoardTab(): React.ReactElement {
                   <button
                     type="button"
                     onClick={() => void onRegenerate(plan)}
-                    className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                    className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     {t('feedingV2.mealBoard.regenerate')}
                   </button>
@@ -524,7 +524,7 @@ export function MealBoardTab(): React.ReactElement {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-4 border-b border-gray-100 px-4 py-2 text-xs text-gray-600">
+            <div className="flex flex-wrap gap-4 border-b border-gray-100 dark:border-gray-700 px-4 py-2 text-xs text-gray-600 dark:text-gray-400">
               <span>
                 {t('feedingV2.mealBoard.biomass')}: {snapshot.biomassKg.toFixed(1)} kg
               </span>
@@ -542,7 +542,7 @@ export function MealBoardTab(): React.ReactElement {
               </span>
               <span>
                 {t('feedingV2.mealBoard.expectedFcr')}: {snapshot.expectedFcr.toFixed(2)}{' '}
-                <span className="rounded bg-gray-100 px-1">
+                <span className="rounded bg-gray-100 dark:bg-gray-800 px-1">
                   {t(FCR_SOURCE_KEY[snapshot.fcrResolvedSource])}
                 </span>
               </span>
@@ -582,17 +582,17 @@ export function MealBoardTab(): React.ReactElement {
         >
           <div className="space-y-4">
             <label className="block text-sm">
-              <span className="text-gray-600">{t('feedingV2.mealBoard.pourKg')}</span>
+              <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.pourKg')}</span>
               <input
                 type="number"
                 min={0.001}
                 step={0.1}
                 value={pourKg}
                 onChange={(event) => setPourKg(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
               />
             </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
                 type="checkbox"
                 checked={finalize}
@@ -600,12 +600,12 @@ export function MealBoardTab(): React.ReactElement {
               />
               {t('feedingV2.mealBoard.finalize')}
             </label>
-            <p className="text-xs text-gray-500">{t('feedingV2.mealBoard.finalizeHint')}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('feedingV2.mealBoard.finalizeHint')}</p>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setPourModal(null)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
               >
                 {t('feedingV2.mealBoard.cancel')}
               </button>
@@ -626,20 +626,20 @@ export function MealBoardTab(): React.ReactElement {
         <Modal isOpen onClose={() => setSkipModalMeal(null)} title={t('feedingV2.mealBoard.skip')}>
           <div className="space-y-4">
             <label className="block text-sm">
-              <span className="text-gray-600">{t('feedingV2.mealBoard.skipReason')}</span>
+              <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.skipReason')}</span>
               <input
                 type="text"
                 maxLength={500}
                 value={skipReason}
                 onChange={(event) => setSkipReason(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
               />
             </label>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setSkipModalMeal(null)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
               >
                 {t('feedingV2.mealBoard.cancel')}
               </button>
@@ -664,21 +664,21 @@ export function MealBoardTab(): React.ReactElement {
         >
           <div className="space-y-4">
             <label className="block text-sm">
-              <span className="text-gray-600">{t('feedingV2.mealBoard.correctedKg')}</span>
+              <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.correctedKg')}</span>
               <input
                 type="number"
                 min={0.001}
                 step={0.1}
                 value={correctedKg}
                 onChange={(event) => setCorrectedKg(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
               />
             </label>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setCorrectModal(null)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
               >
                 {t('feedingV2.mealBoard.cancel')}
               </button>

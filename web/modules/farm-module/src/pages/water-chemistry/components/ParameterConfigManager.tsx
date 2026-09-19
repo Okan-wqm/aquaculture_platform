@@ -57,8 +57,8 @@ const DeleteConfirmDialog: React.FC<{
         </svg>
       </div>
       <div className="ml-4">
-        <h3 className="text-lg font-medium text-gray-900">Delete Parameter</h3>
-        <p className="mt-2 text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Delete Parameter</h3>
+        <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
           Are you sure you want to delete <strong>&quot;{config.name}&quot;</strong> ({config.code}
           )? This action cannot be undone.
         </p>
@@ -68,7 +68,7 @@ const DeleteConfirmDialog: React.FC<{
       <button
         type="button"
         onClick={onCancel}
-        className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+        className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
       >
         Cancel
       </button>
@@ -356,12 +356,12 @@ export const ParameterConfigManager: React.FC = () => {
         <>
           {config.chartColor ? (
             <div
-              className="inline-block w-6 h-6 rounded border border-gray-300"
+              className="inline-block w-6 h-6 rounded border border-gray-300 dark:border-gray-600"
               style={{ backgroundColor: config.chartColor }}
               title={config.chartColor}
             />
           ) : (
-            <span className="text-xs text-gray-400">-</span>
+            <span className="text-xs text-gray-400 dark:text-gray-500">-</span>
           )}
         </>
       ),
@@ -375,13 +375,13 @@ export const ParameterConfigManager: React.FC = () => {
           <button
             onClick={() => handleToggleActive(config)}
             className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-              config.isActive ? 'bg-blue-600' : 'bg-gray-200'
+              config.isActive ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'
             }`}
             role="switch"
             aria-checked={config.isActive}
           >
             <span
-              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+              className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
                 config.isActive ? 'translate-x-5' : 'translate-x-0'
               }`}
             />
@@ -439,7 +439,7 @@ export const ParameterConfigManager: React.FC = () => {
           <select
             value={groupFilter}
             onChange={(e) => setGroupFilter(e.target.value as ParameterGroup | '')}
-            className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="">All Groups</option>
             {GROUP_OPTIONS.map((opt) => (
@@ -452,7 +452,7 @@ export const ParameterConfigManager: React.FC = () => {
         <div className="flex items-center space-x-3">
           <button
             onClick={() => setShowTemplatePicker(true)}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md shadow-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
           >
             <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
@@ -485,7 +485,7 @@ export const ParameterConfigManager: React.FC = () => {
       </div>
 
       {/* Parameter Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
         <DataTable<ConfigRow>
           data={sortedConfigs}
           columns={configRowColumns}

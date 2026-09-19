@@ -141,7 +141,7 @@ const UpcomingTransitionCard: React.FC<{ rotation: WorkRotation }> = ({ rotation
                 )}
                 {ROTATION_TYPE_CONFIG[rotation.rotationType].label}
               </span>
-              <ArrowRight className="h-3 w-3 text-gray-400" />
+              <ArrowRight className="h-3 w-3 text-gray-400 dark:text-gray-500" />
               <span className="text-gray-600 dark:text-gray-400">
                 {rotation.rotationType === ('OFFSHORE' as RotationType) ? 'Onshore' : 'Offshore'}
               </span>
@@ -157,7 +157,7 @@ const UpcomingTransitionCard: React.FC<{ rotation: WorkRotation }> = ({ rotation
           >
             {daysUntil} day{daysUntil !== 1 ? 's' : ''}
           </p>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {new Date(rotation.endDate).toLocaleDateString()}
           </p>
         </div>
@@ -229,7 +229,7 @@ export function OffshoreRotationsPage() {
                 <p className="font-medium text-gray-900 dark:text-white">
                   {row.employee.firstName} {row.employee.lastName}
                 </p>
-                <p className="text-sm text-gray-500">{row.employee.employeeNumber}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{row.employee.employeeNumber}</p>
               </div>
             </>
           )}
@@ -274,7 +274,7 @@ export function OffshoreRotationsPage() {
             {new Date(row.endDate).toLocaleDateString()}
           </p>
           {row.status === RotationStatus.IN_PROGRESS && (
-            <p className="text-gray-500">
+            <p className="text-gray-500 dark:text-gray-400">
               {Math.ceil(
                 (new Date(row.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
               )}{' '}
@@ -401,7 +401,7 @@ export function OffshoreRotationsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'schedule'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Active Schedule
@@ -412,7 +412,7 @@ export function OffshoreRotationsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'calendar'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Calendar View
@@ -423,7 +423,7 @@ export function OffshoreRotationsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'history'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           History
@@ -575,7 +575,7 @@ export function OffshoreRotationsPage() {
                         </div>
                       ))}
                       {dayRotations.length > 3 && (
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
                           +{dayRotations.length - 3} more
                         </div>
                       )}

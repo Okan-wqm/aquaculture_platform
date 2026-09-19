@@ -67,10 +67,10 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
   const signalLines = CONNECTION_TYPES.filter(ct => SIGNAL_LINE_IDS.includes(ct.id));
 
   return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 bg-white/95 backdrop-blur-sm border border-gray-200 rounded-lg shadow-lg px-2 py-1.5">
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-2 py-1.5">
       {/* Edge Type Selector */}
-      <div className="flex flex-col gap-0.5 border-r border-gray-200 pr-2">
-        <span className="text-[9px] text-gray-500 font-medium leading-none px-0.5">Line Shape</span>
+      <div className="flex flex-col gap-0.5 border-r border-gray-200 dark:border-gray-700 pr-2">
+        <span className="text-[9px] text-gray-500 dark:text-gray-400 font-medium leading-none px-0.5">Line Shape</span>
         <div className="flex items-center gap-0.5">
           {EDGE_TYPE_OPTIONS.map((opt) => (
             <button
@@ -79,7 +79,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
               className={`flex items-center gap-1 px-2 py-1 rounded transition-colors text-[10px] font-medium ${
                 selectedEdgeType === opt.type
                   ? 'bg-cyan-100 text-cyan-700'
-                  : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                  : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
               title={opt.label}
             >
@@ -93,10 +93,10 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
       {/* Connection Type Selector */}
       <div className="relative" ref={connectionTypesRef}>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[9px] text-gray-500 font-medium leading-none px-0.5">Connection Type</span>
+          <span className="text-[9px] text-gray-500 dark:text-gray-400 font-medium leading-none px-0.5">Connection Type</span>
           <button
             onClick={() => setShowConnectionTypes(!showConnectionTypes)}
-            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 transition-colors text-xs font-medium text-gray-700"
+            className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors text-xs font-medium text-gray-700 dark:text-gray-300"
             title="Connection Type"
           >
             <svg width="24" height="8" viewBox="0 0 24 8">
@@ -115,10 +115,10 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
         </div>
 
         {showConnectionTypes && (
-          <div className="absolute top-full left-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-xl py-1 z-40">
+          <div className="absolute top-full left-0 mt-1 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-1 z-40">
             {/* Process Lines */}
             <div className="px-3 pt-1.5 pb-0.5">
-              <span className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Process Lines</span>
+              <span className="text-[9px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider">Process Lines</span>
             </div>
             {processLines.map((ct) => (
               <button
@@ -130,7 +130,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
                 className={`w-full flex items-center gap-3 px-3 py-2 text-xs transition-colors ${
                   selectedConnectionType === ct.id
                     ? 'bg-cyan-50 text-cyan-700'
-                    : 'text-gray-700 hover:bg-gray-50'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 <svg width="32" height="12" viewBox="0 0 32 12">
@@ -146,8 +146,8 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
             ))}
 
             {/* Signal Lines */}
-            <div className="px-3 pt-2.5 pb-0.5 border-t border-gray-100 mt-1">
-              <span className="text-[9px] text-gray-500 font-semibold uppercase tracking-wider">Signal Lines</span>
+            <div className="px-3 pt-2.5 pb-0.5 border-t border-gray-100 dark:border-gray-700 mt-1">
+              <span className="text-[9px] text-gray-500 dark:text-gray-400 font-semibold uppercase tracking-wider">Signal Lines</span>
             </div>
             {signalLines.map((ct) => (
               <button
@@ -159,7 +159,7 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
                 className={`w-full flex items-center gap-3 px-3 py-2 text-xs transition-colors ${
                   selectedConnectionType === ct.id
                     ? 'bg-cyan-50 text-cyan-700'
-                    : 'text-gray-700 hover:bg-gray-50'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 <svg width="32" height="12" viewBox="0 0 32 12">
@@ -178,13 +178,13 @@ export const EdgeToolbar: React.FC<EdgeToolbarProps> = ({
       </div>
 
       {/* Context hint */}
-      <div className="pl-1 border-l border-gray-200 ml-0.5">
+      <div className="pl-1 border-l border-gray-200 dark:border-gray-700 ml-0.5">
         {hasSelectedEdge ? (
           <span className="text-[10px] text-cyan-700 font-medium bg-cyan-50 px-1.5 py-0.5 rounded">
             &#9998; Selected edge
           </span>
         ) : (
-          <span className="text-[10px] text-gray-500 font-medium">
+          <span className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
             (new connection)
           </span>
         )}

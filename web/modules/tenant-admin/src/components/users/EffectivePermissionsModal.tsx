@@ -88,9 +88,9 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {isLoading && (
-            <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
-              <RefreshCw className="w-4 h-4 animate-spin text-gray-500" />
-              <span className="text-sm text-gray-500">Loading permissions...</span>
+            <div className="flex items-center gap-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <RefreshCw className="w-4 h-4 animate-spin text-gray-500 dark:text-gray-400" />
+              <span className="text-sm text-gray-500 dark:text-gray-400">Loading permissions...</span>
             </div>
           )}
 
@@ -107,21 +107,21 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
               <div className="flex items-center gap-3 p-3 bg-tenant-50 rounded-lg border border-tenant-100">
                 <Shield className="w-5 h-5 text-tenant-600" aria-hidden="true" />
                 <div>
-                  <p className="text-sm font-medium text-gray-900">{permissions.roleName}</p>
-                  <p className="text-xs text-gray-500">Assigned role</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{permissions.roleName}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Assigned role</p>
                 </div>
               </div>
 
               {/* Panel permissions grouped by category */}
               {panelCategories.length > 0 && (
                 <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Panel permissions</h3>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Panel permissions</h3>
                   {panelCategories.map(([categoryKey, categoryPermissions]) => (
                     <div
                       key={categoryKey}
-                      className="border border-gray-100 rounded-lg overflow-hidden"
+                      className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden"
                     >
-                      <p className="px-3 py-2 bg-gray-50 text-xs font-medium text-gray-700 uppercase tracking-wider">
+                      <p className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                         {categoryKey}
                       </p>
                       <ul className="divide-y divide-gray-50">
@@ -134,13 +134,13 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
                               key={resourceName}
                               className="px-3 py-2 flex items-start justify-between gap-3"
                             >
-                              <span className="text-sm text-gray-700">{resourceName}</span>
+                              <span className="text-sm text-gray-700 dark:text-gray-300">{resourceName}</span>
                               {enabledActions.length > 0 ? (
                                 <span className="text-xs text-green-700 text-right">
                                   {enabledActions.join(', ')}
                                 </span>
                               ) : (
-                                <span className="text-xs text-gray-500 inline-flex items-center gap-1">
+                                <span className="text-xs text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
                                   <Minus className="w-3 h-3" aria-hidden="true" />
                                   No access
                                 </span>
@@ -157,13 +157,13 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
               {/* Resource permissions grouped by category prefix */}
               {resourceGroups.length > 0 && (
                 <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Resource permissions</h3>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Resource permissions</h3>
                   {resourceGroups.map(([category, categoryPermissions]) => (
                     <div
                       key={category}
-                      className="border border-gray-100 rounded-lg overflow-hidden"
+                      className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden"
                     >
-                      <p className="px-3 py-2 bg-gray-50 text-xs font-medium text-gray-700 uppercase tracking-wider">
+                      <p className="px-3 py-2 bg-gray-50 dark:bg-gray-800 text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
                         {category}
                       </p>
                       <ul className="divide-y divide-gray-50">
@@ -173,7 +173,7 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
                               className="w-3.5 h-3.5 text-green-600 flex-shrink-0"
                               aria-hidden="true"
                             />
-                            <span className="text-sm text-gray-700">{permission}</span>
+                            <span className="text-sm text-gray-700 dark:text-gray-300">{permission}</span>
                           </li>
                         ))}
                       </ul>
@@ -183,13 +183,13 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
               )}
 
               {panelCategories.length === 0 && resourceGroups.length === 0 && (
-                <p className="text-sm text-gray-500">This user has no resolved permissions.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">This user has no resolved permissions.</p>
               )}
 
               {/* Per-user overrides */}
               {(grants.length > 0 || revokes.length > 0) && (
                 <div className="space-y-3">
-                  <h3 className="text-sm font-semibold text-gray-900">User overrides</h3>
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">User overrides</h3>
                   {grants.length > 0 && (
                     <div className="p-3 bg-green-50 border border-green-100 rounded-lg">
                       <p className="text-xs font-medium text-green-800 mb-1">
@@ -231,11 +231,11 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+        <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex justify-end">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
           >
             Close
           </button>

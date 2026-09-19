@@ -101,18 +101,18 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
   };
 
   return (
-    <div className="border-b border-gray-200">
+    <div className="border-b border-gray-200 dark:border-gray-700">
       {/* Tier 1: Group pill toggle */}
       <div className="px-3 pt-3 pb-2">
-        <div className="flex bg-gray-100 rounded-lg p-1">
+        <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
           <button
             onClick={() => onGroupChange('widget-scoped')}
             aria-label={hasEdgeSelected ? 'Connection properties' : 'Widget properties'}
             aria-pressed={activeGroup === 'widget-scoped'}
             className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
               activeGroup === 'widget-scoped'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
             style={{ minHeight: '36px' }}
           >
@@ -128,7 +128,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
               </>
             )}
             {!hasWidgetSelected && !hasEdgeSelected && activeGroup === 'widget-scoped' && (
-              <span className="ml-1 text-[11px] text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded-full">
+              <span className="ml-1 text-[11px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">
                 no selection
               </span>
             )}
@@ -139,8 +139,8 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
             aria-pressed={activeGroup === 'package-scoped'}
             className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
               activeGroup === 'package-scoped'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+                ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
             style={{ minHeight: '36px' }}
           >
@@ -166,10 +166,10 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
               disabled={disabled}
               className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 text-xs font-medium transition-colors ${
                 disabled
-                  ? 'opacity-40 cursor-not-allowed text-gray-400'
+                  ? 'opacity-40 cursor-not-allowed text-gray-400 dark:text-gray-500'
                   : active
                     ? 'text-cyan-600 border-b-2 border-cyan-500'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50 border-b-2 border-transparent'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 border-b-2 border-transparent'
               }`}
               style={{ minHeight: '44px' }}
               title={disabled ? `${tab.label} is not available for edges` : tab.label}

@@ -46,7 +46,7 @@ const PREVIEW_HEIGHT = 24;
 const MIN_STOPS = 2;
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 /** Human-readable labels for gradient type options */
 const TYPE_LABELS: Record<GradientType, string> = {
@@ -79,7 +79,7 @@ const GradientPreview: React.FC<{
         width={PREVIEW_WIDTH}
         height={PREVIEW_HEIGHT}
         viewBox={`0 0 ${PREVIEW_WIDTH} ${PREVIEW_HEIGHT}`}
-        className="rounded-md border border-gray-200"
+        className="rounded-md border border-gray-200 dark:border-gray-700"
         aria-label="Gradient preview"
         role="img"
       >
@@ -245,11 +245,11 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
   const previewGradId = buildGradientId(widgetId, 'fill');
 
   return (
-    <div className="border-t border-gray-100 pt-2">
+    <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700"
+        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
         aria-expanded={open}
         aria-label="Gradient settings"
       >
@@ -268,7 +268,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
         <div className="space-y-3 mt-2">
           {/* Gradient type selector */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Type</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Type</label>
             <div className="flex gap-1" role="radiogroup" aria-label="Gradient type">
               {GRADIENT_TYPE_OPTIONS.map((t) => (
                 <label
@@ -276,7 +276,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                   className={`flex-1 text-center py-1.5 text-xs rounded-lg border-2 cursor-pointer transition-colors ${
                     gradient.type === t
                       ? 'border-cyan-500 bg-cyan-50 text-cyan-700'
-                      : 'border-gray-200 hover:border-gray-300 text-gray-600'
+                      : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 text-gray-600 dark:text-gray-400'
                   }`}
                 >
                   <input
@@ -299,7 +299,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
               {/* Angle control -- only for linear */}
               {gradient.type === 'linear' && (
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Angle</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Angle</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
@@ -314,7 +314,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                     />
                     {/* Visual angle indicator */}
                     <div
-                      className="w-6 h-6 rounded-full border-2 border-gray-300 relative flex-shrink-0"
+                      className="w-6 h-6 rounded-full border-2 border-gray-300 dark:border-gray-600 relative flex-shrink-0"
                       aria-hidden="true"
                     >
                       <div
@@ -324,7 +324,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                         }}
                       />
                     </div>
-                    <span className="text-xs text-gray-400">{gradient.angle}&deg;</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">{gradient.angle}&deg;</span>
                   </div>
                 </div>
               )}
@@ -339,9 +339,9 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
               {/* Selected stop editor */}
               {currentStop && (
-                <div className="p-2 bg-gray-50 rounded-lg space-y-2">
+                <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-gray-600">
+                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
                       Stop {safeSelected + 1}
                     </span>
                     {gradient.stops.length > MIN_STOPS && (
@@ -369,7 +369,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
                   {/* Stop offset */}
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Position ({Math.round(currentStop.offset * 100)}%)
                     </label>
                     <input

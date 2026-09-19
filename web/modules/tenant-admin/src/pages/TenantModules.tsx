@@ -117,10 +117,10 @@ const TenantModules: React.FC = () => {
           <div className="flex items-center gap-3">
             <button
               onClick={() => refreshAuth()}
-              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Refresh"
             >
-              <RefreshCw className="w-5 h-5 text-gray-500" />
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
             <span className="px-3 py-1.5 rounded-lg bg-tenant-50 text-tenant-700 text-sm font-medium">
               {modules.filter((m) => m.status === 'active').length} Active
@@ -149,22 +149,22 @@ const TenantModules: React.FC = () => {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-gray-100 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
           <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
             <input
               type="text"
               placeholder="Search modules..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
             />
           </div>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+            className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
           >
             <option value="all">All Status</option>
             <option value="active">Active</option>
@@ -200,12 +200,12 @@ const TenantModules: React.FC = () => {
 
       {/* Empty State */}
       {filteredModules.length === 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 py-12 text-center">
-          <Package className="w-12 h-12 text-gray-500 mx-auto" />
-          <h3 className="mt-4 text-sm font-medium text-gray-900">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 py-12 text-center">
+          <Package className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+          <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">
             {modules.length === 0 ? 'No modules assigned' : 'No modules found'}
           </h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {modules.length === 0
               ? 'Contact your administrator to get modules assigned to your tenant.'
               : 'Try adjusting your search or filter criteria.'}

@@ -75,7 +75,7 @@ When the kernel invokes you via the bound async queue, you receive a single `ari
 ### Inputs you receive
 
 - `request_id`, `cycle_id`, `target_agent: "aria-adversarial-judge"`, `expected_output_path`.
-- `evidence_refs[]` — file:line refs at the snapshot SHA. ONLY admissible evidence.
+- `evidence_refs[]` — `path:line` refs at the snapshot SHA, one line per ref (`src/a.ts:49`; a range such as `src/a.ts:49-57` is rejected as malformed — cite each line, or the first line of the span). ONLY admissible evidence.
 - `must_satisfy[]` — claims to falsify. Each item asks "is this finding true?"; your verdict tells the consensus arbiter your independent answer.
 - `allowed_scope[]`, `forbidden_scope[]` — typically broader than the evidence judge so you can hunt for counter-evidence.
 

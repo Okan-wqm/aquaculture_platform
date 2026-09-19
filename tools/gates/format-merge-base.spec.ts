@@ -58,7 +58,7 @@ const HEAD_CLEAN = 'head-clean';
 const OTHER_DIRTY = 'other-dirty';
 const OTHER_CLEAN = 'other-clean';
 
-test('outside a merge the base is HEAD, dirty or clean', () => {
+void test('outside a merge the base is HEAD, dirty or clean', () => {
   assert.equal(
     baseFor({
       hasHead: true,
@@ -79,11 +79,11 @@ test('outside a merge the base is HEAD, dirty or clean', () => {
   );
 });
 
-test('outside a merge a file new at HEAD has no base (regression)', () => {
+void test('outside a merge a file new at HEAD has no base (regression)', () => {
   assert.equal(baseFor({ hasHead: true, hasMergeHead: false, blobs: {}, clean: [] }), null);
 });
 
-test('a repository without HEAD has no base even mid-merge', () => {
+void test('a repository without HEAD has no base even mid-merge', () => {
   assert.equal(
     baseFor({
       hasHead: false,
@@ -95,7 +95,7 @@ test('a repository without HEAD has no base even mid-merge', () => {
   );
 });
 
-test('in a merge, a file the other branch already carried dirty is inherited debt', () => {
+void test('in a merge, a file the other branch already carried dirty is inherited debt', () => {
   assert.equal(
     baseFor({
       hasHead: true,
@@ -107,7 +107,7 @@ test('in a merge, a file the other branch already carried dirty is inherited deb
   );
 });
 
-test('in a merge, HEAD dirty wins without consulting the other parent', () => {
+void test('in a merge, HEAD dirty wins without consulting the other parent', () => {
   assert.equal(
     baseFor({
       hasHead: true,
@@ -119,7 +119,7 @@ test('in a merge, HEAD dirty wins without consulting the other parent', () => {
   );
 });
 
-test('in a merge, HEAD clean but the other parent dirty is inherited debt', () => {
+void test('in a merge, HEAD clean but the other parent dirty is inherited debt', () => {
   assert.equal(
     baseFor({
       hasHead: true,
@@ -131,7 +131,7 @@ test('in a merge, HEAD clean but the other parent dirty is inherited debt', () =
   );
 });
 
-test("in a merge, clean at both parents falls back to HEAD (drift is the merge's own)", () => {
+void test("in a merge, clean at both parents falls back to HEAD (drift is the merge's own)", () => {
   assert.equal(
     baseFor({
       hasHead: true,
@@ -143,6 +143,6 @@ test("in a merge, clean at both parents falls back to HEAD (drift is the merge's
   );
 });
 
-test('in a merge, a file new at both parents has no base (regression)', () => {
+void test('in a merge, a file new at both parents has no base (regression)', () => {
   assert.equal(baseFor({ hasHead: true, hasMergeHead: true, blobs: {}, clean: [] }), null);
 });

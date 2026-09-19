@@ -1,10 +1,12 @@
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
+import { ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useEffect, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type { QueuedPayload } from '@/types';
@@ -140,17 +142,12 @@ export function RecordTransferPage(): JSX.Element {
     const qty = parseInt(quantity, 10);
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => setStep('entry')} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <ArrowLeftRight size={22} />
-              <h1 className="text-lg font-bold">Confirm Transfer</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          tone="blue"
+          icon={ArrowLeftRight}
+          title="Confirm Transfer"
+          back={() => setStep('entry')}
+        />
 
         <div className="px-4 mt-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -159,11 +156,11 @@ export function RecordTransferPage(): JSX.Element {
             </div>
             <div className="p-4 space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">From</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">From</span>
                 <span className="font-semibold text-gray-900 dark:text-white">{sourceTank?.name}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Batch</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Batch</span>
                 <span className="font-semibold text-gray-900 dark:text-white">{sourceMetrics?.batchNumber ?? '--'}</span>
               </div>
               <div className="flex justify-center">
@@ -172,19 +169,19 @@ export function RecordTransferPage(): JSX.Element {
                 </div>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">To</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">To</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
                   {destTank?.name}{!destTank?.batchMetrics ? ' (Empty)' : ''}
                 </span>
               </div>
               <div className="h-px bg-gray-100 dark:bg-gray-800" />
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Quantity</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
                 <span className="text-2xl font-bold text-blue-600">{qty.toLocaleString()} pcs</span>
               </div>
               {avgWeightG && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Avg weight</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Avg weight</span>
                   <span className="font-semibold text-gray-900 dark:text-white">{parseFloat(avgWeightG).toFixed(1)} g/fish</span>
                 </div>
               )}
@@ -192,7 +189,7 @@ export function RecordTransferPage(): JSX.Element {
                 <>
                   <div className="h-px bg-gray-100 dark:bg-gray-800" />
                   <div>
-                    <span className="text-sm text-gray-500">Reason</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Reason</span>
                     <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{transferReason}</p>
                   </div>
                 </>
@@ -216,7 +213,7 @@ export function RecordTransferPage(): JSX.Element {
           >
             {isSubmitting ? (
               <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
                 Saving...
               </>
             ) : (
@@ -246,17 +243,11 @@ export function RecordTransferPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <ArrowLeftRight size={22} />
-            <h1 className="text-lg font-bold">Transfer Record</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        tone="blue"
+        icon={ArrowLeftRight}
+        title="Transfer Record"
+      />
 
       {/* Source tank info */}
       {sourceTank && sourceMetrics && (
@@ -267,7 +258,7 @@ export function RecordTransferPage(): JSX.Element {
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">{sourceTank.name}</h3>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {sourceMetrics.batchNumber ?? '--'} &middot; {(sourceMetrics.pieces ?? 0).toLocaleString()} pcs
               </p>
             </div>

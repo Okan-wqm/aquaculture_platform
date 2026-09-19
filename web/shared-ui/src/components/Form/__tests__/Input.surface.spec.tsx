@@ -38,7 +38,7 @@ describe('Input surface="glass"', () => {
   it('error state wins over glass (red border still applied)', () => {
     render(<Input surface="glass" label="E-posta" error="Hatalı" />);
     const input = screen.getByLabelText('E-posta');
-    expect(input.className).toContain('border-red-500');
+    expect(input.className).toContain('border-error-500');
     // glass bg is still present, but the (error) border overrides the glass border
     expect(input.className).not.toContain('border-[var(--surface-field-border)]');
   });

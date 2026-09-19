@@ -127,8 +127,8 @@ const QuickActions: React.FC = () => {
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">Hızlı İşlemler</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Hızlı İşlemler</h3>
       </div>
       <div className="p-4 grid grid-cols-2 gap-3">
         {visibleActions.map((action) => (
@@ -150,10 +150,10 @@ const QuickActions: React.FC = () => {
             >
               {action.icon}
             </div>
-            <span className="mt-2 text-sm font-medium text-gray-900 text-center">
+            <span className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100 text-center">
               {action.label}
             </span>
-            <span className="text-xs text-gray-500">{action.description}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">{action.description}</span>
           </Link>
         ))}
       </div>

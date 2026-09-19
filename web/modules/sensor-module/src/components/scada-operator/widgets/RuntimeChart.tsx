@@ -353,7 +353,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     >
       {/* Mini toolbar */}
       {showToolbar && (
-        <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-50 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           {RANGE_PRESETS.map((preset) => (
             <button
               key={preset.label}
@@ -362,14 +362,14 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
               className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
                 rangeMinutes === preset.minutes
                   ? 'bg-blue-500 text-white font-semibold'
-                  : 'text-gray-600 hover:bg-gray-200'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               {preset.label}
             </button>
           ))}
           {title && (
-            <span className="ml-auto text-[10px] text-gray-400 truncate max-w-[120px]">
+            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[120px]">
               {title}
             </span>
           )}
@@ -378,7 +378,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
 
       {/* No series warning */}
       {seriesList.length === 0 && (
-        <div className="flex-1 flex items-center justify-center text-xs text-gray-400">
+        <div className="flex-1 flex items-center justify-center text-xs text-gray-400 dark:text-gray-500">
           No series configured
         </div>
       )}

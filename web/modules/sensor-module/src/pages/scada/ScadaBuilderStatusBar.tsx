@@ -35,7 +35,7 @@ export const ScadaBuilderStatusBar: React.FC<ScadaBuilderStatusBarProps> = ({
   const alarmWidgets = screens.reduce((sum, s) => sum + s.alarmWidgetCount, 0);
 
   return (
-    <div className="px-4 py-1 bg-white border-t border-gray-200 flex items-center justify-between text-xs text-gray-500">
+    <div className="px-4 py-1 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
       <div className="flex items-center gap-4">
         <span>Status: Draft</span>
         <span>v1</span>
@@ -52,7 +52,7 @@ export const ScadaBuilderStatusBar: React.FC<ScadaBuilderStatusBarProps> = ({
       </div>
       <div className="flex items-center gap-3">
         {activeScreenId && (
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-gray-400">
             {screens.find((s) => s.id === activeScreenId)?.name ?? ''}
           </span>
         )}

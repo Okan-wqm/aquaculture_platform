@@ -34,7 +34,6 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
-  Loader2,
   Trash2,
   Save,
   AlignLeft,
@@ -55,6 +54,7 @@ import ExportDialog from './json-bundle/ExportDialog';
 import ImportDialog from './json-bundle/ImportDialog';
 import type { STBundle, STBundleProgram } from '../../types/st-editor.types';
 import type { editor as monacoEditor, languages as monacoLanguages } from 'monaco-editor';
+import { Spinner } from '@aquaculture/shared-ui';
 
 /** Diagnostic item returned by validation */
 export interface DiagnosticItem {
@@ -427,7 +427,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
     return (
       <button
         onClick={() => setBottomPanelOpen(true)}
-        className="w-full h-7 bg-gray-800 border-t border-gray-700 flex items-center justify-center gap-1 text-xs text-gray-500 hover:text-gray-200 hover:bg-gray-750 transition-colors"
+        className="w-full h-7 bg-gray-800 border-t border-gray-700 flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-200 hover:bg-gray-700 transition-colors"
       >
         <ChevronUp className="w-3.5 h-3.5" />
         ST Editor (Ctrl+J)
@@ -456,7 +456,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             setShowNewInput(true);
             setTimeout(() => newInputRef.current?.focus(), 50);
           }}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="New Program"
         >
           <Plus className="w-3.5 h-3.5" />
@@ -469,11 +469,11 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         <button
           onClick={() => compile()}
           disabled={compileStatus === 'compiling'}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
+          className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
           title="Compile (F5)"
         >
           {compileStatus === 'compiling' ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <Spinner size="sm" color="inherit" />
           ) : (
             <Play className="w-3.5 h-3.5" />
           )}
@@ -487,7 +487,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             else validate();
           }}
           disabled={compileStatus === 'compiling'}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
+          className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
           title="Validate (F7)"
         >
           <CheckCircle className="w-3.5 h-3.5" />
@@ -503,7 +503,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             <button
               onClick={onDeploy}
               disabled={!onDeploy}
-              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
+              className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
               title={onDeploy ? 'Deploy (F9)' : 'Deploy is not available here'}
             >
               <Upload className="w-3.5 h-3.5" />
@@ -520,7 +520,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             <button
               onClick={save}
               disabled={isSaving}
-              className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
+              className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1 disabled:opacity-50"
               title="Save (Ctrl+S)"
             >
               <Save className={`w-3.5 h-3.5 ${isSaving ? 'animate-pulse' : ''}`} />
@@ -532,7 +532,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Format */}
         <button
           onClick={formatCode}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Format (Shift+Alt+F)"
         >
           <AlignLeft className="w-3.5 h-3.5" />
@@ -544,7 +544,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Export JSON */}
         <button
           onClick={() => setShowExportDialog(true)}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Export JSON Bundle"
         >
           <Download className="w-3.5 h-3.5" />
@@ -554,7 +554,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Import JSON */}
         <button
           onClick={() => setShowImportDialog(true)}
-          className="px-2 py-1 text-xs text-gray-500 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
+          className="px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded flex items-center gap-1"
           title="Import JSON Bundle"
         >
           <Upload className="w-3.5 h-3.5" />
@@ -572,7 +572,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         )}
 
         {/* Program name + dirty */}
-        <span className="text-xs text-gray-500 flex items-center gap-1">
+        <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
           <FileText className="w-3.5 h-3.5" />
           {activeProgram?.name ?? '(no program)'}
           {isDirty && <span className="text-yellow-400">*</span>}
@@ -585,7 +585,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {docked && (
           <button
             onClick={toggleBottomPanel}
-            className="px-1.5 py-1 text-gray-500 hover:text-white hover:bg-gray-700 rounded"
+            className="px-1.5 py-1 text-gray-500 dark:text-gray-400 hover:text-white hover:bg-gray-700 rounded"
             title="Collapse (Ctrl+J)"
           >
             <ChevronDown className="w-3.5 h-3.5" />
@@ -598,10 +598,10 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
         {/* Three-column area */}
         <div className="flex flex-1 min-h-0">
           {/* Left: Program list + Outline */}
-          <div className="w-48 border-r border-gray-700 flex flex-col flex-shrink-0 overflow-hidden bg-gray-850">
+          <div className="w-48 border-r border-gray-700 flex flex-col flex-shrink-0 overflow-hidden bg-gray-900">
             {/* Programs section */}
             <div className="flex flex-col flex-shrink-0">
-              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
                 Programs
               </div>
 
@@ -641,7 +641,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
                   className={`group flex items-center gap-1 px-2 py-1 text-xs cursor-pointer ${
                     prog.id === activeProgramId
                       ? 'bg-gray-700 text-white'
-                      : 'text-gray-500 hover:bg-gray-800 hover:text-gray-200'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-800 hover:text-gray-200'
                   }`}
                 >
                   <FileText className="w-3 h-3 flex-shrink-0" />
@@ -652,7 +652,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
                         e.stopPropagation();
                         deleteProgram(prog.id);
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400"
+                      className="opacity-0 group-hover:opacity-100 text-gray-500 dark:text-gray-400 hover:text-red-400"
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -663,7 +663,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
 
             {/* Outline section */}
             <div className="flex flex-col flex-1 min-h-0 border-t border-gray-700 mt-1">
-              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold">
+              <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold">
                 Outline
               </div>
               <div className="flex-1 overflow-y-auto min-h-0">
@@ -680,7 +680,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           <div className="flex-1 min-w-0">
             <Suspense
               fallback={
-                <div className="flex items-center justify-center h-full bg-gray-900 text-gray-500 text-sm">
+                <div className="flex items-center justify-center h-full bg-gray-900 text-gray-500 dark:text-gray-400 text-sm">
                   Loading editor...
                 </div>
               }
@@ -698,13 +698,13 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
           </div>
 
           {/* Right: Compile output */}
-          <div className="w-64 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-850">
-            <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 font-semibold flex items-center justify-between">
+          <div className="w-64 border-l border-gray-700 flex flex-col flex-shrink-0 overflow-y-auto bg-gray-900">
+            <div className="px-2 py-1.5 text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400 font-semibold flex items-center justify-between">
               <span>Output</span>
               {diagnostics.length > 0 && (
                 <button
                   onClick={clearMarkers}
-                  className="text-gray-500 hover:text-gray-500 text-[10px]"
+                  className="text-gray-500 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 text-[10px]"
                 >
                   Clear
                 </button>
@@ -712,7 +712,7 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             </div>
 
             {diagnostics.length === 0 && compileStatus === 'idle' && (
-              <div className="px-2 py-4 text-xs text-gray-600 text-center">
+              <div className="px-2 py-4 text-xs text-gray-600 dark:text-gray-400 text-center">
                 Press F5 to compile
               </div>
             )}
@@ -725,8 +725,8 @@ const StEditorPanel: React.FC<StEditorPanelProps> = ({
             )}
 
             {compileStatus === 'compiling' && (
-              <div className="px-2 py-4 text-xs text-gray-500 text-center flex flex-col items-center gap-1">
-                <Loader2 className="w-4 h-4 animate-spin" />
+              <div className="px-2 py-4 text-xs text-gray-500 dark:text-gray-400 text-center flex flex-col items-center gap-1">
+                <Spinner size="sm" color="inherit" />
                 Compiling...
               </div>
             )}
@@ -782,7 +782,7 @@ function CompileStatusBadge({
   if (status === 'compiling') {
     return (
       <span className="text-xs text-yellow-400 flex items-center gap-1 ml-2">
-        <Loader2 className="w-3 h-3 animate-spin" />
+        <Spinner size="sm" color="inherit" />
       </span>
     );
   }
@@ -844,7 +844,7 @@ function DiagnosticItem({
         <div className={isSeverityError ? 'text-red-300' : 'text-yellow-300'}>
           {diag.message}
         </div>
-        <div className="text-gray-500">
+        <div className="text-gray-500 dark:text-gray-400">
           Line {diag.line}, Col {diag.column}
         </div>
       </div>

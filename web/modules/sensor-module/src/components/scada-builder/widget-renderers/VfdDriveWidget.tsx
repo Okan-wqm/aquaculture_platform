@@ -262,7 +262,7 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
         height="100%"
         viewBox={`0 0 ${vbW} ${vbH}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         {/* ---- Outer border (fault pulse / programming glow) ---- */}
         <rect
@@ -299,7 +299,7 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
             fill="none" stroke={isRunning ? colors.accent : themeColors.neutral[400]}
             strokeWidth={5} strokeLinecap="round"
             strokeDasharray={`${freqPct * 125.66} 125.66`}
-            style={{ transition: 'stroke-dasharray 300ms ease-out' }}
+            className="transition-[stroke-dasharray] duration-300 ease-out"
           />
           <text x={0} y={-6} textAnchor="middle" fontSize={14} fontWeight={700} fill={themeColors.neutral[900]}>
             {freq.toFixed(1)}
@@ -366,7 +366,7 @@ const VfdDriveWidget: React.FC<WidgetRendererProps> = ({
               height={80 * tempPct}
               rx={3}
               fill={tempExceedsWarning ? themeColors.error[500] : themeColors.success[500]}
-              style={{ transition: 'height 300ms, y 300ms' }}
+              className="transition-[height,y] duration-300"
             />
             <text x={4} y={-4} textAnchor="middle" fontSize={7} fill={themeColors.gray[400]}>{temp.toFixed(0)}&#xB0;C</text>
           </g>

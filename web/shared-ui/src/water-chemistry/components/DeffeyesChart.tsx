@@ -321,12 +321,12 @@ const LayerToggle: React.FC<{
   checked: boolean;
   onChange: (v: boolean) => void;
 }> = ({ label, color, checked, onChange }) => (
-  <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-gray-700">
+  <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-gray-700 dark:text-gray-300">
     <input
       type="checkbox"
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
-      className="w-3.5 h-3.5 rounded border-gray-300 cursor-pointer"
+      className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 cursor-pointer"
       style={{ accentColor: color }}
     />
     <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: color, opacity: 0.7 }} />
@@ -609,12 +609,12 @@ const DeffeyesChart: React.FC<DeffeyesChartProps> = ({
   }, [data.nh3ToxicZone, maxDIC, maxALK]);
 
   return (
-    <div className="bg-white rounded-xl shadow-lg border border-gray-200">
-      <div className="px-6 py-4 border-b border-gray-200">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
         <div className="text-center">
-          <h3 className="text-lg font-bold text-gray-900">Water Quality Management Chart</h3>
+          <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Water Quality Management Chart</h3>
         </div>
-        <div className="flex flex-wrap items-center justify-center gap-4 mt-3 pt-3 border-t border-gray-100">
+        <div className="flex flex-wrap items-center justify-center gap-4 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
           <LayerToggle label="pH Isolines" color="#3b82f6" checked={showIsolines} onChange={setShowIsolines} />
           <LayerToggle label="Safe Zone" color="#22c55e" checked={showSafeZone} onChange={setShowSafeZone} />
           <LayerToggle label="NH₃ Toxic" color="#ef4444" checked={showNH3Zone} onChange={setShowNH3Zone} />

@@ -34,9 +34,8 @@ import {
   User,
   HelpCircle,
   FileText,
-  Loader2,
 } from 'lucide-react';
-import { Modal, useAuthContext } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { logError, sanitizeErrorMessage } from '../utils/error-handling';
 import {
   useSupportTickets,
@@ -147,8 +146,8 @@ const NewTicketModal: React.FC<{
       size="md"
       title={
         <span className="flex items-center gap-3">
-          <span className="w-10 h-10 rounded-lg bg-tenant-100 flex items-center justify-center">
-            <Ticket className="w-5 h-5 text-tenant-600" />
+          <span className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
+            <Ticket className="w-5 h-5 text-green-600" />
           </span>
           <span>Create Support Ticket</span>
         </span>
@@ -160,14 +159,14 @@ const NewTicketModal: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
             form="create-ticket-form"
-            className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
           >
             Create Ticket
           </button>
@@ -176,7 +175,7 @@ const NewTicketModal: React.FC<{
     >
       <form id="create-ticket-form" onSubmit={handleSubmit} className="p-6 space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Subject
           </label>
           <input
@@ -184,19 +183,19 @@ const NewTicketModal: React.FC<{
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Brief description of your issue"
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
             required
           />
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Category
           </label>
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value as TicketCategory)}
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500"
           >
             <option value="technical">Technical Issue</option>
             <option value="billing">Billing</option>
@@ -207,7 +206,7 @@ const NewTicketModal: React.FC<{
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description
           </label>
           <textarea
@@ -215,14 +214,14 @@ const NewTicketModal: React.FC<{
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Please provide as much detail as possible..."
             rows={5}
-            className="w-full px-4 py-2 rounded-lg border border-gray-200 resize-none focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 resize-none focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
             required
           />
         </div>
 
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <Paperclip className="w-4 h-4" />
-          <button type="button" className="text-tenant-600 hover:underline">
+          <button type="button" className="text-green-600 hover:underline">
             Attach files
           </button>
         </div>
@@ -258,7 +257,7 @@ const RatingModal: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg"
+            className="flex-1 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
           >
             Skip
           </button>
@@ -266,7 +265,7 @@ const RatingModal: React.FC<{
             type="button"
             onClick={() => rating > 0 && onSubmit(rating)}
             disabled={rating === 0}
-            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-tenant-600 hover:bg-tenant-700 rounded-lg disabled:opacity-50"
+            className="flex-1 px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg disabled:opacity-50"
           >
             Submit
           </button>
@@ -289,7 +288,7 @@ const RatingModal: React.FC<{
               className={`w-8 h-8 ${
                 star <= (hoveredRating || rating)
                   ? 'text-yellow-400 fill-yellow-400'
-                  : 'text-gray-500'
+                  : 'text-gray-500 dark:text-gray-400'
               }`}
             />
           </button>
@@ -402,7 +401,7 @@ export const TenantSupportPage: React.FC = () => {
       case 'medium':
         return 'bg-yellow-100 text-yellow-700 border-yellow-200';
       case 'low':
-        return 'bg-gray-100 text-gray-700 border-gray-200';
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700';
     }
   };
 
@@ -417,7 +416,7 @@ export const TenantSupportPage: React.FC = () => {
       case 'resolved':
         return 'bg-green-100 text-green-700';
       case 'closed':
-        return 'bg-gray-100 text-gray-600';
+        return 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400';
     }
   };
 
@@ -526,20 +525,20 @@ export const TenantSupportPage: React.FC = () => {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Support</h1>
-            <p className="text-gray-500 mt-1">Get help from our support team</p>
-          </div>
-          <button
-            onClick={() => { setNewTicketOpen(true); setActionError(null); }}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New Ticket
-          </button>
-        </div>
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+        <PageHeader
+          title="Support"
+          description="Get help from our support team"
+          actions={
+            <button
+              onClick={() => { setNewTicketOpen(true); setActionError(null); }}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New Ticket
+            </button>
+          }
+        />
         {actionError && (
           <div className="mt-3 flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -552,9 +551,9 @@ export const TenantSupportPage: React.FC = () => {
 
         {/* Stats */}
         <div className="grid grid-cols-5 gap-3 mt-4">
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-sm text-gray-500">Total Tickets</div>
-            <div className="text-xl font-semibold text-gray-900">{stats.total}</div>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+            <div className="text-sm text-gray-500 dark:text-gray-400">Total Tickets</div>
+            <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.total}</div>
           </div>
           <div className="bg-blue-50 rounded-lg p-3">
             <div className="text-sm text-blue-600">Open</div>
@@ -577,21 +576,21 @@ export const TenantSupportPage: React.FC = () => {
 
       {/* Loading State */}
       {loading && (
-        <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-800">
           <div className="flex flex-col items-center gap-3">
-            <Loader2 className="w-8 h-8 text-tenant-600 animate-spin" />
-            <p className="text-gray-500">Loading tickets...</p>
+            <Spinner size="lg" />
+            <p className="text-gray-500 dark:text-gray-400">Loading tickets...</p>
           </div>
         </div>
       )}
 
       {/* Error State */}
       {error && !loading && (
-        <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <div className="flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-800">
           <div className="text-center">
             <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-3" />
-            <h3 className="text-lg font-medium text-gray-900 mb-1">Failed to Load Tickets</h3>
-            <p className="text-gray-500 mb-4">{error}</p>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">Failed to Load Tickets</h3>
+            <p className="text-gray-500 dark:text-gray-400 mb-4">{error}</p>
           </div>
         </div>
       )}
@@ -601,25 +600,25 @@ export const TenantSupportPage: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         {/* Ticket List */}
         <div
-          className={`${selectedTicket ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 bg-white`}
+          className={`${selectedTicket ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900`}
         >
           {/* Filters */}
-          <div className="p-4 border-b border-gray-200 space-y-3">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" size={18} />
               <input
                 type="text"
                 placeholder="Search tickets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500 focus:border-tenant-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
               />
             </div>
             <div className="flex items-center gap-2">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-tenant-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
               >
                 <option value="all">All Status</option>
                 <option value="open">Open</option>
@@ -637,9 +636,9 @@ export const TenantSupportPage: React.FC = () => {
               <div
                 key={ticket.id}
                 onClick={() => setSelectedTicketId(ticket.id)}
-                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                   selectedTicket?.id === ticket.id
-                    ? 'bg-tenant-50 border-l-4 border-l-tenant-500'
+                    ? 'bg-green-50 border-l-4 border-l-green-500'
                     : ''
                 }`}
               >
@@ -660,8 +659,8 @@ export const TenantSupportPage: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <h3 className="font-medium text-gray-900 mt-1 truncate">{ticket.subject}</h3>
-                    <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+                    <h3 className="font-medium text-gray-900 dark:text-gray-100 mt-1 truncate">{ticket.subject}</h3>
+                    <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
                       <span>{ticket.ticketNumber}</span>
                       <span>·</span>
                       <span className="flex items-center gap-1">
@@ -669,7 +668,7 @@ export const TenantSupportPage: React.FC = () => {
                         {ticket.category.replace('_', ' ')}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
                       <span className="flex items-center gap-1">
                         <Clock size={12} />
                         {formatTime(ticket.createdAt)}
@@ -686,14 +685,14 @@ export const TenantSupportPage: React.FC = () => {
                       </span>
                     </div>
                   </div>
-                  <ChevronRight size={18} className="text-gray-500 flex-shrink-0" />
+                  <ChevronRight size={18} className="text-gray-500 dark:text-gray-400 flex-shrink-0" />
                 </div>
               </div>
             ))}
 
             {filteredTickets.length === 0 && (
-              <div className="p-8 text-center text-gray-500">
-                <Ticket size={48} className="mx-auto mb-3 text-gray-500" />
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                <Ticket size={48} className="mx-auto mb-3 text-gray-500 dark:text-gray-400" />
                 <p className="font-medium">No tickets found</p>
                 <p className="text-sm mt-1">Create a new ticket to get help</p>
               </div>
@@ -703,9 +702,9 @@ export const TenantSupportPage: React.FC = () => {
 
         {/* Ticket Detail */}
         {selectedTicket && (
-          <div className="w-1/2 flex flex-col bg-gray-50">
+          <div className="w-1/2 flex flex-col bg-gray-50 dark:bg-gray-800">
             {/* Detail Header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4">
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
@@ -717,15 +716,15 @@ export const TenantSupportPage: React.FC = () => {
                     <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedTicket.status)}`}>
                       {getStatusLabel(selectedTicket.status)}
                     </span>
-                    <span className="flex items-center gap-1 text-xs text-gray-500">
+                    <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                       {getCategoryIcon(selectedTicket.category)}
                       {selectedTicket.category.replace('_', ' ')}
                     </span>
                   </div>
-                  <h2 className="text-lg font-semibold text-gray-900 mt-2">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-2">
                     {selectedTicket.subject}
                   </h2>
-                  <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
+                  <div className="flex items-center gap-3 mt-1 text-sm text-gray-500 dark:text-gray-400">
                     <span>{selectedTicket.ticketNumber}</span>
                     {selectedTicket.assignedToName && (
                       <>
@@ -737,7 +736,7 @@ export const TenantSupportPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => setSelectedTicketId(null)}
-                  className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   <X size={20} />
                 </button>
@@ -746,9 +745,9 @@ export const TenantSupportPage: React.FC = () => {
               {/* Tags */}
               {selectedTicket.tags.length > 0 && (
                 <div className="flex items-center gap-2 mt-3">
-                  <Tag size={14} className="text-gray-500" />
+                  <Tag size={14} className="text-gray-500 dark:text-gray-400" />
                   {selectedTicket.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                    <span key={tag} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
                       {tag}
                     </span>
                   ))}
@@ -785,7 +784,7 @@ export const TenantSupportPage: React.FC = () => {
                   className={`rounded-lg p-4 ${
                     comment.authorType === 'admin'
                       ? 'bg-blue-50 border border-blue-100'
-                      : 'bg-white border border-gray-200'
+                      : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
                   }`}
                 >
                   <div className="flex items-center justify-between mb-2">
@@ -794,21 +793,21 @@ export const TenantSupportPage: React.FC = () => {
                         className={`w-8 h-8 rounded-full flex items-center justify-center ${
                           comment.authorType === 'admin'
                             ? 'bg-blue-200 text-blue-700'
-                            : 'bg-tenant-200 text-tenant-700'
+                            : 'bg-green-200 text-green-700'
                         }`}
                       >
                         <User size={16} />
                       </div>
                       <div>
-                        <div className="font-medium text-gray-900 text-sm">{comment.authorName}</div>
-                        <div className="text-xs text-gray-500">
+                        <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">{comment.authorName}</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
                           {comment.authorType === 'admin' ? 'Support Team' : 'You'}
                         </div>
                       </div>
                     </div>
-                    <span className="text-xs text-gray-500">{formatTime(comment.createdAt)}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{formatTime(comment.createdAt)}</span>
                   </div>
-                  <p className="text-sm text-gray-700 whitespace-pre-wrap">{comment.content}</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{comment.content}</p>
                   {comment.attachments.length > 0 && (
                     <div className="mt-3 space-y-2">
                       {comment.attachments.map((att) => {
@@ -821,10 +820,10 @@ export const TenantSupportPage: React.FC = () => {
                             rel="noopener noreferrer"
                             target="_blank"
                             onClick={safeUrl ? undefined : (e) => e.preventDefault()}
-                            className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:bg-gray-50 text-sm"
+                            className="flex items-center gap-2 p-2 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
                           >
-                            <FileText size={14} className="text-gray-500" />
-                            <span className="text-gray-700">{att.filename}</span>
+                            <FileText size={14} className="text-gray-500 dark:text-gray-400" />
+                            <span className="text-gray-700 dark:text-gray-300">{att.filename}</span>
                           </a>
                         );
                       })}
@@ -836,23 +835,23 @@ export const TenantSupportPage: React.FC = () => {
 
             {/* Reply Input */}
             {selectedTicket.status !== 'closed' && selectedTicket.status !== 'resolved' && (
-              <div className="bg-white border-t border-gray-200 p-4">
+              <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                 <div className="flex items-end gap-3">
                   <textarea
                     value={newComment}
                     onChange={(e) => setNewComment(e.target.value)}
                     placeholder="Write a reply..."
                     rows={3}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-tenant-500 focus:border-tenant-500"
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   />
                   <div className="flex flex-col gap-2">
-                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                    <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                       <Paperclip size={20} />
                     </button>
                     <button
                       onClick={handleAddComment}
                       disabled={!newComment.trim() || addCommentMutation.isPending}
-                      className="p-3 bg-tenant-600 text-white rounded-lg hover:bg-tenant-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Send size={20} />
                     </button>
@@ -874,7 +873,7 @@ export const TenantSupportPage: React.FC = () => {
                         className={
                           star <= selectedTicket.satisfactionRating!
                             ? 'text-yellow-500 fill-yellow-500'
-                            : 'text-gray-500'
+                            : 'text-gray-500 dark:text-gray-400'
                         }
                       />
                     ))}

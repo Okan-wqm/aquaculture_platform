@@ -20,7 +20,7 @@ const salaryColumns = (currency: string): DataTableColumn<HrLabourCostRow>[] => 
   {
     key: 'category',
     header: 'Category',
-    render: (_value, row) => <span className="text-gray-900">{laborCategoryLabel(row.category)}</span>,
+    render: (_value, row) => <span className="text-gray-900 dark:text-gray-100">{laborCategoryLabel(row.category)}</span>,
   },
   { key: 'headcount', header: 'Headcount' },
   {
@@ -38,7 +38,7 @@ const salaryColumns = (currency: string): DataTableColumn<HrLabourCostRow>[] => 
     align: 'right',
     render: (_value, row) => (
       <span
-        className="font-medium text-gray-900"
+        className="font-medium text-gray-900 dark:text-gray-100"
         title={row.salarySuppressed ? SUPPRESSED_TITLE : undefined}
       >
         {formatMoney(row.annualSalaryTotalDecimal, currency)}
@@ -69,7 +69,7 @@ export const SalariesTab: React.FC<SalariesTabProps> = ({ data, isLoading }) => 
       searchable={false}
       sortable={false}
       stickyHeader={false}
-      className="rounded-xl border border-gray-100 shadow-sm"
+      className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
     />
   );
 };

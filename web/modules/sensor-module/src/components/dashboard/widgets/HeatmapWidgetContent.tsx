@@ -10,7 +10,7 @@
 import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { WidgetConfig, TimeRange } from '../types';
 import { useWidgetData, HistoryPoint } from '../../../hooks/useWidgetData';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, Spinner } from '@aquaculture/shared-ui';
 
 interface HeatmapWidgetContentProps {
   config: WidgetConfig;
@@ -198,9 +198,9 @@ const FallbackTable: React.FC<{ grid: HeatmapGrid; scale: ColorScale }> = ({ gri
     <table className="w-full border-collapse">
       <thead>
         <tr>
-          <th className="text-left p-1 font-medium text-gray-600 sticky left-0 bg-white">Sensor</th>
+          <th className="text-left p-1 font-medium text-gray-600 dark:text-gray-400 sticky left-0 bg-white dark:bg-gray-900">Sensor</th>
           {grid.buckets.slice(0, 8).map((b, i) => (
-            <th key={i} className="p-1 font-medium text-gray-500 text-center">
+            <th key={i} className="p-1 font-medium text-gray-500 dark:text-gray-400 text-center">
               {b.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </th>
           ))}
@@ -209,7 +209,7 @@ const FallbackTable: React.FC<{ grid: HeatmapGrid; scale: ColorScale }> = ({ gri
       <tbody>
         {grid.sensors.map((sensor) => (
           <tr key={sensor}>
-            <td className="p-1 font-medium text-gray-700 sticky left-0 bg-white truncate max-w-[80px]" title={sensor}>
+            <td className="p-1 font-medium text-gray-700 dark:text-gray-300 sticky left-0 bg-white dark:bg-gray-900 truncate max-w-[80px]" title={sensor}>
               {sensor}
             </td>
             {grid.buckets.slice(0, 8).map((_, bucketIdx) => {
@@ -416,7 +416,7 @@ const CanvasHeatmap: React.FC<CanvasHeatmapProps> = ({ grid, scale, onTooltip, u
     <div ref={containerRef} className="w-full h-full">
       <canvas
         ref={canvasRef}
-        style={{ display: 'block', width: '100%', height: '100%' }}
+        className="block w-full h-full"
         onMouseMove={handleMouseMove}
         onMouseLeave={() => onTooltip(null)}
       />
@@ -449,7 +449,7 @@ export const HeatmapWidgetContent: React.FC<HeatmapWidgetContentProps> = ({ conf
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="md" />
       </div>
     );
   }
@@ -464,7 +464,7 @@ export const HeatmapWidgetContent: React.FC<HeatmapWidgetContentProps> = ({ conf
 
   if (history.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-400 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-400 dark:text-gray-500 text-sm">
         No historical data available
       </div>
     );
@@ -493,14 +493,14 @@ export const HeatmapWidgetContent: React.FC<HeatmapWidgetContentProps> = ({ conf
           <div className="mt-0.5">
             {tooltip.value.toFixed(2)}{tooltip.unit && ` ${tooltip.unit}`}
           </div>
-          <div className="text-gray-400 mt-0.5">
+          <div className="text-gray-400 dark:text-gray-500 mt-0.5">
             {tooltip.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
         </div>
       )}
 
       {/* Min/Max legend strip */}
-      <div className="absolute bottom-0 right-0 flex items-center gap-1 px-1 py-0.5 bg-white/80 rounded text-[9px] text-gray-500">
+      <div className="absolute bottom-0 right-0 flex items-center gap-1 px-1 py-0.5 bg-white/80 dark:bg-gray-900/80 rounded text-[9px] text-gray-500 dark:text-gray-400">
         <span>{grid.minValue.toFixed(1)}</span>
         <div
           className="w-16 h-2 rounded"

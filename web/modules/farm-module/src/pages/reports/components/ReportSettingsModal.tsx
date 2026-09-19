@@ -10,13 +10,7 @@
 import React, { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { gql } from 'graphql-request';
-import {
-  Modal,
-  graphqlClient,
-  useAuth,
-  createTenantQueryKey,
-  createTenantInvalidationKey,
-} from '@aquaculture/shared-ui';
+import { Modal, graphqlClient, useAuth, createTenantQueryKey, createTenantInvalidationKey, Spinner } from '@aquaculture/shared-ui';
 
 const GET_REGULATORY_SETTINGS = gql`
   query GetRegulatorySettings {
@@ -154,7 +148,7 @@ interface ReportSettingsModalProps {
 
 const StatusBadge: React.FC<{ label: string; configured: boolean }> = ({ label, configured }) => (
   <span
-    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${configured ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}
+    className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${configured ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'}`}
   >
     {configured ? (
       <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
@@ -346,7 +340,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           >
             Cancel
           </button>
@@ -364,8 +358,8 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
       <div className="max-h-[calc(100vh-12rem)] overflow-y-auto space-y-6">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <span className="ml-3 text-gray-600">Loading settings...</span>
+            <Spinner size="lg" />
+            <span className="ml-3 text-gray-600 dark:text-gray-400">Loading settings...</span>
           </div>
         ) : (
           <>
@@ -443,25 +437,25 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
             )}
 
             {/* Maskinporten Integration */}
-            <div className="border border-gray-200 rounded-lg p-4">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-gray-900">Maskinporten Integration</h3>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Maskinporten Integration</h3>
                 {settingsData?.maskinportenConfigured && (
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                     Configured
                   </span>
                 )}
               </div>
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 Configure Maskinporten OAuth2 credentials for Mattilsynet regulatory reporting API
                 access.
               </p>
 
               {settingsData?.maskinportenClientIdMasked && (
-                <div className="mb-4 p-3 bg-gray-50 rounded-md">
-                  <p className="text-sm text-gray-600">
+                <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-md">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
                     Current Client ID:{' '}
-                    <code className="bg-gray-200 px-1 rounded">
+                    <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">
                       {settingsData.maskinportenClientIdMasked}
                     </code>
                   </p>
@@ -470,7 +464,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Client ID{' '}
                     {settingsData?.maskinportenConfigured && '(leave empty to keep existing)'}
                   </label>
@@ -480,12 +474,12 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     onChange={(e) =>
                       setFormData({ ...formData, maskinportenClientId: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Key ID (kid)
                   </label>
                   <input
@@ -494,12 +488,12 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     onChange={(e) =>
                       setFormData({ ...formData, maskinportenKeyId: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     placeholder="optional-key-id"
                   />
                 </div>
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Private Key (PEM){' '}
                     {settingsData?.maskinportenConfigured && '(leave empty to keep existing)'}
                   </label>
@@ -509,12 +503,12 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                       setFormData({ ...formData, maskinportenPrivateKey: e.target.value })
                     }
                     rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                     placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;...&#10;-----END RSA PRIVATE KEY-----"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Environment
                   </label>
                   <select
@@ -522,7 +516,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     onChange={(e) =>
                       setFormData({ ...formData, maskinportenEnvironment: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="TEST">Test (test.maskinporten.no)</option>
                     <option value="PRODUCTION">Production (maskinporten.no)</option>
@@ -572,48 +566,48 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
             </div>
 
             {/* Default Contact */}
-            <div className="border border-gray-200 rounded-lg p-4">
-              <h3 className="text-base font-semibold text-gray-900 mb-3">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">
                 Default Contact for Reports
               </h3>
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 This contact information will be used as the default for regulatory reports
                 submitted to Mattilsynet.
               </p>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
                   <input
                     type="text"
                     value={formData.defaultContactName}
                     onChange={(e) =>
                       setFormData({ ...formData, defaultContactName: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     placeholder="Ola Nordmann"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
                   <input
                     type="email"
                     value={formData.defaultContactEmail}
                     onChange={(e) =>
                       setFormData({ ...formData, defaultContactEmail: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     placeholder="ola@example.com"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Phone</label>
                   <input
                     type="tel"
                     value={formData.defaultContactPhone}
                     onChange={(e) =>
                       setFormData({ ...formData, defaultContactPhone: e.target.value })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                     placeholder="+47 123 45 678"
                   />
                 </div>
@@ -621,9 +615,9 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
             </div>
 
             {/* Site Locality Mappings */}
-            <div className="border border-gray-200 rounded-lg p-4">
-              <h3 className="text-base font-semibold text-gray-900 mb-3">Site Locality Mappings</h3>
-              <p className="text-sm text-gray-600 mb-4">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Site Locality Mappings</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 Map your sites to their official Mattilsynet locality numbers (lokalitetsnummer).
               </p>
               {sitesData && sitesData.length > 0 ? (
@@ -632,7 +626,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                     <div key={site.id} className="flex items-center gap-4">
                       <div className="flex-1">
                         <span className="font-medium">{site.name}</span>
-                        <span className="text-gray-500 text-sm ml-2">({site.code})</span>
+                        <span className="text-gray-500 dark:text-gray-400 text-sm ml-2">({site.code})</span>
                       </div>
                       <div className="w-48">
                         <input
@@ -641,7 +635,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                           onChange={(e) =>
                             setSiteMappings({ ...siteMappings, [site.id]: e.target.value })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                           placeholder="Lokalitetsnummer"
                         />
                       </div>
@@ -649,16 +643,16 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                   ))}
                 </div>
               ) : (
-                <p className="text-gray-500 italic">
+                <p className="text-gray-500 dark:text-gray-400 italic">
                   No sites configured. Add sites first to map locality numbers.
                 </p>
               )}
             </div>
 
             {/* Slaughter Facility — managed in the facility catalog (SSoT) */}
-            <div className="border border-gray-200 rounded-lg p-4">
-              <h3 className="text-base font-semibold text-gray-900 mb-3">Slaughter Facility</h3>
-              <p className="text-sm text-gray-600">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-3">Slaughter Facility</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
                 Slaughter facilities and their approval numbers (godkjenningsnummer) are managed in
                 Setup → Slaughter Facilities. The default facility supplies the godkjenningsnummer on
                 the executed/planned slaughter reports — no approval number is entered here.
@@ -679,21 +673,21 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
             </div>
 
             {/* Automated submission (RPT-003) */}
-            <div className="border border-gray-200 rounded-lg p-4">
-              <h3 className="text-base font-semibold text-gray-900 mb-1">Automated submission</h3>
-              <p className="text-sm text-gray-600 mb-4">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-1">Automated submission</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 When enabled, a READY draft for the report type is submitted to Mattilsynet
                 automatically each period — no manual approval needed. Leave off to review and
                 approve every submission yourself.
               </p>
-              <ul className="divide-y divide-gray-100">
+              <ul className="divide-y divide-gray-100 dark:divide-gray-700">
                 {AUTO_SUBMIT_REPORT_TYPES.map((rt) => {
                   const enabled =
                     settingsData?.autoSubmitPolicies?.find((p) => p.reportType === rt.value)
                       ?.enabled ?? false;
                   return (
                     <li key={rt.value} className="flex items-center justify-between py-2">
-                      <span className="text-sm text-gray-800">{rt.label}</span>
+                      <span className="text-sm text-gray-800 dark:text-gray-200">{rt.label}</span>
                       <button
                         type="button"
                         role="switch"
@@ -711,7 +705,7 @@ export const ReportSettingsModal: React.FC<ReportSettingsModalProps> = ({ open, 
                         }`}
                       >
                         <span
-                          className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                          className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 transition-transform ${
                             enabled ? 'translate-x-6' : 'translate-x-1'
                           }`}
                         />

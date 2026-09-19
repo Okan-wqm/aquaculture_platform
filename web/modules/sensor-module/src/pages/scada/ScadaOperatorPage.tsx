@@ -11,7 +11,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { AlertCircle, ArrowLeft, Loader2 } from 'lucide-react';
+import { AlertCircle, ArrowLeft } from 'lucide-react';
 
 import { OperatorBootstrap } from '../../components/scada-operator/OperatorBootstrap';
 import { OperatorShell, OperatorView } from '../../components/scada-operator';
@@ -19,6 +19,7 @@ import { useScadaPackageById } from '../../hooks/useScadaPackage';
 import { useScadaPackageStore } from '../../store/scada';
 import type { ScadaPackageJSON } from '../../store/scada';
 import type { Screen } from '../../types/scada-package.types';
+import { Spinner } from '@aquaculture/shared-ui';
 
 const ScadaOperatorPage: React.FC = () => {
   const { packageId } = useParams<{ packageId: string }>();
@@ -47,7 +48,7 @@ const ScadaOperatorPage: React.FC = () => {
     return (
       <div className="flex h-screen items-center justify-center bg-gray-900">
         <div className="flex flex-col items-center gap-3 text-gray-300">
-          <Loader2 className="w-8 h-8 animate-spin" />
+          <Spinner size="lg" color="inherit" />
           <p className="text-sm">Loading SCADA package...</p>
         </div>
       </div>
@@ -83,7 +84,7 @@ const ScadaOperatorPage: React.FC = () => {
         {activeScreen ? (
           <OperatorView screen={activeScreen} onNavigate={setActiveScreen} />
         ) : (
-          <div className="flex h-full items-center justify-center text-gray-400 text-sm">
+          <div className="flex h-full items-center justify-center text-gray-400 dark:text-gray-500 text-sm">
             This package has no screens.
           </div>
         )}

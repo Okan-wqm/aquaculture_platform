@@ -206,7 +206,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {/* Item Type — determines which item list is loaded */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Item Type *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item Type *</label>
             <div className="mt-1 grid grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
                 <button
@@ -216,7 +216,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
                   className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                     itemType === opt.value
                       ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   {opt.label}
@@ -227,11 +227,11 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {/* Item selection — populated from the appropriate list hook */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Item *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Item *</label>
             <select
               value={selectedItemId}
               onChange={(e) => setSelectedItemId(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             >
               <option value="">Select item...</option>
               {itemOptions.map((opt) => (
@@ -244,7 +244,7 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {/* Quantity — minimum 0.01 enforced client-side */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Quantity *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Quantity *</label>
             <input
               type="number"
               min="0.01"
@@ -252,17 +252,17 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               placeholder="0.00"
-              className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full max-w-xs border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           {/* From Location — source of the stock being transferred */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">From Location *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">From Location *</label>
             <select
               value={fromLocationId}
               onChange={(e) => handleFromLocationChange(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             >
               <option value="">Select source location...</option>
               {locations.map((loc) => (
@@ -275,11 +275,11 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {/* To Location — destination; excludes the selected "from" location */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">To Location *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">To Location *</label>
             <select
               value={toLocationId}
               onChange={(e) => setToLocationId(e.target.value)}
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             >
               <option value="">Select destination location...</option>
               {toLocationOptions.map((loc) => (
@@ -292,35 +292,35 @@ export const TransferStockModal: React.FC<Props> = ({ isOpen, onClose }) => {
 
           {/* Lot Number — optional for transfers (traceability already established at receipt) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Lot Number</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Lot Number</label>
             <input
               type="text"
               value={lotNumber}
               onChange={(e) => setLotNumber(e.target.value)}
               placeholder="Optional"
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           {/* Reason — optional for transfers (e.g., "Moving to pond-side dispenser") */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Reason</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Reason</label>
             <textarea
               rows={2}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Optional — e.g., Moving feed closer to pond area"
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
         </div>
 
         {/* Footer with cancel/submit actions */}
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>

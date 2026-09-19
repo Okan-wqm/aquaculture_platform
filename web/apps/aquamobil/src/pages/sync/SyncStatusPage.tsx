@@ -102,12 +102,12 @@ export function SyncStatusPage(): JSX.Element {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">{pendingCount}</h2>
-            <p className="text-gray-500">Pending Operations</p>
+            <p className="text-gray-500 dark:text-gray-400">Pending Operations</p>
           </div>
           <Button
             onClick={() => { void syncNow(); }}
             disabled={!isOnline || pendingCount === 0 || isSyncing}
-            className="!bg-aqua-500"
+            className="!bg-ocean-500"
           >
             <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
             <span className="ml-2">{isSyncing ? 'Syncing...' : 'Sync Now'}</span>
@@ -140,7 +140,7 @@ export function SyncStatusPage(): JSX.Element {
                 ) : op.status === 'failed' ? (
                   <AlertCircle size={16} className="text-red-500" />
                 ) : (
-                  <Clock size={16} className="text-gray-400" />
+                  <Clock size={16} className="text-gray-400 dark:text-gray-500" />
                 );
 
               return (
@@ -197,7 +197,7 @@ export function SyncStatusPage(): JSX.Element {
           <div className="text-center py-12">
             <CheckCircle size={48} className="mx-auto text-green-500 mb-4" />
             <h3 className="font-semibold text-gray-900 dark:text-white mb-1">All Synced!</h3>
-            <p className="text-gray-500 text-sm">No pending operations</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">No pending operations</p>
           </div>
         </Block>
       )}

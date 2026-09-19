@@ -117,7 +117,7 @@ const CategoryTree: React.FC<{
         className={`w-full text-left px-3 py-1.5 text-xs rounded transition-colors ${
           selectedCategory === null
             ? 'bg-cyan-50 text-cyan-700 font-semibold'
-            : 'text-gray-600 hover:bg-gray-100'
+            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
         }`}
       >
         All Categories
@@ -130,7 +130,7 @@ const CategoryTree: React.FC<{
             {cat.children.length > 0 && (
               <button
                 onClick={() => toggle(cat.name)}
-                className="p-0.5 text-gray-400 hover:text-gray-600"
+                className="p-0.5 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                 aria-label={`Toggle ${cat.name}`}
               >
                 {expanded.has(cat.name)
@@ -145,11 +145,11 @@ const CategoryTree: React.FC<{
               className={`flex-1 text-left px-2 py-1.5 text-xs rounded transition-colors ${
                 selectedCategory === cat.name && selectedSubcategory === null
                   ? 'bg-cyan-50 text-cyan-700 font-semibold'
-                  : 'text-gray-700 hover:bg-gray-100'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}
             >
               {cat.name}
-              <span className="ml-1 text-gray-400">({cat.count})</span>
+              <span className="ml-1 text-gray-400 dark:text-gray-500">({cat.count})</span>
             </button>
           </div>
 
@@ -163,7 +163,7 @@ const CategoryTree: React.FC<{
                   className={`w-full text-left px-2 py-1 text-xs rounded transition-colors ${
                     selectedCategory === cat.name && selectedSubcategory === sub
                       ? 'bg-cyan-50 text-cyan-700 font-semibold'
-                      : 'text-gray-600 hover:bg-gray-100'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
                   {sub}
@@ -191,16 +191,16 @@ const WidgetCard: React.FC<{
     className={`w-full text-left p-3 rounded-lg border transition-all ${
       isSelected
         ? 'border-cyan-400 bg-cyan-50 ring-1 ring-cyan-400'
-        : 'border-gray-200 bg-white hover:border-cyan-300 hover:bg-gray-50'
+        : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-cyan-300 hover:bg-gray-50 dark:hover:bg-gray-800'
     }`}
     data-testid={`fuxa-widget-card-${entry.id}`}
   >
     {/* Placeholder icon area */}
-    <div className="w-full h-16 bg-gray-100 rounded flex items-center justify-center mb-2">
-      <Package className="w-8 h-8 text-gray-400" />
+    <div className="w-full h-16 bg-gray-100 dark:bg-gray-800 rounded flex items-center justify-center mb-2">
+      <Package className="w-8 h-8 text-gray-400 dark:text-gray-500" />
     </div>
-    <div className="text-xs font-medium text-gray-900 truncate">{entry.name}</div>
-    <div className="text-[10px] text-gray-500 truncate mt-0.5">
+    <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">{entry.name}</div>
+    <div className="text-[10px] text-gray-500 dark:text-gray-400 truncate mt-0.5">
       {entry.subcategory ? `${entry.category} > ${entry.subcategory}` : entry.category}
     </div>
   </button>
@@ -215,13 +215,13 @@ const DetailPanel: React.FC<{
   onAdd: () => void;
 }> = ({ entry, onAdd }) => (
   <div
-    className="border-t border-gray-200 bg-gray-50 px-4 py-3"
+    className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-4 py-3"
     data-testid="fuxa-detail-panel"
   >
     <div className="flex items-start justify-between gap-3">
       <div className="flex-1 min-w-0">
-        <h4 className="text-sm font-semibold text-gray-900">{entry.name}</h4>
-        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{entry.name}</h4>
+        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
           <span className="flex items-center gap-1">
             <Layers className="w-3 h-3" />
             {entry.subcategory
@@ -237,13 +237,13 @@ const DetailPanel: React.FC<{
             Tier {entry.tier}
           </span>
         </div>
-        <p className="text-xs text-gray-600 mt-1.5">{entry.description}</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 mt-1.5">{entry.description}</p>
         {entry.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
             {entry.tags.map((t) => (
               <span
                 key={t}
-                className="px-1.5 py-0.5 text-[10px] bg-gray-200 text-gray-600 rounded"
+                className="px-1.5 py-0.5 text-[10px] bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded"
               >
                 {t}
               </span>
@@ -392,22 +392,22 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
       description={`${FUXA_WIDGET_CATALOG.length} widgets`}
     >
       {/* Search bar */}
-      <div className="px-4 py-2 border-b border-gray-100">
+      <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500 pointer-events-none" />
           <input
             ref={searchRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search widgets by name, tag, or category..."
-            className="w-full h-9 pl-9 pr-4 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full h-9 pl-9 pr-4 text-sm bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             data-testid="fuxa-search-input"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-gray-200 text-gray-400"
+              className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-400 dark:text-gray-500"
             >
               <X className="w-3.5 h-3.5" />
             </button>
@@ -418,7 +418,7 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
       {/* Body: category tree + widget grid */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Left sidebar: category tree */}
-        <div className="w-48 flex-shrink-0 border-r border-gray-200 overflow-y-auto py-2 px-2">
+        <div className="w-48 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 overflow-y-auto py-2 px-2">
           <CategoryTree
             categories={categoryTree}
             selectedCategory={selectedCategory}
@@ -430,17 +430,16 @@ export const FuxaWidgetBrowser: React.FC<FuxaWidgetBrowserProps> = ({
         {/* Right content: widget grid */}
         <div className="flex-1 overflow-y-auto p-3">
           {filteredWidgets.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
               <Package className="w-10 h-10 text-gray-300 mb-2" />
               <p className="text-sm">No widgets match your search</p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                 Try different keywords or select a different category
               </p>
             </div>
           ) : (
             <div
-              className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}
+              className="grid gap-3 grid-cols-[repeat(auto-fill,minmax(140px,1fr))]"
               data-testid="fuxa-widget-grid"
             >
               {filteredWidgets.map((entry) => (

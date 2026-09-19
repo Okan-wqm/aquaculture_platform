@@ -77,27 +77,27 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
   return (
     <div
       className={`
-        w-80 bg-white border-l border-gray-200 flex flex-col
+        w-80 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col
         ${className}
       `}
     >
       {/* Header */}
-      <div className="p-4 border-b border-gray-200">
+      <div className="p-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-gray-100 rounded-lg">
-              <Icon size={24} className="text-gray-700" />
+            <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              <Icon size={24} className="text-gray-700 dark:text-gray-300" />
             </div>
             <div>
-              <h3 className="font-semibold text-gray-900">{equipmentData.equipmentName}</h3>
-              <p className="text-xs text-gray-500">{equipmentData.equipmentCode}</p>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100">{equipmentData.equipmentName}</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{equipmentData.equipmentCode}</p>
             </div>
           </div>
           <button
             onClick={handleClose}
-            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
           >
-            <X size={20} className="text-gray-500" />
+            <X size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
@@ -111,21 +111,21 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
                   ? 'bg-green-100 text-green-700'
                   : equipmentData.status === 'maintenance'
                   ? 'bg-yellow-100 text-yellow-700'
-                  : 'bg-gray-100 text-gray-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
               }
             `}
           >
             {equipmentData.status}
           </span>
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {equipmentData.equipmentCategory}
           </span>
         </div>
       </div>
 
       {/* View mode selector */}
-      <div className="px-4 py-2 border-b border-gray-100 flex items-center gap-1">
-        <span className="text-xs text-gray-500 mr-2">Görünüm:</span>
+      <div className="px-4 py-2 border-b border-gray-100 dark:border-gray-700 flex items-center gap-1">
+        <span className="text-xs text-gray-500 dark:text-gray-400 mr-2">Görünüm:</span>
         {[
           { mode: 'gauge' as ViewMode, icon: Gauge, label: 'Gauge' },
           { mode: 'numeric' as ViewMode, icon: BarChart3, label: 'Numeric' },
@@ -137,7 +137,7 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
             onClick={() => setViewMode(mode)}
             className={`
               p-1.5 rounded transition-colors
-              ${viewMode === mode ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}
+              ${viewMode === mode ? 'bg-blue-100 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'}
             `}
             title={label}
           >
@@ -147,23 +147,23 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
       </div>
 
       {/* Stats summary */}
-      <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+      <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <div className="grid grid-cols-4 gap-2 text-center">
           <div>
-            <div className="text-lg font-bold text-gray-900">{stats.total}</div>
-            <div className="text-xs text-gray-500">Sensör</div>
+            <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Sensör</div>
           </div>
           <div>
             <div className="text-lg font-bold text-green-600">{stats.normal}</div>
-            <div className="text-xs text-gray-500">Normal</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Normal</div>
           </div>
           <div>
             <div className="text-lg font-bold text-yellow-600">{stats.warning}</div>
-            <div className="text-xs text-gray-500">Uyarı</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Uyarı</div>
           </div>
           <div>
             <div className="text-lg font-bold text-red-600">{stats.critical}</div>
-            <div className="text-xs text-gray-500">Kritik</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Kritik</div>
           </div>
         </div>
       </div>
@@ -171,8 +171,8 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
       {/* Sensor readings */}
       <div className="flex-1 overflow-y-auto p-4">
         {readings.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <Settings size={32} className="mx-auto mb-2 text-gray-500" />
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+            <Settings size={32} className="mx-auto mb-2 text-gray-500 dark:text-gray-400" />
             <p className="text-sm">Bu ekipmana bağlı sensör bulunamadı</p>
           </div>
         ) : (
@@ -180,13 +180,13 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
             {readings.map((reading) => (
               <div
                 key={reading.sensorId}
-                className="bg-gray-50 rounded-lg p-3"
+                className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3"
               >
-                <div className="text-xs text-gray-500 mb-2 capitalize">
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 capitalize">
                   {reading.sensorName}
                 </div>
                 {renderWidget(reading)}
-                <div className="text-xs text-gray-500 mt-2 text-right">
+                <div className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-right">
                   Son güncelleme: {formatTimestamp(reading.timestamp)}
                 </div>
               </div>
@@ -196,17 +196,17 @@ export const SensorPanel: React.FC<SensorPanelProps> = ({ className = '' }) => {
       </div>
 
       {/* Footer actions */}
-      <div className="p-4 border-t border-gray-200 bg-gray-50">
+      <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <div className="flex items-center gap-2">
-          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
             <History size={16} />
             Geçmiş
           </button>
-          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
             <Bell size={16} />
             Alarmlar
           </button>
-          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+          <button className="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
             <Settings size={16} />
             Ayarlar
           </button>

@@ -161,8 +161,7 @@ const EventDetail = memo<EventDetailProps>(({ event, color, anchorRef, onClose }
       ref={popRef}
       role="tooltip"
       aria-label={`Event details: ${event.name}`}
-      className="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-xl p-3 w-52 text-xs pointer-events-auto"
-      style={{ top: '100%', left: 0, marginTop: 4 }}
+      className="absolute z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 w-52 text-xs pointer-events-auto top-full left-0 mt-1"
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5">
@@ -171,18 +170,18 @@ const EventDetail = memo<EventDetailProps>(({ event, color, anchorRef, onClose }
             style={{ backgroundColor: color }}
             aria-hidden="true"
           />
-          <span className="font-semibold text-gray-800 leading-tight">{event.name}</span>
+          <span className="font-semibold text-gray-800 dark:text-gray-200 leading-tight">{event.name}</span>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="text-gray-400 hover:text-gray-600 flex-shrink-0 leading-none"
+          className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0 leading-none"
           aria-label="Close detail"
         >
           ✕
         </button>
       </div>
-      <div className="space-y-1 text-gray-600">
+      <div className="space-y-1 text-gray-600 dark:text-gray-400">
         <div className="flex items-center gap-1">
           <Clock className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
           <span>{formatTime(event.startTime)} – {formatTime(event.endTime)}</span>
@@ -195,7 +194,7 @@ const EventDetail = memo<EventDetailProps>(({ event, color, anchorRef, onClose }
           <Calendar className="w-3 h-3 flex-shrink-0" aria-hidden="true" />
           <span className="capitalize">{event.recurrence}</span>
         </div>
-        <div className="text-[10px] text-gray-400">
+        <div className="text-[10px] text-gray-400 dark:text-gray-500">
           ON: {String(event.onValue)} / OFF: {String(event.offValue)}
         </div>
       </div>
@@ -323,7 +322,7 @@ const WeeklyView = memo<WeeklyViewProps>(({ weekStart, events, colorMap, now }) 
   return (
     <div className="flex flex-col h-full" aria-label="Weekly schedule view">
       {/* Day header row */}
-      <div className="flex border-b border-gray-200 flex-shrink-0">
+      <div className="flex border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         {/* Time gutter */}
         <div className="w-10 flex-shrink-0" />
         {days.map((day, i) => {
@@ -333,7 +332,7 @@ const WeeklyView = memo<WeeklyViewProps>(({ weekStart, events, colorMap, now }) 
               key={i}
               className={[
                 'flex-1 text-center py-1.5 text-xs font-medium',
-                isToday ? 'text-blue-600' : 'text-gray-600',
+                isToday ? 'text-blue-600' : 'text-gray-600 dark:text-gray-400',
               ].join(' ')}
             >
               <div>{DAY_NAMES_SHORT[i]}</div>
@@ -361,7 +360,7 @@ const WeeklyView = memo<WeeklyViewProps>(({ weekStart, events, colorMap, now }) 
             {HOUR_LABELS.map((h) => (
               <div
                 key={h}
-                className="absolute right-1 text-[9px] text-gray-400 leading-none"
+                className="absolute right-1 text-[9px] text-gray-400 dark:text-gray-500 leading-none"
                 style={{ top: h * HOUR_HEIGHT_PX - 5 }}
               >
                 {h === 0 ? '' : `${h}:00`}
@@ -377,14 +376,14 @@ const WeeklyView = memo<WeeklyViewProps>(({ weekStart, events, colorMap, now }) 
             return (
               <div
                 key={colIdx}
-                className="flex-1 relative border-l border-gray-100"
+                className="flex-1 relative border-l border-gray-100 dark:border-gray-700"
                 aria-label={`${DAY_NAMES_SHORT[colIdx]} ${day.getDate()}`}
               >
                 {/* Hour grid lines */}
                 {HOUR_LABELS.map((h) => (
                   <div
                     key={h}
-                    className="absolute left-0 right-0 border-t border-gray-100"
+                    className="absolute left-0 right-0 border-t border-gray-100 dark:border-gray-700"
                     style={{ top: h * HOUR_HEIGHT_PX }}
                     aria-hidden="true"
                   />
@@ -456,11 +455,11 @@ const MonthlyView = memo<MonthlyViewProps>(({ year, month, events, colorMap, now
   return (
     <div className="flex flex-col h-full" aria-label="Monthly schedule view">
       {/* Day-of-week header */}
-      <div className="grid grid-cols-7 border-b border-gray-200 flex-shrink-0">
+      <div className="grid grid-cols-7 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         {DAY_NAMES_SHORT.map((d) => (
           <div
             key={d}
-            className="text-center text-[10px] font-semibold text-gray-500 py-1"
+            className="text-center text-[10px] font-semibold text-gray-500 dark:text-gray-400 py-1"
           >
             {d}
           </div>
@@ -479,7 +478,7 @@ const MonthlyView = memo<MonthlyViewProps>(({ year, month, events, colorMap, now
             return (
               <div
                 key={cellIdx}
-                className="border-r border-b border-gray-100 bg-gray-50"
+                className="border-r border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800"
                 aria-hidden="true"
               />
             );
@@ -493,15 +492,15 @@ const MonthlyView = memo<MonthlyViewProps>(({ year, month, events, colorMap, now
             <div
               key={cellIdx}
               className={[
-                'border-r border-b border-gray-100 p-1 flex flex-col gap-0.5 min-h-0 overflow-hidden',
-                isToday ? 'bg-blue-50' : 'bg-white',
+                'border-r border-b border-gray-100 dark:border-gray-700 p-1 flex flex-col gap-0.5 min-h-0 overflow-hidden',
+                isToday ? 'bg-blue-50' : 'bg-white dark:bg-gray-900',
               ].join(' ')}
               aria-label={`${MONTH_NAMES[month]} ${dayNum}`}
             >
               <span
                 className={[
                   'text-[10px] font-semibold leading-none mb-0.5',
-                  isToday ? 'text-blue-600' : 'text-gray-600',
+                  isToday ? 'text-blue-600' : 'text-gray-600 dark:text-gray-400',
                 ].join(' ')}
               >
                 {dayNum}
@@ -515,7 +514,7 @@ const MonthlyView = memo<MonthlyViewProps>(({ year, month, events, colorMap, now
                 />
               ))}
               {dayEvents.length > 3 && (
-                <span className="text-[8px] text-gray-400 pl-1">
+                <span className="text-[8px] text-gray-400 dark:text-gray-500 pl-1">
                   +{dayEvents.length - 3} more
                 </span>
               )}
@@ -598,14 +597,14 @@ const RuntimeScheduler: React.FC<RuntimeWidgetProps> = ({
 
   return (
     <div
-      className="w-full h-full flex flex-col bg-white border border-gray-200 rounded overflow-hidden"
+      className="w-full h-full flex flex-col bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded overflow-hidden"
       aria-label={title}
       role="region"
       style={{ opacity: isEnabled ? 1 : 0.6 }}
     >
       {/* Toolbar */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 bg-gray-50 flex-shrink-0">
-        <span className="text-xs font-semibold text-gray-700 flex-shrink-0">{title}</span>
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex-shrink-0">
+        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 flex-shrink-0">{title}</span>
 
         {/* View toggle */}
         <div className="flex items-center gap-0.5 ml-auto" role="group" aria-label="Calendar view">
@@ -617,7 +616,7 @@ const RuntimeScheduler: React.FC<RuntimeWidgetProps> = ({
               aria-pressed={view === v}
               className={[
                 'px-2 py-0.5 text-[10px] font-medium rounded capitalize transition-colors',
-                view === v ? 'bg-blue-500 text-white' : 'text-gray-500 hover:bg-gray-200',
+                view === v ? 'bg-blue-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600',
               ].join(' ')}
             >
               {v === 'weekly' ? 'Week' : 'Month'}
@@ -631,7 +630,7 @@ const RuntimeScheduler: React.FC<RuntimeWidgetProps> = ({
             type="button"
             onClick={navPrev}
             aria-label="Previous"
-            className="p-1 rounded hover:bg-gray-200 transition-colors text-gray-600"
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-600 dark:text-gray-400"
           >
             <ChevronLeft className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
@@ -647,14 +646,14 @@ const RuntimeScheduler: React.FC<RuntimeWidgetProps> = ({
             type="button"
             onClick={navNext}
             aria-label="Next"
-            className="p-1 rounded hover:bg-gray-200 transition-colors text-gray-600"
+            className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-gray-600 dark:text-gray-400"
           >
             <ChevronRight className="w-3.5 h-3.5" aria-hidden="true" />
           </button>
         </div>
 
         {/* Period label */}
-        <span className="text-[10px] text-gray-500 whitespace-nowrap truncate max-w-[120px]">
+        <span className="text-[10px] text-gray-500 dark:text-gray-400 whitespace-nowrap truncate max-w-[120px]">
           {headerLabel}
         </span>
       </div>
@@ -682,7 +681,7 @@ const RuntimeScheduler: React.FC<RuntimeWidgetProps> = ({
       {/* Legend */}
       {events.length > 0 && (
         <div
-          className="flex flex-wrap gap-2 px-3 py-1.5 border-t border-gray-100 bg-gray-50 flex-shrink-0"
+          className="flex flex-wrap gap-2 px-3 py-1.5 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex-shrink-0"
           aria-label="Event legend"
         >
           {Array.from(
@@ -694,7 +693,7 @@ const RuntimeScheduler: React.FC<RuntimeWidgetProps> = ({
                 style={{ backgroundColor: getColorForTag(e.tagId, colorMap) }}
                 aria-hidden="true"
               />
-              <span className="text-[9px] text-gray-500 truncate max-w-[60px]">{e.name}</span>
+              <span className="text-[9px] text-gray-500 dark:text-gray-400 truncate max-w-[60px]">{e.name}</span>
             </div>
           ))}
         </div>

@@ -106,46 +106,46 @@ export function VfdChangeSetDetail({
     >
       {/* Summary */}
       <div>
-        <p className="text-sm text-gray-600">{cs.description || 'No description'}</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">{cs.description || 'No description'}</p>
         <div className="mt-2 grid grid-cols-2 gap-3 text-xs">
           <div>
-            <span className="text-gray-500">Status:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Status:</span>{' '}
             <span className="font-medium">{formatStatus(cs.status)}</span>
           </div>
           <div>
-            <span className="text-gray-500">Items:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Items:</span>{' '}
             <span className="font-medium">{cs.items.length}</span>
           </div>
           <div>
-            <span className="text-gray-500">Created by:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Created by:</span>{' '}
             <span className="font-medium">{cs.createdBy}</span>
           </div>
           <div>
-            <span className="text-gray-500">Created:</span>{' '}
+            <span className="text-gray-500 dark:text-gray-400">Created:</span>{' '}
             <span className="font-medium">{formatDate(cs.createdAt)}</span>
           </div>
           {cs.approvedBy && (
             <div>
-              <span className="text-gray-500">Approved by:</span>{' '}
+              <span className="text-gray-500 dark:text-gray-400">Approved by:</span>{' '}
               <span className="font-medium">{cs.approvedBy}</span>
             </div>
           )}
           {cs.rejectedBy && (
             <div>
-              <span className="text-gray-500">Rejected by:</span>{' '}
+              <span className="text-gray-500 dark:text-gray-400">Rejected by:</span>{' '}
               <span className="font-medium">{cs.rejectedBy}</span>
             </div>
           )}
           {cs.appliedAt && (
             <div>
-              <span className="text-gray-500">Applied:</span>{' '}
+              <span className="text-gray-500 dark:text-gray-400">Applied:</span>{' '}
               <span className="font-medium">{formatDate(cs.appliedAt)}</span>
             </div>
           )}
           {cs.scheduledAt && (
             <div className="flex items-center gap-1">
-              <Clock className="h-3 w-3 text-gray-400" />
-              <span className="text-gray-500">Scheduled:</span>{' '}
+              <Clock className="h-3 w-3 text-gray-400 dark:text-gray-500" />
+              <span className="text-gray-500 dark:text-gray-400">Scheduled:</span>{' '}
               <span className="font-medium">{formatDate(cs.scheduledAt)}</span>
             </div>
           )}
@@ -159,7 +159,7 @@ export function VfdChangeSetDetail({
 
       {/* Items table */}
       <div>
-        <h3 className="mb-2 text-sm font-medium text-gray-900">Parameter Changes</h3>
+        <h3 className="mb-2 text-sm font-medium text-gray-900 dark:text-gray-100">Parameter Changes</h3>
         <DataTable<VfdChangeSetItem>
           data={cs.items}
           columns={vfdChangeSetItemColumns}
@@ -202,7 +202,7 @@ export function VfdChangeSetDetail({
             <button
               type="button"
               onClick={() => setShowRejectForm(false)}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>
@@ -240,7 +240,7 @@ export function VfdChangeSetDetail({
             <button
               type="button"
               onClick={() => setShowRollbackForm(false)}
-              className="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>
@@ -308,7 +308,7 @@ export function VfdChangeSetDetail({
             <button
               type="button"
               onClick={() => onCancel(cs.id)}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>

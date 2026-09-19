@@ -4,10 +4,11 @@ import { ReactNode, type ReactElement } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 // WHY: Konsta's <Page> applies its own bg-ios-light-surface / bg-md-light-surface background
-// classes with dark: variants that use Konsta's internal color tokens (#efeff4 / #1c1c1e).
-// These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
+// classes with dark: variants that use Konsta's internal surface tokens (iOS grouped grey,
+// Material near-black). These override our Tailwind dark:bg-gray-950 design system. We use a plain div instead
 // to maintain full control over light/dark backgrounds via Tailwind's class-based dark mode.
 import { CriticalAlertBanner } from '@/components/CriticalAlertBanner';
+import { Spinner } from '@/components/ui/Spinner';
 import { useFarmRealtimeSync } from '@/hooks/useFarmRealtimeSync';
 import { useMobilePermissions, type MobileFeature } from '@/hooks/useMobilePermissions';
 import { useNotifications } from '@/hooks/useNotifications';
@@ -92,7 +93,7 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
     },
     {
       id: 'account', icon: User, label: 'Account', path: '/account',
-      activeColor: 'text-gray-600', activeBg: 'bg-gray-100 dark:bg-gray-800/30',
+      activeColor: 'text-gray-600 dark:text-gray-400', activeBg: 'bg-gray-100 dark:bg-gray-800/30',
     },
   ];
 
@@ -150,7 +151,7 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
       {/* Syncing indicator */}
       {isSyncing && (
         <div className="bg-gradient-to-r from-ocean-500 to-ocean-600 text-white px-4 py-2.5 flex items-center justify-center gap-2 text-sm font-semibold shadow-md">
-          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+          <Spinner size="sm" color="white" />
           <span>Syncing data...</span>
         </div>
       )}

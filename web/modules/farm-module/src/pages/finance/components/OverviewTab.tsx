@@ -34,7 +34,7 @@ export function formatMoney(amount: number | string, currency: string): string {
 
 export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, error, period }) => {
   if (isLoading) {
-    return <div className="py-16 text-center text-gray-500">Loading finance summary…</div>;
+    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading finance summary…</div>;
   }
   if (error) {
     return (
@@ -45,7 +45,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
     );
   }
   if (!summary) {
-    return <div className="py-16 text-center text-gray-500">No finance data for this period.</div>;
+    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">No finance data for this period.</div>;
   }
 
   const expenseCategories = summary.byCategory.filter((c) => c.kind === 'EXPENSE');
@@ -55,24 +55,24 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
     <div className="space-y-6">
       {/* Headline cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div className="rounded-lg bg-white p-5 shadow">
-          <p className="text-sm font-medium text-gray-500">Operational cost</p>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Operational cost</p>
+          <p className="mt-1 text-3xl font-semibold text-gray-900 dark:text-gray-100">
             {formatMoney(summary.totalExpenseDecimal, summary.currency)}
           </p>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             {period.from} → {period.to}
           </p>
         </div>
-        <div className="rounded-lg bg-white p-5 shadow">
-          <p className="text-sm font-medium text-gray-500">Revenue</p>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Revenue</p>
+          <p className="mt-1 text-3xl font-semibold text-gray-900 dark:text-gray-100">
             {formatMoney(summary.totalRevenueDecimal, summary.currency)}
           </p>
-          <p className="mt-1 text-xs text-gray-500">Harvest sales</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Harvest sales</p>
         </div>
-        <div className="rounded-lg bg-white p-5 shadow">
-          <p className="text-sm font-medium text-gray-500">Net result</p>
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Net result</p>
           <p
             className={`mt-1 text-3xl font-semibold ${
               parseMoney(summary.netResultDecimal) >= 0 ? 'text-green-700' : 'text-red-700'
@@ -80,7 +80,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({ summary, isLoading, er
           >
             {formatMoney(summary.netResultDecimal, summary.currency)}
           </p>
-          <p className="mt-1 text-xs text-gray-500">Revenue − operational cost</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Revenue − operational cost</p>
         </div>
       </div>
 
@@ -132,9 +132,9 @@ const CategoryTable: React.FC<{
   rows: FinanceSummary['byCategory'];
   currency: string;
 }> = ({ title, rows, currency }) => (
-  <div className="overflow-hidden rounded-lg bg-white shadow">
-    <div className="border-b border-gray-200 px-5 py-4">
-      <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+  <div className="overflow-hidden rounded-lg bg-white dark:bg-gray-900 shadow">
+    <div className="border-b border-gray-200 dark:border-gray-700 px-5 py-4">
+      <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
     </div>
     <DataTable<CategoryRow>
       data={rows}

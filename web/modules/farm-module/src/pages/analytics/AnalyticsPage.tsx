@@ -7,7 +7,7 @@
 
 import React, { useState } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { Select } from '@aquaculture/shared-ui';
+import { Select, PageHeader } from '@aquaculture/shared-ui';
 import { TanksAnalyticsTab } from './tabs';
 
 // ============================================================================
@@ -50,35 +50,33 @@ const AnalyticsPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Page Header */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6 py-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Analytics</h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Performance metrics and operational insights
-              </p>
-            </div>
-            <div className="mt-4 sm:mt-0">
-              <Select
-                value={dateRange}
-                onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
-                options={[
-                  { value: '7days', label: 'Last 7 Days' },
-                  { value: '30days', label: 'Last 30 Days' },
-                  { value: '90days', label: 'Last 90 Days' },
-                  { value: 'year', label: 'This Year' },
-                ]}
-              />
-            </div>
-          </div>
+          <PageHeader
+            title="Analytics"
+            description="Performance metrics and operational insights"
+            actions={
+              <div className="mt-4 sm:mt-0">
+                <Select
+                  value={dateRange}
+                  onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
+                  options={[
+                    { value: '7days', label: 'Last 7 Days' },
+                    { value: '30days', label: 'Last 30 Days' },
+                    { value: '90days', label: 'Last 90 Days' },
+                    { value: 'year', label: 'This Year' },
+                  ]}
+                />
+              </div>
+            }
+          />
         </div>
       </div>
 
       {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6">
           <nav className="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs">
             {analyticsTabs.map((tab) => (
@@ -89,7 +87,7 @@ const AnalyticsPage: React.FC = () => {
                   group inline-flex items-center py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap
                   ${activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >

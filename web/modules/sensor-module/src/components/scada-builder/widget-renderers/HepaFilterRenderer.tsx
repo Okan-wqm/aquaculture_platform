@@ -59,7 +59,7 @@ const HepaFilterRenderer: React.FC<WidgetRendererProps> = ({
         height="100%"
         viewBox="0 0 140 86"
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         {/* Filter housing (outer rectangle) */}
         <rect

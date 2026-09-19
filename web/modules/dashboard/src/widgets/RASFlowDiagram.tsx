@@ -80,25 +80,25 @@ const SensorNode: React.FC<{
         <div className="space-y-0.5">
           {reading.readings.temperature != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">Sic:</span>
+              <span className="text-gray-500 dark:text-gray-400">Sic:</span>
               <span>{reading.readings.temperature.toFixed(1)}C</span>
             </div>
           )}
           {reading.readings.ph != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">pH:</span>
+              <span className="text-gray-500 dark:text-gray-400">pH:</span>
               <span>{reading.readings.ph.toFixed(1)}</span>
             </div>
           )}
           {reading.readings.dissolvedOxygen != null && (
             <div className="flex justify-between">
-              <span className="text-gray-500">O2:</span>
+              <span className="text-gray-500 dark:text-gray-400">O2:</span>
               <span>{reading.readings.dissolvedOxygen.toFixed(1)}</span>
             </div>
           )}
         </div>
       ) : (
-        <p className="text-gray-400">Okuma yok</p>
+        <p className="text-gray-400 dark:text-gray-500">Okuma yok</p>
       )}
     </div>
   );
@@ -140,10 +140,10 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-1/3 mb-3" />
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-3" />
           <div className="grid grid-cols-3 gap-2">
             {[1, 2, 3, 4, 5, 6].map((i) => (
-              <div key={i} className="h-16 bg-gray-200 rounded" />
+              <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded" />
             ))}
           </div>
         </div>
@@ -155,7 +155,7 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
   if (farmSensors.length === 0) {
     return (
       <Card className={`p-4 ${className}`}>
-        <div className="text-center py-6 text-gray-500">
+        <div className="text-center py-6 text-gray-500 dark:text-gray-400">
           <svg className="w-8 h-8 mx-auto mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
@@ -176,10 +176,10 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
     <Card className={`p-4 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">RAS Akis Diyagrami</h3>
-          {farmId && <p className="text-xs text-gray-500">Ciftlik: {farmId.slice(0, 8)}</p>}
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">RAS Akis Diyagrami</h3>
+          {farmId && <p className="text-xs text-gray-500 dark:text-gray-400">Ciftlik: {farmId.slice(0, 8)}</p>}
         </div>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-gray-500 dark:text-gray-400">
           {activeSensors}/{farmSensors.length} aktif
         </span>
       </div>
@@ -197,7 +197,7 @@ export const RASFlowDiagram: React.FC<RASFlowDiagramProps> = ({
 
       {/* Flow arrows (simplified) */}
       {farmSensors.length > 1 && (
-        <div className="flex items-center justify-center mt-3 space-x-1 text-gray-400">
+        <div className="flex items-center justify-center mt-3 space-x-1 text-gray-400 dark:text-gray-500">
           <span className="text-xs">Tank</span>
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />

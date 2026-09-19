@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, DataTable, Input, Select, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Select, useConfirm, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -195,7 +195,7 @@ export const JobQueuePage: React.FC = () => {
   const getPriorityLabel = (priority: number) => {
     if (priority >= 15) return { label: 'Critical', color: 'text-red-600' };
     if (priority >= 10) return { label: 'High', color: 'text-orange-600' };
-    if (priority >= 5) return { label: 'Normal', color: 'text-gray-600' };
+    if (priority >= 5) return { label: 'Normal', color: 'text-gray-600 dark:text-gray-400' };
     return { label: 'Low', color: 'text-blue-600' };
   };
 
@@ -223,13 +223,13 @@ export const JobQueuePage: React.FC = () => {
   if (loading) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/4" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl p-6 h-24" />
+            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl p-6 h-24" />
           ))}
         </div>
-        <div className="bg-white rounded-xl p-6 h-96" />
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 h-96" />
       </div>
     );
   }
@@ -244,7 +244,7 @@ export const JobQueuePage: React.FC = () => {
       key: 'jobName',
       header: 'Job Name',
       render: (_value, job) => (
-        <span className="font-medium text-gray-900">{job.name}</span>
+        <span className="font-medium text-gray-900 dark:text-gray-100">{job.name}</span>
       ),
     },
     {
@@ -258,7 +258,7 @@ export const JobQueuePage: React.FC = () => {
       key: 'schedule',
       header: 'Schedule',
       render: (_value, job) => (
-        <span className="font-mono text-sm text-gray-600">
+        <span className="font-mono text-sm text-gray-600 dark:text-gray-400">
           {job.cronExpression || '-'}
         </span>
       ),
@@ -267,7 +267,7 @@ export const JobQueuePage: React.FC = () => {
       key: 'nextRun',
       header: 'Next Run',
       render: (_value, job) => (
-        <span className="text-sm text-gray-600">
+        <span className="text-sm text-gray-600 dark:text-gray-400">
           {formatDateTime(job.nextRunAt)}
         </span>
       ),
@@ -289,8 +289,8 @@ export const JobQueuePage: React.FC = () => {
       header: 'Job',
       render: (_value, job) => (
         <div className="flex flex-col">
-          <span className="font-medium text-gray-900">{job.name}</span>
-          <span className="text-xs font-mono text-gray-500">{job.id}</span>
+          <span className="font-medium text-gray-900 dark:text-gray-100">{job.name}</span>
+          <span className="text-xs font-mono text-gray-500 dark:text-gray-400">{job.id}</span>
           {job.errorMessage && (
             <span className="text-xs text-red-600 mt-1 line-clamp-1">
               Error: {job.errorMessage}
@@ -303,7 +303,7 @@ export const JobQueuePage: React.FC = () => {
       key: 'queue',
       header: 'Queue',
       render: (_value, job) => (
-        <span className="text-sm text-gray-600">{job.queueName}</span>
+        <span className="text-sm text-gray-600 dark:text-gray-400">{job.queueName}</span>
       ),
     },
     {
@@ -323,26 +323,26 @@ export const JobQueuePage: React.FC = () => {
           {job.progress ? (
             <div className="min-w-[120px]">
               <div className="flex items-center gap-2 mb-1">
-                <div className="w-20 bg-gray-200 rounded-full h-2">
+                <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div
                     className="bg-blue-600 h-2 rounded-full transition-all"
                     style={{ width: `${job.progress.percentage}%` }}
                   />
                 </div>
-                <span className="text-sm text-gray-600 whitespace-nowrap">
+                <span className="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">
                   {job.progress.percentage}%
                 </span>
               </div>
               {job.progress.message && (
-                <div className="text-xs text-gray-500 line-clamp-1">
+                <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
                   {job.progress.message}
                 </div>
               )}
             </div>
           ) : job.durationMs ? (
-            <span className="text-sm text-gray-600">{formatDuration(job.durationMs)}</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">{formatDuration(job.durationMs)}</span>
           ) : (
-            <span className="text-sm text-gray-500">-</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">-</span>
           )}
         </>
       ),
@@ -363,15 +363,15 @@ export const JobQueuePage: React.FC = () => {
       key: 'startedCompleted',
       header: 'Started / Completed',
       render: (_value, job) => (
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-gray-600 dark:text-gray-400">
           {job.startedAt && (
             <div>{formatDateTime(job.startedAt)}</div>
           )}
           {job.completedAt && (
-            <div className="text-gray-500">{formatDateTime(job.completedAt)}</div>
+            <div className="text-gray-500 dark:text-gray-400">{formatDateTime(job.completedAt)}</div>
           )}
           {!job.startedAt && !job.completedAt && (
-            <span className="text-gray-500">-</span>
+            <span className="text-gray-500 dark:text-gray-400">-</span>
           )}
         </div>
       ),
@@ -406,26 +406,24 @@ export const JobQueuePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Job Queue Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Monitor and manage background jobs across all queues
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Button
-            variant="secondary"
-            onClick={loadDashboard}
-            className="flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Job Queue Management"
+        description="Monitor and manage background jobs across all queues"
+        actions={
+          <div className="flex gap-3">
+            <Button
+              variant="secondary"
+              onClick={loadDashboard}
+              className="flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh
+            </Button>
+          </div>
+        }
+      />
 
       {/* A failed read or a rejected action, named. The page used to put a
           write failure in a fixed-position toast at the bottom-right corner,
@@ -435,25 +433,25 @@ export const JobQueuePage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-900">{dashboard.totalJobs}</div>
-          <div className="text-sm text-gray-500">Total Jobs</div>
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard.totalJobs}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Jobs</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-yellow-600">{dashboard.runningJobs}</div>
-          <div className="text-sm text-gray-500">Running</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Running</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-blue-600">{dashboard.pendingJobs}</div>
-          <div className="text-sm text-gray-500">Pending</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Pending</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-red-600">{dashboard.failedToday}</div>
-          <div className="text-sm text-gray-500">Failed Today</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Failed Today</div>
         </Card>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-8">
           {(['jobs', 'queues', 'scheduled'] as const).map((tab) => (
             <button
@@ -462,7 +460,7 @@ export const JobQueuePage: React.FC = () => {
               className={`py-2 border-b-2 font-medium text-sm capitalize transition-colors ${
                 activeTab === tab
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
               {tab}
@@ -537,14 +535,14 @@ export const JobQueuePage: React.FC = () => {
             <Card key={queue.name} className="p-6">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{queue.name}</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{queue.name}</h3>
                   <div className="flex items-center gap-2 mt-1">
                     {queue.isPaused ? (
                       <Badge variant="warning">Paused</Badge>
                     ) : (
                       <Badge variant="success">Active</Badge>
                     )}
-                    <span className="text-sm text-gray-500">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
                       Concurrency: {queue.concurrency}
                     </span>
                   </div>
@@ -554,19 +552,19 @@ export const JobQueuePage: React.FC = () => {
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <div className="text-2xl font-bold text-blue-600">{queue.pendingCount}</div>
-                  <div className="text-xs text-gray-500">Pending</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Pending</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold text-yellow-600">{queue.runningCount}</div>
-                  <div className="text-xs text-gray-500">Running</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Running</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold text-green-600">{queue.completedCount}</div>
-                  <div className="text-xs text-gray-500">Completed</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Completed</div>
                 </div>
                 <div>
                   <div className="text-2xl font-bold text-red-600">{queue.failedCount}</div>
-                  <div className="text-xs text-gray-500">Failed</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Failed</div>
                 </div>
               </div>
 
@@ -591,7 +589,7 @@ export const JobQueuePage: React.FC = () => {
                     setFilterQueue(queue.name);
                     setActiveTab('jobs');
                   }}
-                  className="px-3 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+                  className="px-3 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 >
                   View Jobs
                 </button>
@@ -604,9 +602,9 @@ export const JobQueuePage: React.FC = () => {
       {/* Scheduled Tab */}
       {activeTab === 'scheduled' && (
         <Card className="overflow-hidden">
-          <div className="p-6 border-b border-gray-200">
+          <div className="p-6 border-b border-gray-200 dark:border-gray-700">
             <div className="flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-gray-900">Scheduled & Recurring Jobs</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Scheduled & Recurring Jobs</h2>
             </div>
           </div>
           <DataTable<BackgroundJob>

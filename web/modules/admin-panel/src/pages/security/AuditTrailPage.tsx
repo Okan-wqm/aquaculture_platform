@@ -21,7 +21,7 @@ import {
   Info,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -239,7 +239,7 @@ const getActionColor = (action: AuditAction): string => {
     case 'config_change':
       return 'bg-indigo-100 text-indigo-800';
     default:
-      return 'bg-gray-100 text-gray-800';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   }
 };
 
@@ -250,7 +250,7 @@ const getSeverityColor = (severity: AuditSeverity): string => {
     case 'warning':
       return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
   }
 };
 
@@ -261,7 +261,7 @@ const getSeverityIcon = (severity: AuditSeverity): React.ReactElement => {
     case 'warning':
       return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
     default:
-      return <Info className="w-4 h-4 text-gray-600" />;
+      return <Info className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
   }
 };
 
@@ -306,7 +306,7 @@ const AuditDetailModal: React.FC<{
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
         >
           Close
         </button>
@@ -315,15 +315,15 @@ const AuditDetailModal: React.FC<{
       {/* Basic Info */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <span className="text-sm font-medium text-gray-500">ID</span>
-          <p className="text-sm text-gray-900 font-mono">{entry.id}</p>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">ID</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{entry.id}</p>
         </div>
         <div>
-          <span className="text-sm font-medium text-gray-500">Timestamp</span>
-          <p className="text-sm text-gray-900">{formatDate(entry.createdAt)}</p>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Timestamp</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(entry.createdAt)}</p>
         </div>
         <div>
-          <span className="text-sm font-medium text-gray-500">Action</span>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Action</span>
           <span
             className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
           >
@@ -331,7 +331,7 @@ const AuditDetailModal: React.FC<{
           </span>
         </div>
         <div>
-          <span className="text-sm font-medium text-gray-500">Severity</span>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Severity</span>
           <span
             className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
           >
@@ -342,45 +342,45 @@ const AuditDetailModal: React.FC<{
       </div>
 
       {/* Entity Info */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">Entity Information</h3>
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Entity Information</h3>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <span className="text-xs text-gray-500">Type</span>
-            <p className="text-sm text-gray-900">{entry.entityType}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Type</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{entry.entityType}</p>
           </div>
           <div>
-            <span className="text-xs text-gray-500">ID</span>
-            <p className="text-sm text-gray-900 font-mono">{entry.entityId}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">ID</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{entry.entityId}</p>
           </div>
           {entry.entityName && (
             <div className="col-span-2">
-              <span className="text-xs text-gray-500">Name</span>
-              <p className="text-sm text-gray-900">{entry.entityName}</p>
+              <span className="text-xs text-gray-500 dark:text-gray-400">Name</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{entry.entityName}</p>
             </div>
           )}
         </div>
       </div>
 
       {/* User Info */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">User Information</h3>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <span className="text-xs text-gray-500">User</span>
-            <p className="text-sm text-gray-900">{entry.userName || 'System'}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{entry.userName || 'System'}</p>
           </div>
           <div>
-            <span className="text-xs text-gray-500">Email</span>
-            <p className="text-sm text-gray-900">{entry.userEmail || 'N/A'}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Email</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{entry.userEmail || 'N/A'}</p>
           </div>
           <div>
-            <span className="text-xs text-gray-500">Tenant</span>
-            <p className="text-sm text-gray-900">{entry.tenantName || 'N/A'}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Tenant</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{entry.tenantName || 'N/A'}</p>
           </div>
           <div>
-            <span className="text-xs text-gray-500">IP Address</span>
-            <p className="text-sm text-gray-900 font-mono">{entry.ipAddress || 'N/A'}</p>
+            <span className="text-xs text-gray-500 dark:text-gray-400">IP Address</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{entry.ipAddress || 'N/A'}</p>
           </div>
         </div>
       </div>
@@ -388,21 +388,21 @@ const AuditDetailModal: React.FC<{
       {/* Changes */}
       {entry.changes && entry.changes.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-3">Changes</h3>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Changes</h3>
           <div className="space-y-2">
             {entry.changes.map((change, idx) => (
-              <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                <p className="text-sm font-medium text-gray-700">{change.field}</p>
+              <div key={idx} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">{change.field}</p>
                 <div className="grid grid-cols-2 gap-4 mt-2">
                   <div>
                     <span className="text-xs text-red-600">Old:</span>
-                    <pre className="text-xs text-gray-600 mt-1 overflow-auto">
+                    <pre className="text-xs text-gray-600 dark:text-gray-400 mt-1 overflow-auto">
                       {JSON.stringify(change.oldValue)}
                     </pre>
                   </div>
                   <div>
                     <span className="text-xs text-green-600">New:</span>
-                    <pre className="text-xs text-gray-600 mt-1 overflow-auto">
+                    <pre className="text-xs text-gray-600 dark:text-gray-400 mt-1 overflow-auto">
                       {JSON.stringify(change.newValue)}
                     </pre>
                   </div>
@@ -416,8 +416,8 @@ const AuditDetailModal: React.FC<{
       {/* Metadata */}
       {entry.metadata && Object.keys(entry.metadata).length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-700 mb-3">Metadata</h3>
-          <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto">
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Metadata</h3>
+          <pre className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto">
             {JSON.stringify(entry.metadata)}
           </pre>
         </div>
@@ -570,7 +570,11 @@ export const AuditTrailPage: React.FC = () => {
     {
       key: 'window',
       header: 'Window',
-      render: (_value, policy) => <>{policy.retentionDays} days</>,
+      render: (_value, policy) => (
+        <>
+          {policy.retentionDays} days
+        </>
+      ),
     },
     {
       key: 'owner',
@@ -587,11 +591,11 @@ export const AuditTrailPage: React.FC = () => {
               held rows preserved
             </span>
           ) : (
-            <span className="text-gray-400">n/a</span>
+            <span className="text-gray-400 dark:text-gray-500">n/a</span>
           )}
         </>
       ),
-    },
+    }
   ];
 
   const auditEntryColumns: DataTableColumn<AuditEntry>[] = [
@@ -600,8 +604,10 @@ export const AuditTrailPage: React.FC = () => {
       header: 'Timestamp',
       render: (_value, entry) => (
         <>
-          <div className="text-sm text-gray-900">{formatTimeAgo(entry.createdAt)}</div>
-          <div className="text-xs text-gray-500">{formatDate(entry.createdAt)}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">
+            {formatTimeAgo(entry.createdAt)}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(entry.createdAt)}</div>
         </>
       ),
     },
@@ -623,8 +629,8 @@ export const AuditTrailPage: React.FC = () => {
       header: 'Entity',
       render: (_value, entry) => (
         <>
-          <div className="text-sm text-gray-900">{entry.entityType}</div>
-          <div className="text-xs text-gray-500 font-mono">{entry.entityId}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{entry.entityType}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">{entry.entityId}</div>
         </>
       ),
     },
@@ -633,8 +639,8 @@ export const AuditTrailPage: React.FC = () => {
       header: 'User',
       render: (_value, entry) => (
         <>
-          <div className="text-sm text-gray-900">{entry.userName || 'System'}</div>
-          <div className="text-xs text-gray-500">{entry.tenantName}</div>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{entry.userName || 'System'}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{entry.tenantName}</div>
         </>
       ),
     },
@@ -656,7 +662,9 @@ export const AuditTrailPage: React.FC = () => {
       key: 'ipAddress',
       header: 'IP Address',
       render: (_value, entry) => (
-        <span className="text-sm font-mono text-gray-600">{entry.ipAddress || '-'}</span>
+        <span className="text-sm font-mono text-gray-600 dark:text-gray-400">
+          {entry.ipAddress || '-'}
+        </span>
       ),
     },
     {
@@ -673,7 +681,7 @@ export const AuditTrailPage: React.FC = () => {
           </button>
         </>
       ),
-    },
+    }
   ];
 
   return (
@@ -686,80 +694,78 @@ export const AuditTrailPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent={entries.length > 0} onRetry={loadData} />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Trail</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Comprehensive audit logging with retention policies and alerts
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-          <button
-            onClick={() => void loadData()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Audit Trail"
+        description="Comprehensive audit logging with retention policies and alerts"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </button>
+            <button
+              onClick={() => void loadData()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
                 <FileText className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Total Entries</p>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Total Entries</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {(stats?.totalEntries ?? 0).toLocaleString()}
                 </p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-green-100 rounded-lg">
                 <Clock className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Last 24 Hours</p>
-                <p className="text-2xl font-bold text-gray-900">{stats?.last24Hours ?? 0}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Last 24 Hours</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.last24Hours ?? 0}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-purple-100 rounded-lg">
                 <Archive className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Retention Policies</p>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Retention Policies</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {stats?.retentionPoliciesCount ?? 0}
                 </p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-orange-100 rounded-lg">
                 <Bell className="w-5 h-5 text-orange-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Alert Rules</p>
-                <p className="text-2xl font-bold text-gray-900">{stats?.alertRulesCount ?? 0}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Alert Rules</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.alertRulesCount ?? 0}</p>
               </div>
             </div>
           </div>
@@ -767,7 +773,7 @@ export const AuditTrailPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-8">
           {[
             { id: 'entries', label: 'Audit Entries', icon: FileText },
@@ -780,7 +786,7 @@ export const AuditTrailPage: React.FC = () => {
               className={`flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm ${
                 activeTab === id
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -794,22 +800,22 @@ export const AuditTrailPage: React.FC = () => {
       {activeTab === 'entries' && (
         <div className="space-y-4">
           {/* Search & Filters */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-4">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search by entity, user, or action..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <select
                 value={actionFilter}
                 onChange={(e) => setActionFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Actions</option>
                 <option value="create">Create</option>
@@ -822,7 +828,7 @@ export const AuditTrailPage: React.FC = () => {
               <select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Severities</option>
                 <option value="info">Info</option>
@@ -833,7 +839,7 @@ export const AuditTrailPage: React.FC = () => {
           </div>
 
           {/* Entries Table */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
             <DataTable<AuditEntry>
               data={entries}
               columns={auditEntryColumns}
@@ -845,23 +851,23 @@ export const AuditTrailPage: React.FC = () => {
             />
 
             {/* Pagination */}
-            <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-              <div className="text-sm text-gray-500">
+            <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="text-sm text-gray-500 dark:text-gray-400">
                 Showing {entries.length} of {total} entries
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPage(Math.max(1, page - 1))}
                   disabled={page === 1}
-                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
+                  className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                 >
                   Previous
                 </button>
-                <span className="text-sm text-gray-600">Page {page}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Page {page}</span>
                 <button
                   onClick={() => setPage(page + 1)}
                   disabled={entries.length < limit}
-                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
+                  className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                 >
                   Next
                 </button>
@@ -878,9 +884,9 @@ export const AuditTrailPage: React.FC = () => {
             platform&apos;s single retention service. They are reviewed as code, not edited here.
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
             {retentionPolicies.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">No retention policies registered</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No retention policies registered</div>
             ) : (
               <DataTable<RetentionPolicy>
                 data={retentionPolicies}
@@ -907,21 +913,21 @@ export const AuditTrailPage: React.FC = () => {
 
           <div className="grid gap-4">
             {alertRules.length === 0 ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-500">
+              <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-500 dark:text-gray-400">
                 No alert rules configured
               </div>
             ) : (
               alertRules.map((rule) => (
-                <div key={rule.id} className="bg-white rounded-lg border border-gray-200 p-6">
+                <div key={rule.id} className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-semibold text-gray-900">{rule.name}</h3>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{rule.name}</h3>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${
                             rule.enabled
                               ? 'bg-green-100 text-green-800'
-                              : 'bg-gray-100 text-gray-800'
+                              : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                           }`}
                         >
                           {rule.enabled ? 'Active' : 'Disabled'}
@@ -933,13 +939,13 @@ export const AuditTrailPage: React.FC = () => {
                           {rule.severity}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500 mt-1">Condition: {rule.condition}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Condition: {rule.condition}</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button className="p-2 text-gray-500 hover:text-gray-600">
+                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button className="p-2 text-gray-500 hover:text-red-600">
+                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-red-600">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -947,20 +953,20 @@ export const AuditTrailPage: React.FC = () => {
 
                   <div className="mt-4 grid grid-cols-4 gap-4 text-sm">
                     <div>
-                      <span className="text-gray-500">Threshold:</span>{' '}
-                      <span className="text-gray-900 font-medium">{rule.threshold || 'N/A'}</span>
+                      <span className="text-gray-500 dark:text-gray-400">Threshold:</span>{' '}
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">{rule.threshold || 'N/A'}</span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Actions:</span>{' '}
-                      <span className="text-gray-900">{rule.actions.join(', ')}</span>
+                      <span className="text-gray-500 dark:text-gray-400">Actions:</span>{' '}
+                      <span className="text-gray-900 dark:text-gray-100">{rule.actions.join(', ')}</span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Triggered:</span>{' '}
-                      <span className="text-gray-900 font-medium">{rule.triggeredCount} times</span>
+                      <span className="text-gray-500 dark:text-gray-400">Triggered:</span>{' '}
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">{rule.triggeredCount} times</span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Last Triggered:</span>{' '}
-                      <span className="text-gray-900">
+                      <span className="text-gray-500 dark:text-gray-400">Last Triggered:</span>{' '}
+                      <span className="text-gray-900 dark:text-gray-100">
                         {rule.lastTriggered ? formatTimeAgo(rule.lastTriggered) : 'Never'}
                       </span>
                     </div>

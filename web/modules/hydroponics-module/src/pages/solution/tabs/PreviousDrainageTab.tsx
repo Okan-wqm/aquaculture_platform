@@ -63,9 +63,9 @@ const PreviousDrainageTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-2">Previous Drainage Composition</h3>
-        <p className="text-xs text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Previous Drainage Composition</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
           Enter the drainage composition from the previous sampling period. This helps calculate trends for better readjustment.
         </p>
 
@@ -88,7 +88,7 @@ const PreviousDrainageTab: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
         <DataTable<ParamRow>
           data={DRAINAGE_PARAMS}
           columns={paramRowColumns}

@@ -73,15 +73,15 @@ export const AlignmentToolbar: React.FC = () => {
   const canDistribute = selectedWidgetIds.length >= 3;
 
   return (
-    <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 bg-white rounded-lg shadow-lg border border-gray-200 px-2 py-1">
+    <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1">
       {/* Count badge */}
-      <span className="text-xs text-gray-500 mr-1.5 select-none whitespace-nowrap">
+      <span className="text-xs text-gray-500 dark:text-gray-400 mr-1.5 select-none whitespace-nowrap">
         {selectedWidgetIds.length} selected
       </span>
 
       {/* Align Left */}
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         title="Align Left"
         onClick={() => handleAlign(alignLeft)}
       >
@@ -90,7 +90,7 @@ export const AlignmentToolbar: React.FC = () => {
 
       {/* Align Center Horizontal */}
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         title="Align Center Horizontally"
         onClick={() => handleAlign(alignCenterH)}
       >
@@ -99,7 +99,7 @@ export const AlignmentToolbar: React.FC = () => {
 
       {/* Align Right */}
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         title="Align Right"
         onClick={() => handleAlign(alignRight)}
       >
@@ -107,11 +107,11 @@ export const AlignmentToolbar: React.FC = () => {
       </button>
 
       {/* Separator */}
-      <div className="w-px h-5 bg-gray-200 mx-1" />
+      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
       {/* Align Top */}
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         title="Align Top"
         onClick={() => handleAlign(alignTop)}
       >
@@ -120,7 +120,7 @@ export const AlignmentToolbar: React.FC = () => {
 
       {/* Align Center Vertical */}
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         title="Align Center Vertically"
         onClick={() => handleAlign(alignCenterV)}
       >
@@ -129,7 +129,7 @@ export const AlignmentToolbar: React.FC = () => {
 
       {/* Align Bottom */}
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         title="Align Bottom"
         onClick={() => handleAlign(alignBottom)}
       >
@@ -137,14 +137,14 @@ export const AlignmentToolbar: React.FC = () => {
       </button>
 
       {/* Separator */}
-      <div className="w-px h-5 bg-gray-200 mx-1" />
+      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
       {/* Distribute Horizontal */}
       <button
         className={`p-1.5 rounded ${
           canDistribute
-            ? 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
-            : 'text-gray-500 cursor-not-allowed'
+            ? 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+            : 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
         }`}
         title="Distribute Horizontally"
         disabled={!canDistribute}
@@ -157,8 +157,8 @@ export const AlignmentToolbar: React.FC = () => {
       <button
         className={`p-1.5 rounded ${
           canDistribute
-            ? 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
-            : 'text-gray-500 cursor-not-allowed'
+            ? 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+            : 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
         }`}
         title="Distribute Vertically"
         disabled={!canDistribute}
@@ -168,11 +168,11 @@ export const AlignmentToolbar: React.FC = () => {
       </button>
 
       {/* Separator */}
-      <div className="w-px h-5 bg-gray-200 mx-1" />
+      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
       {/* Zoom to Selection */}
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
         title="Focus on Selection"
         onClick={handleZoomToSelection}
       >

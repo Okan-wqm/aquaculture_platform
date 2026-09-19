@@ -14,7 +14,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { cn, useAuth, createTenantQueryKey, colors } from '@aquaculture/shared-ui';
+import { cn, useAuth, createTenantQueryKey, colors, PageHeader } from '@aquaculture/shared-ui';
 import { useQuery } from '@tanstack/react-query';
 import { useGraphQLClient, graphqlRequest } from '../../hooks/useGraphQL';
 
@@ -431,9 +431,9 @@ export function WeeklySchedulePage() {
       <td
         key={dateStr}
         className={cn(
-          'relative border border-gray-200 text-center cursor-pointer select-none transition-colors',
+          'relative border border-gray-200 dark:border-gray-700 text-center cursor-pointer select-none transition-colors',
           viewMode === 'monthly' ? 'p-0.5' : 'p-1',
-          weekend && !cat && 'bg-gray-50',
+          weekend && !cat && 'bg-gray-50 dark:bg-gray-800',
         )}
         onClick={() => setDropdownCell(isOpen ? null : { empId, dateStr })}
       >
@@ -441,7 +441,7 @@ export function WeeklySchedulePage() {
           className={cn(
             'rounded flex items-center justify-center font-semibold transition-all',
             viewMode === 'monthly' ? 'h-6 w-full text-[10px]' : 'h-8 w-full text-xs',
-            cat ? 'shadow-sm' : weekend ? 'text-gray-300' : 'text-gray-200 hover:bg-gray-100',
+            cat ? 'shadow-sm' : weekend ? 'text-gray-300' : 'text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700',
           )}
           style={cat ? { backgroundColor: cat.color, color: cat.textColor } : undefined}
           title={cat ? `${cat.name} (${cat.hours}h)` : 'Tıklayarak ata'}
@@ -453,7 +453,7 @@ export function WeeklySchedulePage() {
         {isOpen && (
           <div
             ref={dropdownRef}
-            className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white rounded-lg shadow-xl border border-gray-200 p-1.5 min-w-[120px]"
+            className="absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-1.5 min-w-[120px]"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="grid grid-cols-2 gap-1">
@@ -488,95 +488,94 @@ export function WeeklySchedulePage() {
   }, [dropdownCell, categories, getCellValue, setCellValue, viewMode]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+        <PageHeader
+          title={
+            <>
               <Calendar className="h-6 w-6 text-indigo-600" />
               İş Çizelgesi
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Çalışanların programlarını planlama ve yönetim
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            {/* View Mode Toggle */}
-            <div className="flex bg-gray-100 rounded-lg p-0.5">
-              {(['daily', 'weekly', 'monthly'] as ViewMode[]).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                    viewMode === mode
-                      ? 'bg-white text-indigo-700 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-700',
-                  )}
-                >
-                  {mode === 'daily' ? 'Günlük' : mode === 'weekly' ? 'Haftalık' : 'Aylık'}
-                </button>
-              ))}
-            </div>
-
-            {/* Navigation */}
-            <div className="flex items-center gap-1">
-              <button
-                onClick={navigatePrev}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ChevronLeft className="h-5 w-5 text-gray-600" />
-              </button>
-
-              <div className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg min-w-[200px] justify-center">
-                <Calendar className="h-4 w-4 text-indigo-600" />
-                <span className="text-sm font-semibold text-gray-900">{navTitle}</span>
+            </>
+          }
+          description="Çalışanların programlarını planlama ve yönetim"
+          actions={
+            <div className="flex items-center gap-3">
+              {/* View Mode Toggle */}
+              <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                {(['daily', 'weekly', 'monthly'] as ViewMode[]).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setViewMode(mode)}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                      viewMode === mode
+                        ? 'bg-white dark:bg-gray-900 text-indigo-700 shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100',
+                    )}
+                  >
+                    {mode === 'daily' ? 'Günlük' : mode === 'weekly' ? 'Haftalık' : 'Aylık'}
+                  </button>
+                ))}
               </div>
 
-              <button
-                onClick={navigateNext}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                <ChevronRight className="h-5 w-5 text-gray-600" />
-              </button>
+              {/* Navigation */}
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={navigatePrev}
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                </button>
 
-              <button
-                onClick={navigateToday}
-                className="ml-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                <div className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg min-w-[200px] justify-center">
+                  <Calendar className="h-4 w-4 text-indigo-600" />
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{navTitle}</span>
+                </div>
+
+                <button
+                  onClick={navigateNext}
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                >
+                  <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                </button>
+
+                <button
+                  onClick={navigateToday}
+                  className="ml-1 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                >
+                  Bugüne Dön
+                </button>
+              </div>
+
+              {/* Save */}
+              {hasUnsaved && (
+                <button
+                  onClick={handleSave}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  <Save className="h-4 w-4" />
+                  Kaydet
+                </button>
+              )}
+
+              {/* Settings Link */}
+              <Link
+                to="/hr/scheduling/settings"
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
               >
-                Bugüne Dön
-              </button>
+                <Settings className="h-4 w-4" />
+                Ayarlar
+              </Link>
             </div>
-
-            {/* Save */}
-            {hasUnsaved && (
-              <button
-                onClick={handleSave}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <Save className="h-4 w-4" />
-                Kaydet
-              </button>
-            )}
-
-            {/* Settings Link */}
-            <Link
-              to="/hr/scheduling/settings"
-              className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-            >
-              <Settings className="h-4 w-4" />
-              Ayarlar
-            </Link>
-          </div>
-        </div>
+          }
+        />
       </div>
 
       {/* Category Legend */}
-      <div className="bg-white border-b border-gray-100 px-6 py-2">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-700 px-6 py-2">
         <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs text-gray-500 font-medium">Kategoriler:</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">Kategoriler:</span>
           {categories.map((cat) => (
             <div
               key={cat.code}
@@ -598,26 +597,26 @@ export function WeeklySchedulePage() {
       {/* Main Table */}
       <div className="p-4">
         <div className={cn(
-          'bg-white rounded-xl shadow-sm overflow-auto',
+          'bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-auto',
           viewMode === 'monthly' ? 'max-h-[calc(100vh-220px)]' : '',
         )}>
           {loadingEmployees ? (
             <div className="p-12 text-center">
               <RefreshCw className="h-8 w-8 text-gray-300 animate-spin mx-auto mb-3" />
-              <p className="text-gray-500 text-sm">Çalışanlar yükleniyor...</p>
+              <p className="text-gray-500 dark:text-gray-400 text-sm">Çalışanlar yükleniyor...</p>
             </div>
           ) : employees.length === 0 ? (
             <div className="p-12 text-center">
               <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Çalışan bulunamadı</h3>
-              <p className="text-gray-500">Aktif calisan kaydolmasi gerekiyor.</p>
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Çalışan bulunamadı</h3>
+              <p className="text-gray-500 dark:text-gray-400">Aktif calisan kaydolmasi gerekiyor.</p>
             </div>
           ) : (
             <table className="w-full border-collapse">
               <thead className="sticky top-0 z-10">
-                <tr className="bg-gray-50">
+                <tr className="bg-gray-50 dark:bg-gray-800">
                   {/* Employee column header */}
-                  <th className="sticky left-0 z-20 bg-gray-50 border border-gray-200 px-4 py-2 text-left text-xs font-semibold text-gray-600 min-w-[180px]">
+                  <th className="sticky left-0 z-20 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-2 text-left text-xs font-semibold text-gray-600 dark:text-gray-400 min-w-[180px]">
                     Çalışan
                   </th>
                   {/* Day columns */}
@@ -629,21 +628,21 @@ export function WeeklySchedulePage() {
                       <th
                         key={formatDate(date)}
                         className={cn(
-                          'border border-gray-200 px-1 py-1.5 text-center',
+                          'border border-gray-200 dark:border-gray-700 px-1 py-1.5 text-center',
                           viewMode === 'monthly' ? 'min-w-[32px]' : 'min-w-[52px]',
-                          weekend && 'bg-gray-100',
+                          weekend && 'bg-gray-100 dark:bg-gray-800',
                           isToday && 'bg-indigo-50',
                         )}
                       >
                         <div className={cn(
                           'text-[10px] font-semibold',
-                          isToday ? 'text-indigo-600' : weekend ? 'text-gray-400' : 'text-gray-700',
+                          isToday ? 'text-indigo-600' : weekend ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-300',
                         )}>
                           {header.top}
                         </div>
                         <div className={cn(
                           'text-[9px]',
-                          isToday ? 'text-indigo-500' : 'text-gray-400',
+                          isToday ? 'text-indigo-500' : 'text-gray-400 dark:text-gray-500',
                         )}>
                           {header.bottom}
                         </div>
@@ -651,10 +650,10 @@ export function WeeklySchedulePage() {
                     );
                   })}
                   {/* Total columns */}
-                  <th className="border border-gray-200 px-2 py-1.5 text-center text-[10px] font-semibold text-gray-600 bg-green-50 min-w-[40px]">
+                  <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 text-center text-[10px] font-semibold text-gray-600 dark:text-gray-400 bg-green-50 min-w-[40px]">
                     Gun
                   </th>
-                  <th className="border border-gray-200 px-2 py-1.5 text-center text-[10px] font-semibold text-gray-600 bg-green-50 min-w-[48px]">
+                  <th className="border border-gray-200 dark:border-gray-700 px-2 py-1.5 text-center text-[10px] font-semibold text-gray-600 dark:text-gray-400 bg-green-50 min-w-[48px]">
                     Saat
                   </th>
                 </tr>
@@ -663,9 +662,9 @@ export function WeeklySchedulePage() {
                 {employees.map((emp) => {
                   const totals = getEmployeeTotals(emp.id, visibleDates);
                   return (
-                    <tr key={emp.id} className="hover:bg-gray-50/50">
+                    <tr key={emp.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
                       {/* Employee name */}
-                      <td className="sticky left-0 z-10 bg-white border border-gray-200 px-3 py-2">
+                      <td className="sticky left-0 z-10 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 px-3 py-2">
                         <div className="flex items-center gap-2">
                           <div className="h-7 w-7 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
                             <span className="text-[10px] font-semibold text-indigo-600">
@@ -673,11 +672,11 @@ export function WeeklySchedulePage() {
                             </span>
                           </div>
                           <div className="min-w-0">
-                            <div className="text-xs font-medium text-gray-900 truncate">
+                            <div className="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">
                               {emp.name}
                             </div>
                             {emp.position && (
-                              <div className="text-[10px] text-gray-400 truncate">
+                              <div className="text-[10px] text-gray-400 dark:text-gray-500 truncate">
                                 {emp.position}
                               </div>
                             )}
@@ -687,7 +686,7 @@ export function WeeklySchedulePage() {
                       {/* Day cells */}
                       {visibleDates.map((date) => renderCell(emp.id, date))}
                       {/* Totals */}
-                      <td className="border border-gray-200 px-2 py-1 text-center bg-green-50">
+                      <td className="border border-gray-200 dark:border-gray-700 px-2 py-1 text-center bg-green-50">
                         <span className={cn(
                           'text-xs font-bold',
                           totals.workDays > 0 ? 'text-green-700' : 'text-gray-300',
@@ -695,7 +694,7 @@ export function WeeklySchedulePage() {
                           {totals.workDays}
                         </span>
                       </td>
-                      <td className="border border-gray-200 px-2 py-1 text-center bg-green-50">
+                      <td className="border border-gray-200 dark:border-gray-700 px-2 py-1 text-center bg-green-50">
                         <span className={cn(
                           'text-xs font-bold',
                           totals.totalHours > 0 ? 'text-green-700' : 'text-gray-300',
@@ -709,8 +708,8 @@ export function WeeklySchedulePage() {
               </tbody>
               {/* Footer: daily summary */}
               <tfoot>
-                <tr className="bg-gray-50">
-                  <td className="sticky left-0 z-10 bg-gray-50 border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-600">
+                <tr className="bg-gray-50 dark:bg-gray-800">
+                  <td className="sticky left-0 z-10 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 text-xs font-semibold text-gray-600 dark:text-gray-400">
                     Toplam Çalışan
                   </td>
                   {visibleDates.map((date) => {
@@ -720,7 +719,7 @@ export function WeeklySchedulePage() {
                     return (
                       <td
                         key={dateStr}
-                        className="border border-gray-200 px-1 py-2 text-center"
+                        className="border border-gray-200 dark:border-gray-700 px-1 py-2 text-center"
                       >
                         <span className={cn(
                           'text-[10px] font-bold',
@@ -731,7 +730,7 @@ export function WeeklySchedulePage() {
                       </td>
                     );
                   })}
-                  <td className="border border-gray-200 bg-green-50" colSpan={2} />
+                  <td className="border border-gray-200 dark:border-gray-700 bg-green-50" colSpan={2} />
                 </tr>
               </tfoot>
             </table>

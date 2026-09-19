@@ -210,7 +210,7 @@ class WidgetErrorBoundary extends Component<WidgetErrorBoundaryProps, WidgetErro
           justifyContent: 'center', background: colors.error[50], color: colors.error[700],
           fontSize: 11, gap: 6, padding: 8, textAlign: 'center' as const,
         }}>
-          <span style={{ fontSize: 18 }}>&#9888;</span>
+          <span className="text-lg">&#9888;</span>
           <span>Widget error: {this.props.widgetType}</span>
           {canRetry ? (
             <button
@@ -263,7 +263,7 @@ const UnknownWidget: React.FC<{ widgetType: string; width: number; height: numbe
       textAlign: 'center',
     }}
   >
-    <span style={{ fontSize: 20 }}>?</span>
+    <span className="text-xl">?</span>
     <span>Unknown widget: {widgetType}</span>
   </div>
 );

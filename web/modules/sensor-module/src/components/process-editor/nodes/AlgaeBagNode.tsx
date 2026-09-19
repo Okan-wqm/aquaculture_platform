@@ -105,7 +105,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
         height={HEIGHT}
         viewBox="0 0 150 350"
         xmlns="http://www.w3.org/2000/svg"
-        style={{ pointerEvents: 'auto' }}
+        className="pointer-events-auto"
       >
         <defs>
           {/* Algae gradient */}
@@ -214,15 +214,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
       {/* Top Handle 1 (left) */}
       <div
-        style={{
-          position: 'absolute',
-          left: 35,
-          top: 24,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[35px] top-6 w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => toggleHandle(e, top1Type, setTop1Type, 'top1Type')}
       >
         <Handle
@@ -247,15 +239,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
       {/* Top Handle 2 (left-center) */}
       <div
-        style={{
-          position: 'absolute',
-          left: 60,
-          top: 21,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-15 top-[21px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => toggleHandle(e, top2Type, setTop2Type, 'top2Type')}
       >
         <Handle
@@ -280,15 +264,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
       {/* Top Handle 3 (right-center) */}
       <div
-        style={{
-          position: 'absolute',
-          left: 90,
-          top: 21,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[90px] top-[21px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => toggleHandle(e, top3Type, setTop3Type, 'top3Type')}
       >
         <Handle
@@ -313,15 +289,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
       {/* Top Handle 4 (right) */}
       <div
-        style={{
-          position: 'absolute',
-          left: 115,
-          top: 24,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[115px] top-6 w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => toggleHandle(e, top4Type, setTop4Type, 'top4Type')}
       >
         <Handle
@@ -346,15 +314,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
       {/* Left Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 16,
-          top: 240,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-4 top-[240px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => toggleHandle(e, leftType, setLeftType, 'leftType')}
       >
         <Handle
@@ -379,15 +339,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
       {/* Right Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 134,
-          top: 240,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[134px] top-[240px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => toggleHandle(e, rightType, setRightType, 'rightType')}
       >
         <Handle
@@ -412,15 +364,7 @@ const AlgaeBagNode: React.FC<NodeProps<Node<AlgaeBagNodeData>>> = ({ id, data, s
 
       {/* Bottom Handle (aeration) */}
       <div
-        style={{
-          position: 'absolute',
-          left: 75,
-          top: 308,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[75px] top-[308px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => toggleHandle(e, bottomType, setBottomType, 'bottomType')}
       >
         <Handle

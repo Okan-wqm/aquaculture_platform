@@ -7,15 +7,7 @@
 
 import React, { useRef, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import {
-  MetricCard,
-  Button,
-  SkeletonCard,
-  useAuthContext,
-  useTenantContext,
-  formatNumber,
-  formatRelativeTime,
-} from '@aquaculture/shared-ui';
+import { MetricCard, Button, SkeletonCard, useAuthContext, useTenantContext, formatNumber, formatRelativeTime, PageHeader } from '@aquaculture/shared-ui';
 import OverviewWidgets from '../components/OverviewWidgets';
 import RecentActivityList from '../components/RecentActivityList';
 import AlertSummaryWidget from '../widgets/AlertSummaryWidget';
@@ -134,30 +126,30 @@ const DashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Sayfa Basligi */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">
+      <PageHeader
+        title={
+          <>
             {/* DASH-SEC-002: React JSX escapes interpolations. Truncate display names
                 as a defence-in-depth measure against abnormally long server values. */}
             Hos Geldiniz, {(user?.firstName || 'Kullanici').slice(0, 64)}
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {(tenant?.name ?? '').slice(0, 128)} - Son guncelleme: {formatRelativeTime(mountedAt.current)}
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex items-center space-x-3">
-          <Button variant="outline" size="sm">
-            <DownloadIcon className="w-4 h-4 mr-2" />
-            Rapor Indir
-          </Button>
-          <Link to="/sites/new">
-            <Button size="sm">
-              <PlusIcon className="w-4 h-4 mr-2" />
-              Yeni Ciftlik
+          </>
+        }
+        description={<>{(tenant?.name ?? '').slice(0, 128)} - Son guncelleme: {formatRelativeTime(mountedAt.current)}</>}
+        actions={
+          <div className="mt-4 sm:mt-0 flex items-center space-x-3">
+            <Button variant="outline" size="sm">
+              <DownloadIcon className="w-4 h-4 mr-2" />
+              Rapor Indir
             </Button>
-          </Link>
-        </div>
-      </div>
+            <Link to="/sites/new">
+              <Button size="sm">
+                <PlusIcon className="w-4 h-4 mr-2" />
+                Yeni Ciftlik
+              </Button>
+            </Link>
+          </div>
+        }
+      />
 
       {/* Metrik Kartlari */}
       <div aria-live="polite" aria-atomic="true">
@@ -220,9 +212,9 @@ const DashboardPage: React.FC = () => {
           />
         </div>
       ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-8 text-center">
-          <p className="text-sm text-gray-500">Henuz veri yok</p>
-          <p className="text-xs text-gray-500 mt-1">
+        <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-8 text-center">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Henuz veri yok</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Ciftlik ve sensor verileriniz burada gorunecektir.
           </p>
         </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { UserPlus, RefreshCw, AlertCircle } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { ConfirmModal, useAuth } from '@aquaculture/shared-ui';
+import { ConfirmModal, useAuth, PageHeader } from '@aquaculture/shared-ui';
 import { AddEditUserModal, type UserFormData } from '../components/users/AddEditUserModal';
 import { UserFilters } from '../components/users/UserFilters';
 import { BulkActions } from '../components/users/BulkActions';
@@ -281,7 +281,7 @@ const TenantUsers: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-green-600" />
       </div>
     );
   }
@@ -289,40 +289,38 @@ const TenantUsers: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage users and their access to modules and farm sites
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
-              export backend) yet rendered ungated to every users:view delegate —
-              a false affordance. Removed; reintroduce only together with a real
-              export path AND a capability gate. */}
-          {canInviteUsers && (
+      <PageHeader
+        title="Users"
+        description="Manage users and their access to modules and farm sites"
+        actions={
+          <div className="flex items-center gap-3">
             <button
-              onClick={() => {
-                setSaveError(null);
-                setEditingUser(null);
-                setIsModalOpen(true);
-              }}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+              onClick={handleRefresh}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Refresh"
             >
-              <UserPlus className="w-4 h-4" />
-              Add User
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             </button>
-          )}
-        </div>
-      </div>
+            {/* RBAC-L6: the previous "Export" button was UNWIRED (no onClick, no
+                export backend) yet rendered ungated to every users:view delegate —
+                a false affordance. Removed; reintroduce only together with a real
+                export path AND a capability gate. */}
+            {canInviteUsers && (
+              <button
+                onClick={() => {
+                  setSaveError(null);
+                  setEditingUser(null);
+                  setIsModalOpen(true);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <UserPlus className="w-4 h-4" />
+                Add User
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {/* Error */}
       {error && (

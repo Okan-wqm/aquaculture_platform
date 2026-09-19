@@ -106,14 +106,14 @@ export const DeployModal: React.FC<DeployModalProps> = ({
       <div className="space-y-6">
         {/* Batch Selection */}
         <div>
-          <label htmlFor="batch" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="batch" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Cleaner Fish Batch <span className="text-red-500">*</span>
           </label>
           <select
             id="batch"
             value={selectedBatchId}
             onChange={(e) => setSelectedBatchId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="">Select a batch...</option>
             {batches.map((b) => (
@@ -126,15 +126,15 @@ export const DeployModal: React.FC<DeployModalProps> = ({
 
         {/* Selected Batch Info */}
         {selectedBatch && (
-          <div className="bg-gray-50 rounded-lg p-4">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h4 className="font-medium text-gray-900">{selectedBatch.batchNumber}</h4>
-                <p className="text-sm text-gray-500">{selectedBatch.speciesName}</p>
+                <h4 className="font-medium text-gray-900 dark:text-gray-100">{selectedBatch.batchNumber}</h4>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{selectedBatch.speciesName}</p>
               </div>
               <div className="text-right">
-                <p className="text-sm text-gray-500">Available</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Available</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {selectedBatch.currentQuantity.toLocaleString()}
                 </p>
               </div>
@@ -144,14 +144,14 @@ export const DeployModal: React.FC<DeployModalProps> = ({
 
         {/* Target Tank */}
         <div>
-          <label htmlFor="targetTank" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="targetTank" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Target Tank <span className="text-red-500">*</span>
           </label>
           <select
             id="targetTank"
             value={targetTankId}
             onChange={(e) => setTargetTankId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           >
             <option value="">Select a tank...</option>
             {tanks.map((tank) => (
@@ -165,7 +165,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
         {/* Quantity */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Quantity to Deploy <span className="text-red-500">*</span>
             </label>
             <input
@@ -175,15 +175,15 @@ export const DeployModal: React.FC<DeployModalProps> = ({
               max={maxQuantity}
               value={quantity || ''}
               onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Enter quantity"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Max: {maxQuantity.toLocaleString()}
             </p>
           </div>
           <div>
-            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Avg Weight (g)
             </label>
             <input
@@ -193,7 +193,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
               step="0.1"
               value={avgWeightG || ''}
               onChange={(e) => setAvgWeightG(parseFloat(e.target.value) || undefined)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Optional"
             />
           </div>
@@ -213,7 +213,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
 
         {/* Date */}
         <div>
-          <label htmlFor="deployedAt" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="deployedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Deployment Date
           </label>
           <input
@@ -222,13 +222,13 @@ export const DeployModal: React.FC<DeployModalProps> = ({
             value={deployedAt}
             max={new Date().toISOString().split('T')[0]}
             onChange={(e) => setDeployedAt(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
           />
         </div>
 
         {/* Notes */}
         <div>
-          <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes
           </label>
           <textarea
@@ -237,7 +237,7 @@ export const DeployModal: React.FC<DeployModalProps> = ({
             maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Optional notes..."
           />
         </div>

@@ -30,6 +30,7 @@ function formatTimeSince(dateInput: Date | string): string {
 }
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface StatCardWidgetContentProps {
   config: WidgetConfig;
@@ -83,14 +84,14 @@ export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="md" />
       </div>
     );
   }
 
   if (error || !stats) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         {error || 'No data'}
       </div>
     );
@@ -136,24 +137,24 @@ export const StatCardWidgetContent: React.FC<StatCardWidgetContentProps> = ({
         {statItems.map((stat) => (
           <div
             key={stat.label}
-            className="flex flex-col items-center justify-center bg-gray-50 rounded-lg p-2"
+            className="flex flex-col items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg p-2"
           >
             <div className={`flex items-center gap-1 ${stat.color}`}>
               {stat.icon}
               <span className="text-xs font-medium">{stat.label}</span>
             </div>
             <div className="mt-1">
-              <span className="text-lg font-bold text-gray-900">
+              <span className="text-lg font-bold text-gray-900 dark:text-gray-100">
                 {stat.value.toFixed(config.settings?.decimalPlaces ?? 1)}
               </span>
-              <span className="text-xs text-gray-500 ml-1">{stat.unit}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">{stat.unit}</span>
             </div>
           </div>
         ))}
       </div>
       {/* Last update time */}
       {latestTimestamp && (
-        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 mt-2 pt-2 border-t border-gray-100">
+        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 mt-2 pt-2 border-t border-gray-100 dark:border-gray-700">
           <Clock size={10} />
           <span>{formatTimeSince(latestTimestamp)}</span>
         </div>

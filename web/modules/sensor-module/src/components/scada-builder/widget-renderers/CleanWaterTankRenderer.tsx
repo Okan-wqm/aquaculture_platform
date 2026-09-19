@@ -36,7 +36,7 @@ const CleanWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         height="100%"
         viewBox="0 0 120 140"
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         <defs>
           {/* Water gradient */}

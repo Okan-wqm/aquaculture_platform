@@ -65,7 +65,7 @@ const StOutlineTree: React.FC<StOutlineTreeProps> = ({
 }) => {
   if (outline.length === 0) {
     return (
-      <div className="px-2 py-4 text-xs text-gray-600 text-center">
+      <div className="px-2 py-4 text-xs text-gray-600 dark:text-gray-400 text-center">
         No outline available
       </div>
     );
@@ -102,7 +102,7 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
   const [expanded, setExpanded] = useState(depth < 2);
   const hasChildren = node.children && node.children.length > 0;
 
-  const config = KIND_CONFIG[node.kind] ?? { icon: Hash, color: 'text-gray-500' };
+  const config = KIND_CONFIG[node.kind] ?? { icon: Hash, color: 'text-gray-500 dark:text-gray-400' };
   const Icon = config.icon;
 
   const isActive =
@@ -127,7 +127,7 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
       <div
         onClick={handleClick}
         className={`flex items-center gap-1 py-0.5 pr-2 cursor-pointer hover:bg-gray-800 ${
-          isActive ? 'bg-gray-800/60 text-white' : 'text-gray-500'
+          isActive ? 'bg-gray-800/60 text-white' : 'text-gray-500 dark:text-gray-400'
         }`}
         style={{ paddingLeft: `${depth * 12 + 4}px` }}
       >
@@ -135,7 +135,7 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
         {hasChildren ? (
           <button
             onClick={handleToggle}
-            className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-gray-500 hover:text-gray-500"
+            className="w-4 h-4 flex items-center justify-center flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
           >
             {expanded ? (
               <ChevronDown className="w-3 h-3" />
@@ -155,7 +155,7 @@ const OutlineNodeItem: React.FC<OutlineNodeItemProps> = ({
 
         {/* Detail (type annotation) */}
         {node.detail && (
-          <span className="text-gray-500 text-[10px] ml-1 flex-shrink-0 truncate max-w-[80px]">
+          <span className="text-gray-500 dark:text-gray-400 text-[10px] ml-1 flex-shrink-0 truncate max-w-[80px]">
             {node.detail}
           </span>
         )}

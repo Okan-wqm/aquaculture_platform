@@ -23,6 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { KpiStrip } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
+import { PageHeader } from '@/components/ui/PageHeader';
 import type { MovementType } from '@/generated/graphql';
 import { useMobilePermissions } from '@/hooks/useMobilePermissions';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -107,7 +108,7 @@ const MOVEMENT_TYPE_CONFIG: Record<MovementType, {
   },
   WASTE: {
     icon: Trash2,
-    iconColor: 'text-gray-500',
+    iconColor: 'text-gray-500 dark:text-gray-400',
     iconBg: 'bg-gray-100 dark:bg-gray-800',
     label: 'WASTE',
   },
@@ -270,29 +271,19 @@ export function StorageHubPage(): JSX.Element {
   return (
     <ErrorBoundary fallbackTitle="Storage Error">
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-br from-teal-700 via-teal-600 to-teal-500 text-white">
-          <div className="px-5 pt-safe-top">
-            <div className="flex items-center gap-3 py-4">
-              <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
-                <Warehouse size={22} className="text-white" />
-              </div>
-              <div>
-                <h1 className="text-lg font-bold tracking-tight">Storage Operations</h1>
-                <p className="text-xs text-white/80">Warehouse management</p>
-              </div>
-            </div>
+        <PageHeader
+          variant="hub"
+          tone="teal"
+          icon={Warehouse}
+          title="Storage Operations"
+          subtitle="Warehouse management"
+        >
 
-            {/* Phase 2: KPI strip inside the gradient header area */}
-            <div className="pb-5">
-              <KpiStrip items={kpiItems} />
-            </div>
+          {/* Phase 2: KPI strip inside the gradient header area */}
+          <div className="pb-5">
+            <KpiStrip items={kpiItems} />
           </div>
-          <div className="relative">
-            <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-              <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-            </svg>
-          </div>
-        </div>
+        </PageHeader>
 
         <div className="px-5 pt-4">
           {!isOnline && (
@@ -322,7 +313,7 @@ export function StorageHubPage(): JSX.Element {
               })}
             </div>
           ) : (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-gray-400 dark:text-gray-500">
               <Warehouse size={48} className="mx-auto mb-3 opacity-30" />
               <p className="font-medium">You do not have access</p>
             </div>
@@ -347,7 +338,7 @@ export function StorageHubPage(): JSX.Element {
                       <p className="text-sm font-semibold text-gray-900 dark:text-white">
                         {coverage.feedCode}
                       </p>
-                      <p className="text-xs text-gray-500">{coverage.feedName}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{coverage.feedName}</p>
                     </div>
                     <div className="text-right">
                       <p
@@ -362,7 +353,7 @@ export function StorageHubPage(): JSX.Element {
                           : 'OK'}
                       </p>
                       {coverage.stockoutDate && (
-                        <p className="text-xs text-gray-400">{coverage.stockoutDate}</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500">{coverage.stockoutDate}</p>
                       )}
                     </div>
                   </li>

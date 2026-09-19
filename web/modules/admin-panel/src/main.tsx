@@ -17,7 +17,7 @@ if (root) {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <ConfiguredBrowserRouter>
-        <div className="min-h-screen bg-gray-50 p-6">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-6">
           <ConfirmProvider>
             <AdminPanelModule />
           </ConfirmProvider>

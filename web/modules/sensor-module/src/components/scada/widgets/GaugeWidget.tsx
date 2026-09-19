@@ -225,7 +225,7 @@ export const GaugeWidget: React.FC<GaugeWidgetProps> = ({
                 ? 'bg-yellow-100 text-yellow-700'
                 : status === 'critical'
                 ? 'bg-red-100 text-red-700'
-                : 'bg-gray-100 text-gray-700'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
             }`}
           >
             {reading.type.replace('_', ' ')}

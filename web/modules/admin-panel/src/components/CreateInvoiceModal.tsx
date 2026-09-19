@@ -180,7 +180,7 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+            className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
             disabled={loading}
           >
             Cancel
@@ -205,98 +205,98 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
       )}
 
       <div>
-        <label htmlFor="invoice-tenant-id" className="block text-sm font-medium text-gray-700 mb-1">Tenant ID *</label>
+        <label htmlFor="invoice-tenant-id" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tenant ID *</label>
         <input
           id="invoice-tenant-id"
           type="text"
           value={form.tenantId}
           onChange={(e) => updateField('tenantId', e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           placeholder="Enter tenant ID"
         />
       </div>
       <div>
-        <label htmlFor="invoice-company-name" className="block text-sm font-medium text-gray-700 mb-1">Company Name *</label>
+        <label htmlFor="invoice-company-name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Company Name *</label>
         <input
           id="invoice-company-name"
           type="text"
           value={form.companyName}
           onChange={(e) => updateField('companyName', e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           placeholder="Billing company"
         />
       </div>
       <div>
-        <label htmlFor="invoice-street" className="block text-sm font-medium text-gray-700 mb-1">Street *</label>
+        <label htmlFor="invoice-street" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Street *</label>
         <input
           id="invoice-street"
           type="text"
           value={form.street}
           onChange={(e) => updateField('street', e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           placeholder="Street address"
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="invoice-city" className="block text-sm font-medium text-gray-700 mb-1">City *</label>
+          <label htmlFor="invoice-city" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">City *</label>
           <input
             id="invoice-city"
             type="text"
             value={form.city}
             onChange={(e) => updateField('city', e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label htmlFor="invoice-state" className="block text-sm font-medium text-gray-700 mb-1">State *</label>
+          <label htmlFor="invoice-state" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">State *</label>
           <input
             id="invoice-state"
             type="text"
             value={form.state}
             onChange={(e) => updateField('state', e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="invoice-postal-code" className="block text-sm font-medium text-gray-700 mb-1">Postal Code *</label>
+          <label htmlFor="invoice-postal-code" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Postal Code *</label>
           <input
             id="invoice-postal-code"
             type="text"
             value={form.postalCode}
             onChange={(e) => updateField('postalCode', e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label htmlFor="invoice-country" className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+          <label htmlFor="invoice-country" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Country</label>
           <input
             id="invoice-country"
             type="text"
             value={form.country}
             onChange={(e) => updateField('country', e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>
       <div>
-        <label htmlFor="invoice-line-item" className="block text-sm font-medium text-gray-700 mb-1">Line Item *</label>
+        <label htmlFor="invoice-line-item" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Line Item *</label>
         <input
           id="invoice-line-item"
           type="text"
           value={form.description}
           onChange={(e) => updateField('description', e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           placeholder="Service period or custom charge"
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="invoice-amount" className="block text-sm font-medium text-gray-700 mb-1">Amount *</label>
+          <label htmlFor="invoice-amount" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Amount *</label>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
             <input
               id="invoice-amount"
               type="number"
@@ -304,18 +304,18 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
               min="0.01"
               value={form.amount}
               onChange={(e) => updateField('amount', e.target.value)}
-              className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="w-full pl-7 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               placeholder="0.00"
             />
           </div>
         </div>
         <div>
-          <label htmlFor="invoice-currency" className="block text-sm font-medium text-gray-700 mb-1">Currency</label>
+          <label htmlFor="invoice-currency" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Currency</label>
           <select
             id="invoice-currency"
             value={form.currency}
             onChange={(e) => updateField('currency', e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           >
             <option value="USD">USD</option>
             <option value="EUR">EUR</option>
@@ -325,34 +325,34 @@ const CreateInvoiceModal: React.FC<CreateInvoiceModalProps> = ({ onSubmit, onClo
         </div>
       </div>
       <div>
-        <label htmlFor="invoice-due-date" className="block text-sm font-medium text-gray-700 mb-1">Due Date *</label>
+        <label htmlFor="invoice-due-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Due Date *</label>
         <input
           id="invoice-due-date"
           type="date"
           value={form.dueDate}
           onChange={(e) => updateField('dueDate', e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
         />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="invoice-period-start" className="block text-sm font-medium text-gray-700 mb-1">Period Start</label>
+          <label htmlFor="invoice-period-start" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Period Start</label>
           <input
             id="invoice-period-start"
             type="date"
             value={form.periodStart}
             onChange={(e) => updateField('periodStart', e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label htmlFor="invoice-period-end" className="block text-sm font-medium text-gray-700 mb-1">Period End</label>
+          <label htmlFor="invoice-period-end" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Period End</label>
           <input
             id="invoice-period-end"
             type="date"
             value={form.periodEnd}
             onChange={(e) => updateField('periodEnd', e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>

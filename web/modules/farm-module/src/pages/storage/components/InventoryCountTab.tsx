@@ -9,7 +9,7 @@
  * replacing the previous mock data implementation.
  */
 import React, { useState } from 'react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useInventoryCounts,
   InventoryCountStatus,
@@ -20,7 +20,7 @@ import { InventoryCountDetailModal } from './InventoryCountDetailModal';
 
 /** Badge colors per status — consistent with other tabs in the storage module */
 const statusColors: Record<string, string> = {
-  PLANNED: 'bg-gray-100 text-gray-800',
+  PLANNED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   IN_PROGRESS: 'bg-blue-100 text-blue-800',
   COMPLETED: 'bg-green-100 text-green-800',
   APPROVED: 'bg-purple-100 text-purple-800',
@@ -77,7 +77,7 @@ export const InventoryCountTab: React.FC = () => {
           onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
           className={`text-xs px-2 py-1 rounded ${
             isOwnCount
-              ? 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              ? 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
               : 'bg-green-50 text-green-700 hover:bg-green-100'
           }`}
         >
@@ -89,12 +89,75 @@ export const InventoryCountTab: React.FC = () => {
     return (
       <button
         onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
-        className="text-xs px-2 py-1 bg-gray-50 text-gray-600 rounded hover:bg-gray-100"
+        className="text-xs px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         View
       </button>
     );
   };
+
+  type IcRow = (typeof counts)[number];
+  const icRowColumns: DataTableColumn<IcRow>[] = [
+    {
+      key: 'count',
+      header: 'Count #',
+      render: (_value, ic) => ic.countNumber,
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (_value, ic) => ic.locationName || '-',
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, ic) => (
+        <>
+          {ic.startedAt
+            ? new Date(ic.startedAt).toLocaleDateString('nb-NO')
+            : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'items',
+      header: 'Items',
+      render: (_value, ic) => ic.items.length,
+    },
+    {
+      key: 'totalVariance',
+      header: 'Total Variance',
+      render: (_value, ic) => (
+        <span className={ic.totalVariance !== 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
+          {ic.totalVariance > 0 ? '+' : ''}{ic.totalVariance}
+        </span>
+      ),
+    },
+    {
+      key: 'performedBy',
+      header: 'Performed By',
+      render: (_value, ic) => ic.performedByName || ic.performedBy,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, ic) => (
+        <>
+          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+            statusColors[ic.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+          }`}>
+            {ic.status.replace('_', ' ')}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, ic) => getActionButton(ic),
+    }
+  ];
 
   return (
     <div>
@@ -104,7 +167,7 @@ export const InventoryCountTab: React.FC = () => {
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
           >
             <option value="">All Status</option>
             {STATUS_OPTIONS.map(s => (
@@ -126,7 +189,7 @@ export const InventoryCountTab: React.FC = () => {
       {/* Loading spinner */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
@@ -140,65 +203,18 @@ export const InventoryCountTab: React.FC = () => {
 
       {/* Main table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Count #</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Items</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Variance</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Performed By</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {counts.map(ic => (
-                <tr
-                  key={ic.id}
-                  className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => setSelectedCountId(ic.id)}
-                >
-                  <td className="px-6 py-4 text-sm font-medium text-gray-900 font-mono">
-                    {ic.countNumber}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-700">
-                    {ic.locationName || '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.startedAt
-                      ? new Date(ic.startedAt).toLocaleDateString('nb-NO')
-                      : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.items.length}
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    <span className={ic.totalVariance !== 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
-                      {ic.totalVariance > 0 ? '+' : ''}{ic.totalVariance}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {ic.performedByName || ic.performedBy}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                      statusColors[ic.status] || 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {ic.status.replace('_', ' ')}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    {getActionButton(ic)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <DataTable<IcRow>
+            data={counts}
+            columns={icRowColumns}
+            keyExtractor={(ic) => ic.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {counts.length === 0 && (
-            <div className="text-center py-12 text-gray-500 text-sm">
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
               No inventory counts found. Start a new count to reconcile your stock.
             </div>
           )}

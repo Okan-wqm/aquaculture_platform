@@ -172,7 +172,7 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
               key={marker.id}
               onMouseEnter={() => handleMouseEnter(marker.id)}
               onMouseLeave={handleMouseLeave}
-              style={{ cursor: 'pointer' }}
+              className="cursor-pointer"
             >
               {/* Pulse ring for online devices */}
               {marker.status === 'online' && (
@@ -187,7 +187,7 @@ const MapViewRenderer: React.FC<WidgetRendererProps> = ({ config, width, height 
                 fill={color}
                 stroke="#fff"
                 strokeWidth={2}
-                style={{ transition: 'r 0.15s ease' }}
+                className="transition-[r] duration-150 ease-[ease]"
               />
 
               {/* Label */}

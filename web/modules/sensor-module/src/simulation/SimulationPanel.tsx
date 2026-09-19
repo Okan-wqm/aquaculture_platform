@@ -19,6 +19,7 @@ import {
   AlertCircle,
   Download,
 } from 'lucide-react';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useSimulation } from './useSimulation';
 import type { SimValue } from './st-interpreter';
 import type { SimulationState } from './useSimulation';
@@ -143,110 +144,72 @@ const BoolDisplay: React.FC<{ value: boolean }> = ({ value }) => (
 );
 
 // ────────────────────────────────────────────────────────────────────────────
-// Variable row with change-highlight support
+// Cell renderers — the value column is a control for inputs, a display otherwise
 // ────────────────────────────────────────────────────────────────────────────
 
-const VariableInputRow: React.FC<{
+const INPUT_CLASS =
+  'px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500';
+
+const VariableControl: React.FC<{
   variable: VariableInfo;
   onSetInput: (name: string, value: SimValue) => void;
-  highlighted: boolean;
-}> = ({ variable, onSetInput, highlighted }) => {
+}> = ({ variable, onSetInput }) => {
   const { name, dataType, value } = variable;
 
-  const renderControl = () => {
-    if (isBoolType(dataType)) {
-      return (
-        <BoolToggle
-          checked={!!value}
-          onChange={(v) => onSetInput(name, v)}
-        />
-      );
-    }
+  if (isBoolType(dataType)) {
+    return <BoolToggle checked={!!value} onChange={(v) => onSetInput(name, v)} />;
+  }
 
-    if (isIntType(dataType)) {
-      return (
-        <input
-          type="number"
-          step={1}
-          value={typeof value === 'number' ? value : 0}
-          onChange={(e) => onSetInput(name, parseInt(e.target.value, 10) || 0)}
-          className="w-24 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-        />
-      );
-    }
+  if (isIntType(dataType)) {
+    return (
+      <input
+        type="number"
+        step={1}
+        value={typeof value === 'number' ? value : 0}
+        onChange={(e) => onSetInput(name, parseInt(e.target.value, 10) || 0)}
+        className={`w-24 ${INPUT_CLASS}`}
+      />
+    );
+  }
 
-    if (isRealType(dataType)) {
-      return (
-        <input
-          type="number"
-          step={0.1}
-          value={typeof value === 'number' ? value : 0}
-          onChange={(e) => onSetInput(name, parseFloat(e.target.value) || 0)}
-          className="w-24 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-        />
-      );
-    }
+  if (isRealType(dataType)) {
+    return (
+      <input
+        type="number"
+        step={0.1}
+        value={typeof value === 'number' ? value : 0}
+        onChange={(e) => onSetInput(name, parseFloat(e.target.value) || 0)}
+        className={`w-24 ${INPUT_CLASS}`}
+      />
+    );
+  }
 
-    if (isStringType(dataType)) {
-      return (
-        <input
-          type="text"
-          value={typeof value === 'string' ? value : ''}
-          onChange={(e) => onSetInput(name, e.target.value)}
-          className="w-32 px-1.5 py-0.5 text-xs font-mono rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-        />
-      );
-    }
+  if (isStringType(dataType)) {
+    return (
+      <input
+        type="text"
+        value={typeof value === 'string' ? value : ''}
+        onChange={(e) => onSetInput(name, e.target.value)}
+        className={`w-32 ${INPUT_CLASS}`}
+      />
+    );
+  }
 
-    // Fallback: read-only display
-    return <span className="text-xs font-mono text-gray-600 dark:text-gray-500">{String(value)}</span>;
-  };
-
-  return (
-    <tr
-      className={`transition-colors duration-500 ${
-        highlighted
-          ? 'bg-yellow-50 dark:bg-yellow-900/20'
-          : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
-      }`}
-    >
-      <td className="px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-gray-200">{name}</td>
-      <td className="px-3 py-1.5 text-xs text-gray-500 dark:text-gray-500">{dataType}</td>
-      <td className="px-3 py-1.5">{renderControl()}</td>
-    </tr>
-  );
+  // Fallback: read-only display
+  return <span className="text-xs font-mono text-gray-600 dark:text-gray-500">{String(value)}</span>;
 };
 
-const VariableOutputRow: React.FC<{
-  variable: VariableInfo;
-  highlighted: boolean;
-}> = ({ variable, highlighted }) => {
-  const { name, dataType, value } = variable;
+const VariableValue: React.FC<{ variable: VariableInfo }> = ({ variable }) => {
+  const { dataType, value } = variable;
 
-  const renderValue = () => {
-    if (isBoolType(dataType)) {
-      return <BoolDisplay value={!!value} />;
-    }
-
-    return (
-      <span className="text-xs font-mono text-gray-900 dark:text-gray-200">
-        {typeof value === 'number' ? value.toFixed(isRealType(dataType) ? 3 : 0) : String(value)}
-      </span>
-    );
-  };
+  if (isBoolType(dataType)) {
+    return <BoolDisplay value={!!value} />;
+  }
 
   return (
-    <tr
-      className={`transition-colors duration-500 ${
-        highlighted
-          ? 'bg-yellow-50 dark:bg-yellow-900/20'
-          : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
-      }`}
-    >
-      <td className="px-3 py-1.5 text-xs font-mono text-gray-900 dark:text-gray-200">{name}</td>
-      <td className="px-3 py-1.5 text-xs text-gray-500 dark:text-gray-500">{dataType}</td>
-      <td className="px-3 py-1.5">{renderValue()}</td>
-    </tr>
+    <span className="text-xs font-mono text-gray-900 dark:text-gray-200">
+      {typeof value === 'number' ? value.toFixed(isRealType(dataType) ? 3 : 0) : String(value)}
+    </span>
   );
 };
 
@@ -263,6 +226,38 @@ const VariableSection: React.FC<{
 }> = ({ section, variables, isInput, onSetInput, changedVars }) => {
   const [expanded, setExpanded] = useState(true);
 
+  const columns = useMemo<DataTableColumn<VariableInfo>[]>(
+    () => [
+      {
+        key: 'name',
+        header: 'Değişken',
+        width: '33%',
+        render: (_value, variable) => (
+          <span className="text-xs font-mono text-gray-900 dark:text-gray-200">{variable.name}</span>
+        ),
+      },
+      {
+        key: 'dataType',
+        header: 'Tip',
+        width: '4rem',
+        render: (_value, variable) => (
+          <span className="text-xs text-gray-500 dark:text-gray-500">{variable.dataType}</span>
+        ),
+      },
+      {
+        key: 'value',
+        header: 'Değer',
+        render: (_value, variable) =>
+          isInput ? (
+            <VariableControl variable={variable} onSetInput={onSetInput} />
+          ) : (
+            <VariableValue variable={variable} />
+          ),
+      },
+    ],
+    [isInput, onSetInput],
+  );
+
   if (variables.length === 0) return null;
 
   return (
@@ -273,9 +268,9 @@ const VariableSection: React.FC<{
         className="w-full flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-800 text-left transition-colors"
       >
         {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+          <ChevronDown className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         ) : (
-          <ChevronRight className="w-3.5 h-3.5 text-gray-500" />
+          <ChevronRight className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         )}
         <span className="text-xs font-semibold text-gray-700 dark:text-gray-500">
           {section.label}
@@ -287,39 +282,23 @@ const VariableSection: React.FC<{
 
       {/* Variable table */}
       {expanded && (
-        <table className="w-full">
-          <thead>
-            <tr className="border-t border-gray-200 dark:border-gray-700">
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500 w-1/3">
-                Değişken
-              </th>
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500 w-16">
-                Tip
-              </th>
-              <th className="px-3 py-1 text-left text-[10px] uppercase tracking-wider font-medium text-gray-500 dark:text-gray-500">
-                Değer
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {variables.map((v) =>
-              isInput ? (
-                <VariableInputRow
-                  key={v.name}
-                  variable={v}
-                  onSetInput={onSetInput}
-                  highlighted={changedVars.has(v.name)}
-                />
-              ) : (
-                <VariableOutputRow
-                  key={v.name}
-                  variable={v}
-                  highlighted={changedVars.has(v.name)}
-                />
-              ),
-            )}
-          </tbody>
-        </table>
+        <DataTable<VariableInfo>
+          data={variables}
+          columns={columns}
+          keyExtractor={(variable) => variable.name}
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+          flush
+          rowClassName={(variable) =>
+            `transition-colors duration-500 ${
+              changedVars.has(variable.name)
+                ? 'bg-yellow-50 dark:bg-yellow-900/20'
+                : 'hover:bg-gray-50 dark:hover:bg-gray-800/50'
+            }`
+          }
+        />
       )}
     </div>
   );

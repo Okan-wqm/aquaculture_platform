@@ -118,7 +118,7 @@ export const CATEGORY_CONFIG: Record<TaskCategory, { label: string; color: strin
   FEEDING: { label: 'Yemleme', color: 'text-orange-800', bg: 'bg-orange-100' },
   WATER_QUALITY: { label: 'Su Kalitesi', color: 'text-blue-800', bg: 'bg-blue-100' },
   HEALTH_CHECK: { label: 'Sağlık', color: 'text-red-800', bg: 'bg-red-100' },
-  EQUIPMENT_MAINTENANCE: { label: 'Ekipman Bakım', color: 'text-gray-800', bg: 'bg-gray-100' },
+  EQUIPMENT_MAINTENANCE: { label: 'Ekipman Bakım', color: 'text-gray-800 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-800' },
   STOCK_MANAGEMENT: { label: 'Stok', color: 'text-purple-800', bg: 'bg-purple-100' },
   CLEANING: { label: 'Temizlik', color: 'text-cyan-800', bg: 'bg-cyan-100' },
   REGULATORY: { label: 'Mevzuat', color: 'text-indigo-800', bg: 'bg-indigo-100' },
@@ -132,7 +132,7 @@ export const PRIORITY_CONFIG: Record<TaskPriority, { label: string; color: strin
   URGENT: { label: 'Acil', color: 'text-red-800', bg: 'bg-red-100' },
   HIGH: { label: 'Yüksek', color: 'text-orange-800', bg: 'bg-orange-100' },
   MEDIUM: { label: 'Orta', color: 'text-blue-800', bg: 'bg-blue-100' },
-  LOW: { label: 'Düşük', color: 'text-gray-800', bg: 'bg-gray-100' },
+  LOW: { label: 'Düşük', color: 'text-gray-800 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-800' },
 };
 
 export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; bg: string }> = {
@@ -140,7 +140,7 @@ export const STATUS_CONFIG: Record<TaskStatus, { label: string; color: string; b
   IN_PROGRESS: { label: 'Devam Ediyor', color: 'text-blue-800', bg: 'bg-blue-100' },
   COMPLETED: { label: 'Tamamlandı', color: 'text-green-800', bg: 'bg-green-100' },
   OVERDUE: { label: 'Gecikmiş', color: 'text-red-800', bg: 'bg-red-100' },
-  CANCELLED: { label: 'İptal', color: 'text-gray-800', bg: 'bg-gray-100' },
+  CANCELLED: { label: 'İptal', color: 'text-gray-800 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-800' },
 };
 
 export const FREQUENCY_CONFIG: Record<RecurrenceFrequency, { label: string; color: string; bg: string }> = {
@@ -149,7 +149,7 @@ export const FREQUENCY_CONFIG: Record<RecurrenceFrequency, { label: string; colo
   WEEKLY: { label: 'Haftalık', color: 'text-green-800', bg: 'bg-green-100' },
   BIWEEKLY: { label: '2 Haftada Bir', color: 'text-teal-800', bg: 'bg-teal-100' },
   MONTHLY: { label: 'Aylık', color: 'text-orange-800', bg: 'bg-orange-100' },
-  CUSTOM: { label: 'Özel', color: 'text-gray-800', bg: 'bg-gray-100' },
+  CUSTOM: { label: 'Özel', color: 'text-gray-800 dark:text-gray-200', bg: 'bg-gray-100 dark:bg-gray-800' },
 };
 
 export const TRIGGER_CONFIG: Record<AutoRuleTrigger, { label: string; color: string; bg: string }> = {

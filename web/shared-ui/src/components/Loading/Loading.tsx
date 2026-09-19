@@ -12,10 +12,14 @@ import React from 'react';
 export interface SpinnerProps {
   /** Boyut */
   size?: 'sm' | 'md' | 'lg' | 'xl';
-  /** Renk */
-  color?: 'primary' | 'white' | 'gray';
+  /** Renk — `inherit` çevreleyen metnin rengini alır (bir düğme etiketinin yanında) */
+  color?: 'primary' | 'white' | 'gray' | 'inherit';
+  /** Satır kaplayıp ortalansın mı (yükleniyor bloğunun tek içeriği olduğunda) */
+  block?: boolean;
   /** Metin */
   text?: string;
+  /** Yalnızca ekran okuyucuya okunan ad (görünür metin olmadığında) */
+  label?: string;
   className?: string;
 }
 
@@ -27,9 +31,10 @@ const spinnerSizes = {
 };
 
 const spinnerColors = {
-  primary: 'text-blue-600',
+  primary: 'text-primary-500',
   white: 'text-white',
-  gray: 'text-gray-500',
+  gray: 'text-gray-500 dark:text-gray-400',
+  inherit: 'text-current',
 };
 
 /**
@@ -42,11 +47,16 @@ const spinnerColors = {
 export const Spinner: React.FC<SpinnerProps> = ({
   size = 'md',
   color = 'primary',
+  block = false,
   text,
+  label,
   className = '',
 }) => {
+  // WHY a span: the arc sits inside buttons and paragraphs as often as in
+  // loading blocks, and only phrasing content is valid there. Display is set
+  // explicitly, so a span lays out exactly as the div did.
   return (
-    <div className={`inline-flex items-center ${className}`}>
+    <span className={`${block ? 'flex justify-center' : 'inline-flex'} items-center ${className}`}>
       <svg
         className={`animate-spin ${spinnerSizes[size]} ${spinnerColors[color]}`}
         xmlns="http://www.w3.org/2000/svg"
@@ -68,8 +78,9 @@ export const Spinner: React.FC<SpinnerProps> = ({
           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
         />
       </svg>
-      {text && <span className="ml-2 text-sm text-gray-600">{text}</span>}
-    </div>
+      {text && <span className="ml-2 text-sm text-gray-600 dark:text-gray-400">{text}</span>}
+      {!text && label && <span className="sr-only">{label}</span>}
+    </span>
   );
 };
 
@@ -90,8 +101,8 @@ export interface LoadingOverlayProps {
 }
 
 const overlayOpacity = {
-  light: 'bg-white/60',
-  medium: 'bg-white/80',
+  light: 'bg-white/60 dark:bg-gray-900/60',
+  medium: 'bg-white/80 dark:bg-gray-900/80',
   dark: 'bg-gray-900/50',
 };
 
@@ -131,7 +142,7 @@ export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
     >
       <div className="flex flex-col items-center space-y-3">
         <Spinner size="lg" color={opacity === 'dark' ? 'white' : 'primary'} />
-        <p className={`text-sm font-medium ${opacity === 'dark' ? 'text-white' : 'text-gray-700'}`}>
+        <p className={`text-sm font-medium ${opacity === 'dark' ? 'text-white' : 'text-gray-700 dark:text-gray-300'}`}>
           {text}
         </p>
       </div>
@@ -181,7 +192,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   return (
     <div
       className={`
-        animate-pulse bg-gray-200
+        animate-pulse bg-gray-200 dark:bg-gray-700
         ${circle ? 'rounded-full' : rounded ? 'rounded' : ''}
         ${className}
       `}
@@ -233,7 +244,7 @@ export const SkeletonText: React.FC<SkeletonTextProps> = ({
  */
 export const SkeletonCard: React.FC<{ className?: string }> = ({ className = '' }) => {
   return (
-    <div className={`bg-white rounded-lg shadow p-4 ${className}`}>
+    <div className={`bg-white dark:bg-gray-900 rounded-lg shadow p-4 ${className}`}>
       <div className="animate-pulse">
         <Skeleton height={160} className="mb-4" />
         <Skeleton height={20} width="60%" className="mb-2" />
@@ -258,10 +269,10 @@ export const SkeletonTable: React.FC<SkeletonTableProps> = ({
   className = '',
 }) => {
   return (
-    <div className={`bg-white rounded-lg shadow overflow-hidden ${className}`}>
+    <div className={`bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden ${className}`}>
       <div className="animate-pulse">
         {/* Header */}
-        <div className="bg-gray-50 px-4 py-3 border-b border-gray-200">
+        <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
           <div className="flex space-x-4">
             {Array.from({ length: columns }).map((_, i) => (
               <Skeleton key={i} height={16} width={`${100 / columns}%`} />
@@ -273,7 +284,7 @@ export const SkeletonTable: React.FC<SkeletonTableProps> = ({
         {Array.from({ length: rows }).map((_, rowIndex) => (
           <div
             key={rowIndex}
-            className="px-4 py-3 border-b border-gray-100 last:border-0"
+            className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 last:border-0"
           >
             <div className="flex space-x-4">
               {Array.from({ length: columns }).map((_, colIndex) => (
@@ -302,10 +313,10 @@ export const PageLoading: React.FC<{ text?: string }> = ({
   text = 'Sayfa yükleniyor...',
 }) => {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-800">
       <div className="text-center">
         <Spinner size="xl" />
-        <p className="mt-4 text-lg text-gray-600">{text}</p>
+        <p className="mt-4 text-lg text-gray-600 dark:text-gray-400">{text}</p>
       </div>
     </div>
   );

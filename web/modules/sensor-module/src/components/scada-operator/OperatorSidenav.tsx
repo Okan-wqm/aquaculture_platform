@@ -149,8 +149,8 @@ const NavItemRow = memo<NavItemRowProps>(
           <span className="flex-1 truncate leading-snug">{item.label}</span>
           {hasChildren && (
             expanded
-              ? <ChevronDown  size={13} className="shrink-0 text-gray-400" aria-hidden="true" />
-              : <ChevronRight size={13} className="shrink-0 text-gray-400" aria-hidden="true" />
+              ? <ChevronDown  size={13} className="shrink-0 text-gray-400 dark:text-gray-500" aria-hidden="true" />
+              : <ChevronRight size={13} className="shrink-0 text-gray-400 dark:text-gray-500" aria-hidden="true" />
           )}
         </div>
 
@@ -209,7 +209,7 @@ export const OperatorSidenav = memo<OperatorSidenavProps>(
       >
         {/* ── Nav header ── */}
         <div className="px-4 py-3 border-b border-gray-700/60 shrink-0">
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">
             Navigation
           </span>
         </div>
@@ -217,7 +217,7 @@ export const OperatorSidenav = memo<OperatorSidenavProps>(
         {/* ── Nav items list ── */}
         <div className="flex-1 overflow-y-auto py-2">
           {navItems.length === 0 ? (
-            <p className="px-4 py-3 text-xs text-gray-600 italic">
+            <p className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 italic">
               No screens configured.
             </p>
           ) : (
@@ -237,7 +237,7 @@ export const OperatorSidenav = memo<OperatorSidenavProps>(
 
         {/* ── Footer hint ── */}
         <div className="px-4 py-2 border-t border-gray-700/60 shrink-0">
-          <span className="text-[10px] text-gray-600 select-none">
+          <span className="text-[10px] text-gray-600 dark:text-gray-400 select-none">
             {navItems.length} screen{navItems.length !== 1 ? 's' : ''}
           </span>
         </div>

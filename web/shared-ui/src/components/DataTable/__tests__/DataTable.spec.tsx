@@ -34,9 +34,7 @@ describe('DataTable — toolbar', () => {
   });
 
   it('renders the search box when asked', () => {
-    render(
-      <DataTable<Row> data={rows} columns={columns} keyExtractor={(row) => row.id} searchable />,
-    );
+    render(<DataTable<Row> data={rows} columns={columns} keyExtractor={(row) => row.id} searchable />);
     expect(screen.getByPlaceholderText(/search/i)).toBeTruthy();
   });
 });
@@ -150,3 +148,56 @@ describe('DataTable — summary row', () => {
     expect(screen.queryByText('Total: 0 people')).toBeNull();
   });
 });
+
+describe('DataTable — header slot', () => {
+  it('shows the header node in the cell and keeps the name for the sort control', () => {
+    render(
+      <DataTable<Row>
+        data={rows}
+        columns={[{ key: 'name', header: 'Name', headerRender: <span data-testid="key-marker">Name (pk)</span> }]}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+      />,
+    );
+    expect(screen.getByTestId('key-marker')).toBeTruthy();
+    // The sort control is a real button named by the column, inside a <th scope="col">.
+    const header = screen.getByRole('columnheader');
+    expect(header.getAttribute('scope')).toBe('col');
+    expect(header.getAttribute('aria-sort')).toBe('none');
+    expect(screen.getByRole('button', { name: 'Name (pk)' })).toBeTruthy();
+  });
+});
+
+describe('DataTable — controlled expansion', () => {
+  it('opens the rows the page names and needs no chevron column', () => {
+    const { rerender } = render(
+      <DataTable<Row>
+        data={rows}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        expandable
+        expandToggle={false}
+        expandedRowIds={[]}
+        renderExpandedRow={(row) => <p>details of {row.name}</p>}
+      />,
+    );
+    expect(screen.queryByText('details of Ada')).toBeNull();
+    expect(screen.getAllByRole('columnheader')).toHaveLength(1);
+
+    rerender(
+      <DataTable<Row>
+        data={rows}
+        columns={columns}
+        keyExtractor={(row) => row.id}
+        searchable={false}
+        expandable
+        expandToggle={false}
+        expandedRowIds={['1']}
+        renderExpandedRow={(row) => <p>details of {row.name}</p>}
+      />,
+    );
+    expect(screen.getByText('details of Ada')).toBeTruthy();
+  });
+});
+

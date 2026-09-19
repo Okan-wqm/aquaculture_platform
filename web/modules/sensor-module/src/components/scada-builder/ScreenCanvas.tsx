@@ -880,7 +880,7 @@ const CanvasInner: React.FC<CanvasInnerProps> = ({ isPreview = false }) => {
 
   if (!activeScreen) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-500 text-sm">
+      <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">
         Ekran seçin veya yeni ekran ekleyin
       </div>
     );

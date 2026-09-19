@@ -78,7 +78,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       render: (_value, entry) => (
         <>
           <div className="font-medium">{entry.feedName}</div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {entry.feedCode}
           </div>
         </>
@@ -105,10 +105,10 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Yem Atamaları
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Bu partinin ağırlık aralıklarına göre yem atamaları —
             yemleme planı bu eşlemeyi okur.
           </p>
@@ -137,7 +137,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       </div>
 
       {isLoading && (
-        <div className="animate-pulse text-gray-500 text-sm">
+        <div className="animate-pulse text-gray-500 dark:text-gray-400 text-sm">
           Atamalar yükleniyor…
         </div>
       )}
@@ -150,8 +150,8 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       )}
 
       {!isLoading && !error && !assignment && (
-        <div className="bg-gray-50 border border-dashed border-gray-300 rounded-lg p-6 text-center">
-          <p className="text-sm text-gray-600">
+        <div className="bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6 text-center">
+          <p className="text-sm text-gray-600 dark:text-gray-400">
             Bu parti için henüz yem ataması yapılmamış.
           </p>
           {canAssign && (
@@ -167,7 +167,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
       )}
 
       {assignment && (
-        <div className="overflow-x-auto bg-white border border-gray-200 rounded-lg">
+        <div className="overflow-x-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
           <DataTable<EntryRow>
             data={assignment.feedAssignments}
             columns={entryRowColumns}
@@ -178,7 +178,7 @@ const BatchFeedingTab: React.FC<BatchFeedingTabProps> = ({ batch }) => {
             stickyHeader={false}
           />
           {assignment.notes && (
-            <div className="border-t border-gray-200 p-3 text-sm text-gray-600">
+            <div className="border-t border-gray-200 dark:border-gray-700 p-3 text-sm text-gray-600 dark:text-gray-400">
               <span className="font-semibold">Notlar:</span>{' '}
               <span className="whitespace-pre-wrap">{assignment.notes}</span>
             </div>

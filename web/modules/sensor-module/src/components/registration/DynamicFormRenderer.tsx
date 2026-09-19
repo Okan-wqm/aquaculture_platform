@@ -22,8 +22,8 @@ interface FieldRendererProps {
 // Individual field renderer
 function FieldRenderer({ name, property, value, onChange, error, disabled, schema }: FieldRendererProps) {
   const inputClassName = `w-full px-3 py-2 border rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 ${
-    error ? 'border-red-500' : 'border-gray-300'
-  } ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'}`;
+    error ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'
+  } ${disabled ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed' : 'bg-white dark:bg-gray-900'}`;
 
   const renderInput = () => {
     // Handle enum (select)
@@ -53,10 +53,10 @@ function FieldRenderer({ name, property, value, onChange, error, disabled, schem
             type="checkbox"
             checked={Boolean(value)}
             onChange={(e) => onChange(e.target.checked)}
-            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
             disabled={disabled}
           />
-          <span className="text-sm text-gray-700">{property.title}</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">{property.title}</span>
         </label>
       );
     }
@@ -154,7 +154,7 @@ function FieldRenderer({ name, property, value, onChange, error, disabled, schem
       <div className="mb-4">
         {renderInput()}
         {property.description && (
-          <p className="mt-1 text-xs text-gray-500">{property.description}</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{property.description}</p>
         )}
         {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
       </div>
@@ -163,13 +163,13 @@ function FieldRenderer({ name, property, value, onChange, error, disabled, schem
 
   return (
     <div className="mb-4">
-      <label className="block text-sm font-medium text-gray-700 mb-1">
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
         {property.title || name}
         {schema?.required?.includes(name) && <span className="text-red-500 ml-1">*</span>}
       </label>
       {renderInput()}
       {property.description && (
-        <p className="mt-1 text-xs text-gray-500">{property.description}</p>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{property.description}</p>
       )}
       {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
     </div>
@@ -230,8 +230,8 @@ export function DynamicFormRenderer({
     <div className="space-y-6">
       {/* Render groups */}
       {groups.map(({ group, fields }) => (
-        <div key={group.name} className="border border-gray-200 rounded-lg p-4">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">{group.title}</h3>
+        <div key={group.name} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">{group.title}</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {fields.map(({ name, property }) => (
               <div key={name} className={property.type === 'array' ? 'md:col-span-2' : ''}>
@@ -252,8 +252,8 @@ export function DynamicFormRenderer({
 
       {/* Render ungrouped fields */}
       {ungroupedFields.length > 0 && (
-        <div className="border border-gray-200 rounded-lg p-4">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Other Settings</h3>
+        <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Other Settings</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {ungroupedFields.map(({ name, property }) => (
               <div key={name} className={property.type === 'array' ? 'md:col-span-2' : ''}>

@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { AlertTriangle, AlertCircle, Clock, RefreshCw, ChevronRight } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Spinner } from '@aquaculture/shared-ui';
 import { useExpiringCertifications, useExpiredCertifications } from '../../hooks';
 import { getCertificationUrgency, CERTIFICATION_CATEGORY_CONFIG } from '../../types';
 import { EmployeeAvatar } from '../common/EmployeeAvatar';
@@ -70,7 +70,7 @@ export function CertificationExpiryAlert({
     return (
       <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
         <div className="flex items-center justify-center py-8">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-600" />
+          <Spinner size="md" />
         </div>
       </div>
     );
@@ -193,7 +193,7 @@ export function CertificationExpiryAlert({
                       <span>
                         Expires in {cert.daysUntilExpiry} days
                         {cert.expiryDate && (
-                          <span className="text-gray-500"> ({new Date(cert.expiryDate).toLocaleDateString()})</span>
+                          <span className="text-gray-500 dark:text-gray-400"> ({new Date(cert.expiryDate).toLocaleDateString()})</span>
                         )}
                       </span>
                     )}
@@ -218,10 +218,10 @@ export function CertificationExpiryAlert({
       {/* Summary Footer */}
       <div className="border-t border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="flex justify-between text-sm">
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-gray-400">
             {expiredCerts?.length || 0} expired
           </span>
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-gray-400">
             {expiringCerts?.length || 0} expiring soon
           </span>
         </div>

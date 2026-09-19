@@ -44,6 +44,7 @@ import { AiActionCard } from '@/components/messaging/AiActionCard';
 import { AiTypingIndicator } from '@/components/messaging/AiTypingIndicator';
 import { MessageBubble } from '@/components/messaging/MessageBubble';
 import { MessageDateSeparator } from '@/components/messaging/MessageDateSeparator';
+import { Spinner } from '@/components/ui/Spinner';
 import { useAiChat } from '@/hooks/useAiChat';
 import { useAuth } from '@/hooks/useAuth';
 import { useChannelDetail } from '@/hooks/useChannelDetail';
@@ -470,12 +471,12 @@ export function AiChatPage(): JSX.Element {
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500" />
+            <Spinner size="lg" />
           </div>
         ) : errorMsg ? (
           <div className="text-center py-12 px-4">
             <AlertCircle size={40} className="mx-auto mb-3 text-gray-300 opacity-60" />
-            <p className="text-sm text-gray-500">{errorMsg}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{errorMsg}</p>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">
@@ -608,7 +609,7 @@ export function AiChatPage(): JSX.Element {
             aria-label={isOnline ? 'Send to AI' : 'Queue message for later'}
           >
             {isSending ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+              <Spinner size="md" color="white" />
             ) : isOnline ? (
               <Send size={20} />
             ) : (

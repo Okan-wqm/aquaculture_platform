@@ -205,17 +205,17 @@ export const TransferModal: React.FC<TransferModalProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-blue-600 uppercase font-medium">Source Tank</p>
-              <h3 className="font-medium text-gray-900">{tank.tankName}</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="font-medium text-gray-900 dark:text-gray-100">{tank.tankName}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Batch: {selectedBatchNumber || 'No batch assigned'}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-gray-500">Current Stock</p>
-              <p className="text-lg font-semibold text-gray-900">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Current Stock</p>
+              <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {availableQuantity.toLocaleString()} fish
               </p>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {availableBiomassKg.toFixed(1)} kg
               </p>
             </div>
@@ -234,17 +234,17 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         <div className="space-y-4">
           {/* Destination Tank Selection */}
           <div>
-            <label htmlFor="destinationTank" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="destinationTank" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Destination Tank <span className="text-blue-500">*</span>
             </label>
             {tanksLoading ? (
-              <div className="mt-1 text-sm text-gray-500">Loading tanks...</div>
+              <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">Loading tanks...</div>
             ) : (
               <select
                 id="destinationTank"
                 value={destinationTankId}
                 onChange={(e) => setDestinationTankId(e.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="">Select destination tank...</option>
                 {destinationTanks.map((t: AvailableTank) => {
@@ -263,17 +263,17 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Show destination tank details if selected */}
           {selectedDestinationTank && (
-            <div className="bg-gray-50 rounded-lg p-3">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 uppercase font-medium">Destination Tank</p>
-                  <p className="font-medium text-gray-900">{selectedDestinationTank.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-medium">Destination Tank</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{selectedDestinationTank.name}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     Current: {selectedDestinationTank.currentCount?.toLocaleString() || 0} fish
                   </p>
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     {selectedDestinationTank.currentBiomass?.toFixed(1) || 0} kg / {selectedDestinationTank.maxBiomass} kg
                   </p>
                 </div>
@@ -292,7 +292,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Quantity */}
           <div>
-            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Transfer Quantity <span className="text-blue-500">*</span>
             </label>
             <input
@@ -302,7 +302,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               max={availableQuantity}
               value={quantity || ''}
               onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Enter number of fish to transfer"
             />
             {/* Quick select buttons — percentages of the SELECTED batch's stock */}
@@ -310,28 +310,28 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               <button
                 type="button"
                 onClick={() => setQuantity(Math.floor(availableQuantity * 0.25))}
-                className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
               >
                 25%
               </button>
               <button
                 type="button"
                 onClick={() => setQuantity(Math.floor(availableQuantity * 0.5))}
-                className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
               >
                 50%
               </button>
               <button
                 type="button"
                 onClick={() => setQuantity(Math.floor(availableQuantity * 0.75))}
-                className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
               >
                 75%
               </button>
               <button
                 type="button"
                 onClick={() => setQuantity(availableQuantity)}
-                className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+                className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
               >
                 100%
               </button>
@@ -340,7 +340,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Average Weight */}
           <div>
-            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Average Weight (g)
             </label>
             <input
@@ -349,9 +349,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               value={scopedAvgWeightG.toFixed(1)}
               readOnly
               disabled
-              className="mt-1 block w-full rounded-md border-gray-200 bg-gray-50 shadow-sm sm:text-sm text-gray-600 cursor-not-allowed"
+              className="mt-1 block w-full rounded-md border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 shadow-sm sm:text-sm text-gray-600 dark:text-gray-400 cursor-not-allowed"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {isCombined ? 'Selected batch' : 'Source tank'} average — cannot be changed during
               transfer. Biomass is calculated automatically.
             </p>
@@ -371,14 +371,14 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Transfer Reason */}
           <div>
-            <label htmlFor="reason" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Transfer Reason <span className="text-blue-500">*</span>
             </label>
             <select
               id="reason"
               value={transferReason}
               onChange={(e) => setTransferReason(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               {Object.entries(TransferReasons).map(([key, label]) => (
                 <option key={key} value={key}>
@@ -390,7 +390,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Date */}
           <div>
-            <label htmlFor="transferredAt" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="transferredAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Transfer Date
             </label>
             <input
@@ -399,13 +399,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               value={transferredAt}
               max={new Date().toISOString().split('T')[0]}
               onChange={(e) => setTransferredAt(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
           </div>
 
           {/* Notes */}
           <div>
-            <label htmlFor="notes" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Transfer Notes <span className="text-blue-500">*</span>
             </label>
             <textarea
@@ -414,7 +414,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               maxLength={2000}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Explain why the fish are being transferred..."
             />
           </div>
@@ -422,23 +422,23 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
         {/* Pre/Post Operation States */}
         {quantity > 0 && destinationTankId && (
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-700 mb-3">Tank Status After Transfer</h4>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Tank Status After Transfer</h4>
             <div className="grid grid-cols-2 gap-6">
               {/* Source Tank */}
               <div>
-                <p className="text-xs text-gray-500 uppercase mb-2">Source: {tank.tankName}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">Source: {tank.tankName}</p>
                 <div className="flex justify-between items-center">
                   <div>
-                    <p className="text-xs text-gray-500">Before</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">Before</p>
                     <p className="text-sm font-medium">{availableQuantity.toLocaleString()} fish</p>
-                    <p className="text-xs text-gray-500">{availableBiomassKg.toFixed(1)} kg</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{availableBiomassKg.toFixed(1)} kg</p>
                   </div>
-                  <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                   </svg>
                   <div className="text-right">
-                    <p className="text-xs text-gray-500">After</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">After</p>
                     <p className="text-sm font-medium text-blue-600">
                       {postOperationStates.sourceAfter.quantity.toLocaleString()} fish
                     </p>
@@ -452,18 +452,18 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               {/* Destination Tank */}
               {postOperationStates.destAfter && selectedDestinationTank && (
                 <div>
-                  <p className="text-xs text-gray-500 uppercase mb-2">Destination: {selectedDestinationTank.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">Destination: {selectedDestinationTank.name}</p>
                   <div className="flex justify-between items-center">
                     <div>
-                      <p className="text-xs text-gray-500">Before</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Before</p>
                       <p className="text-sm font-medium">{(selectedDestinationTank.currentCount || 0).toLocaleString()} fish</p>
-                      <p className="text-xs text-gray-500">{(selectedDestinationTank.currentBiomass || 0).toFixed(1)} kg</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{(selectedDestinationTank.currentBiomass || 0).toFixed(1)} kg</p>
                     </div>
-                    <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
                     </svg>
                     <div className="text-right">
-                      <p className="text-xs text-gray-500">After</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">After</p>
                       <p className="text-sm font-medium text-green-600">
                         {postOperationStates.destAfter.quantity.toLocaleString()} fish
                       </p>

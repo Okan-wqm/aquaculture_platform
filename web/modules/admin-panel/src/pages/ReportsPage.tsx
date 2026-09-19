@@ -6,7 +6,7 @@
  * Uses real API data from backend reports service.
  */
 
-import { Card, Button, Badge, DataTable, Modal, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Modal, Input, PageHeader } from '@aquaculture/shared-ui';
 import React, { useCallback, useState } from 'react';
 
 import { reportsApi, type ReportExecution as ApiReportExecution } from '../services/adminApi';
@@ -288,17 +288,17 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, onGenerate }) => {
   return (
     <Card className="hover:shadow-lg transition-shadow">
       <div className="flex items-start gap-4">
-        <div className="p-3 bg-gray-100 rounded-lg text-gray-600">
+        <div className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg text-gray-600 dark:text-gray-400">
           {report.icon}
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <h3 className="font-semibold text-gray-900">{report.name}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">{report.name}</h3>
             <span className={`px-2 py-0.5 rounded text-xs font-medium ${categoryColors[report.category]}`}>
               {report.category}
             </span>
           </div>
-          <p className="text-sm text-gray-500 mb-4">{report.description}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{report.description}</p>
           <Button variant="primary" size="sm" onClick={() => onGenerate(report.type)}>
             Generate Report
           </Button>
@@ -326,15 +326,15 @@ const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownloa
   };
 
   return (
-    <div className="flex items-center justify-between p-4 border-b last:border-b-0 hover:bg-gray-50">
+    <div className="flex items-center justify-between p-4 border-b last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-800">
       <div className="flex-1">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-900">{report.title}</span>
+          <span className="font-medium text-gray-900 dark:text-gray-100">{report.title}</span>
           <Badge variant={statusColors[report.status] as 'success' | 'warning' | 'error'}>
             {report.status === 'pending' ? 'Generating' : report.status === 'ready' ? 'Ready' : 'Failed'}
           </Badge>
         </div>
-        <p className="text-sm text-gray-500">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           {new Date(report.generatedAt).toLocaleString()}
           {report.rowCount !== undefined ? ` - ${report.rowCount.toLocaleString()} rows` : ''}
         </p>
@@ -494,12 +494,10 @@ const ReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reports</h1>
-          <p className="text-gray-500 mt-1">Generate and download detailed reports</p>
-        </div>
-      </div>
+      <PageHeader
+        title="Reports"
+        description="Generate and download detailed reports"
+      />
 
       {/* A failed history read, a refused execution, or a download the server
           would not produce — each named, with a retry. */}
@@ -518,7 +516,7 @@ const ReportsPage: React.FC = () => {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               activeCategory === cat
                 ? 'bg-blue-600 text-white'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
             {cat === 'all' ? 'All' : cat}
@@ -562,45 +560,45 @@ const ReportsPage: React.FC = () => {
             onClick={() => {
               void handleQuickReport('tenant_overview', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
           >
-            <svg className="w-8 h-8 mx-auto text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            <p className="text-sm font-medium text-gray-700">Tenant CSV</p>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Tenant CSV</p>
           </button>
           <button
             onClick={() => {
               void handleQuickReport('financial_revenue', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 rounded-lg hover:border-green-400 hover:bg-green-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-green-400 hover:bg-green-50 transition-colors text-center"
           >
-            <svg className="w-8 h-8 mx-auto text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <p className="text-sm font-medium text-gray-700">Revenue CSV</p>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Revenue CSV</p>
           </button>
           <button
             onClick={() => {
               void handleQuickReport('usage_modules', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition-colors text-center"
           >
-            <svg className="w-8 h-8 mx-auto text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
-            <p className="text-sm font-medium text-gray-700">Usage CSV</p>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Usage CSV</p>
           </button>
           <button
             onClick={() => {
               void handleQuickReport('system_performance', 'csv');
             }}
-            className="p-4 border-2 border-dashed border-gray-200 rounded-lg hover:border-orange-400 hover:bg-orange-50 transition-colors text-center"
+            className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-orange-400 hover:bg-orange-50 transition-colors text-center"
           >
-            <svg className="w-8 h-8 mx-auto text-gray-500 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
             </svg>
-            <p className="text-sm font-medium text-gray-700">Performance CSV</p>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Performance CSV</p>
           </button>
         </div>
       </Card>
@@ -620,20 +618,20 @@ const ReportsPage: React.FC = () => {
             )}
 
             <div>
-              <p className="block text-sm font-medium text-gray-700 mb-2">
+              <p className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Report Type
               </p>
-              <p className="text-gray-900 font-medium">
+              <p className="text-gray-900 dark:text-gray-100 font-medium">
                 {reportDefinitions.find(r => r.type === selectedReportType)?.name}
               </p>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {reportDefinitions.find(r => r.type === selectedReportType)?.description}
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label htmlFor="report-start-date" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="report-start-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Start Date
                 </label>
                 <Input
@@ -646,7 +644,7 @@ const ReportsPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="report-end-date" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="report-end-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   End Date
                 </label>
                 <Input
@@ -661,7 +659,7 @@ const ReportsPage: React.FC = () => {
             </div>
 
             <div>
-              <p className="block text-sm font-medium text-gray-700 mb-2">
+              <p className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Format
               </p>
               <div className="flex gap-2">
@@ -672,7 +670,7 @@ const ReportsPage: React.FC = () => {
                     className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                       selectedFormat === format
                         ? 'bg-blue-600 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
                     {format.toUpperCase()}
@@ -711,12 +709,12 @@ const ReportsPage: React.FC = () => {
             {/* Summary */}
             {selectedReport.summary && Object.keys(selectedReport.summary).length > 0 && (
               <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Summary</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Summary</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {Object.entries(selectedReport.summary).map(([key, value]) => (
-                    <div key={key} className="p-3 bg-gray-50 rounded-lg">
-                      <p className="text-xs text-gray-500">{formatColumnHeader(key)}</p>
-                      <p className="text-lg font-semibold text-gray-900">
+                    <div key={key} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{formatColumnHeader(key)}</p>
+                      <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                         {typeof value === 'number' ? value.toLocaleString() : renderReportValue(value)}
                       </p>
                     </div>
@@ -727,7 +725,7 @@ const ReportsPage: React.FC = () => {
 
             {/* Data Table */}
             <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Data</h4>
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Data</h4>
               {Array.isArray(selectedReport.data) && selectedReport.data.length > 0 ? (
                 <DataTable<Record<string, unknown>>
                   data={(selectedReport.data as Record<string, unknown>[]).slice(0, 10)}
@@ -745,11 +743,11 @@ const ReportsPage: React.FC = () => {
                 />
               ) : (
                 <div className="border rounded-lg">
-                  <p className="p-4 text-gray-500 text-center">No data available</p>
+                  <p className="p-4 text-gray-500 dark:text-gray-400 text-center">No data available</p>
                 </div>
               )}
               {Array.isArray(selectedReport.data) && selectedReport.data.length > 10 && (
-                <p className="text-sm text-gray-500 mt-2">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                   Showing first 10 records. Download the report for all data.
                 </p>
               )}

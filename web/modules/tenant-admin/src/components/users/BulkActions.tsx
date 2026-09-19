@@ -101,9 +101,9 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
   const selectedRole = roles.find((role) => role.id === selectedRoleId);
 
   return (
-    <div className="bg-tenant-50 rounded-xl p-4 space-y-2">
+    <div className="bg-green-50 rounded-xl p-4 space-y-2">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <span className="text-sm text-tenant-700">{selectedUsers.length} user(s) selected</span>
+        <span className="text-sm text-green-700">{selectedUsers.length} user(s) selected</span>
         <div className="flex items-center gap-2 flex-wrap">
           {canAssignRoles && (
             <>
@@ -112,7 +112,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
                 value={selectedRoleId}
                 onChange={(e) => setSelectedRoleId(e.target.value)}
                 disabled={isAssigningRole}
-                className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:opacity-50"
+                className="px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 focus:outline-hidden focus:ring-2 focus:ring-green-500 disabled:opacity-50"
               >
                 <option value="">Select role...</option>
                 {roles.map((role) => (
@@ -124,7 +124,7 @@ export const BulkActions: React.FC<BulkActionsProps> = ({
               <button
                 onClick={() => setIsAssignConfirmOpen(true)}
                 disabled={!selectedRoleId || isAssigningRole}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-tenant-700 bg-tenant-100 rounded-lg hover:bg-tenant-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-100 rounded-lg hover:bg-green-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isAssigningRole ? (
                   <>

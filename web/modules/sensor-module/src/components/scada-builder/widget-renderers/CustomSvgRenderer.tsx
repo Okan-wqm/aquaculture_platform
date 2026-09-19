@@ -77,7 +77,7 @@ const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
   return (
     <div style={style}>
       <div
-        style={{ width: '100%', height: '100%' }}
+        className="w-full h-full"
         dangerouslySetInnerHTML={{ __html: safeSvg }}
       />
       {label && (

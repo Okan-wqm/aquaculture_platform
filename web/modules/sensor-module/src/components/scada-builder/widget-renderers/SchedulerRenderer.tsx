@@ -81,7 +81,7 @@ const SchedulerRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
               {day}
             </div>
             {/* Time grid background */}
-            <div style={{ flex: 1, position: 'relative' }}>
+            <div className="flex-1 relative">
               {/* Vertical hour lines */}
               {HOURS.filter((h) => h % 6 === 0).map((h) => (
                 <div key={h} style={{

@@ -117,7 +117,7 @@ const StatusIndicatorRenderer: React.FC<WidgetRendererProps> = ({ config, value,
           r={circleR + 3}
           fill={color}
           opacity={glowMode !== 'none' ? 0.25 : 0.1}
-          style={{ transition: 'fill 0.4s ease, opacity 0.4s ease' }}
+          className="transition-[fill,opacity] duration-[400ms] ease-[ease]"
         />
 
         {/* Main circle */}
@@ -126,7 +126,7 @@ const StatusIndicatorRenderer: React.FC<WidgetRendererProps> = ({ config, value,
           cy={cy}
           r={circleR}
           fill={color}
-          style={{ transition: 'fill 0.4s ease' }}
+          className="transition-[fill] duration-[400ms] ease-[ease]"
         />
 
         {/* Specular highlight for depth */}

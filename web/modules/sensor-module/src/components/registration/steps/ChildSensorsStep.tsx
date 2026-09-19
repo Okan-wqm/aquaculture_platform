@@ -87,19 +87,19 @@ export function ChildSensorsStep({
       </div>
 
       {/* Summary stats */}
-      <div className="flex items-center justify-between bg-gray-50 rounded-lg p-4">
+      <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
         <div className="flex items-center space-x-4">
           <div className="text-center">
             <div className="text-2xl font-bold text-blue-600">{selectedCount}</div>
-            <div className="text-xs text-gray-500">Selected</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Selected</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-green-600">{configuredCount}</div>
-            <div className="text-xs text-gray-500">Configured</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Configured</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-gray-600">{childSensors.length}</div>
-            <div className="text-xs text-gray-500">Total Found</div>
+            <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">{childSensors.length}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400">Total Found</div>
           </div>
         </div>
         <div className="flex items-center space-x-4">
@@ -127,8 +127,8 @@ export function ChildSensorsStep({
             key={sensor.dataPath}
             className={`border rounded-lg overflow-hidden transition-colors ${
               sensor.selected
-                ? 'border-blue-300 bg-white'
-                : 'border-gray-200 bg-gray-50 opacity-75'
+                ? 'border-blue-300 bg-white dark:bg-gray-900'
+                : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 opacity-75'
             }`}
           >
             <div className="p-4">
@@ -139,7 +139,7 @@ export function ChildSensorsStep({
                     type="checkbox"
                     checked={sensor.selected}
                     onChange={() => handleToggleSelect(sensor.dataPath)}
-                    className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    className="h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                   />
                 </div>
 
@@ -147,14 +147,14 @@ export function ChildSensorsStep({
                 <div className="ml-4 flex-1">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="text-lg font-medium text-gray-900">
+                      <h4 className="text-lg font-medium text-gray-900 dark:text-gray-100">
                         {sensor.name}
                       </h4>
                       <div className="flex items-center mt-1 space-x-2">
-                        <code className="text-xs bg-gray-100 px-2 py-0.5 rounded text-gray-600">
+                        <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded text-gray-600 dark:text-gray-400">
                           {sensor.dataPath}
                         </code>
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
                           Sample: <span className="font-mono">{formatSampleValue(sensor.sampleValue)}</span>
                           {sensor.unit && ` ${sensor.unit}`}
                         </span>
@@ -190,7 +190,7 @@ export function ChildSensorsStep({
                           )}
                           <button
                             onClick={() => onEditSensor(sensor)}
-                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-sm font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                           >
                             {sensor.isConfigured ? 'Edit' : 'Configure'}
                             <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -209,7 +209,7 @@ export function ChildSensorsStep({
                         {SENSOR_TYPE_LABELS[sensor.type] || sensor.type}
                       </span>
                       {sensor.unit && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-600">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
                           Unit: {sensor.unit}
                         </span>
                       )}

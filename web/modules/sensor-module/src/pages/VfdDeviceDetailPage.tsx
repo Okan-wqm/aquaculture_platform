@@ -15,7 +15,6 @@ import {
   Zap,
   Wifi,
   WifiOff,
-  Loader2,
   AlertTriangle,
   MapPin,
   Clock,
@@ -23,17 +22,17 @@ import {
   Settings,
   Power,
   PowerOff,
-  Loader2 as Spinner,
 } from 'lucide-react';
 
 import { useVfdDevice, useVfdRegistration } from '../hooks/useVfdRegistration';
 import { VfdControlPanel } from '../components/vfd/VfdControlPanel';
 import { VFD_BRAND_NAMES, VFD_PROTOCOL_NAMES, VfdDeviceStatus } from '../types/vfd.types';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 const Field: React.FC<{ label: string; value?: React.ReactNode }> = ({ label, value }) => (
   <div>
-    <p className="text-xs uppercase tracking-wide text-gray-400">{label}</p>
-    <p className="text-sm font-medium text-gray-900">{value ?? 'Belirtilmemiş'}</p>
+    <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">{label}</p>
+    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{value ?? 'Belirtilmemiş'}</p>
   </div>
 );
 
@@ -74,8 +73,8 @@ export const VfdDeviceDetailPage: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="p-12 flex flex-col items-center justify-center text-gray-500">
-        <Loader2 className="w-8 h-8 animate-spin mb-3" />
+      <div className="p-12 flex flex-col items-center justify-center text-gray-500 dark:text-gray-400">
+        <Spinner size="lg" color="inherit" className="mb-3" />
         <p>VFD cihazı yükleniyor...</p>
       </div>
     );
@@ -113,44 +112,52 @@ export const VfdDeviceDetailPage: React.FC = () => {
       </Link>
 
       {/* Header */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 flex items-center gap-4">
-        <div className="w-12 h-12 rounded-lg bg-cyan-50 flex items-center justify-center">
-          <Zap className="w-6 h-6 text-cyan-600" />
-        </div>
-        <div className="flex-1">
-          <h1 className="text-xl font-bold text-gray-900">{device.name}</h1>
-          <p className="text-sm text-gray-500">
-            {VFD_BRAND_NAMES[device.brand] ?? device.brand}
-            {' · '}
-            {VFD_PROTOCOL_NAMES[device.protocol] ?? device.protocol}
-          </p>
-        </div>
-        <span
-          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
-            connected ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-          }`}
-        >
-          {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-          {connected ? 'Çevrimiçi' : 'Çevrimdışı'}
-        </span>
-        <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700">
-          {device.status}
-        </span>
-        {/*
-          SENSOR-HIGH-062: the VFD programming route existed but nothing in the
-          product linked to it, so the only way in was to type the URL. A drive's
-          own page is where an operator goes to program it.
-        */}
-        <Link
-          to={`/sensor/vfd-programming/${device.id}`}
-          className="inline-flex items-center gap-1.5 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-sm font-medium text-cyan-700 hover:bg-cyan-100"
-        >
-          <Settings className="w-4 h-4" /> Parametreleri Programla
-        </Link>
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+        <PageHeader
+          title={device.name}
+          description={
+            <>
+              {VFD_BRAND_NAMES[device.brand] ?? device.brand}
+              {' · '}
+              {VFD_PROTOCOL_NAMES[device.protocol] ?? device.protocol}
+            </>
+          }
+          leading={
+            <div className="w-12 h-12 rounded-lg bg-cyan-50 flex items-center justify-center">
+              <Zap className="w-6 h-6 text-cyan-600" />
+            </div>
+          }
+          actions={
+            <>
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  connected ? 'bg-green-100 text-green-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+                }`}
+              >
+                {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+                {connected ? 'Çevrimiçi' : 'Çevrimdışı'}
+              </span>
+              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+                {device.status}
+              </span>
+              {/*
+                SENSOR-HIGH-062: the VFD programming route existed but nothing in the
+                product linked to it, so the only way in was to type the URL. A drive's
+                own page is where an operator goes to program it.
+              */}
+              <Link
+                to={`/sensor/vfd-programming/${device.id}`}
+                className="inline-flex items-center gap-1.5 rounded-md border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-sm font-medium text-cyan-700 hover:bg-cyan-100"
+              >
+                <Settings className="w-4 h-4" /> Parametreleri Programla
+              </Link>
+            </>
+          }
+        />
       </div>
 
       {/* Lifecycle — the only place a drive can be made operable */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-3">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 space-y-3">
         <div className="flex items-center gap-3">
           {device.status === VfdDeviceStatus.ACTIVE ? (
             <button
@@ -161,7 +168,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
               className="inline-flex items-center gap-2 rounded-lg bg-gray-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-gray-700 disabled:opacity-50"
             >
               {lifecycleBusy ? (
-                <Spinner className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <PowerOff className="w-4 h-4" />
               )}
@@ -176,7 +183,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
               className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-50"
             >
               {lifecycleBusy ? (
-                <Spinner className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <Power className="w-4 h-4" />
               )}
@@ -185,7 +192,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
           )}
           {/* The server refuses activation without a passed connection test; say so up front. */}
           {device.status !== VfdDeviceStatus.ACTIVE && !connected && (
-            <p className="text-sm text-gray-500" data-testid="vfd-activate-blocked-reason">
+            <p className="text-sm text-gray-500 dark:text-gray-400" data-testid="vfd-activate-blocked-reason">
               Etkinleştirmeden önce bağlantı testi başarılı olmalı.
             </p>
           )}
@@ -201,7 +208,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
       {deviceId && <VfdControlPanel deviceId={deviceId} deviceStatus={device.status} />}
 
       {/* Identity */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 grid grid-cols-2 md:grid-cols-3 gap-4">
         <Field label="Marka" value={VFD_BRAND_NAMES[device.brand] ?? device.brand} />
         <Field label="Model" value={device.model} />
         <Field label="Seri No" value={device.serialNumber} />
@@ -211,7 +218,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
           value={
             device.location ? (
               <span className="inline-flex items-center gap-1">
-                <MapPin className="w-3 h-3 text-gray-400" /> {device.location}
+                <MapPin className="w-3 h-3 text-gray-400 dark:text-gray-500" /> {device.location}
               </span>
             ) : undefined
           }
@@ -220,7 +227,7 @@ export const VfdDeviceDetailPage: React.FC = () => {
           label="Poll Aralığı"
           value={
             <span className="inline-flex items-center gap-1">
-              <Clock className="w-3 h-3 text-gray-400" /> {device.pollIntervalMs} ms
+              <Clock className="w-3 h-3 text-gray-400 dark:text-gray-500" /> {device.pollIntervalMs} ms
               {device.isPollingEnabled ? '' : ' (kapalı)'}
             </span>
           }
@@ -229,19 +236,19 @@ export const VfdDeviceDetailPage: React.FC = () => {
 
       {/* Description */}
       {device.description && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <p className="text-xs uppercase tracking-wide text-gray-400 mb-1">Açıklama / Notlar</p>
-          <p className="text-sm text-gray-900 whitespace-pre-wrap">{device.description}</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+          <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">Açıklama / Notlar</p>
+          <p className="text-sm text-gray-900 dark:text-gray-100 whitespace-pre-wrap">{device.description}</p>
         </div>
       )}
 
       {/* Latest reading */}
       {device.latestReading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <p className="text-sm font-semibold text-gray-900 mb-3 inline-flex items-center gap-2">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+          <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3 inline-flex items-center gap-2">
             <Activity className="w-4 h-4 text-cyan-600" /> Son Okuma
           </p>
-          <pre className="text-xs bg-gray-50 rounded-lg p-3 overflow-x-auto">
+          <pre className="text-xs bg-gray-50 dark:bg-gray-800 rounded-lg p-3 overflow-x-auto">
             {JSON.stringify(device.latestReading.parameters, null, 2)}
           </pre>
         </div>

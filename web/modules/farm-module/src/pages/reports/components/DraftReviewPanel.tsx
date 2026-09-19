@@ -61,10 +61,10 @@ export const DraftReviewPanel: React.FC<DraftReviewPanelProps> = ({ draftId }) =
   );
 
   if (isLoading) {
-    return <p className="text-sm text-gray-500 px-2 py-3">Loading draft…</p>;
+    return <p className="text-sm text-gray-500 dark:text-gray-400 px-2 py-3">Loading draft…</p>;
   }
   if (!draft) {
-    return <p className="text-sm text-gray-500 px-2 py-3">Draft is no longer available.</p>;
+    return <p className="text-sm text-gray-500 dark:text-gray-400 px-2 py-3">Draft is no longer available.</p>;
   }
 
   const setOverride = (pointer: string, value: string): void => {
@@ -84,11 +84,11 @@ export const DraftReviewPanel: React.FC<DraftReviewPanelProps> = ({ draftId }) =
   };
 
   return (
-    <div className="bg-gray-50 rounded-md border border-gray-200 px-3 py-3 mt-2">
-      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">
+    <div className="bg-gray-50 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 px-3 py-3 mt-2">
+      <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">
         Review — {draft.fieldMeta.length} field(s)
       </p>
-      <div className="divide-y divide-gray-100">
+      <div className="divide-y divide-gray-100 dark:divide-gray-700">
         {draft.fieldMeta.map((meta: ReportFieldMeta) => (
           <PrefilledField
             key={meta.path}

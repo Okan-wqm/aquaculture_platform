@@ -78,8 +78,8 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
         <div className="flex items-center gap-3">
           <UserAvatar name={user.name} />
           <div>
-            <p className="text-sm font-medium text-gray-900">{user.name}</p>
-            <p className="text-xs text-gray-500">{user.email}</p>
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{user.name}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{user.email}</p>
           </div>
         </div>
       ),
@@ -87,17 +87,23 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
     {
       key: 'role',
       header: 'Role',
-      render: (_value, user) => <RoleBadge role={user.role} />,
+      render: (_value, user) => (
+        <RoleBadge role={user.role} />
+      ),
     },
     {
       key: 'status',
       header: 'Status',
-      render: (_value, user) => <StatusBadge status={user.status} />,
+      render: (_value, user) => (
+        <StatusBadge status={user.status} />
+      ),
     },
     {
       key: 'lastLogin',
       header: 'Last Login',
-      render: (_value, user) => <span className="text-sm text-gray-500">{user.lastLogin}</span>,
+      render: (_value, user) => (
+        <span className="text-sm text-gray-500 dark:text-gray-400">{user.lastLogin}</span>
+      ),
     },
     {
       key: 'actions',
@@ -110,7 +116,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onEditUser(user)}
               aria-label={`Edit ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
               title="Edit user"
             >
               <Edit className="w-4 h-4" aria-hidden="true" />
@@ -121,7 +127,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onManageSiteAccess(user)}
               aria-label={`Manage site access for ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
               title="Manage site access"
             >
               <MapPin className="w-4 h-4" aria-hidden="true" />
@@ -132,7 +138,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onDeleteUser(user)}
               aria-label={`Delete ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
               title="Delete user"
             >
               <Trash2 className="w-4 h-4" aria-hidden="true" />
@@ -148,7 +154,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onActivateUser(user)}
               aria-label={`Activate ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
               title="Activate user"
             >
               <UserCheck className="w-4 h-4" aria-hidden="true" />
@@ -159,7 +165,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onUnlockUser(user)}
               aria-label={`Unlock ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
               title="Unlock user"
             >
               <LockOpen className="w-4 h-4" aria-hidden="true" />
@@ -170,7 +176,7 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
               type="button"
               onClick={() => onViewPermissions(user)}
               aria-label={`Effective permissions for ${user.name}`}
-              className="p-1.5 rounded-lg text-gray-500 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+              className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
               title="Effective permissions"
             >
               <ShieldCheck className="w-4 h-4" aria-hidden="true" />
@@ -179,15 +185,15 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
           {!canEditUsers &&
           !canDeactivateUsers &&
           !(canManageSiteAccess && user.role === 'MODULE_USER') ? (
-            <span className="text-xs text-gray-500">View only</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">View only</span>
           ) : null}
         </div>
       ),
-    },
+    }
   ];
 
   return (
-    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
       <DataTable<DisplayUser>
         data={users}
         columns={displayUserColumns}
@@ -199,10 +205,10 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
         emptyIcon={<Users className="w-12 h-12" />}
         emptyMessage={
           <>
-            <h3 className="font-medium text-gray-900">
+            <h3 className="font-medium text-gray-900 dark:text-gray-100">
               {totalUsersInPage === 0 ? 'No users yet' : 'No users found'}
             </h3>
-            <p className="mt-1 text-gray-500">
+            <p className="mt-1 text-gray-500 dark:text-gray-400">
               {totalUsersInPage === 0
                 ? 'Add users to your tenant to get started.'
                 : 'Try adjusting your search or filter criteria.'}
@@ -215,20 +221,20 @@ export const UserListSection: React.FC<UserListSectionProps> = ({
       />
 
       {/* Pagination -- FIX (MED-07): next disabled when rawPageCount < pageSize */}
-      <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between">
-        <p className="text-sm text-gray-500">
+      <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Showing {users.length} users (page {pagination.page + 1})
         </p>
         <div className="flex items-center gap-2">
           <button
-            className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
             disabled={pagination.page === 0}
             onClick={() => onPageChange(pagination.page - 1)}
           >
             Previous
           </button>
           <button
-            className="px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-sm text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
             disabled={pagination.rawPageCount < pagination.pageSize}
             onClick={() => onPageChange(pagination.page + 1)}
           >

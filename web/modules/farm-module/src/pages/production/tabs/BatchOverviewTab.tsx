@@ -139,23 +139,23 @@ const BatchOverviewTab: React.FC<BatchOverviewTabProps> = ({ batch }) => {
 
       {/* Description / notes */}
       {(batch.description || batch.notes) && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
           {batch.description && (
             <div>
-              <div className="text-xs font-semibold text-gray-500 uppercase">
+              <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
                 Açıklama
               </div>
-              <p className="mt-1 text-sm text-gray-700">
+              <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">
                 {batch.description}
               </p>
             </div>
           )}
           {batch.notes && (
             <div className="mt-3">
-              <div className="text-xs font-semibold text-gray-500 uppercase">
+              <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
                 Notlar
               </div>
-              <p className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">
+              <p className="mt-1 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
                 {batch.notes}
               </p>
             </div>
@@ -190,11 +190,11 @@ const MetadataCard: React.FC<{ label: string; value: React.ReactNode }> = ({
   label,
   value,
 }) => (
-  <div className="bg-white border border-gray-200 rounded-lg p-3">
-    <div className="text-xs font-semibold text-gray-500 uppercase">
+  <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+    <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
       {label}
     </div>
-    <div className="mt-1 text-base font-medium text-gray-900">{value}</div>
+    <div className="mt-1 text-base font-medium text-gray-900 dark:text-gray-100">{value}</div>
   </div>
 );
 

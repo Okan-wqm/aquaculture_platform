@@ -69,9 +69,9 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-1/3 mb-2" />
-          <div className="h-8 bg-gray-200 rounded w-1/4 mb-4" />
-          <div className="h-32 bg-gray-200 rounded" />
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-2" />
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4" />
+          <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded" />
         </div>
       </Card>
     );
@@ -81,7 +81,7 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
   if (harvestQuery.isError) {
     return (
       <Card className={`p-4 ${className}`}>
-        <div className="text-center py-6 text-gray-500">
+        <div className="text-center py-6 text-gray-500 dark:text-gray-400">
           <TrendUpIcon className="w-8 h-8 mx-auto mb-2 text-red-400" />
           <p className="text-sm font-medium text-red-500">Uretim verileri yuklenemedi</p>
           <button
@@ -100,7 +100,7 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
   if (chartData.length === 0) {
     return (
       <Card className={`p-4 ${className}`}>
-        <div className="text-center py-6 text-gray-500">
+        <div className="text-center py-6 text-gray-500 dark:text-gray-400">
           <TrendUpIcon className="w-8 h-8 mx-auto mb-2" />
           <p className="text-sm font-medium">Uretim Grafigi</p>
           {farmId && <p className="text-xs mt-1">Ciftlik: {farmId.slice(0, 8)}</p>}
@@ -115,9 +115,9 @@ export const ProductionChart: React.FC<ProductionChartProps> = ({
     <Card className={`p-4 ${className}`}>
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold text-gray-900">Uretim Grafigi</h3>
-          <p className="text-2xl font-bold text-gray-900">{totalTons} Ton</p>
-          <p className="text-xs text-gray-500">{totalHarvests} hasat</p>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Uretim Grafigi</h3>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{totalTons} Ton</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{totalHarvests} hasat</p>
         </div>
         <TrendUpIcon className="w-6 h-6 text-primary-600" />
       </div>

@@ -57,11 +57,15 @@ export { Header } from './Layout/Header';
 export type { HeaderProps, HeaderTheme } from './Layout/Header';
 export { Sidebar } from './Layout/Sidebar';
 export type { SidebarProps, SidebarTheme } from './Layout/Sidebar';
+export { PageHeader } from './Layout/PageHeader';
+export type { PageHeaderProps } from './Layout/PageHeader';
 
 // Modal
 export { Modal, ConfirmModal, DeleteConfirmationDialog } from './Modal';
 export type {
   ModalProps,
+  ModalSize,
+  DialogTheme,
   ConfirmModalProps,
   DeleteConfirmationDialogProps,
   DeletePreviewData,
@@ -72,6 +76,14 @@ export type {
 // Drawer
 export { Drawer } from './Drawer';
 export type { DrawerProps, DrawerSide, DrawerSize } from './Drawer';
+
+// Tabs
+export { Tabs, TabPanel, tabId, panelId } from './Tabs';
+export type { TabsProps, TabItem, TabPanelProps } from './Tabs';
+
+// Empty / error surfaces
+export { EmptyState, ErrorState } from './EmptyState';
+export type { EmptyStateProps, EmptyStateAction, ErrorStateProps } from './EmptyState';
 
 // Alert & Badge
 export { Alert, Badge } from './Alert';
@@ -160,5 +172,5 @@ export { SandboxedHtmlPreview } from './SandboxedHtmlPreview';
 export type { SandboxedHtmlPreviewProps } from './SandboxedHtmlPreview';
 
 // Accessibility (a11y) Primitives — FE-HIGH-017, FE-HIGH-018, FE-HIGH-019
-export { VisuallyHidden, FocusTrap, RouteAnnouncer } from './a11y';
-export type { VisuallyHiddenProps, FocusTrapProps, RouteAnnouncerProps } from './a11y';
+export { VisuallyHidden, FocusTrap, RouteAnnouncer, SkipToContent } from './a11y';
+export type { VisuallyHiddenProps, FocusTrapProps, RouteAnnouncerProps, SkipToContentProps } from './a11y';

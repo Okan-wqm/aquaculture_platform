@@ -76,19 +76,7 @@ const BlowerNode: React.FC<NodeProps<Node<BlowerNodeData>>> = ({ id, data, selec
       {/* Rotation button */}
       <button
         onClick={rotateNode}
-        style={{
-          position: 'absolute',
-          top: 2,
-          right: 2,
-          zIndex: 10,
-          fontSize: 12,
-          cursor: 'pointer',
-          background: '#eee',
-          border: '1px solid #ccc',
-          borderRadius: 4,
-          padding: '2px 6px',
-          pointerEvents: 'all',
-        }}
+        className="absolute top-[2px] right-[2px] z-10 text-xs cursor-pointer bg-gray-200 border border-gray-300 rounded px-1.5 py-0.5 [pointer-events:all]"
       >
         ↻
       </button>

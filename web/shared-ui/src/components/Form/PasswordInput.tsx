@@ -123,7 +123,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
         className={`flex items-center justify-center min-w-[1.5rem] min-h-[1.5rem] transition-colors ${
           isGlass
             ? 'text-[var(--surface-field-fg)] hover:text-[var(--surface-field-focus-border)]'
-            : 'text-gray-500 hover:text-gray-700'
+            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
         }`}
       >
         {visible ? <EyeOffIcon /> : <EyeIcon />}
@@ -151,7 +151,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(
             id={capsId}
             role="status"
             aria-live="polite"
-            className={`mt-1 text-sm ${isGlass ? 'text-[var(--surface-muted-fg)]' : 'text-amber-700'}`}
+            className={`mt-1 text-sm ${isGlass ? 'text-[var(--surface-muted-fg)]' : 'text-warning-700'}`}
           >
             {capsLockLabel}
           </p>

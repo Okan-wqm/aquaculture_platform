@@ -67,12 +67,12 @@ const RemoteModuleLoader: React.FC<RemoteModuleLoaderProps> = ({
 
         <div className="flex items-center justify-center space-x-3">
           <Spinner size="sm" color="primary" />
-          <span className="text-gray-600 font-medium">
+          <span className="text-gray-600 dark:text-gray-400 font-medium">
             {message || `Loading ${moduleName}...`}
           </span>
         </div>
 
-        <p className="mt-4 text-sm text-gray-400">
+        <p className="mt-4 text-sm text-gray-400 dark:text-gray-500">
           This may take a moment on first load
         </p>
       </div>

@@ -35,7 +35,7 @@ import {
 import { useTanksList } from '../../../hooks/useTanks';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useParameterConfigList, type ParameterConfig } from '../../../hooks/useParameterConfigs';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -280,21 +280,61 @@ export const HistoryTab: React.FC = () => {
   // Statistics data
   const stats = statisticsQuery.data;
 
+  // The parameter columns come from the visible configs; the rest are fixed.
+  type MeasurementRow = NonNullable<NonNullable<typeof listQuery.data>['items']>[number];
+  const historyColumns: DataTableColumn<MeasurementRow>[] = [
+    {
+      key: 'measuredAt',
+      header: 'Date',
+      render: (_value, m) => <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">{formatDate(m.measuredAt)}</span>,
+    },
+    {
+      key: 'tankId',
+      header: 'Tank',
+      render: (_value, m) => (
+        <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">{m.tankId ? tankMap[m.tankId] || m.tankId.slice(0, 8) : '-'}</span>
+      ),
+    },
+    ...visibleConfigs.map((config: ParameterConfig): DataTableColumn<MeasurementRow> => ({
+      key: config.code,
+      header: `${config.name} ${config.unit ? `(${config.unit})` : ''}`.trim(),
+      align: 'right',
+      render: (_value, m) => {
+        const val = resolveParameterValue(m, config.code);
+        return <span className="whitespace-nowrap text-gray-900 dark:text-gray-100">{val != null ? Number(val).toFixed(config.precision) : '-'}</span>;
+      },
+    })),
+    {
+      key: 'overallStatus',
+      header: 'Status',
+      render: (_value, m) => (
+        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}>
+          {getStatusLabel(m.overallStatus)}
+        </span>
+      ),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, m) => <span className="whitespace-nowrap text-gray-500 dark:text-gray-400">{getSourceLabel(m.source)}</span>,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Filter Bar */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
         <div className="flex flex-wrap items-center gap-4">
           {/* View Mode Toggle */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">View</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">View</label>
             <div className="flex rounded-md shadow-sm">
               <button
                 onClick={() => { setViewMode('tank'); setSelectedSystemId(''); }}
                 className={`px-3 py-2 text-sm font-medium rounded-l-md border ${
                   viewMode === 'tank'
                     ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 Tank
@@ -304,7 +344,7 @@ export const HistoryTab: React.FC = () => {
                 className={`px-3 py-2 text-sm font-medium rounded-r-md border-t border-b border-r ${
                   viewMode === 'system'
                     ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 System
@@ -314,14 +354,14 @@ export const HistoryTab: React.FC = () => {
 
           {/* Tank / System Select */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {viewMode === 'tank' ? 'Tank' : 'System'}
             </label>
             {viewMode === 'tank' ? (
               <select
                 value={selectedTankId}
                 onChange={handleTankChange}
-                className="block w-full min-w-[200px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full min-w-[200px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="">All Tanks</option>
                 {tanks.map((t) => (
@@ -332,7 +372,7 @@ export const HistoryTab: React.FC = () => {
               <select
                 value={selectedSystemId}
                 onChange={(e) => { setSelectedSystemId(e.target.value); setPage(1); }}
-                className="block w-full min-w-[200px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full min-w-[200px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="">Select System...</option>
                 {systems.map((s: { id: string; name: string; code?: string; type?: string }) => (
@@ -344,7 +384,7 @@ export const HistoryTab: React.FC = () => {
 
           {/* Time Range Buttons */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Time Range</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Time Range</label>
             <div className="flex items-center space-x-1">
               {TIME_RANGE_OPTIONS.map((opt) => (
                 <button
@@ -353,7 +393,7 @@ export const HistoryTab: React.FC = () => {
                   className={`px-3 py-1.5 text-sm font-medium rounded-md border ${
                     !customRange && days === opt.days
                       ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                      : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   {opt.label}
@@ -364,7 +404,7 @@ export const HistoryTab: React.FC = () => {
                 className={`px-3 py-1.5 text-sm font-medium rounded-md border ${
                   customRange
                     ? 'bg-blue-600 text-white border-blue-600'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 Custom
@@ -376,21 +416,21 @@ export const HistoryTab: React.FC = () => {
           {customRange && (
             <div className="flex items-center space-x-2">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">From</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">From</label>
                 <input
                   type="date"
                   value={customFrom}
                   onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }}
-                  className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">To</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">To</label>
                 <input
                   type="date"
                   value={customTo}
                   onChange={(e) => { setCustomTo(e.target.value); setPage(1); }}
-                  className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
               </div>
             </div>
@@ -398,11 +438,11 @@ export const HistoryTab: React.FC = () => {
 
           {/* Status Filter */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
             <select
               value={statusFilter}
               onChange={handleStatusChange}
-              className="block w-full min-w-[140px] rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full min-w-[140px] rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               {STATUS_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -419,11 +459,11 @@ export const HistoryTab: React.FC = () => {
             const statField = STAT_FIELD_MAP[config.code];
             const statValue = statField && stats ? stats[statField] : null;
             return (
-              <div key={config.code} className="bg-white rounded-lg shadow p-4">
-                <p className="text-sm font-medium text-gray-500">
+              <div key={config.code} className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
                   Avg {config.name}
                 </p>
-                <p className="text-2xl font-semibold text-gray-900">
+                <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                   {statValue != null
                     ? `${statValue.toFixed(config.precision)} ${config.unit}`
                     : '-'}
@@ -431,9 +471,9 @@ export const HistoryTab: React.FC = () => {
               </div>
             );
           })}
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm font-medium text-gray-500">Measurements</p>
-            <p className="text-2xl font-semibold text-gray-900">
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Measurements</p>
+            <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
               {stats?.measurementCount ?? 0}
             </p>
             <div className="flex items-center space-x-2 mt-1">
@@ -454,14 +494,14 @@ export const HistoryTab: React.FC = () => {
 
       {/* Trend Chart */}
       {activeId && (
-        <div className="bg-white rounded-lg shadow p-4">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Water Quality Trends</h3>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Water Quality Trends</h3>
           {chartQuery.isLoading ? (
             <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+              <Spinner size="xl" />
             </div>
           ) : chartData.length === 0 ? (
-            <div className="flex items-center justify-center h-64 text-gray-500">
+            <div className="flex items-center justify-center h-64 text-gray-500 dark:text-gray-400">
               No chart data available for the selected period.
             </div>
           ) : (
@@ -502,10 +542,10 @@ export const HistoryTab: React.FC = () => {
       )}
 
       {/* Data Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
         {listQuery.isLoading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <Spinner size="xl" />
           </div>
         ) : listQuery.error ? (
           <div className="bg-red-50 border border-red-200 rounded-lg p-4 m-4">
@@ -515,77 +555,34 @@ export const HistoryTab: React.FC = () => {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tank</th>
-                    {visibleConfigs.map((config: ParameterConfig) => (
-                      <th key={config.code} className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                        {config.name} {config.unit ? `(${config.unit})` : ''}
-                      </th>
-                    ))}
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Source</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {listQuery.data?.items?.length === 0 && (
-                    <tr>
-                      <td colSpan={visibleConfigs.length + 4} className="px-4 py-12 text-center text-gray-500">
-                        No water quality measurements found for the selected filters.
-                      </td>
-                    </tr>
-                  )}
-                  {listQuery.data?.items?.map((m) => (
-                    <tr key={m.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                        {formatDate(m.measuredAt)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                        {m.tankId ? (tankMap[m.tankId] || m.tankId.slice(0, 8)) : '-'}
-                      </td>
-                      {visibleConfigs.map((config: ParameterConfig) => {
-                        const val = resolveParameterValue(m, config.code);
-                        return (
-                          <td key={config.code} className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                            {val != null ? Number(val).toFixed(config.precision) : '-'}
-                          </td>
-                        );
-                      })}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(m.overallStatus)}`}>
-                          {getStatusLabel(m.overallStatus)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                        {getSourceLabel(m.source)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<MeasurementRow>
+              data={listQuery.data?.items ?? []}
+              columns={historyColumns}
+              keyExtractor={(m) => m.id}
+              emptyMessage="No water quality measurements found for the selected filters."
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
 
             {/* Pagination */}
             {totalItems > PAGE_SIZE && (
-              <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
-                <div className="text-sm text-gray-700">
+              <div className="bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
+                <div className="text-sm text-gray-700 dark:text-gray-300">
                   Showing {currentPageStart} to {currentPageEnd} of {totalItems} records
                 </div>
                 <div className="flex space-x-2">
                   <button
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     Previous
                   </button>
                   <button
                     onClick={() => setPage((p) => p + 1)}
                     disabled={!hasNextPage}
-                    className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                    className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     Next
                   </button>

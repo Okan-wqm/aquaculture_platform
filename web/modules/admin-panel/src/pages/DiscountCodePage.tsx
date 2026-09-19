@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, DataTable, Input, Modal, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Modal, useConfirm, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   DiscountCode,
@@ -208,7 +208,7 @@ const DiscountCodePage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -219,8 +219,8 @@ const DiscountCodePage: React.FC = () => {
       header: 'Code',
       render: (_value, code) => (
         <>
-          <div className="font-mono font-medium text-gray-900">{code.code}</div>
-          <div className="text-sm text-gray-500">{code.name}</div>
+          <div className="font-mono font-medium text-gray-900 dark:text-gray-100">{code.code}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{code.name}</div>
         </>
       ),
     },
@@ -232,7 +232,7 @@ const DiscountCodePage: React.FC = () => {
           <div className="text-lg font-bold text-green-600">
             {formatDiscountValue(code)}
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {getDiscountTypeLabel(code.discountType)}
           </div>
         </>
@@ -267,7 +267,7 @@ const DiscountCodePage: React.FC = () => {
             {code.maxRedemptions ? ` / ${code.maxRedemptions}` : ' / -'}
           </div>
           {code.maxRedemptions && (
-            <div className="w-24 h-1.5 bg-gray-200 rounded-full mt-1">
+            <div className="w-24 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1">
               <div
                 className="h-full bg-blue-600 rounded-full"
                 style={{
@@ -323,49 +323,47 @@ const DiscountCodePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Discount Codes</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage promotional codes and discounts
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0">
-          <Button onClick={() => setShowCreateModal(true)}>
-            Create Discount Code
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Discount Codes"
+        description="Manage promotional codes and discounts"
+        actions={
+          <div className="mt-4 sm:mt-0">
+            <Button onClick={() => setShowCreateModal(true)}>
+              Create Discount Code
+            </Button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Total Codes</div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Codes</div>
+            <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {stats.totalCodes}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Active: {stats.activeCodes}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Total Redemptions</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Redemptions</div>
             <div className="mt-1 text-2xl font-bold text-blue-600">
               {stats.totalRedemptions}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Total Discount Given</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Discount Given</div>
             <div className="mt-1 text-2xl font-bold text-green-600">
               ${Number(stats.totalDiscountAmount).toLocaleString()}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Expired Codes</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Expired Codes</div>
             <div className="mt-1 text-2xl font-bold text-orange-600">
               {stats.expiredCodes}
             </div>
@@ -379,13 +377,13 @@ const DiscountCodePage: React.FC = () => {
           <h3 className="text-lg font-semibold mb-4">Top Performing Codes</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {stats.topCodes.map((top, idx) => (
-              <div key={top.code} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+              <div key={top.code} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
                   {idx + 1}
                 </div>
                 <div>
                   <div className="font-mono text-sm font-medium">{top.code}</div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     {top.redemptions} uses | ${Number(top.totalDiscount).toFixed(0)}
                   </div>
                 </div>
@@ -403,7 +401,7 @@ const DiscountCodePage: React.FC = () => {
               type="checkbox"
               checked={showActive}
               onChange={(e) => setShowActive(e.target.checked)}
-              className="rounded border-gray-300"
+              className="rounded border-gray-300 dark:border-gray-600"
             />
             <span className="text-sm">Active Only</span>
           </label>
@@ -412,7 +410,7 @@ const DiscountCodePage: React.FC = () => {
               type="checkbox"
               checked={showExpired}
               onChange={(e) => setShowExpired(e.target.checked)}
-              className="rounded border-gray-300"
+              className="rounded border-gray-300 dark:border-gray-600"
             />
             <span className="text-sm">Include Expired</span>
           </label>
@@ -465,7 +463,7 @@ const DiscountCodePage: React.FC = () => {
           <div className="space-y-4">
             {/* Code */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Code *
               </label>
               <div className="flex gap-2">
@@ -483,7 +481,7 @@ const DiscountCodePage: React.FC = () => {
 
             {/* Name */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Name *
               </label>
               <Input
@@ -495,7 +493,7 @@ const DiscountCodePage: React.FC = () => {
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Description
               </label>
               <Input
@@ -508,11 +506,11 @@ const DiscountCodePage: React.FC = () => {
             {/* Discount Type & Value */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Discount Type
                 </label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
                   value={newCode.discountType}
                   onChange={(e) =>
                     setNewCode({ ...newCode, discountType: e.target.value as DiscountType })
@@ -526,7 +524,7 @@ const DiscountCodePage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   {VALUE_FIELD_LABEL[newCode.discountType ?? DiscountType.PERCENTAGE]}
                 </label>
                 {/* Kept as text: an exact decimal string is what the contract
@@ -546,11 +544,11 @@ const DiscountCodePage: React.FC = () => {
             {/* Applies To & Duration */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Applies To
                 </label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
                   value={newCode.appliesTo}
                   onChange={(e) =>
                     setNewCode({ ...newCode, appliesTo: e.target.value as DiscountAppliesTo })
@@ -564,11 +562,11 @@ const DiscountCodePage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Duration
                 </label>
                 <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
                   value={newCode.duration}
                   onChange={(e) =>
                     setNewCode({ ...newCode, duration: e.target.value as DiscountDuration })
@@ -586,7 +584,7 @@ const DiscountCodePage: React.FC = () => {
             {/* Validity Period */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Valid From
                 </label>
                 <Input
@@ -596,7 +594,7 @@ const DiscountCodePage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Valid Until
                 </label>
                 <Input
@@ -610,7 +608,7 @@ const DiscountCodePage: React.FC = () => {
             {/* Max Redemptions */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Max Total Uses
                 </label>
                 <Input
@@ -627,7 +625,7 @@ const DiscountCodePage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Max Per Tenant
                 </label>
                 <Input
@@ -648,7 +646,7 @@ const DiscountCodePage: React.FC = () => {
             {/* Campaign Info */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Campaign ID
                 </label>
                 <Input
@@ -658,7 +656,7 @@ const DiscountCodePage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Campaign Name
                 </label>
                 <Input

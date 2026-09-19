@@ -75,22 +75,22 @@ export const EscapeAssembledReview: React.FC<{
   ];
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
-      <h3 className="text-sm font-medium text-gray-900 mb-1">Assembled from the recorded incident</h3>
-      <p className="text-xs text-gray-500 mb-3">
+    <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">Assembled from the recorded incident</h3>
+      <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
         These escape facts come from the escape_incident record — read-only here; corrections go to
         Fish Health.
       </p>
-      <dl className="divide-y divide-gray-100">
+      <dl className="divide-y divide-gray-100 dark:divide-gray-700">
         {rows.map((row) => {
           const m = meta(row.path);
           return (
             <div key={row.path} className="py-2 flex items-center justify-between gap-2">
-              <dt className="flex items-center gap-2 text-sm text-gray-700">
+              <dt className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 <span>{row.label}</span>
                 {m && <ProvenanceBadge meta={m} />}
               </dt>
-              <dd className="text-sm font-medium text-gray-900 text-right">{row.value}</dd>
+              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">{row.value}</dd>
             </div>
           );
         })}
@@ -212,8 +212,8 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-medium text-gray-900">Escape Reports</h2>
-          <p className="mt-1 text-sm text-gray-500">
+          <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Escape Reports</h2>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Immediate reporting required for fish escapes to {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
           </p>
         </div>

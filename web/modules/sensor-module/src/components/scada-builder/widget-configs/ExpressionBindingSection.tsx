@@ -89,12 +89,12 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
   );
 
   return (
-    <div className="border-t border-gray-100 pt-2">
+    <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
       {/* Collapsible header */}
       <button
         type="button"
         onClick={() => setExpanded((prev) => !prev)}
-        className="w-full flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-gray-800 transition-colors"
+        className="w-full flex items-center gap-2 text-xs font-medium text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
         data-testid="expression-section-toggle"
       >
         <ChevronDown
@@ -122,16 +122,16 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
                 className="sr-only peer"
                 data-testid="expression-enable-toggle"
               />
-              <div className="w-8 h-4 bg-gray-200 peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500" />
+              <div className="w-8 h-4 bg-gray-200 dark:bg-gray-700 peer-focus:ring-2 peer-focus:ring-cyan-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-cyan-500" />
             </label>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               {enabled ? 'Expression overrides tag value' : 'Direct tag binding'}
             </span>
           </div>
 
           {/* Help text */}
-          <p className="text-[10px] text-gray-400 leading-relaxed">
-            Override tag value with a computed expression. Use <code className="font-mono text-gray-500">${'{tagName}'}</code> for tag references.
+          <p className="text-[10px] text-gray-400 dark:text-gray-500 leading-relaxed">
+            Override tag value with a computed expression. Use <code className="font-mono text-gray-500 dark:text-gray-400">${'{tagName}'}</code> for tag references.
           </p>
 
           {/* Expression editor (only when enabled) */}
@@ -146,13 +146,13 @@ export const ExpressionBindingSection: React.FC<ExpressionBindingSectionProps> =
 
               {/* Quick example chips */}
               <div className="flex flex-wrap gap-1">
-                <span className="text-[10px] text-gray-400 mr-1 leading-5">Examples:</span>
+                <span className="text-[10px] text-gray-400 dark:text-gray-500 mr-1 leading-5">Examples:</span>
                 {QUICK_EXAMPLES.map((ex) => (
                   <button
                     key={ex.label}
                     type="button"
                     onClick={() => handleQuickExample(ex)}
-                    className="px-2 py-0.5 text-[10px] font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded hover:bg-cyan-50 hover:border-cyan-300 hover:text-cyan-700 transition-colors"
+                    className="px-2 py-0.5 text-[10px] font-mono text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded hover:bg-cyan-50 hover:border-cyan-300 hover:text-cyan-700 transition-colors"
                     title={ex.expression}
                     data-testid={`quick-example-${ex.label.toLowerCase()}`}
                   >

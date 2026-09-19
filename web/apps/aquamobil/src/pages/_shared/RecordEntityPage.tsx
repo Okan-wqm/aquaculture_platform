@@ -14,7 +14,7 @@
  */
 import { clsx } from 'clsx';
 import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, AlertCircle, Minus, Plus, type LucideIcon } from 'lucide-react';
+import { AlertCircle, Minus, Plus, type LucideIcon } from 'lucide-react';
 import type { JSX } from 'react';
 import {
   type ChangeEvent,
@@ -28,6 +28,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 import { AlreadyRecordedNotice } from '@/components/AlreadyRecordedNotice';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader, type PageHeaderTone } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type { OperationType, QueuedPayload } from '@/types';
@@ -44,7 +46,8 @@ import type { OperationType, QueuedPayload } from '@/types';
  */
 export interface RecordEntityTheme {
   /** Gradient class applied to entry + confirm page header bar. */
-  headerGradient: string;
+  /** The PageHeader band tone for this record type */
+  headerTone: PageHeaderTone;
   /** Icon tint for the tank/batch info card + stepper arrows + reason-grid selection. */
   accentText: string;
   /** Summary-card heading row bg + border (confirm screen). */
@@ -263,20 +266,7 @@ export function RecordEntityPage<
   if (step === 'confirm') {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className={clsx('text-white', theme.headerGradient)}>
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button
-              onClick={() => setStep('entry')}
-              className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-            >
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <Icon size={22} />
-              <h1 className="text-lg font-bold">{confirmTitle}</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader tone={theme.headerTone} icon={Icon} title={confirmTitle} back={() => setStep('entry')} />
 
         <div className="px-4 mt-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -303,7 +293,7 @@ export function RecordEntityPage<
           >
             {isSubmitting ? (
               <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
                 {submittingLabel}
               </>
             ) : (
@@ -329,20 +319,7 @@ export function RecordEntityPage<
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className={clsx('text-white', theme.headerGradient)}>
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <Icon size={22} />
-            <h1 className="text-lg font-bold">{entryTitle}</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader tone={theme.headerTone} icon={Icon} title={entryTitle} />
 
       {/* Tank/Batch info card */}
       {selectedTank && metrics && (
@@ -358,7 +335,7 @@ export function RecordEntityPage<
             </div>
             <div className="flex-1">
               <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
               </p>
             </div>
@@ -481,7 +458,7 @@ export function QuantityStepper(props: {
   const clamp = (n: number): number => Math.floor(Math.max(1, Math.min(n, max)));
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
         <div className="flex items-center justify-center gap-5">
           <button
@@ -512,7 +489,7 @@ export function QuantityStepper(props: {
             <Plus size={22} className={theme.accentText} />
           </button>
         </div>
-        <p className="text-center text-xs text-gray-400 mt-3 font-medium">
+        <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-3 font-medium">
           Max: {max.toLocaleString()} fish in tank
         </p>
         {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
@@ -534,7 +511,7 @@ export function ReasonGrid<TValue extends string>(props: {
   const { label, value, onChange, options, theme } = props;
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
       <div className="grid grid-cols-4 gap-2">
         {options.map((r) => {
           const selected = value === r.value;
@@ -636,7 +613,7 @@ export function SummaryRow(props: {
   const { label, value, valueClass = 'font-semibold text-gray-900 dark:text-white' } = props;
   return (
     <div className="flex justify-between items-center">
-      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
       <span className={valueClass}>{value}</span>
     </div>
   );
@@ -649,7 +626,7 @@ export function SummaryDivider(): JSX.Element {
 export function SummaryNotesBlock({ notes }: { notes: string }): JSX.Element {
   return (
     <div>
-      <span className="text-sm text-gray-500">Notes</span>
+      <span className="text-sm text-gray-500 dark:text-gray-400">Notes</span>
       <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{notes}</p>
     </div>
   );

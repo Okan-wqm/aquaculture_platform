@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input, Alert, Modal } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Alert, Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   ModulePricingWithModule,
@@ -322,7 +322,7 @@ const ModulePricingPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -330,19 +330,17 @@ const ModulePricingPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Module Pricing</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Configure per-module pricing with metric-based billing
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex gap-2">
-          <Button variant="outline" onClick={loadPricings}>
-            Refresh
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Module Pricing"
+        description="Configure per-module pricing with metric-based billing"
+        actions={
+          <div className="mt-4 sm:mt-0 flex gap-2">
+            <Button variant="outline" onClick={loadPricings}>
+              Refresh
+            </Button>
+          </div>
+        }
+      />
 
       {/* Success/Error Messages */}
       {success && (
@@ -389,8 +387,8 @@ const ModulePricingPage: React.FC = () => {
               <div className="flex items-center gap-3">
                 <div className="text-3xl">{getModuleIcon(pricing.moduleIcon)}</div>
                 <div>
-                  <h3 className="font-semibold text-gray-900">{pricing.moduleName || pricing.moduleCode}</h3>
-                  <p className="text-xs text-gray-500">{pricing.moduleCode}</p>
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100">{pricing.moduleName || pricing.moduleCode}</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{pricing.moduleCode}</p>
                 </div>
               </div>
               {pricing.isActive ? (
@@ -401,27 +399,27 @@ const ModulePricingPage: React.FC = () => {
             </div>
 
             {/* Base Price */}
-            <div className="mb-4 p-3 bg-gray-50 rounded-lg">
-              <div className="text-xs text-gray-500 mb-1">Base Price</div>
-              <div className="text-2xl font-bold text-gray-900">
+            <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">Base Price</div>
+              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {formatCurrency(calculateBaseMonthlyPrice(pricing))}
-                <span className="text-sm font-normal text-gray-500">/mo</span>
+                <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/mo</span>
               </div>
             </div>
 
             {/* Metrics Summary */}
             <div className="space-y-2 mb-4">
-              <div className="text-xs font-medium text-gray-500 uppercase">Usage Metrics</div>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Usage Metrics</div>
               {(pricing.metrics ?? [])
                 .filter((m) => !isBasePrice(m.metricType))
                 .slice(0, 4)
                 .map((metric) => (
                   <div key={metric.metricType} className="flex justify-between text-sm">
-                    <span className="text-gray-600">{getMetricLabel(metric.metricType)}</span>
+                    <span className="text-gray-600 dark:text-gray-400">{getMetricLabel(metric.metricType)}</span>
                     <span className="font-medium">
                       {formatCurrency(Number(metric.price))}
                       {metric.includedQuantity ? (
-                        <span className="text-gray-500 text-xs ml-1">
+                        <span className="text-gray-500 dark:text-gray-400 text-xs ml-1">
                           ({metric.includedQuantity} free)
                         </span>
                       ) : null}
@@ -429,7 +427,7 @@ const ModulePricingPage: React.FC = () => {
                   </div>
                 ))}
               {(pricing.metrics ?? []).filter((m) => !isBasePrice(m.metricType)).length > 4 && (
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-gray-500 dark:text-gray-400">
                   +{(pricing.metrics ?? []).filter((m) => !isBasePrice(m.metricType)).length - 4} more metrics
                 </div>
               )}
@@ -437,7 +435,7 @@ const ModulePricingPage: React.FC = () => {
 
             {/* Tier Discounts */}
             <div className="mb-4">
-              <div className="text-xs font-medium text-gray-500 uppercase mb-2">Tier Discounts</div>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-2">Tier Discounts</div>
               <div className="flex flex-wrap gap-2">
                 {Object.entries(toTierMultiplierForm(pricing.tierMultipliers ?? [])).map(([tier, multiplier]) => {
                   const discount = getTierDiscount(tier as PlanTier, toTierMultiplierForm(pricing.tierMultipliers ?? []));
@@ -480,7 +478,7 @@ const ModulePricingPage: React.FC = () => {
       </div>
 
       {filteredPricings.length === 0 && !loading && (
-        <div className="text-center py-12 text-gray-500">
+        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
           No module pricing found. {searchTerm ? 'Try adjusting your search.' : 'Module pricing data needs to be configured.'}
         </div>
       )}
@@ -521,20 +519,20 @@ const ModulePricingPage: React.FC = () => {
                   className={`p-4 rounded-lg ${
                     isBasePrice(metric.metricType)
                       ? 'bg-indigo-50 border border-indigo-200'
-                      : 'bg-gray-50'
+                      : 'bg-gray-50 dark:bg-gray-800'
                   }`}
                 >
                   <div className="flex justify-between items-start">
                     <div>
                       <div className="font-medium">{getMetricLabel(metric.metricType)}</div>
                       {metric.description && (
-                        <div className="text-sm text-gray-500">{metric.description}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">{metric.description}</div>
                       )}
                     </div>
                     <div className="text-right">
                       <div className="font-bold text-lg">{formatCurrency(Number(metric.price))}</div>
                       {!isBasePrice(metric.metricType) && (
-                        <div className="text-xs text-gray-500">per unit/mo</div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">per unit/mo</div>
                       )}
                     </div>
                   </div>
@@ -553,8 +551,8 @@ const ModulePricingPage: React.FC = () => {
             <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
             <div className="grid grid-cols-5 gap-2">
               {Object.entries(toTierMultiplierForm(selectedPricing.tierMultipliers ?? [])).map(([tier, multiplier]) => (
-                <div key={tier} className="p-3 bg-gray-50 rounded-lg text-center">
-                  <div className="text-xs text-gray-500 uppercase mb-1">{tier}</div>
+                <div key={tier} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-center">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">{tier}</div>
                   <div className="font-bold">{`${Number(multiplier ?? '1') * 100}%`}</div>
                   {Number(multiplier ?? '1') < 1 && (
                     <div className="text-xs text-green-600">
@@ -567,7 +565,7 @@ const ModulePricingPage: React.FC = () => {
           </div>
 
           {/* Metadata */}
-          <div className="border-t pt-4 text-sm text-gray-500 space-y-2">
+          <div className="border-t pt-4 text-sm text-gray-500 dark:text-gray-400 space-y-2">
             <div className="flex justify-between">
               <span>Pricing ID:</span>
               <span className="font-mono text-xs">{selectedPricing.id}</span>
@@ -621,7 +619,7 @@ const ModulePricingPage: React.FC = () => {
                   className={`p-4 rounded-lg border ${
                     isBasePrice(metric.metricType)
                       ? 'bg-indigo-50 border-indigo-200'
-                      : 'bg-gray-50 border-gray-200'
+                      : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                   }`}
                 >
                   <div className="flex justify-between items-center mb-3">
@@ -639,7 +637,7 @@ const ModulePricingPage: React.FC = () => {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm text-gray-600 mb-1">Price (USD)</label>
+                      <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Price (USD)</label>
                       <Input
                         type="number"
                         step="0.01"
@@ -650,7 +648,7 @@ const ModulePricingPage: React.FC = () => {
                     </div>
                     {!isBasePrice(metric.metricType) && (
                       <div>
-                        <label className="block text-sm text-gray-600 mb-1">Included Free</label>
+                        <label className="block text-sm text-gray-600 dark:text-gray-400 mb-1">Included Free</label>
                         <Input
                           type="number"
                           min="0"
@@ -667,7 +665,7 @@ const ModulePricingPage: React.FC = () => {
             {/* Add New Metric */}
             {getAvailableMetrics().length > 0 && (
               <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Add Metric</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Add Metric</label>
                 <div className="flex flex-wrap gap-2">
                   {getAvailableMetrics().map((type) => (
                     <Button
@@ -687,13 +685,13 @@ const ModulePricingPage: React.FC = () => {
           {/* Tier Multipliers */}
           <div className="mb-6">
             <h3 className="text-lg font-semibold mb-3">Tier Multipliers</h3>
-            <p className="text-sm text-gray-500 mb-3">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
               Set the price multiplier for each tier. 1.0 = full price, 0.9 = 10% discount, 0 = free
             </p>
             <div className="grid grid-cols-5 gap-3">
               {Object.entries(editForm.tierMultipliers).map(([tier, multiplier]) => (
                 <div key={tier}>
-                  <label className="block text-xs text-gray-500 uppercase mb-1">{tier}</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 uppercase mb-1">{tier}</label>
                   <Input
                     type="number"
                     step="0.1"
@@ -709,9 +707,9 @@ const ModulePricingPage: React.FC = () => {
 
           {/* Notes */}
           <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Notes</label>
             <textarea
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               rows={3}
               value={editForm.notes}
               onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })}

@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Card, Button, Alert, Badge } from '@aquaculture/shared-ui';
+import { Card, Button, Alert, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { getAccessToken } from '@aquaculture/shared-ui';
 
 // ============================================================================
@@ -223,7 +223,7 @@ const LineNumbers: React.FC<LineNumbersProps> = React.memo(({ lineCount, height 
 
   return (
     <div
-      className="absolute left-0 top-0 w-10 bg-gray-800 text-gray-500 text-right pr-2 pt-3 select-none overflow-hidden border-r border-gray-700"
+      className="absolute left-0 top-0 w-10 bg-gray-800 text-gray-500 dark:text-gray-400 text-right pr-2 pt-3 select-none overflow-hidden border-r border-gray-700"
       style={{ height: height, fontFamily: 'monospace', fontSize: '14px', lineHeight: '1.5' }}
     >
       {lines.map((num) => (
@@ -342,17 +342,17 @@ const QueryHistoryDropdown: React.FC<QueryHistoryDropdownProps> = ({
       </Button>
 
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-96 max-h-64 overflow-y-auto bg-white rounded-lg shadow-lg border border-gray-200">
+        <div className="absolute z-50 mt-1 w-96 max-h-64 overflow-y-auto bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
           {history.map((item, index) => (
             <button
               key={item.timestamp}
-              className="w-full text-left px-3 py-2 hover:bg-gray-100 border-b border-gray-100 last:border-b-0"
+              className="w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-100 dark:border-gray-700 last:border-b-0"
               onClick={() => {
                 onSelect(item.query);
                 onToggle();
               }}
             >
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
                 <span>
                   {new Date(item.timestamp).toLocaleString(undefined, {
                     month: 'short',
@@ -363,7 +363,7 @@ const QueryHistoryDropdown: React.FC<QueryHistoryDropdownProps> = ({
                 </span>
                 <Badge variant="default">{item.schema}</Badge>
               </div>
-              <code className="text-xs text-gray-700 font-mono block truncate">
+              <code className="text-xs text-gray-700 dark:text-gray-300 font-mono block truncate">
                 {item.query.length > 80 ? `${item.query.slice(0, 80)}...` : item.query}
               </code>
             </button>
@@ -391,12 +391,31 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   onCopyToClipboard,
   copySuccess,
 }) => {
+  const resultColumns: DataTableColumn<Record<string, unknown>>[] = result.columns.map((column) => ({
+    key: column,
+    header: column,
+    render: (value) => (
+      <span className="block max-w-xs truncate" title={formatValue(value)}>
+        {value === null ? (
+          <span className="text-gray-500 dark:text-gray-400 italic">NULL</span>
+        ) : typeof value === 'object' ? (
+          <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+            {formatValue(value).substring(0, 50)}
+            {formatValue(value).length > 50 ? '...' : ''}
+          </code>
+        ) : (
+          formatValue(value)
+        )}
+      </span>
+    ),
+  }));
+
   return (
     <Card className="mt-4 overflow-hidden">
       {/* Results Header */}
-      <div className="px-4 py-3 bg-gray-50 border-b flex items-center justify-between">
+      <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-700">
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Results: <span className="text-blue-600">{result.rowCount.toLocaleString()}</span> rows
           </span>
           <Badge variant="info">{formatExecutionTime(result.executionTimeMs)}</Badge>
@@ -439,52 +458,17 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
       </div>
 
       {/* Results Table */}
-      <div className="overflow-x-auto max-h-96">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50 sticky top-0">
-            <tr>
-              {result.columns.map((column) => (
-                <th
-                  key={column}
-                  className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50"
-                >
-                  {column}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {result.rows.map((row, rowIndex) => (
-              <tr key={rowIndex} className="hover:bg-gray-50">
-                {result.columns.map((column) => (
-                  <td
-                    key={column}
-                    className="px-4 py-2 text-sm text-gray-900 max-w-xs truncate"
-                    title={formatValue(row[column])}
-                  >
-                    {row[column] === null ? (
-                      <span className="text-gray-500 italic">NULL</span>
-                    ) : typeof row[column] === 'object' ? (
-                      <code className="text-xs bg-gray-100 px-1 py-0.5 rounded">
-                        {formatValue(row[column]).substring(0, 50)}
-                        {formatValue(row[column]).length > 50 ? '...' : ''}
-                      </code>
-                    ) : (
-                      formatValue(row[column])
-                    )}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {result.rows.length === 0 && (
-          <div className="flex items-center justify-center py-8 text-gray-500">
-            Query returned no results
-          </div>
-        )}
-      </div>
+      <DataTable<Record<string, unknown>>
+        data={result.rows}
+        columns={resultColumns}
+        keyExtractor={(_row, index) => String(index)}
+        emptyMessage="Query returned no results"
+        searchable={false}
+        sortable={false}
+        maxHeight="24rem"
+        compact
+        className="border-0 rounded-none shadow-none"
+      />
     </Card>
   );
 };
@@ -688,15 +672,15 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
       {/* Editor Card */}
       <Card className="overflow-hidden">
         {/* Editor Toolbar */}
-        <div className="px-4 py-3 bg-gray-100 border-b flex items-center justify-between flex-wrap gap-2">
+        <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800 border-b flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <label htmlFor="schema-select" className="text-sm font-medium text-gray-700">
+              <label htmlFor="schema-select" className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 Schema:
               </label>
               <select
                 id="schema-select"
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 value={selectedSchema}
                 onChange={(e) => setSelectedSchema(e.target.value)}
               >

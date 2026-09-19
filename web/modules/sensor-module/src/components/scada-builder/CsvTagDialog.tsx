@@ -264,6 +264,15 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
     }
   ];
 
+  // The CSV's first row names the columns; the rest are string cells by position.
+  const importPreviewColumns: DataTableColumn<string[]>[] = (importPreviewRows[0] ?? []).map((col, idx) => ({
+    key: `col-${idx}`,
+    header: col,
+    render: (_value, row) => (
+      <span className="block max-w-[160px] truncate font-mono text-xs text-gray-700 dark:text-gray-300">{row[idx]}</span>
+    ),
+  }));
+
   return (
     <Modal
       isOpen={open}
@@ -280,7 +289,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
     >
 
         {/* Tab Bar */}
-        <div className="flex border-b border-gray-200" role="tablist" aria-label="CSV operations">
+        <div className="flex border-b border-gray-200 dark:border-gray-700" role="tablist" aria-label="CSV operations">
           <button
             role="tab"
             aria-selected={tab === 'export'}
@@ -290,7 +299,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               tab === 'export'
                 ? 'border-cyan-600 text-cyan-700'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             <Download className="w-4 h-4" />
@@ -305,7 +314,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
             className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
               tab === 'import'
                 ? 'border-cyan-600 text-cyan-700'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             <Upload className="w-4 h-4" />
@@ -316,9 +325,9 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Screen info */}
-          <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
-            <p className="text-sm text-gray-500">Active Screen</p>
-            <p className="font-medium text-gray-900">
+          <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Active Screen</p>
+            <p className="font-medium text-gray-900 dark:text-gray-100">
               {activeScreen?.name ?? 'No screen selected'}
             </p>
           </div>
@@ -327,12 +336,12 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
           {tab === 'export' && (
             <div role="tabpanel" id="csv-tab-export" aria-labelledby="csv-tab-btn-export">
               {exportRows.length === 0 ? (
-                <div className="p-4 bg-gray-50 text-gray-500 rounded-lg text-sm text-center">
+                <div className="p-4 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-lg text-sm text-center">
                   No widgets with tag bindings found on this screen.
                 </div>
               ) : (
                 <>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
                     {exportRows.length} widget(s) with tag bindings.
                     {exportRows.length > 10 && ' Showing first 10 rows.'}
                   </p>
@@ -355,7 +364,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
           {tab === 'import' && (
             <div role="tabpanel" id="csv-tab-import" aria-labelledby="csv-tab-btn-import">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Select CSV File
                 </label>
                 <input
@@ -363,7 +372,7 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
                   type="file"
                   accept=".csv,text/csv"
                   onChange={handleFileSelect}
-                  className="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-cyan-50 file:text-cyan-700 hover:file:bg-cyan-100 cursor-pointer"
+                  className="block w-full text-sm text-gray-500 dark:text-gray-400 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-cyan-50 file:text-cyan-700 hover:file:bg-cyan-100 cursor-pointer"
                 />
               </div>
 
@@ -388,37 +397,20 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
               {/* Import preview table */}
               {importPreviewRows.length > 0 && (
                 <>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
                     Preview ({importData.length - 1} data row(s)).
                     {importData.length > 11 && ' Showing first 10.'}
                   </p>
-                  <div className="border border-gray-200 rounded-lg overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-gray-50 text-left text-gray-600">
-                          {importPreviewRows[0].map((col, idx) => (
-                            <th key={idx} className="px-3 py-2 font-medium">
-                              {col}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {importPreviewRows.slice(1).map((row, rowIdx) => (
-                          <tr key={rowIdx} className="text-gray-700">
-                            {row.map((cell, cellIdx) => (
-                              <td
-                                key={cellIdx}
-                                className="px-3 py-2 truncate max-w-[160px] font-mono text-xs"
-                              >
-                                {cell}
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <DataTable<string[]>
+                    data={importPreviewRows.slice(1)}
+                    columns={importPreviewColumns}
+                    keyExtractor={(_row, index) => String(index)}
+                    emptyMessage="No rows"
+                    searchable={false}
+                    sortable={false}
+                    stickyHeader={false}
+                    compact
+                  />
                 </>
               )}
             </div>
@@ -426,10 +418,10 @@ export const CsvTagDialog: React.FC<CsvTagDialogProps> = ({ open, onClose }) => 
         </div>
 
         {/* Footer */}
-        <div className="flex gap-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+        <div className="flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+            className="flex-1 px-4 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 font-medium transition-colors"
           >
             Close
           </button>

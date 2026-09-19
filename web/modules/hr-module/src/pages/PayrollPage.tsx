@@ -18,7 +18,7 @@ import {
   FileText,
   TrendingUp,
 } from 'lucide-react';
-import { cn, Modal, useAuth, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { cn, Modal, useAuth, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
   usePendingPayrolls,
@@ -201,7 +201,7 @@ function CreatePayrollModal({
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting && (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <Spinner size="sm" color="white" />
             )}
             Create Payroll
           </button>
@@ -557,11 +557,11 @@ const PayrollPage: React.FC = () => {
                   <p className="font-medium text-gray-900 dark:text-white">
                     {row.employee.firstName} {row.employee.lastName}
                   </p>
-                  <p className="text-xs text-gray-500">{row.payrollNumber}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{row.payrollNumber}</p>
                 </div>
               </>
             ) : (
-              <span className="text-gray-500">{row.payrollNumber}</span>
+              <span className="text-gray-500 dark:text-gray-400">{row.payrollNumber}</span>
             )}
           </div>
         ),
@@ -574,7 +574,7 @@ const PayrollPage: React.FC = () => {
             <p className="text-gray-900 dark:text-white">
               {formatDate(row.payPeriodStart)} - {formatDate(row.payPeriodEnd)}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {PAY_PERIOD_TYPE_LABELS[row.payPeriodType] || row.payPeriodType}
             </p>
           </div>
@@ -720,21 +720,19 @@ const PayrollPage: React.FC = () => {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payroll</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Salary and payment management
-          </p>
-        </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4" />
-          Create Payroll
-        </button>
-      </div>
+      <PageHeader
+        title="Payroll"
+        description="Salary and payment management"
+        actions={
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            Create Payroll
+          </button>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -769,7 +767,7 @@ const PayrollPage: React.FC = () => {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'all'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           All Payrolls
@@ -780,7 +778,7 @@ const PayrollPage: React.FC = () => {
             'flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'pending'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Pending Approval
@@ -795,7 +793,7 @@ const PayrollPage: React.FC = () => {
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Search payrolls..."

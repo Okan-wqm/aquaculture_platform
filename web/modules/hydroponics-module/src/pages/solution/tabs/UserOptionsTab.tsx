@@ -108,7 +108,7 @@ const UserOptionsTab: React.FC = () => {
       render: (_value, target, idx) => {
         const displayValue = displayActualValues[idx];
         return (
-          <span className={`text-xs ${displayValue !== null ? 'text-gray-700 font-medium' : 'text-gray-400'}`}>
+          <span className={`text-xs ${displayValue !== null ? 'text-gray-700 dark:text-gray-300 font-medium' : 'text-gray-400 dark:text-gray-500'}`}>
             {displayValue !== null ? displayValue.toFixed(3) : '—'}
           </span>
         );
@@ -127,8 +127,8 @@ const UserOptionsTab: React.FC = () => {
       )}
 
       {/* Method Selectors */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-4">Calculation Methods</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-4">Calculation Methods</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Select
             label="K/Ca/Mg Method"
@@ -152,9 +152,9 @@ const UserOptionsTab: React.FC = () => {
       </div>
 
       {/* Target Table */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-800">Target Parameters</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Target Parameters</h3>
         </div>
         <DataTable<TargetRow>
           data={uo.targets}

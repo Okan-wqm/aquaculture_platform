@@ -169,7 +169,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
         height="100%"
         viewBox="0 0 200 130"
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block', overflow: 'visible' }}
+        className="block overflow-visible"
       >
         {/* ---- Threshold color bands (background) ---- */}
         <path
@@ -219,9 +219,7 @@ const GaugeRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, he
           strokeLinecap="round"
           strokeDasharray={ARC_LENGTH}
           strokeDashoffset={dashOffset}
-          style={{
-            transition: 'stroke-dashoffset 300ms ease-out, stroke 300ms ease-out',
-          }}
+          className="transition-[stroke-dashoffset,stroke] duration-300 ease-out"
         />
 
         {/* ---- Tick marks ---- */}

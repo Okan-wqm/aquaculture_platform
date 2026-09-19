@@ -118,7 +118,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
         {loading ? (
           <svg
-            className={`${iconSizeClasses[size]} text-gray-500 animate-spin`}
+            className={`${iconSizeClasses[size]} text-gray-500 dark:text-gray-400 animate-spin`}
             fill="none"
             viewBox="0 0 24 24"
           >
@@ -138,7 +138,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
           </svg>
         ) : (
           <svg
-            className={`${iconSizeClasses[size]} text-gray-500`}
+            className={`${iconSizeClasses[size]} text-gray-500 dark:text-gray-400`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -164,10 +164,10 @@ export const SearchInput: React.FC<SearchInputProps> = ({
         disabled={disabled}
         autoFocus={autoFocus}
         className={`
-          block w-full rounded-lg border border-gray-300
-          bg-white text-gray-900
-          focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-          disabled:bg-gray-100 disabled:cursor-not-allowed
+          block w-full rounded-lg border border-gray-300 dark:border-gray-600
+          bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100
+          focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-primary-500
+          disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed
           transition-colors duration-200
           ${sizeClasses[size]}
           ${showClearButton && internalValue ? 'pr-10' : ''}
@@ -179,7 +179,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
         <button
           type="button"
           onClick={handleClear}
-          className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 hover:text-gray-600"
+          className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
         >
           <svg className={iconSizeClasses[size]} fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

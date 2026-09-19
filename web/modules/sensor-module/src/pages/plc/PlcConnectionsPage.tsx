@@ -10,12 +10,11 @@
  */
 
 import React, { useState, useCallback, useRef } from 'react';
-import { ConfirmModal, Modal, useClickOutside, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useClickOutside, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
   Filter,
-  Loader2,
   Server,
   Wifi,
   WifiOff,
@@ -59,7 +58,7 @@ import { DISCOVER_OPCUA_ENDPOINTS_QUERY } from '../../graphql/plc.operations';
 
 const STATUS_CONFIG: Record<string, { label: string; dotColor: string; bgColor: string }> = {
   ONLINE: { label: 'Online', dotColor: 'bg-green-500', bgColor: 'bg-green-50 text-green-700 border-green-200' },
-  OFFLINE: { label: 'Offline', dotColor: 'bg-gray-400', bgColor: 'bg-gray-50 text-gray-600 border-gray-200' },
+  OFFLINE: { label: 'Offline', dotColor: 'bg-gray-400', bgColor: 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700' },
   CONNECTING: { label: 'Baglaniyor', dotColor: 'bg-yellow-500', bgColor: 'bg-yellow-50 text-yellow-700 border-yellow-200' },
   ERROR: { label: 'Hata', dotColor: 'bg-red-500', bgColor: 'bg-red-50 text-red-700 border-red-200' },
 };
@@ -196,7 +195,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
         {/* Basic Info */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Bağlantı Adı *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Bağlantı Adı *</label>
             <input
               type="text"
               required
@@ -204,19 +203,19 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               maxLength={255}
               value={form.name}
               onChange={(e) => updateField('name', e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               placeholder="PLC-Tank-01"
             />
           </div>
           {!connection && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Site ID *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site ID *</label>
               <input
                 type="text"
                 required
                 value={form.siteId}
                 onChange={(e) => updateField('siteId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 placeholder="Site UUID"
               />
             </div>
@@ -224,30 +223,30 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
           <textarea
             value={form.description}
             onChange={(e) => updateField('description', e.target.value)}
             maxLength={1000}
             rows={2}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
             placeholder="Bağlantı açıklaması..."
           />
         </div>
 
         {/* Connection Settings */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Bağlantı Ayarları</h3>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Bağlantı Ayarları</h3>
           <div className="space-y-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Endpoint URL *</label>
               <div className="flex gap-2">
                 <input
                   type="text"
                   required
                   value={form.endpointUrl}
                   onChange={(e) => updateField('endpointUrl', e.target.value)}
-                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   placeholder="opc.tcp://192.168.1.100:4840"
                 />
                 <button
@@ -257,7 +256,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                   className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
                   title="Sunucu endpoint'lerini kesfet"
                 >
-                  {discovering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radar className="h-4 w-4" />}
+                  {discovering ? <Spinner size="sm" color="inherit" /> : <Radar className="h-4 w-4" />}
                   Kesfet
                 </button>
               </div>
@@ -286,11 +285,11 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
             </div>
             <div className={`grid gap-4 ${form.securityMode !== 'None' ? 'grid-cols-3' : 'grid-cols-2'}`}>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Guvenlik Modu</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Guvenlik Modu</label>
                 <select
                   value={form.securityMode}
                   onChange={(e) => updateField('securityMode', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 >
                   <option value="None">Yok</option>
                   <option value="Sign">Imzali</option>
@@ -299,11 +298,11 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               </div>
               {form.securityMode !== 'None' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Guvenlik Politikasi</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Guvenlik Politikasi</label>
                   <select
                     value={form.securityPolicy}
                     onChange={(e) => updateField('securityPolicy', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="Basic256Sha256">Basic256Sha256</option>
                     <option value="Aes128_Sha256_RsaOaep">Aes128_Sha256_RsaOaep</option>
@@ -312,11 +311,11 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Kimlik Dogrulama</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kimlik Dogrulama</label>
                 <select
                   value={form.authMode}
                   onChange={(e) => updateField('authMode', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 >
                   <option value="Anonymous">Anonim</option>
                   <option value="Username">Kullanici Adi</option>
@@ -327,21 +326,21 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
             {form.authMode === 'Username' && (
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Kullanici Adi</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Kullanici Adi</label>
                   <input
                     type="text"
                     value={form.username}
                     onChange={(e) => updateField('username', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Sifre</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Sifre</label>
                   <input
                     type="password"
                     value={form.password}
                     onChange={(e) => updateField('password', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
               </div>
@@ -350,7 +349,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
               <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
                 <h4 className="text-sm font-medium text-amber-800">Sertifika Kimlik Dogrulama</h4>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Client Sertifikasi (PEM) *
                   </label>
                   <div className="flex gap-2">
@@ -358,10 +357,10 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                       value={form.clientCertificate}
                       onChange={(e) => updateField('clientCertificate', e.target.value)}
                       rows={3}
-                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                       placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
                     />
-                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 self-start">
                       <Upload className="h-4 w-4" />
                       <input
                         type="file"
@@ -380,7 +379,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Client Ozel Anahtar (PEM) *
                   </label>
                   <div className="flex gap-2">
@@ -389,19 +388,19 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                         value={form.clientPrivateKey}
                         onChange={(e) => updateField('clientPrivateKey', e.target.value)}
                         rows={3}
-                        className={`w-full rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${!showPrivateKey ? 'text-security-disc' : ''}`}
+                        className={`w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 ${!showPrivateKey ? 'text-security-disc' : ''}`}
                         placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
                         style={!showPrivateKey ? { WebkitTextSecurity: 'disc' } as React.CSSProperties : undefined}
                       />
                       <button
                         type="button"
                         onClick={() => setShowPrivateKey(!showPrivateKey)}
-                        className="absolute right-2 top-2 text-gray-400 hover:text-gray-600"
+                        className="absolute right-2 top-2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                       >
                         {showPrivateKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
-                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 self-start">
                       <Upload className="h-4 w-4" />
                       <input
                         type="file"
@@ -420,7 +419,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Sunucu Sertifikasi (PEM, opsiyonel)
                   </label>
                   <div className="flex gap-2">
@@ -428,10 +427,10 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
                       value={form.serverCertificate}
                       onChange={(e) => updateField('serverCertificate', e.target.value)}
                       rows={3}
-                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                       placeholder="-----BEGIN CERTIFICATE-----&#10;...&#10;-----END CERTIFICATE-----"
                     />
-                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 self-start">
+                    <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 self-start">
                       <Upload className="h-4 w-4" />
                       <input
                         type="file"
@@ -456,36 +455,36 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
 
         {/* Timing Settings */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">Zamanlama</h3>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Zamanlama</h3>
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Yayinlama (ms)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yayinlama (ms)</label>
               <input
                 type="number"
                 min={100} max={60000}
                 value={form.publishingIntervalMs}
                 onChange={(e) => updateField('publishingIntervalMs', parseInt(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ornekleme (ms)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ornekleme (ms)</label>
               <input
                 type="number"
                 min={50} max={60000}
                 value={form.samplingIntervalMs}
                 onChange={(e) => updateField('samplingIntervalMs', parseInt(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Oturum Zamani (ms)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Oturum Zamani (ms)</label>
               <input
                 type="number"
                 min={5000} max={3600000}
                 value={form.sessionTimeoutMs}
                 onChange={(e) => updateField('sessionTimeoutMs', parseInt(e.target.value))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
               />
             </div>
           </div>
@@ -493,45 +492,45 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
 
         {/* Node IDs */}
         <div>
-          <h3 className="text-sm font-semibold text-gray-900 mb-2">OPC UA Node ID&apos;leri</h3>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">OPC UA Node ID&apos;leri</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Node</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parametre Node</label>
               <input
                 type="text"
                 value={form.parametersNodeId}
                 onChange={(e) => updateField('parametersNodeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 placeholder="ns=2;s=Parameters"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Telemetri Node</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Telemetri Node</label>
               <input
                 type="text"
                 value={form.telemetryNodeId}
                 onChange={(e) => updateField('telemetryNodeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 placeholder="ns=2;s=Telemetry"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Alarm Node</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Alarm Node</label>
               <input
                 type="text"
                 value={form.alarmsNodeId}
                 onChange={(e) => updateField('alarmsNodeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 placeholder="ns=2;s=Alarms"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Durum Node</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Durum Node</label>
               <input
                 type="text"
                 value={form.statusNodeId}
                 onChange={(e) => updateField('statusNodeId', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                 placeholder="ns=2;s=Status"
               />
             </div>
@@ -543,7 +542,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
           <button
             type="button"
             onClick={() => setShowAdvanced(!showAdvanced)}
-            className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-gray-900 hover:bg-gray-50"
+            className="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             <span>Gelismis Ayarlar</span>
             {showAdvanced ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
@@ -552,47 +551,47 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
             <div className="border-t px-4 py-4 space-y-4">
               {/* Reconnection */}
               <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Yeniden Bağlantı</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Yeniden Bağlantı</h4>
                 <div className="space-y-3">
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
                       checked={form.autoReconnect}
                       onChange={(e) => updateField('autoReconnect', e.target.checked)}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      className="rounded border-gray-300 dark:border-gray-600 text-indigo-600 focus:ring-indigo-500"
                     />
-                    <span className="text-sm text-gray-700">Otomatik Yeniden Baglan</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">Otomatik Yeniden Baglan</span>
                   </label>
                   {form.autoReconnect && (
                     <div className="grid grid-cols-3 gap-3">
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Maks Deneme (-1=sinirsiz)</label>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Maks Deneme (-1=sinirsiz)</label>
                         <input
                           type="number"
                           min={-1} max={1000}
                           value={form.maxReconnectAttempts}
                           onChange={(e) => updateField('maxReconnectAttempts', parseInt(e.target.value))}
-                          className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Baslangic Gecikme (ms)</label>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Baslangic Gecikme (ms)</label>
                         <input
                           type="number"
                           min={100} max={60000}
                           value={form.reconnectDelayMs}
                           onChange={(e) => updateField('reconnectDelayMs', parseInt(e.target.value))}
-                          className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">Maks Gecikme (ms)</label>
+                        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Maks Gecikme (ms)</label>
                         <input
                           type="number"
                           min={1000} max={300000}
                           value={form.maxReconnectDelayMs}
                           onChange={(e) => updateField('maxReconnectDelayMs', parseInt(e.target.value))}
-                          className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                          className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                         />
                       </div>
                     </div>
@@ -602,36 +601,36 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
 
               {/* Timeouts */}
               <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Zaman Asimlari</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Zaman Asimlari</h4>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Baglanti (ms)</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Baglanti (ms)</label>
                     <input
                       type="number"
                       min={1000} max={60000}
                       value={form.connectTimeoutMs}
                       onChange={(e) => updateField('connectTimeoutMs', parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Istek (ms)</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Istek (ms)</label>
                     <input
                       type="number"
                       min={5000} max={300000}
                       value={form.requestTimeoutMs}
                       onChange={(e) => updateField('requestTimeoutMs', parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Keep-Alive (ms)</label>
+                    <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Keep-Alive (ms)</label>
                     <input
                       type="number"
                       min={1000} max={60000}
                       value={form.keepAliveIntervalMs}
                       onChange={(e) => updateField('keepAliveIntervalMs', parseInt(e.target.value))}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                      className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                     />
                   </div>
                 </div>
@@ -639,12 +638,12 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
 
               {/* Failover */}
               <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-2">Yedek Bağlantı (Failover)</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Yedek Bağlantı (Failover)</h4>
                 <input
                   type="text"
                   value={form.failoverEndpointUrl}
                   onChange={(e) => updateField('failoverEndpointUrl', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-mono focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   placeholder="opc.tcp://backup-plc:4840"
                 />
               </div>
@@ -657,7 +656,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             İptal
           </button>
@@ -666,7 +665,7 @@ const ConnectionFormModal: React.FC<ConnectionFormProps> = ({ connection, onSubm
             disabled={isLoading}
             className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
           >
-            {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isLoading && <Spinner size="sm" color="inherit" />}
             {connection ? 'Güncelle' : 'Oluştur'}
           </button>
         </div>
@@ -694,7 +693,7 @@ const TestResultModal: React.FC<{
       <button
         type="button"
         onClick={onClose}
-        className="w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+        className="w-full rounded-lg bg-gray-100 dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
       >
         Kapat
       </button>
@@ -706,7 +705,7 @@ const TestResultModal: React.FC<{
       ) : (
         <XCircle className="mx-auto h-12 w-12 text-red-500" />
       )}
-      <h4 className="mt-2 font-semibold text-gray-900">{connectionName}</h4>
+      <h4 className="mt-2 font-semibold text-gray-900 dark:text-gray-100">{connectionName}</h4>
       <p className={`text-sm font-medium ${result.success ? 'text-green-600' : 'text-red-600'}`}>
         {result.success ? 'Bağlantı başarılı!' : 'Bağlantı başarısız'}
       </p>
@@ -715,13 +714,13 @@ const TestResultModal: React.FC<{
     <div className="space-y-2 text-sm">
       {result.latencyMs != null && (
         <div className="flex justify-between">
-          <span className="text-gray-500">Gecikme:</span>
+          <span className="text-gray-500 dark:text-gray-400">Gecikme:</span>
           <span className="font-medium">{result.latencyMs} ms</span>
         </div>
       )}
       {result.serverInfo && (
         <div className="flex justify-between">
-          <span className="text-gray-500">Sunucu:</span>
+          <span className="text-gray-500 dark:text-gray-400">Sunucu:</span>
           <span className="font-medium text-right max-w-[200px] truncate">{result.serverInfo}</span>
         </div>
       )}
@@ -734,7 +733,7 @@ const TestResultModal: React.FC<{
         </div>
       )}
       <div className="flex justify-between">
-        <span className="text-gray-500">Test zamani:</span>
+        <span className="text-gray-500 dark:text-gray-400">Test zamani:</span>
         <span className="font-medium">{formatDate(result.testedAt)}</span>
       </div>
     </div>
@@ -820,11 +819,11 @@ const PlcConnectionsPage: React.FC = () => {
       header: 'Bağlantı',
       render: (_value, conn) => (
         <div className="flex items-center gap-2">
-          <Server className="h-4 w-4 text-gray-400" />
+          <Server className="h-4 w-4 text-gray-400 dark:text-gray-500" />
           <div>
-            <div className="font-medium text-gray-900">{conn.name}</div>
+            <div className="font-medium text-gray-900 dark:text-gray-100">{conn.name}</div>
             {conn.description && (
-              <div className="text-xs text-gray-500 truncate max-w-[200px]">{conn.description}</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]">{conn.description}</div>
             )}
           </div>
         </div>
@@ -834,7 +833,7 @@ const PlcConnectionsPage: React.FC = () => {
       key: 'endpoint',
       header: 'Endpoint',
       render: (_value, conn) => (
-        <code className="text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">{conn.endpointUrl}</code>
+        <code className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded">{conn.endpointUrl}</code>
       ),
     },
     {
@@ -864,9 +863,9 @@ const PlcConnectionsPage: React.FC = () => {
         <>
           <div>{SECURITY_MODE_LABELS[conn.securityMode] || conn.securityMode}</div>
           {conn.securityPolicy && conn.securityPolicy !== 'None' && (
-            <div className="text-gray-500">{SECURITY_POLICY_LABELS[conn.securityPolicy] || conn.securityPolicy}</div>
+            <div className="text-gray-500 dark:text-gray-400">{SECURITY_POLICY_LABELS[conn.securityPolicy] || conn.securityPolicy}</div>
           )}
-          <div className="text-gray-400">{AUTH_MODE_LABELS[conn.authMode] || conn.authMode}</div>
+          <div className="text-gray-400 dark:text-gray-500">{AUTH_MODE_LABELS[conn.authMode] || conn.authMode}</div>
         </>
       ),
     },
@@ -883,7 +882,7 @@ const PlcConnectionsPage: React.FC = () => {
           {conn.isActive ? (
             <CheckCircle className="h-4 w-4 text-green-500" />
           ) : (
-            <XCircle className="h-4 w-4 text-gray-400" />
+            <XCircle className="h-4 w-4 text-gray-400 dark:text-gray-500" />
           )}
         </>
       ),
@@ -896,22 +895,22 @@ const PlcConnectionsPage: React.FC = () => {
         <div className="relative" ref={menuOpenId === conn.id ? openMenuRef : undefined}>
           <button
             onClick={() => setMenuOpenId(menuOpenId === conn.id ? null : conn.id)}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="rounded p-1 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
           >
             <MoreVertical className="h-4 w-4" />
           </button>
           {menuOpenId === conn.id && (
-            <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border bg-white py-1 shadow-lg">
+            <div className="absolute right-0 z-10 mt-1 w-48 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-lg">
               <button
                 onClick={() => { handleTest(conn.id, conn.name); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Zap className="h-4 w-4" />
                 Bağlantı Test Et
               </button>
               <button
                 onClick={() => { setEditingConnection(conn); setShowForm(true); setMenuOpenId(null); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 <Edit className="h-4 w-4" />
                 Düzenle
@@ -951,44 +950,45 @@ const PlcConnectionsPage: React.FC = () => {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">PLC Bağlantıları</h1>
-          <p className="mt-1 text-sm text-gray-500">OPC UA PLC baglantilarini yonetin</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => refetch()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => { setEditingConnection(null); setShowForm(true); }}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            Yeni Bağlantı
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="PLC Bağlantıları"
+        description="OPC UA PLC baglantilarini yonetin"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => refetch()}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => { setEditingConnection(null); setShowForm(true); }}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+            >
+              <Plus className="h-4 w-4" />
+              Yeni Bağlantı
+            </button>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {/* Filters */}
       <div className="mb-4 flex gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Bağlantı ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as PlcConnectionStatus | '')}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         >
           <option value="">Tum Durumlar</option>
           <option value="ONLINE">Online</option>
@@ -1001,7 +1001,7 @@ const PlcConnectionsPage: React.FC = () => {
       {/* Table */}
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <Spinner size="lg" />
         </div>
       ) : connections && connections.length > 0 ? (
         <DataTable<PlcConnection>
@@ -1014,12 +1014,12 @@ const PlcConnectionsPage: React.FC = () => {
           stickyHeader={false}
         />
       ) : (
-        <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
-          <Server className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-semibold text-gray-900">
+        <div className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-12 text-center">
+          <Server className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+          <h3 className="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
             {searchTerm || statusFilter ? 'Sonuç bulunamadı' : 'PLC bağlantısı yok'}
           </h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {searchTerm || statusFilter
               ? 'Filtrelerinizi degistirmeyi deneyin.'
               : 'Ilk PLC baglantinizi olusturun.'}

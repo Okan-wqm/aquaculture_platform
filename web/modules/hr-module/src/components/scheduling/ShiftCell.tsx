@@ -32,7 +32,7 @@ const entryTypeConfig: Record<
   { label: string; icon: React.ElementType; bgClass: string; textClass: string }
 > = {
   work: { label: 'Mesai', icon: Calendar, bgClass: 'bg-blue-100', textClass: 'text-blue-800' },
-  off: { label: 'Tatil', icon: Coffee, bgClass: 'bg-gray-100', textClass: 'text-gray-600' },
+  off: { label: 'Tatil', icon: Coffee, bgClass: 'bg-gray-100 dark:bg-gray-800', textClass: 'text-gray-600 dark:text-gray-400' },
   leave: { label: 'Izin', icon: Umbrella, bgClass: 'bg-green-100', textClass: 'text-green-800' },
   holiday: { label: 'Resmi', icon: Calendar, bgClass: 'bg-purple-100', textClass: 'text-purple-800' },
   training: { label: 'Egitim', icon: GraduationCap, bgClass: 'bg-amber-100', textClass: 'text-amber-800' },
@@ -156,9 +156,9 @@ export function ShiftCell({
       <div
         {...keyboardProps}
         className={cn(
-          'h-full min-h-[48px] border border-dashed border-gray-200 rounded-md',
+          'h-full min-h-[48px] border border-dashed border-gray-200 dark:border-gray-700 rounded-md',
           'flex items-center justify-center',
-          isEditable && 'cursor-pointer hover:bg-gray-50',
+          isEditable && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800',
           isEditable && 'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-1',
           isSelected && 'ring-2 ring-indigo-500',
           hasKeyboardSelection && 'border-indigo-300 bg-indigo-50/30',
@@ -169,7 +169,7 @@ export function ShiftCell({
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        <span className="text-xs text-gray-400" aria-hidden="true">-</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500" aria-hidden="true">-</span>
       </div>
     );
   }
@@ -264,7 +264,7 @@ export function ShiftCell({
 
         {/* Time range */}
         {!compact && (
-          <div className="text-[10px] text-gray-600 mt-auto">
+          <div className="text-[10px] text-gray-600 dark:text-gray-400 mt-auto">
             {entry.plannedStartTime || shift?.startTime || '07:00'} -{' '}
             {entry.plannedEndTime || shift?.endTime || '15:00'}
           </div>
@@ -272,7 +272,7 @@ export function ShiftCell({
 
         {/* Minutes indicator */}
         {!compact && entry.plannedMinutes > 0 && (
-          <div className="text-[10px] text-gray-500">
+          <div className="text-[10px] text-gray-500 dark:text-gray-400">
             {Math.floor(entry.plannedMinutes / 60)}s
           </div>
         )}

@@ -19,7 +19,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { ConfirmModal, Modal, useTenantQuery, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { ConfirmModal, Modal, useTenantQuery, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   Tags,
   Search,
@@ -29,7 +29,6 @@ import {
   Trash2,
   Archive,
   Link2,
-  Loader2,
   AlertTriangle,
 } from 'lucide-react';
 
@@ -178,13 +177,13 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
     value: string,
     set: (v: string) => void,
   ): React.ReactElement => (
-    <label className="flex flex-col gap-1 text-xs text-gray-600">
+    <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
       {label}
       <input
         type="number"
         value={value}
         onChange={(e) => set(e.target.value)}
-        className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
+        className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
       />
     </label>
   );
@@ -205,7 +204,7 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
         <>
           <button
             onClick={onClose}
-            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-md"
+            className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
           >
             İptal
           </button>
@@ -214,36 +213,36 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
             disabled={updateTag.isPending}
             className="px-3 py-1.5 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-md disabled:opacity-50 flex items-center gap-1.5"
           >
-            {updateTag.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            {updateTag.isPending && <Spinner size="sm" color="inherit" />}
             Kaydet
           </button>
         </>
       }
     >
-      <label className="flex flex-col gap-1 text-xs text-gray-600">
+      <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
         Görünen Ad
         <input
           value={displayName}
           onChange={(e) => setDisplayName(e.target.value)}
-          className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
+          className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
         />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-gray-600">
+      <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
         Açıklama
         <input
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
+          className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
         />
       </label>
 
       <div className="grid grid-cols-3 gap-2">
-        <label className="flex flex-col gap-1 text-xs text-gray-600">
+        <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
           Birim
           <input
             value={engUnit}
             onChange={(e) => setEngUnit(e.target.value)}
-            className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
+            className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
           />
         </label>
         {numField('Eng Min', engMin, setEngMin)}
@@ -257,17 +256,17 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
         {numField('Alarm HH', alarmHH, setAlarmHH)}
       </div>
 
-      <div className="border-t border-gray-100 pt-3">
+      <div className="border-t border-gray-100 dark:border-gray-700 pt-3">
         <div className="flex items-center gap-1.5 mb-2">
           <Link2 className="w-3.5 h-3.5 text-cyan-600" />
-          <span className="text-xs font-medium text-gray-700">Canlı Veri Bağlantısı</span>
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Canlı Veri Bağlantısı</span>
         </div>
-        <p className="text-[11px] text-gray-500 mb-2">
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-2">
           Bu tag&apos;i bir sensör kanalına bağlayın — gelen ölçümler bu tag&apos;in
           FQN&apos;i altında operatör ekranlarına canlı akar.
         </p>
         <div className="grid grid-cols-2 gap-2">
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
+          <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
             Sensör
             <select
               value={linkSensorId}
@@ -275,7 +274,7 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
                 setLinkSensorId(e.target.value);
                 setLinkChannelId('');
               }}
-              className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900 bg-white"
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900"
             >
               <option value="">— bağlantı yok —</option>
               {(sensors ?? []).map((s) => (
@@ -283,13 +282,13 @@ const TagEditModal: React.FC<TagEditModalProps> = ({ tag, onClose, onSaved }) =>
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-xs text-gray-600">
+          <label className="flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400">
             Kanal
             <select
               value={linkChannelId}
               onChange={(e) => setLinkChannelId(e.target.value)}
               disabled={!linkSensorId}
-              className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+              className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900 disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-400 dark:disabled:text-gray-500"
             >
               <option value="">— tüm kanallar —</option>
               {sensorChannels.map((c) => (
@@ -383,7 +382,7 @@ const TagRegistryPage: React.FC = () => {
 
   const statusBadge = (status: string): React.ReactElement => {
     const styles: Record<string, string> = {
-      draft: 'bg-gray-50 text-gray-600 border-gray-200',
+      draft: 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700',
       active: 'bg-cyan-50 text-cyan-700 border-cyan-200',
       retired: 'bg-amber-50 text-amber-700 border-amber-200',
     };
@@ -401,7 +400,7 @@ const TagRegistryPage: React.FC = () => {
         <Link2 className="w-3 h-3" /> canlı
       </span>
     ) : (
-      <span className="text-[11px] text-gray-400">—</span>
+      <span className="text-[11px] text-gray-400 dark:text-gray-500">—</span>
     );
   };
 
@@ -466,7 +465,7 @@ const TagRegistryPage: React.FC = () => {
           {tag.status !== 'retired' && (
             <button
               onClick={() => setEditingTag(tag)}
-              className="p-1 text-gray-400 hover:text-cyan-600"
+              className="p-1 text-gray-400 dark:text-gray-500 hover:text-cyan-600"
               title="Düzenle"
               aria-label={`${tag.fqn} tag'ini düzenle`}
             >
@@ -478,7 +477,7 @@ const TagRegistryPage: React.FC = () => {
           {tag.status === 'draft' ? (
             <button
               onClick={() => setConfirmDeleteTag(tag)}
-              className="p-1 text-gray-400 hover:text-red-600"
+              className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600"
               title="Sil"
               aria-label={`${tag.fqn} tag'ini sil`}
             >
@@ -487,7 +486,7 @@ const TagRegistryPage: React.FC = () => {
           ) : tag.status !== 'retired' ? (
             <button
               onClick={() => setConfirmRetireTag(tag)}
-              className="p-1 text-gray-400 hover:text-amber-600"
+              className="p-1 text-gray-400 dark:text-gray-500 hover:text-amber-600"
               title="Emekli et"
               aria-label={`${tag.fqn} tag'ini emekli et`}
             >
@@ -506,8 +505,8 @@ const TagRegistryPage: React.FC = () => {
         <div className="flex items-center gap-2">
           <Tags className="w-5 h-5 text-cyan-600" />
           <div>
-            <h1 className="text-lg font-semibold text-gray-900">Tag Registry</h1>
-            <p className="text-xs text-gray-500">
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tag Registry</h1>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               SCADA bağlamalarının, deploy çözümlemesinin ve canlı verinin tek kimlik kaynağı
             </p>
           </div>
@@ -516,7 +515,7 @@ const TagRegistryPage: React.FC = () => {
           <select
             value={deviceId}
             onChange={(e) => { setDeviceId(e.target.value); setPage(1); }}
-            className="px-2 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900 bg-white"
+            className="px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100 bg-white dark:bg-gray-900"
             aria-label="Edge cihazı"
           >
             <option value="">Tüm cihazlar</option>
@@ -531,13 +530,13 @@ const TagRegistryPage: React.FC = () => {
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-md disabled:opacity-50"
           >
             {discover.isPending
-              ? <Loader2 className="w-4 h-4 animate-spin" />
+              ? <Spinner size="sm" color="inherit" />
               : <Radar className="w-4 h-4" />}
             Tag Keşfet
           </button>
           <button
             onClick={() => refetch()}
-            className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md"
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md"
             title="Yenile"
             aria-label="Yenile"
           >
@@ -561,12 +560,12 @@ const TagRegistryPage: React.FC = () => {
 
       {/* Search */}
       <div className="relative max-w-sm">
-        <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+        <Search className="w-4 h-4 text-gray-400 dark:text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
         <input
           value={searchTerm}
           onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
           placeholder="FQN veya ada göre ara..."
-          className="w-full pl-8 pr-3 py-1.5 border border-gray-200 rounded-md text-sm text-gray-900"
+          className="w-full pl-8 pr-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md text-sm text-gray-900 dark:text-gray-100"
         />
       </div>
 
@@ -590,13 +589,13 @@ const TagRegistryPage: React.FC = () => {
       />
 
       {/* Pagination */}
-      <div className="flex items-center justify-between text-xs text-gray-500">
+      <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
         <span>{total} tag</span>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setPage((p) => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="px-2 py-1 border border-gray-200 rounded disabled:opacity-40"
+            className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded disabled:opacity-40"
           >
             Önceki
           </button>
@@ -604,7 +603,7 @@ const TagRegistryPage: React.FC = () => {
           <button
             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             disabled={page >= totalPages}
-            className="px-2 py-1 border border-gray-200 rounded disabled:opacity-40"
+            className="px-2 py-1 border border-gray-200 dark:border-gray-700 rounded disabled:opacity-40"
           >
             Sonraki
           </button>

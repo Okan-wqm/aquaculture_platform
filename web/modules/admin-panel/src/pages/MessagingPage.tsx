@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   MessageSquare,
   Send,
@@ -20,7 +20,6 @@ import {
   AlertCircle,
   Plus,
   RefreshCw,
-  Loader2,
   Inbox,
 } from 'lucide-react';
 import {
@@ -249,54 +248,54 @@ export const MessagingPage: React.FC = () => {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Messaging</h1>
-            <p className="text-gray-500 mt-1">Communicate with tenant administrators</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => { fetchThreads(); fetchStats(); }}
-              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-            >
-              <RefreshCw size={18} />
-            </button>
-            <button
-              onClick={() => setShowBulkModal(true)}
-              className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-            >
-              <Users size={18} />
-              Bulk Message
-            </button>
-            <button
-              onClick={() => setShowNewThreadModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              <Plus size={18} />
-              New Conversation
-            </button>
-          </div>
-        </div>
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+        <PageHeader
+          title="Messaging"
+          description="Communicate with tenant administrators"
+          actions={
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => { fetchThreads(); fetchStats(); }}
+                className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                <RefreshCw size={18} />
+              </button>
+              <button
+                onClick={() => setShowBulkModal(true)}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                <Users size={18} />
+                Bulk Message
+              </button>
+              <button
+                onClick={() => setShowNewThreadModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                <Plus size={18} />
+                New Conversation
+              </button>
+            </div>
+          }
+        />
 
         {/* Stats */}
         {stats && (
           <div className="grid grid-cols-6 gap-4 mt-4">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <div className="text-sm text-gray-500">Total Threads</div>
-              <div className="text-xl font-semibold text-gray-900">{stats.totalThreads}</div>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+              <div className="text-sm text-gray-500 dark:text-gray-400">Total Threads</div>
+              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.totalThreads}</div>
             </div>
             <div className="bg-blue-50 rounded-lg p-3">
               <div className="text-sm text-blue-600">Active</div>
               <div className="text-xl font-semibold text-blue-700">{stats.activeThreads}</div>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <div className="text-sm text-gray-500">Closed</div>
-              <div className="text-xl font-semibold text-gray-900">{stats.closedThreads}</div>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+              <div className="text-sm text-gray-500 dark:text-gray-400">Closed</div>
+              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.closedThreads}</div>
             </div>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <div className="text-sm text-gray-500">Total Messages</div>
-              <div className="text-xl font-semibold text-gray-900">{stats.totalMessages}</div>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+              <div className="text-sm text-gray-500 dark:text-gray-400">Total Messages</div>
+              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.totalMessages}</div>
             </div>
             <div className="bg-red-50 rounded-lg p-3">
               <div className="text-sm text-red-600">Unread</div>
@@ -317,24 +316,24 @@ export const MessagingPage: React.FC = () => {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Thread List */}
-        <div className="w-96 border-r border-gray-200 flex flex-col bg-white">
+        <div className="w-96 border-r border-gray-200 dark:border-gray-700 flex flex-col bg-white dark:bg-gray-900">
           {/* Search & Filter */}
-          <div className="p-4 border-b border-gray-200 space-y-3">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" size={18} />
               <input
                 type="text"
                 placeholder="Search conversations..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div className="flex items-center gap-2">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as 'all' | 'open' | 'closed')}
-                className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Threads</option>
                 <option value="open">Open</option>
@@ -345,7 +344,7 @@ export const MessagingPage: React.FC = () => {
                 className={`px-3 py-1.5 rounded-lg text-sm border ${
                   showUnreadOnly
                     ? 'bg-blue-100 border-blue-300 text-blue-700'
-                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                    : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 Unread
@@ -357,7 +356,7 @@ export const MessagingPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="animate-spin text-blue-600" size={32} />
+                <Spinner size="lg" />
               </div>
             ) : error ? (
               <div className="flex flex-col items-center justify-center h-full text-red-500 p-4">
@@ -371,8 +370,8 @@ export const MessagingPage: React.FC = () => {
                 </button>
               </div>
             ) : filteredThreads.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
-                <Inbox size={48} className="mb-2 text-gray-500" />
+              <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400 p-4">
+                <Inbox size={48} className="mb-2 text-gray-500 dark:text-gray-400" />
                 <p>No conversations found</p>
               </div>
             ) : (
@@ -380,14 +379,14 @@ export const MessagingPage: React.FC = () => {
                 <div
                   key={thread.id}
                   onClick={() => setSelectedThread(thread)}
-                  className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                  className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                     selectedThread?.id === thread.id ? 'bg-blue-50' : ''
                   }`}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-gray-900 truncate">
+                        <span className="font-medium text-gray-900 dark:text-gray-100 truncate">
                           {thread.tenantName || 'Unknown Tenant'}
                         </span>
                         {thread.unreadCount > 0 && (
@@ -396,19 +395,19 @@ export const MessagingPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <div className="text-sm font-medium text-gray-700 truncate mt-0.5">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate mt-0.5">
                         {thread.subject}
                       </div>
-                      <div className="text-sm text-gray-500 truncate mt-1">
+                      <div className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">
                         {thread.lastMessage}
                       </div>
                     </div>
                     <div className="flex flex-col items-end ml-2">
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         {thread.lastMessageAt ? formatTime(thread.lastMessageAt) : ''}
                       </span>
                       {thread.isClosed && (
-                        <span className="text-xs text-gray-500 mt-1 px-1.5 py-0.5 bg-gray-100 rounded">
+                        <span className="text-xs text-gray-500 dark:text-gray-400 mt-1 px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">
                           Closed
                         </span>
                       )}
@@ -421,24 +420,24 @@ export const MessagingPage: React.FC = () => {
         </div>
 
         {/* Message Area */}
-        <div className="flex-1 flex flex-col bg-gray-50">
+        <div className="flex-1 flex flex-col bg-gray-50 dark:bg-gray-800">
           {selectedThread ? (
             <>
               {/* Thread Header */}
-              <div className="bg-white border-b border-gray-200 px-6 py-4">
+              <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="flex items-center gap-2">
-                      <h2 className="text-lg font-semibold text-gray-900">
+                      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                         {selectedThread.subject}
                       </h2>
                       {selectedThread.isClosed && (
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                        <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
                           Closed
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
                       {selectedThread.tenantName} · {selectedThread.messageCount} messages
                     </p>
                   </div>
@@ -453,18 +452,18 @@ export const MessagingPage: React.FC = () => {
                     ) : (
                       <button
                         onClick={() => handleCloseThread(selectedThread.id)}
-                        className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+                        className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
                       >
                         Close Thread
                       </button>
                     )}
                     <button
                       onClick={() => handleArchiveThread(selectedThread.id)}
-                      className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                      className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                     >
                       <Archive size={18} />
                     </button>
-                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                    <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                       <MoreVertical size={18} />
                     </button>
                   </div>
@@ -475,11 +474,11 @@ export const MessagingPage: React.FC = () => {
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
                 {messagesLoading ? (
                   <div className="flex items-center justify-center h-full">
-                    <Loader2 className="animate-spin text-blue-600" size={32} />
+                    <Spinner size="lg" />
                   </div>
                 ) : messages.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                    <MessageSquare size={48} className="mb-2 text-gray-500" />
+                  <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
+                    <MessageSquare size={48} className="mb-2 text-gray-500 dark:text-gray-400" />
                     <p>No messages yet</p>
                   </div>
                 ) : (
@@ -494,7 +493,7 @@ export const MessagingPage: React.FC = () => {
                             ? 'bg-yellow-50 border border-yellow-200'
                             : message.senderType === 'super_admin'
                             ? 'bg-blue-600 text-white'
-                            : 'bg-white border border-gray-200'
+                            : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
                         }`}
                       >
                         {message.isInternal && (
@@ -505,12 +504,12 @@ export const MessagingPage: React.FC = () => {
                         )}
                         <div className="flex items-center gap-2 mb-1">
                           <span className={`text-sm font-medium ${
-                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-100' : 'text-gray-700'
+                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-100' : 'text-gray-700 dark:text-gray-300'
                           }`}>
                             {message.senderName}
                           </span>
                           <span className={`text-xs ${
-                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500'
+                            message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500 dark:text-gray-400'
                           }`}>
                             {formatTime(message.createdAt)}
                           </span>
@@ -531,13 +530,13 @@ export const MessagingPage: React.FC = () => {
                                 className={`flex items-center gap-2 p-2 rounded border ${
                                   message.senderType === 'super_admin' && !message.isInternal
                                     ? 'border-blue-400 bg-blue-500 hover:bg-blue-400'
-                                    : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700'
                                 }`}
                               >
                                 <Paperclip size={14} />
                                 <span className="text-sm truncate">{att.filename}</span>
                                 <span className={`text-xs ${
-                                  message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500'
+                                  message.senderType === 'super_admin' && !message.isInternal ? 'text-blue-200' : 'text-gray-500 dark:text-gray-400'
                                 }`}>
                                   {formatFileSize(att.size)}
                                 </span>
@@ -565,14 +564,14 @@ export const MessagingPage: React.FC = () => {
 
               {/* Message Input */}
               {!selectedThread.isClosed && (
-                <div className="bg-white border-t border-gray-200 p-4">
+                <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                   <div className="flex items-center gap-2 mb-2">
                     <button
                       onClick={() => setIsInternalNote(!isInternalNote)}
                       className={`text-xs px-2 py-1 rounded ${
                         isInternalNote
                           ? 'bg-yellow-100 text-yellow-700 border border-yellow-300'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                       }`}
                     >
                       {isInternalNote ? 'Internal Note' : 'Public Message'}
@@ -585,7 +584,7 @@ export const MessagingPage: React.FC = () => {
                         onChange={(e) => setNewMessage(e.target.value)}
                         placeholder={isInternalNote ? 'Write an internal note...' : 'Type your message...'}
                         rows={3}
-                        className="w-full px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                             handleSendMessage();
@@ -594,7 +593,7 @@ export const MessagingPage: React.FC = () => {
                       />
                     </div>
                     <div className="flex flex-col gap-2">
-                      <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                         <Paperclip size={20} />
                       </button>
                       <button
@@ -606,7 +605,7 @@ export const MessagingPage: React.FC = () => {
                       </button>
                     </div>
                   </div>
-                  <div className="text-xs text-gray-500 mt-2">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                     Press Cmd+Enter to send
                   </div>
                 </div>
@@ -614,9 +613,9 @@ export const MessagingPage: React.FC = () => {
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
-              <div className="text-center text-gray-500">
-                <MessageSquare size={64} className="mx-auto mb-4 text-gray-500" />
-                <h3 className="text-lg font-medium text-gray-700">Select a conversation</h3>
+              <div className="text-center text-gray-500 dark:text-gray-400">
+                <MessageSquare size={64} className="mx-auto mb-4 text-gray-500 dark:text-gray-400" />
+                <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300">Select a conversation</h3>
                 <p className="mt-1">Choose a thread from the list to view messages</p>
               </div>
             </div>
@@ -675,7 +674,7 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>
@@ -693,28 +692,28 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
     >
       {/* Subject */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           Subject
         </label>
         <input
           type="text"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
           placeholder="Enter message subject..."
         />
       </div>
 
       {/* Content */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           Message Content
         </label>
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
           rows={6}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
           placeholder="Enter your message..."
         />
       </div>
@@ -726,16 +725,16 @@ const BulkMessageModal: React.FC<BulkMessageModalProps> = ({ onClose, onSubmit }
             type="checkbox"
             checked={sendEmail}
             onChange={(e) => setSendEmail(e.target.checked)}
-            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+            className="w-4 h-4 text-blue-600 rounded border-gray-300 dark:border-gray-600 focus:ring-blue-500"
           />
-          <span className="text-sm text-gray-700">Send email notification</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">Send email notification</span>
         </label>
       </div>
 
       {/* Preview */}
-      <div className="bg-gray-50 rounded-lg p-4">
-        <div className="text-sm text-gray-500 mb-2">Preview</div>
-        <div className="text-sm text-gray-700">
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Preview</div>
+        <div className="text-sm text-gray-700 dark:text-gray-300">
           This message will be sent to <strong>all active tenants</strong>.
         </div>
       </div>
@@ -771,7 +770,7 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>
@@ -789,42 +788,42 @@ const NewThreadModal: React.FC<NewThreadModalProps> = ({ onClose, onSubmit }) =>
     >
       {/* Tenant ID */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           Tenant ID
         </label>
         <input
           type="text"
           value={tenantId}
           onChange={(e) => setTenantId(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
           placeholder="Enter tenant ID..."
         />
       </div>
 
       {/* Subject */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           Subject
         </label>
         <input
           type="text"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
           placeholder="Enter conversation subject..."
         />
       </div>
 
       {/* Initial Message */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
           Initial Message
         </label>
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           rows={4}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 resize-none"
           placeholder="Enter your message..."
         />
       </div>

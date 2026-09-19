@@ -6,8 +6,8 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
-import { Copy, Check, Terminal, Clock, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Copy, Check, Terminal, Clock, AlertCircle, RefreshCw } from 'lucide-react';
 import {
   ProvisionedDeviceResponse,
   RegenerateTokenResponse,
@@ -114,17 +114,17 @@ export function InstallerCommandModal({
           {/* Content */}
           <div className="p-6 space-y-6">
             {/* Device Info */}
-            <div className="bg-gray-50 rounded-lg p-4">
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-500">Cihaz Kodu:</span>
-                  <span className="ml-2 font-mono font-semibold text-gray-900">
+                  <span className="text-gray-500 dark:text-gray-400">Cihaz Kodu:</span>
+                  <span className="ml-2 font-mono font-semibold text-gray-900 dark:text-gray-100">
                     {provisioningData.deviceCode}
                   </span>
                 </div>
                 <div className="flex items-center">
-                  <Clock className="w-4 h-4 text-gray-500 mr-1" />
-                  <span className="text-gray-500">Token süresi:</span>
+                  <Clock className="w-4 h-4 text-gray-500 dark:text-gray-400 mr-1" />
+                  <span className="text-gray-500 dark:text-gray-400">Token süresi:</span>
                   <span
                     className={`ml-2 font-medium ${
                       isTokenExpired() ? 'text-red-600' : 'text-green-600'
@@ -150,7 +150,7 @@ export function InstallerCommandModal({
             {/* Installer Command — SEC-005: token masked by default with reveal toggle */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Kurulum Komutu
                 </label>
                 <button
@@ -170,7 +170,7 @@ export function InstallerCommandModal({
                 </div>
                 <button
                   onClick={handleCopyCommand}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-500 hover:text-white transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-500 dark:text-gray-400 hover:text-white transition-colors"
                   title="Kopyala"
                 >
                   {copied ? (
@@ -180,23 +180,23 @@ export function InstallerCommandModal({
                   )}
                 </button>
               </div>
-              <p className="mt-2 text-xs text-gray-500">
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                 Bu komutu Linux terminalinizde root olarak çalıştırın (sudo ile)
               </p>
             </div>
 
             {/* Installer URL */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Installer URL (Alternatif)
               </label>
               <div className="relative">
-                <div className="bg-gray-100 rounded-lg p-3 pr-12 font-mono text-xs text-gray-600 overflow-x-auto break-all">
+                <div className="bg-gray-100 dark:bg-gray-800 rounded-lg p-3 pr-12 font-mono text-xs text-gray-600 dark:text-gray-400 overflow-x-auto break-all">
                   {provisioningData.installerUrl}
                 </div>
                 <button
                   onClick={handleCopyUrl}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-500 hover:text-gray-600 transition-colors"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
                   title="Kopyala"
                 >
                   {copiedUrl ? (
@@ -221,16 +221,16 @@ export function InstallerCommandModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between px-6 py-4 bg-gray-50 border-t border-gray-200">
+          <div className="flex items-center justify-between px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
             <button
               onClick={() => {
                 regenerateToken(provisioningData.deviceId);
               }}
               disabled={isRegenerating}
-              className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-gray-500 disabled:opacity-50 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-gray-500 disabled:opacity-50 transition-colors"
             >
               {isRegenerating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <RefreshCw className="w-4 h-4" />
               )}

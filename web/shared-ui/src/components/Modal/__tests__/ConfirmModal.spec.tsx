@@ -65,7 +65,7 @@ describe('ConfirmModal — requireTypedConfirmation gate', () => {
     expect(confirmButton.disabled).toBe(true);
 
     // Type wrong text — still disabled.
-    const input = screen.getByLabelText('Typed confirmation');
+    const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: 'Evet' } });
     expect(confirmButton.disabled).toBe(true);
 
@@ -89,7 +89,7 @@ describe('ConfirmModal — requireTypedConfirmation gate', () => {
         requireTypedConfirmation="KABUL"
       />,
     );
-    const input = screen.getByLabelText('Typed confirmation');
+    const input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: '  KABUL  ' } });
     const confirmButton = screen.getByRole('button', {
       name: 'Onayla',
@@ -134,7 +134,7 @@ describe('ConfirmModal — requireTypedConfirmation gate', () => {
       );
     }
     render(<Harness />);
-    let input = screen.getByLabelText('Typed confirmation');
+    let input = screen.getByRole('textbox');
     fireEvent.change(input, { target: { value: 'RESET' } });
     expect(
       (screen.getByRole('button', { name: 'Do' }) as HTMLButtonElement).disabled,
@@ -144,10 +144,30 @@ describe('ConfirmModal — requireTypedConfirmation gate', () => {
     fireEvent.click(screen.getByText('İptal'));
     fireEvent.click(screen.getByText('re-open'));
 
-    input = screen.getByLabelText('Typed confirmation');
+    input = screen.getByRole('textbox');
     expect((input as HTMLInputElement).value).toBe('');
     expect(
       (screen.getByRole('button', { name: 'Do' }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+});
+
+describe('ConfirmModal — accessible name (FE-HIGH-087)', () => {
+  it('names the dialog by its title, describes it by its message, and labels the typed gate', () => {
+    render(
+      <ConfirmModal
+        isOpen
+        onClose={() => {}}
+        onConfirm={() => {}}
+        title="Partiyi kapat"
+        message="Bu işlem geri alınamaz."
+        requireTypedConfirmation="ONAYLIYORUM"
+      />,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Partiyi kapat' });
+    expect(dialog.getAttribute('aria-describedby')).toBeTruthy();
+    expect(screen.getByRole('dialog', { description: 'Bu işlem geri alınamaz.' })).toBe(dialog);
+    const gate = screen.getByLabelText(/ONAYLIYORUM/);
+    expect(gate.tagName).toBe('INPUT');
   });
 });

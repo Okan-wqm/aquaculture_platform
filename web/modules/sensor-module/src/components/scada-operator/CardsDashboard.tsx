@@ -76,12 +76,11 @@ interface CardHeaderProps {
 const CardHeader = memo<CardHeaderProps>(
   ({ title, isMaximized, onClose, onToggleMaximize, onDragStart }) => (
     <div
-      className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700 select-none shrink-0"
-      style={{ cursor: 'grab', touchAction: 'none' }}
+      className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700 select-none shrink-0 cursor-grab touch-none"
       onPointerDown={onDragStart}
     >
       <div className="flex items-center gap-1.5 min-w-0">
-        <GripVertical size={12} className="text-gray-500 shrink-0" aria-hidden="true" />
+        <GripVertical size={12} className="text-gray-500 dark:text-gray-400 shrink-0" aria-hidden="true" />
         <span className="text-xs font-medium text-gray-200 truncate">{title}</span>
       </div>
       <div className="flex items-center gap-1 shrink-0">
@@ -91,7 +90,7 @@ const CardHeader = memo<CardHeaderProps>(
             e.stopPropagation();
             onToggleMaximize();
           }}
-          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-100 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
+          className="p-1 rounded hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-gray-100 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
           aria-label={isMaximized ? 'Restore card' : 'Maximize card'}
         >
           {isMaximized ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
@@ -102,7 +101,7 @@ const CardHeader = memo<CardHeaderProps>(
             e.stopPropagation();
             onClose();
           }}
-          className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-red-400 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
+          className="p-1 rounded hover:bg-gray-700 text-gray-400 dark:text-gray-500 hover:text-red-400 transition-colors focus:outline-hidden focus-visible:ring-1 focus-visible:ring-blue-400"
           aria-label="Close card"
         >
           <X size={12} />
@@ -376,7 +375,7 @@ export const CardsDashboard = memo<CardsDashboardProps>(
                 {renderCardContent ? (
                   renderCardContent(card.viewId, card.id)
                 ) : (
-                  <div className="flex items-center justify-center h-full text-gray-500 text-xs">
+                  <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-xs">
                     View: {card.viewId}
                   </div>
                 )}
@@ -402,7 +401,7 @@ export const CardsDashboard = memo<CardsDashboardProps>(
         {/* Empty state */}
         {cards.length === 0 && (
           <div
-            className="flex items-center justify-center text-gray-500 text-sm"
+            className="flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm"
             style={{ gridColumn: '1 / -1', minHeight: rowHeight * 2 }}
           >
             No cards configured

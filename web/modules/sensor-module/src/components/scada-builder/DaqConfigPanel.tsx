@@ -194,14 +194,14 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Database className="w-4 h-4 text-cyan-600" />
-          <h4 className="text-sm font-medium text-gray-700">DAQ Configuration</h4>
-          <span className="text-[11px] text-gray-400">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">DAQ Configuration</h4>
+          <span className="text-[11px] text-gray-400 dark:text-gray-500">
             ({enabledCount}/{filtered.length} enabled)
           </span>
         </div>
         <button
           onClick={handleCsvImport}
-          className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
           title="Import from CSV"
         >
           <Upload className="w-3.5 h-3.5" />
@@ -211,13 +211,13 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
       {/* Search + bulk actions */}
       <div className="flex items-center gap-2">
         <div className="flex-1 relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tags..."
-            className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500"
+            className="w-full pl-7 pr-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500"
           />
         </div>
         <button
@@ -229,7 +229,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
         </button>
         <button
           onClick={() => handleBulkToggle(false)}
-          className="px-2 py-1.5 text-[10px] font-medium text-gray-600 bg-gray-50 border border-gray-200 rounded hover:bg-gray-100"
+          className="px-2 py-1.5 text-[10px] font-medium text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
           title="Disable all visible"
         >
           All Off
@@ -245,7 +245,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
               setNewTagName(e.target.value);
               if (e.target.value) handleAddTag(e.target.value);
             }}
-            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500"
+            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500"
           >
             <option value="">Add tag...</option>
             {unconfiguredTags.map((tag) => (
@@ -263,13 +263,13 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
               if (e.key === 'Enter') handleAddTag(newTagName);
             }}
             placeholder="Tag name"
-            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500"
+            className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500"
           />
         )}
         <button
           onClick={() => handleAddTag(newTagName)}
           disabled={!newTagName.trim()}
-          className="p-1.5 rounded bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-gray-200 disabled:text-gray-400"
+          className="p-1.5 rounded bg-cyan-600 text-white hover:bg-cyan-700 disabled:bg-gray-200 dark:disabled:bg-gray-700 disabled:text-gray-400 dark:disabled:text-gray-500"
         >
           <Plus className="w-3.5 h-3.5" />
         </button>
@@ -277,7 +277,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
 
       {/* Tag table */}
       {filtered.length === 0 ? (
-        <div className="text-center py-6 text-xs text-gray-400">
+        <div className="text-center py-6 text-xs text-gray-400 dark:text-gray-500">
           {configs.length === 0
             ? 'No DAQ tags configured. Add tags above.'
             : 'No tags match the search filter.'}
@@ -288,7 +288,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
             <div
               key={config.tagName}
               className={`border rounded-lg p-2.5 space-y-2 transition-colors ${
-                config.enabled ? 'border-gray-200 bg-white' : 'border-gray-100 bg-gray-50 opacity-60'
+                config.enabled ? 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900' : 'border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 opacity-60'
               }`}
               data-testid={`daq-tag-${config.tagName}`}
             >
@@ -306,7 +306,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                       <ToggleLeft className="w-5 h-5" />
                     )}
                   </button>
-                  <span className="text-xs font-mono font-medium text-gray-800 truncate max-w-[150px]">
+                  <span className="text-xs font-mono font-medium text-gray-800 dark:text-gray-200 truncate max-w-[150px]">
                     {config.tagName}
                   </span>
                 </div>
@@ -323,13 +323,13 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
               {config.enabled && (
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5">Interval</label>
+                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Interval</label>
                     <select
                       value={config.interval}
                       onChange={(e) =>
                         handleUpdate(config.tagName, { interval: e.target.value as DaqInterval })
                       }
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 rounded"
+                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded"
                       data-testid={`daq-interval-${config.tagName}`}
                     >
                       {INTERVAL_OPTIONS.map((opt) => (
@@ -340,7 +340,7 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5">Deadband</label>
+                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Deadband</label>
                     <input
                       type="number"
                       value={config.deadband}
@@ -349,17 +349,17 @@ export const DaqConfigPanel: React.FC<DaqConfigPanelProps> = ({
                       }
                       min={0}
                       step={0.1}
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 rounded"
+                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded"
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] text-gray-500 mb-0.5">Retention</label>
+                    <label className="block text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">Retention</label>
                     <select
                       value={config.retention}
                       onChange={(e) =>
                         handleUpdate(config.tagName, { retention: e.target.value as DaqRetention })
                       }
-                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 rounded"
+                      className="w-full px-1.5 py-1 text-[11px] border border-gray-200 dark:border-gray-700 rounded"
                     >
                       {RETENTION_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>

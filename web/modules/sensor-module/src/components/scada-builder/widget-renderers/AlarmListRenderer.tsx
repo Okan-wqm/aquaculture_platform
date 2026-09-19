@@ -56,7 +56,7 @@ const AlarmListRenderer: React.FC<WidgetRendererProps> = ({ config, width, heigh
       </div>
 
       {/* Rows */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div className="flex-1 overflow-hidden">
         {alarms.slice(0, visibleCount).map((alarm: any, i: number) => (
           <div
             key={i}

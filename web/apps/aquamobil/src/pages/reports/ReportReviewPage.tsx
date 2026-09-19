@@ -10,10 +10,12 @@
  * manager who has reviewed the draft and wants to file it from the field.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, CheckCircle2, CloudOff, FileText, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, CloudOff, FileText, ShieldAlert } from 'lucide-react';
 import { type JSX, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import type {
   MobileApproveAndSubmitReportDraftMutation,
   MobileReportDraftsQuery,
@@ -50,26 +52,26 @@ const SUBMITTABLE_STATUSES = new Set(['DRAFT', 'READY', 'APPROVED']);
  */
 function PayloadTree({ value, depth = 0 }: { value: unknown; depth?: number }): JSX.Element {
   if (value === null || value === undefined) {
-    return <span className="text-gray-400">—</span>;
+    return <span className="text-gray-400 dark:text-gray-500">—</span>;
   }
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     return <span className="text-gray-800 dark:text-gray-200 break-all">{String(value)}</span>;
   }
   if (typeof value !== 'object') {
     // Symbols/functions never appear in a JSON wire payload; render a marker.
-    return <span className="text-gray-400">(unrenderable)</span>;
+    return <span className="text-gray-400 dark:text-gray-500">(unrenderable)</span>;
   }
   const entries: ReadonlyArray<readonly [string, unknown]> = Array.isArray(value)
     ? (value as unknown[]).map((v, i) => [String(i), v] as const)
     : Object.entries(value as Record<string, unknown>);
   if (entries.length === 0) {
-    return <span className="text-gray-400">{Array.isArray(value) ? '[]' : '{}'}</span>;
+    return <span className="text-gray-400 dark:text-gray-500">{Array.isArray(value) ? '[]' : '{}'}</span>;
   }
   return (
     <div className={depth > 0 ? 'pl-3 border-l border-gray-100 dark:border-gray-800' : ''}>
       {entries.map(([key, v]) => (
         <div key={key} className="py-0.5">
-          <span className="text-gray-500 font-medium">{key}: </span>
+          <span className="text-gray-500 dark:text-gray-400 font-medium">{key}: </span>
           <PayloadTree value={v} depth={depth + 1} />
         </div>
       ))}
@@ -133,20 +135,12 @@ export function ReportReviewPage(): JSX.Element {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <div className="bg-gradient-to-r from-indigo-700 to-indigo-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate('/reports')}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <FileText size={22} />
-            <h1 className="text-lg font-bold">Review Draft</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        tone="indigo"
+        icon={FileText}
+        title="Review Draft"
+        back={() => navigate('/reports')}
+      />
 
       <div className="px-4 pt-4 space-y-4 pb-28">
         {!isOnline && (
@@ -160,7 +154,7 @@ export function ReportReviewPage(): JSX.Element {
 
         {isOnline && draftsQuery.isLoading && (
           <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto" />
+            <Spinner size="lg" block />
           </div>
         )}
 
@@ -177,17 +171,17 @@ export function ReportReviewPage(): JSX.Element {
             <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-gray-900 dark:text-white">{draft.reportType}</span>
-                <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                <span className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
                   {draft.status}
                 </span>
               </div>
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-gray-500 dark:text-gray-400">
                 {draft.periodYear}
                 {draft.periodWeek != null ? ` · W${draft.periodWeek}` : ''}
                 {draft.periodMonth != null ? `-${String(draft.periodMonth).padStart(2, '0')}` : ''}
                 {draft.dueAt ? ` · due ${String(draft.dueAt)}` : ''}
               </div>
-              <div className="text-xs text-gray-400">
+              <div className="text-xs text-gray-400 dark:text-gray-500">
                 Schema {draft.schemaValid === false ? 'INVALID' : 'valid'} · {fieldMeta.length}{' '}
                 assembled fields · {manualFields.length} manual
               </div>
@@ -216,7 +210,7 @@ export function ReportReviewPage(): JSX.Element {
 
             <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
               <div className="p-3 border-b border-gray-100 dark:border-gray-800">
-                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">
+                <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
                   Assembled payload (read-only)
                 </h3>
               </div>
@@ -271,7 +265,7 @@ export function ReportReviewPage(): JSX.Element {
             >
               {approveMutation.isPending ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   Submitting…
                 </>
               ) : (

@@ -29,7 +29,7 @@ import {
 } from '../hooks/useTenantData';
 import { logError } from '../utils/error-handling';
 import { formatDateTime } from '../utils/date-utils';
-import { Modal, useAuthContext } from '@aquaculture/shared-ui';
+import { Modal, useAuthContext, PageHeader } from '@aquaculture/shared-ui';
 
 type TabId = 'overview' | 'io-config' | 'automation' | 'events';
 
@@ -63,7 +63,7 @@ const DecommissionModal: React.FC<{
       bodyClassName="p-6"
       footer={
         <>
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
             Cancel
           </button>
           <button
@@ -77,7 +77,7 @@ const DecommissionModal: React.FC<{
         </>
       }
     >
-      <p className="text-sm text-gray-700 mb-4">
+      <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
         Please provide a reason for decommissioning this device.
       </p>
       <textarea
@@ -85,7 +85,7 @@ const DecommissionModal: React.FC<{
         onChange={(e) => setReason(e.target.value)}
         placeholder="Reason for decommissioning..."
         rows={3}
-        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
+        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"
       />
     </Modal>
   );
@@ -119,7 +119,7 @@ const RebootConfirmModal: React.FC<{
       bodyClassName="p-6"
       footer={
         <>
-          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg">
+          <button type="button" onClick={onClose} className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg">
             Cancel
           </button>
           <button
@@ -133,7 +133,7 @@ const RebootConfirmModal: React.FC<{
         </>
       }
     >
-      <p className="text-sm text-gray-600 mb-4">
+      <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
         The device will restart. Active connections will be temporarily interrupted.
       </p>
     </Modal>
@@ -143,17 +143,17 @@ const RebootConfirmModal: React.FC<{
 const HealthGauge: React.FC<{ label: string; value?: number; unit?: string; icon: React.ReactNode; color: string }> = ({
   label, value, unit = '%', icon, color,
 }) => (
-  <div className="bg-white border border-gray-200 rounded-xl p-4">
-    <div className="flex items-center gap-2 text-gray-500 text-xs mb-2">
+  <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+    <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400 text-xs mb-2">
       {icon}
       <span>{label}</span>
     </div>
     <div className="flex items-end gap-1">
-      <span className="text-2xl font-bold text-gray-900">{value ?? '--'}</span>
-      <span className="text-sm text-gray-500 mb-0.5">{unit}</span>
+      <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value ?? '--'}</span>
+      <span className="text-sm text-gray-500 dark:text-gray-400 mb-0.5">{unit}</span>
     </div>
     {value != null && (
-      <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="mt-2 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
         <div
           className={`h-full rounded-full transition-all ${color}`}
           style={{ width: `${Math.min(value, 100)}%` }}
@@ -200,7 +200,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
   if (loading && !device) {
     return (
       <div className="flex items-center justify-center h-96">
-        <RefreshCw className="w-6 h-6 animate-spin text-gray-500" />
+        <RefreshCw className="w-6 h-6 animate-spin text-gray-500 dark:text-gray-400" />
       </div>
     );
   }
@@ -208,7 +208,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
   if (!device) {
     return (
       <div className="p-6 text-center">
-        <p className="text-gray-500">Device not found</p>
+        <p className="text-gray-500 dark:text-gray-400">Device not found</p>
         <button onClick={() => navigate('/tenant/devices')} className="mt-2 text-indigo-600 hover:text-indigo-700 font-medium text-sm">
           Back to devices
         </button>
@@ -234,65 +234,67 @@ const EdgeDeviceDetailPage: React.FC = () => {
     <>
     <div className="p-6 space-y-6">
       {/* Back button + Header */}
-      <div className="flex items-center gap-4">
-        <button
-          onClick={() => navigate('/tenant/devices')}
-          className="p-2 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg"
-        >
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div className="flex items-center gap-3 flex-1">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${device.isOnline ? 'bg-emerald-100' : 'bg-gray-100'}`}>
-            <Cpu className={`w-6 h-6 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500'}`} />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-gray-900">{device.deviceName}</h1>
-              {device.isOnline ? (
-                <span className="flex items-center gap-1 text-xs text-emerald-600"><Wifi className="w-3.5 h-3.5" /> Online</span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs text-gray-500"><WifiOff className="w-3.5 h-3.5" /> Offline</span>
-              )}
+      <PageHeader
+        title={
+          <span className="flex items-center gap-2">
+            {device.deviceName}
+            {device.isOnline ? (
+              <span className="flex items-center gap-1 text-xs text-emerald-600"><Wifi className="w-3.5 h-3.5" /> Online</span>
+            ) : (
+              <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"><WifiOff className="w-3.5 h-3.5" /> Offline</span>
+            )}
+          </span>
+        }
+        description={<>{device.deviceCode} · {device.deviceModel} · {device.lifecycleState.replace(/_/g, ' ')}</>}
+        leading={
+          <>
+            <button
+              onClick={() => navigate('/tenant/devices')}
+              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${device.isOnline ? 'bg-emerald-100' : 'bg-gray-100 dark:bg-gray-800'}`}>
+              <Cpu className={`w-6 h-6 ${device.isOnline ? 'text-emerald-600' : 'text-gray-500 dark:text-gray-400'}`} />
             </div>
-            <p className="text-sm text-gray-500">{device.deviceCode} · {device.deviceModel} · {device.lifecycleState.replace(/_/g, ' ')}</p>
+          </>
+        }
+        actions={
+          <div className="flex items-center gap-2">
+            {device.lifecycleState === 'pending_approval' && (
+              <button
+                onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })}
+                disabled={!!actionLoading}
+                className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {actionLoading === 'approve' ? 'Approving...' : 'Approve'}
+              </button>
+            )}
+            <button
+              onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })}
+              disabled={!!actionLoading}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium disabled:opacity-50"
+            >
+              <Play className="w-4 h-4" />
+              Ping
+            </button>
+            {isTenantAdmin && (
+              <button
+                onClick={() => setShowRebootModal(true)}
+                disabled={!!actionLoading}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-sm font-medium disabled:opacity-50"
+              >
+                <RotateCcw className="w-4 h-4" />
+                Reboot
+              </button>
+            )}
           </div>
-        </div>
-
-        {/* Quick Actions */}
-        <div className="flex items-center gap-2">
-          {device.lifecycleState === 'pending_approval' && (
-            <button
-              onClick={() => runAction('approve', APPROVE_DEVICE_MUTATION, { id: device.id })}
-              disabled={!!actionLoading}
-              className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium disabled:opacity-50"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              {actionLoading === 'approve' ? 'Approving...' : 'Approve'}
-            </button>
-          )}
-          <button
-            onClick={() => runAction('ping', PING_DEVICE_MUTATION, { id: device.id })}
-            disabled={!!actionLoading}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
-          >
-            <Play className="w-4 h-4" />
-            Ping
-          </button>
-          {isTenantAdmin && (
-            <button
-              onClick={() => setShowRebootModal(true)}
-              disabled={!!actionLoading}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm font-medium disabled:opacity-50"
-            >
-              <RotateCcw className="w-4 h-4" />
-              Reboot
-            </button>
-          )}
-        </div>
-      </div>
+        }
+      />
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-6">
           {tabs.map((tab) => (
             <button
@@ -303,7 +305,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
               className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? 'border-indigo-600 text-indigo-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
               {tab.label}
@@ -357,8 +359,8 @@ const EdgeDeviceDetailPage: React.FC = () => {
           </div>
 
           {/* Device Info */}
-          <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">Cihaz Bilgileri</h3>
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Cihaz Bilgileri</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
               {[
                 ['Device Code', device.deviceCode],
@@ -372,16 +374,16 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 ['Connection Quality', device.connectionQuality != null ? `${device.connectionQuality}%` : '-'],
               ].map(([label, value]) => (
                 <div key={label}>
-                  <span className="text-gray-500 block text-xs">{label}</span>
-                  <span className="font-medium text-gray-900">{value}</span>
+                  <span className="text-gray-500 dark:text-gray-400 block text-xs">{label}</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{value}</span>
                 </div>
               ))}
             </div>
           </div>
 
           {/* Quick Actions */}
-          <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <h3 className="text-sm font-semibold text-gray-900 mb-4">İşlemler</h3>
+          <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">İşlemler</h3>
             <div className="flex flex-wrap gap-3">
               <button
                 onClick={() => {
@@ -389,7 +391,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                   runAction('maintenance', MAINTENANCE_DEVICE_MUTATION, { id: device.id, enabled });
                 }}
                 disabled={!!actionLoading}
-                className="flex items-center gap-2 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 text-sm disabled:opacity-50"
+                className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-sm disabled:opacity-50"
               >
                 <Shield className="w-4 h-4" />
                 {device.lifecycleState === 'maintenance' ? 'Exit Maintenance' : 'Maintenance Mode'}
@@ -398,7 +400,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 <button
                   onClick={() => setShowDecommissionModal(true)}
                   disabled={!!actionLoading || device.lifecycleState === 'decommissioned'}
-                  className="flex items-center gap-2 px-3 py-2 bg-white border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm disabled:opacity-50"
+                  className="flex items-center gap-2 px-3 py-2 bg-white dark:bg-gray-900 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 text-sm disabled:opacity-50"
                 >
                   <Trash2 className="w-4 h-4" />
                   Decommission
@@ -410,41 +412,41 @@ const EdgeDeviceDetailPage: React.FC = () => {
       )}
 
       {activeTab === 'io-config' && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">I/O Configurations</h3>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">I/O Configurations</h3>
           {device.ioConfig && device.ioConfig.length > 0 ? (
             <div className="space-y-2">
               {device.ioConfig.map((io) => (
-                <div key={io.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                <div key={io.id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                   <div>
                     <span className="font-medium text-sm">{io.tagName}</span>
-                    <span className="ml-2 text-xs text-gray-500">{io.ioType} · {io.dataType}{io.unit ? ` · ${io.unit}` : ''}</span>
+                    <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">{io.ioType} · {io.dataType}{io.unit ? ` · ${io.unit}` : ''}</span>
                   </div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${io.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${io.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}`}>
                     {io.isActive ? 'Active' : 'Inactive'}
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No I/O configurations yet</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No I/O configurations yet</p>
           )}
         </div>
       )}
 
       {activeTab === 'automation' && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-4">Deployed Programs</h3>
-          <p className="text-sm text-gray-500">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-4">Deployed Programs</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             {device.programCount ? `${device.programCount} program(s) deployed` : 'No programs deployed'}
           </p>
         </div>
       )}
 
       {activeTab === 'events' && (
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900">Device Events</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Device Events</h3>
             <button onClick={() => refetchEvents()} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
               Refresh
             </button>
@@ -452,15 +454,15 @@ const EdgeDeviceDetailPage: React.FC = () => {
           {events.length > 0 ? (
             <div className="space-y-2">
               {events.map((event) => (
-                <div key={event.id} className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                <div key={event.id} className="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                   <span className={`mt-0.5 px-1.5 py-0.5 rounded text-xs font-medium ${
-                    severityColors[event.severity] || 'bg-gray-100 text-gray-600'
+                    severityColors[event.severity] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                   }`}>
                     {event.severity}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-900">{event.message}</p>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                    <p className="text-sm text-gray-900 dark:text-gray-100">{event.message}</p>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500 dark:text-gray-400">
                       <span>{event.eventType.replace(/_/g, ' ')}</span>
                       <span>·</span>
                       <span>{formatDateTime(event.createdAt)}</span>
@@ -470,7 +472,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-500">No events recorded</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">No events recorded</p>
           )}
         </div>
       )}

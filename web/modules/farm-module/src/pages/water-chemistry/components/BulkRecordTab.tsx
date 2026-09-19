@@ -148,11 +148,11 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
   }, [parameters, row.rawValues]);
 
   return (
-    <div className="border border-gray-200 rounded-lg p-4 bg-white space-y-3">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-900 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-semibold text-gray-900">{equipment.name}</h3>
-          <p className="text-xs text-gray-500">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">{equipment.name}</h3>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {equipment.code}
             {equipment.equipmentType?.name && ` · ${equipment.equipmentType.name}`}
             {equipment.department?.name && ` · ${equipment.department.name}`}
@@ -169,7 +169,7 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
       </div>
 
       {configsQuery.isLoading ? (
-        <p className="text-sm text-gray-500">Parametre yapılandırması yükleniyor…</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Parametre yapılandırması yükleniyor…</p>
       ) : configsQuery.isError ? (
         <p className="text-sm text-red-600">
           Parametre yapılandırması yüklenemedi.
@@ -192,7 +192,7 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
       <div>
         <label
           htmlFor={`bulk-notes-${row.idempotencyKey}`}
-          className="block text-sm font-medium text-gray-700 mb-1"
+          className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
         >
           Notlar
         </label>
@@ -202,9 +202,9 @@ const BulkRowEditor: React.FC<BulkRowEditorProps> = ({
           onChange={handleNotesChange}
           maxLength={NOTES_MAX}
           rows={2}
-          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
         />
-        <p className="mt-1 text-xs text-gray-400">
+        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
           {row.notes.length} / {NOTES_MAX}
         </p>
       </div>
@@ -394,15 +394,15 @@ export const BulkRecordTab: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Shared header */}
-      <section className="bg-white border border-gray-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Sistem (filtre)
           </label>
           <select
             value={selectedSystemId ?? ''}
             onChange={(e) => setSelectedSystemId(e.target.value || null)}
-            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm sm:text-sm"
           >
             <option value="">Tümü</option>
             {(systemsQuery.data?.items ?? []).map((sys) => (
@@ -413,24 +413,24 @@ export const BulkRecordTab: React.FC = () => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Ölçüm Tarihi/Saati
           </label>
           <input
             type="datetime-local"
             value={measuredAtLocal}
             onChange={(e) => setMeasuredAtLocal(e.target.value)}
-            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm sm:text-sm"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Kaynak
           </label>
           <select
             value={source}
             onChange={(e) => setSource(e.target.value as MeasurementSource)}
-            className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm sm:text-sm"
           >
             <option value="MANUAL">Manuel</option>
             <option value="LAB_ANALYSIS">Laboratuvar</option>
@@ -442,16 +442,16 @@ export const BulkRecordTab: React.FC = () => {
       </section>
 
       {/* Equipment picker */}
-      <section className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+      <section className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[260px]">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Ekipman ekle
             </label>
             <select
               value=""
               onChange={(e) => handleAddEquipment(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm sm:text-sm"
               disabled={availableEquipment.length === 0 || rows.length >= MAX_BATCH_SIZE}
             >
               <option value="">
@@ -470,7 +470,7 @@ export const BulkRecordTab: React.FC = () => {
             type="button"
             onClick={handleAddAllVisible}
             disabled={availableEquipment.length === 0 || rows.length >= MAX_BATCH_SIZE}
-            className="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded-md disabled:opacity-50"
+            className="px-3 py-2 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 rounded-md disabled:opacity-50"
           >
             Görünür hepsini ekle
           </button>
@@ -483,7 +483,7 @@ export const BulkRecordTab: React.FC = () => {
             Temizle
           </button>
         </div>
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           {rows.length} / {MAX_BATCH_SIZE} ekipman seçildi · Tüm satırlar tek transaction'da yazılır.
         </p>
       </section>

@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ConfirmSheet } from '@/components/ui/ConfirmSheet';
+import { Spinner } from '@/components/ui/Spinner';
 import { useAuth } from '@/hooks/useAuth';
 import { useDarkMode } from '@/hooks/useDarkMode';
 import type { DarkModePreference } from '@/hooks/useDarkMode';
@@ -256,7 +257,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
               clearBiometricError();
               setSetupSuccess(false);
             }}
-            className="p-1 text-gray-400 hover:text-gray-600"
+            className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
           >
             <X size={18} />
           </button>
@@ -347,7 +348,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
           >
             {isRegistering ? (
               <>
-                <span className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
+                <Spinner size="sm" color="white" />
                 Setting up...
               </>
             ) : (
@@ -509,7 +510,7 @@ export function AccountPage(): JSX.Element {
                   {roleBadge.label}
                 </span>
                 {userTenantId && (
-                  <span className="text-[11px] text-gray-400">Tenant: {userTenantId}</span>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">Tenant: {userTenantId}</span>
                 )}
               </div>
             </div>

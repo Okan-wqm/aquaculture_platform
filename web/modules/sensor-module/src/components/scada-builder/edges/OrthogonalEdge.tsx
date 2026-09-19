@@ -212,7 +212,7 @@ const renderFlowArrow = (source: Point, target: Point, bends: BendPoint[], color
       points="-7,-5 0,0 -7,5"
       fill={color}
       transform={`translate(${mid.x},${mid.y}) rotate(${mid.angle})`}
-      style={{ pointerEvents: 'none' }}
+      className="pointer-events-none"
     >
       <animate attributeName="opacity" values="1;0.2;1" dur="1.5s" repeatCount="indefinite" />
     </polygon>
@@ -393,7 +393,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
         fill="none"
         stroke="transparent"
         strokeWidth={HIT_AREA_WIDTH}
-        style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+        className="cursor-pointer [pointer-events:stroke]"
         onMouseMove={handlePathMouseMove}
         onMouseLeave={handlePathMouseLeave}
         onDoubleClick={handlePathDoubleClick}
@@ -434,7 +434,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
           strokeWidth={(edgeStyle.strokeWidth || 2) + 4}
           strokeOpacity={0.3}
           strokeLinejoin="round"
-          style={{ pointerEvents: 'none' }}
+          className="pointer-events-none"
         />
       )}
 
@@ -452,7 +452,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
           fillOpacity={0.5}
           stroke={colors.success[500]}
           strokeWidth={1}
-          style={{ pointerEvents: 'none' }}
+          className="pointer-events-none"
         />
       )}
 
@@ -468,11 +468,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
           fill={colors.primary[700]}
           stroke={colors.primary[800]}
           strokeWidth={1.5}
-          style={{
-            pointerEvents: 'all',
-            cursor: 'grab',
-            transition: 'all 0.1s ease-out',
-          }}
+          className="[pointer-events:all] cursor-grab transition-all duration-100 ease-out"
           onMouseDown={(e) => handleMouseDown(e, idx)}
           onContextMenu={(e) => handlePointRightClick(e, idx)}
           onMouseEnter={() => setHoveredPoint(idx)}
@@ -492,7 +488,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
             fill={colors.success[500]}
             stroke={colors.success[600]}
             strokeWidth={1.5}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           />
           <circle
             cx={targetX}
@@ -501,7 +497,7 @@ const OrthogonalEdge: React.FC<EdgeProps<Edge<OrthogonalEdgeData>>> = (props) =>
             fill={colors.error[500]}
             stroke={colors.error[600]}
             strokeWidth={1.5}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           />
         </>
       )}

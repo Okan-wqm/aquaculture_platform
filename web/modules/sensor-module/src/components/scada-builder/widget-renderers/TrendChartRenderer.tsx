@@ -144,7 +144,7 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
   const endX = ML + chartW;
   return (
     <div style={{ width, height, padding: PAD, boxSizing: 'border-box' }}>
-      <svg width={innerW} height={innerH} style={{ display: 'block', overflow: 'visible' }}>
+      <svg width={innerW} height={innerH} className="block overflow-visible">
         {/* Toolbar */}
         <foreignObject x={0} y={0} width={innerW} height={TOOLBAR_H}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, height: TOOLBAR_H, fontSize: 10 }}>
@@ -207,7 +207,7 @@ const TrendChartRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
           <foreignObject x={ML} y={innerH - LEGEND_H} width={chartW} height={LEGEND_H}>
             <div style={{ display: 'flex', gap: 8, fontSize: 8, color: colors.gray[400] }}>
               {tags.map((tag, i) => (
-                <span key={tag} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <span key={tag} className="flex items-center gap-[2px]">
                   <span style={{ width: 8, height: 3, borderRadius: 1, background: TRACE_COLORS[i % TRACE_COLORS.length], display: 'inline-block' }} />{tag}
                 </span>
               ))}

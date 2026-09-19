@@ -11,6 +11,8 @@ import { CloudOff, FileText } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import type { MobileReportDeadlinesQuery } from '@/generated/graphql';
 import { MOBILE_REPORT_DEADLINES } from '@/graphql/operations';
 import { useAuth } from '@/hooks/useAuth';
@@ -78,24 +80,13 @@ export function ReportsDuePage(): JSX.Element {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-      <div className="bg-gradient-to-br from-indigo-700 via-indigo-600 to-indigo-500 text-white">
-        <div className="px-5 pt-safe-top">
-          <div className="flex items-center gap-3 py-4">
-            <div className="w-10 h-10 bg-white/15 backdrop-blur-sm rounded-xl flex items-center justify-center">
-              <FileText size={22} className="text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">Reports Due</h1>
-              <p className="text-xs text-white/85">Mattilsynet scheduled drafts</p>
-            </div>
-          </div>
-        </div>
-        <div className="relative">
-          <svg viewBox="0 0 400 20" fill="none" className="w-full block" preserveAspectRatio="none">
-            <path d="M0 20V0c100 15 200 15 400 0v20z" className="fill-gray-50 dark:fill-gray-950" />
-          </svg>
-        </div>
-      </div>
+      <PageHeader
+        variant="hub"
+        tone="indigo"
+        icon={FileText}
+        title="Reports Due"
+        subtitle="Mattilsynet scheduled drafts"
+      />
 
       <div className="px-5 pt-4 space-y-3 pb-28">
         {!isOnline && (
@@ -108,8 +99,8 @@ export function ReportsDuePage(): JSX.Element {
         )}
 
         {isOnline && deadlinesQuery.isLoading && (
-          <div className="text-center py-12 text-gray-400">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto" />
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
+            <Spinner size="lg" block />
           </div>
         )}
 
@@ -122,7 +113,7 @@ export function ReportsDuePage(): JSX.Element {
         )}
 
         {isOnline && deadlinesQuery.isSuccess && rows.length === 0 && (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <FileText size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No reports due</p>
             <p className="text-sm mt-1">Scheduled drafts appear here each period.</p>
@@ -147,8 +138,8 @@ export function ReportsDuePage(): JSX.Element {
               <DueChip row={row} />
             </div>
             <div className="flex items-center justify-between mt-2">
-              <span className="text-xs text-gray-500">{periodLabel(row)}</span>
-              <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+              <span className="text-xs text-gray-500 dark:text-gray-400">{periodLabel(row)}</span>
+              <span className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wide">
                 {row.status}
               </span>
             </div>

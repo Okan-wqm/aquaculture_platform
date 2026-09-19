@@ -126,8 +126,7 @@ export const SmartGuides: React.FC<SmartGuidesProps> = ({
 
   return (
     <svg
-      className="absolute inset-0 pointer-events-none z-[100]"
-      style={{ width: '100%', height: '100%', overflow: 'visible' }}
+      className="absolute inset-0 pointer-events-none z-[100] w-full h-full overflow-visible"
     >
       {guides.map((guide, i) =>
         guide.orientation === 'vertical' ? (

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Copy, Check, Key, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Copy, Check, Key, AlertCircle, AlertTriangle } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import { graphqlRequest } from '../../services/tenant-api.service';
 import {
   CREATE_PROVISIONING_KEY_MUTATION,
@@ -151,51 +151,51 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Key Ad\u0131 (opsiyonel)</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Key Ad\u0131 (opsiyonel)</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="\u00D6rn: \u00DCretim Hatt\u0131 Installer"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Max Cihaz</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Cihaz</label>
               <input
                 type="number"
                 value={maxDevices}
                 onChange={(e) => setMaxDevices(e.target.value)}
                 placeholder="S\u0131n\u0131rs\u0131z"
                 min="1"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Ge\u00E7erlilik (g\u00FCn)</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Ge\u00E7erlilik (g\u00FCn)</label>
               <input
                 type="number"
                 value={expiresInDays}
                 onChange={(e) => setExpiresInDays(e.target.value)}
                 placeholder="S\u00FCresiz"
                 min="1"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               />
             </div>
           </div>
 
-          <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors">
+          <label className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
             <input
               type="checkbox"
               checked={autoApprove}
               onChange={(e) => setAutoApprove(e.target.checked)}
-              className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+              className="w-4 h-4 text-indigo-600 border-gray-300 dark:border-gray-600 rounded focus:ring-indigo-500"
             />
             <div>
-              <span className="text-sm font-medium text-gray-700">Auto-Approve</span>
-              <p className="text-xs text-gray-500">Devices skip security review and go directly to ACTIVE state</p>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Auto-Approve</span>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Devices skip security review and go directly to ACTIVE state</p>
             </div>
           </label>
 
@@ -224,24 +224,24 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               disabled={loading}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium text-sm"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+              {loading ? <Spinner size="sm" color="inherit" /> : <Key className="w-4 h-4" />}
               Olu\u015Ftur
             </button>
           </div>
 
           {/* Existing Keys */}
           {showExisting && existingKeys.length > 0 && (
-            <div className="border-t border-gray-100 pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">Mevcut Key'ler</h3>
+            <div className="border-t border-gray-100 dark:border-gray-700 pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Mevcut Key'ler</h3>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {existingKeys.map((key) => (
-                  <div key={key.id} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg text-xs">
+                  <div key={key.id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded-lg text-xs">
                     <div>
                       <span className="font-medium">{key.name || `Key ${key.id.substring(0, 8)}`}</span>
                       <span className={`ml-2 px-1.5 py-0.5 rounded-full ${key.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
                         {key.isActive ? 'Active' : 'Revoked'}
                       </span>
-                      <span className="ml-2 text-gray-500">{key.usedCount} devices</span>
+                      <span className="ml-2 text-gray-500 dark:text-gray-400">{key.usedCount} devices</span>
                     </div>
                     {key.isActive && (
                       <button
@@ -261,7 +261,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
         <div className="p-6 space-y-4">
           {/* Installer Command */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Kurulum Komutu
             </label>
             <div className="relative">
@@ -270,7 +270,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
               </pre>
               <button
                 onClick={() => handleCopy(result.installerCommand)}
-                className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-gray-700 text-gray-500 hover:text-white rounded-md text-xs transition-colors"
+                className="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 bg-gray-700 text-gray-500 dark:text-gray-400 hover:text-white rounded-md text-xs transition-colors"
               >
                 {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
                 {copied ? 'Kopyaland\u0131!' : 'Kopyala'}
@@ -280,17 +280,17 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
 
           {/* Info */}
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <span className="text-gray-500 block text-xs">Max Cihaz</span>
+            <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <span className="text-gray-500 dark:text-gray-400 block text-xs">Max Cihaz</span>
               <span className="font-medium">{result.maxDevices ?? 'S\u0131n\u0131rs\u0131z'}</span>
             </div>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <span className="text-gray-500 block text-xs">Otomatik Onay</span>
+            <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <span className="text-gray-500 dark:text-gray-400 block text-xs">Otomatik Onay</span>
               <span className="font-medium">{result.autoApprove ? 'Evet' : 'Hay\u0131r'}</span>
             </div>
             {result.expiresAt && (
-              <div className="p-3 bg-gray-50 rounded-lg col-span-2">
-                <span className="text-gray-500 block text-xs">Ge\u00E7erlilik</span>
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg col-span-2">
+                <span className="text-gray-500 dark:text-gray-400 block text-xs">Ge\u00E7erlilik</span>
                 <span className="font-medium">{formatDate(result.expiresAt)}</span>
               </div>
             )}
@@ -305,7 +305,7 @@ export const InstallerKeyModal: React.FC<InstallerKeyModalProps> = ({ onClose, o
           <div className="flex justify-end">
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium text-sm"
+              className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 font-medium text-sm"
             >
               Kapat
             </button>

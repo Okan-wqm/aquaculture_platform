@@ -14,6 +14,8 @@ import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { isFeatureAccessible } from './utils/feature-access';
 
+import { Spinner } from '@/components/ui/Spinner';
+
 /**
  * BUG-16: Redirect component that captures :tankId param and forwards it to /cull/record/:tankId.
  * React Router's Navigate component treats the `to` prop as a static string and does not
@@ -150,7 +152,7 @@ const StaffHubPage = lazy(() =>
 function PageLoader(): ReactElement {
   return (
     <div className="flex items-center justify-center min-h-[50vh]">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-aqua-500" />
+      <Spinner size="lg" />
     </div>
   );
 }
@@ -161,7 +163,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }): ReactEleme
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-aqua-500" />
+        <Spinner size="xl" />
       </div>
     );
   }

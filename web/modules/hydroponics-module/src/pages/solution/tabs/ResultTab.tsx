@@ -96,6 +96,54 @@ const ResultTab: React.FC = () => {
     }
   ];
 
+  // The stock-solution list is grouped by tank; DataTable has no rowSpan, so the
+  // tank badge sits on each group's first row and the rest of the group leaves it blank.
+  type FertilizerRow = (typeof fertByTank)[string][number] & { tank: string; firstOfTank: boolean };
+  const fertilizerRows: FertilizerRow[] = ['A', 'B', 'Acid', 'Micro', 'Silicon'].flatMap((tank) =>
+    (fertByTank[tank] ?? []).map((f, i) => ({ ...f, tank, firstOfTank: i === 0 })),
+  );
+  const TANK_BADGE: Record<string, string> = {
+    A: 'bg-blue-100 text-blue-700',
+    B: 'bg-purple-100 text-purple-700',
+    Acid: 'bg-red-100 text-red-700',
+    Micro: 'bg-emerald-100 text-emerald-700',
+  };
+  const fertilizerColumns: DataTableColumn<FertilizerRow>[] = [
+    {
+      key: 'tank',
+      header: 'Tank',
+      render: (_value, row) =>
+        row.firstOfTank ? (
+          <span
+            className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
+              TANK_BADGE[row.tank] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+            }`}
+          >
+            {row.tank.charAt(0)}
+          </span>
+        ) : null,
+    },
+    { key: 'name', header: 'Fertilizer', render: (_value, row) => <span className="text-gray-700 dark:text-gray-300">{row.name}</span> },
+    {
+      key: 'formula',
+      header: 'Formula',
+      render: (_value, row) => <span className="text-gray-500 dark:text-gray-400 text-xs font-mono">{row.formula}</span>,
+    },
+    {
+      key: 'gramsPerLiter',
+      header: 'g/L stock',
+      align: 'right',
+      // Result guard (Pattern 1): render an error indicator for NaN/Infinity
+      // instead of displaying a plainly wrong dosage string.
+      render: (_value, row) =>
+        isFinite(row.gramsPerLiter) ? (
+          <span className="font-medium text-gray-900 dark:text-gray-100">{row.gramsPerLiter.toFixed(3)}</span>
+        ) : (
+          <span className="text-red-600 font-semibold">Error</span>
+        ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Action Bar */}
@@ -105,7 +153,7 @@ const ResultTab: React.FC = () => {
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             isDirty
               ? 'bg-green-600 text-white hover:bg-green-700'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 cursor-not-allowed'
           }`}
           disabled={!isDirty}
         >
@@ -113,52 +161,52 @@ const ResultTab: React.FC = () => {
         </button>
         <button
           onClick={handleDownload}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
           Download
         </button>
         <button
           onClick={handlePrint}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
           Print
         </button>
       </div>
 
       {/* Info Summary */}
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-800">Configuration Summary</h3>
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Configuration Summary</h3>
         </div>
         <div className="p-4">
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
             <div>
-              <span className="text-xs text-gray-500 block">NS Type</span>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-xs text-gray-500 dark:text-gray-400 block">NS Type</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {getLabel(NS_TYPE_OPTIONS, basic.nsType)}
               </span>
             </div>
             <div>
-              <span className="text-xs text-gray-500 block">Species</span>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-xs text-gray-500 dark:text-gray-400 block">Species</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {getLabel(SPECIES_OPTIONS, basic.species)}
               </span>
             </div>
             <div>
-              <span className="text-xs text-gray-500 block">Stage</span>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-xs text-gray-500 dark:text-gray-400 block">Stage</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {getLabel(STAGE_OPTIONS, basic.cultivationStage)}
               </span>
             </div>
             <div>
-              <span className="text-xs text-gray-500 block">Season</span>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-xs text-gray-500 dark:text-gray-400 block">Season</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {getLabel(SEASON_OPTIONS, basic.season)}
               </span>
             </div>
             <div>
-              <span className="text-xs text-gray-500 block">System Type</span>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-xs text-gray-500 dark:text-gray-400 block">System Type</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                 {getLabel(SERVICE_TYPE_OPTIONS, g.serviceDefinition.systemType)}
               </span>
             </div>
@@ -190,20 +238,20 @@ const ResultTab: React.FC = () => {
         <>
           {/* EC & pH */}
           <div className="grid grid-cols-2 gap-4">
-            <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
-              <span className="text-xs text-gray-500 block">Target EC</span>
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
+              <span className="text-xs text-gray-500 dark:text-gray-400 block">Target EC</span>
               <span className="text-xl font-bold text-green-700">{fmt(result.ec)} mS/cm</span>
             </div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4 text-center">
-              <span className="text-xs text-gray-500 block">Target pH</span>
+            <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
+              <span className="text-xs text-gray-500 dark:text-gray-400 block">Target pH</span>
               <span className="text-xl font-bold text-blue-700">{fmt(result.ph, 1)}</span>
             </div>
           </div>
 
           {/* Nutrient Composition - Macro */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-800">Macronutrient Composition</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Macronutrient Composition</h3>
             </div>
             <DataTable<NutrientRow>
               data={MACRO_ROWS}
@@ -217,9 +265,9 @@ const ResultTab: React.FC = () => {
           </div>
 
           {/* Micronutrient Composition */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-800">Micronutrient Composition</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Micronutrient Composition</h3>
             </div>
             <DataTable<NutrientRow>
               data={MICRO_ROWS}
@@ -233,74 +281,37 @@ const ResultTab: React.FC = () => {
           </div>
 
           {/* Fertilizer Amounts */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-800">Stock Solution - Fertilizer Amounts</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">Stock Solution - Fertilizer Amounts</h3>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                    <th className="px-4 py-2">Tank</th>
-                    <th className="px-4 py-2">Fertilizer</th>
-                    <th className="px-4 py-2">Formula</th>
-                    <th className="px-4 py-2 text-right">g/L stock</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {['A', 'B', 'Acid', 'Micro', 'Silicon'].map((tank) => {
-                    const items = fertByTank[tank];
-                    if (!items || items.length === 0) return null;
-                    return items.map((f, i) => {
-                      // BUG-HYD-017: Use formula as key (unique within a tank) instead of
-                      // array index so React reconciles correctly if allocation order changes.
-                      const rowKey = `${tank}-${f.formula}`;
-                      // Result guard (Pattern 1): render an error indicator for NaN/Infinity
-                      // instead of displaying a plainly wrong dosage string.
-                      const dosageDisplay = isFinite(f.gramsPerLiter)
-                        ? f.gramsPerLiter.toFixed(3)
-                        : <span className="text-red-600 font-semibold">Error</span>;
-                      return (
-                        <tr key={rowKey} className="border-b border-gray-100 last:border-b-0">
-                          {i === 0 ? (
-                            <td className="px-4 py-2 font-semibold text-gray-800" rowSpan={items.length}>
-                              <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold ${
-                                tank === 'A' ? 'bg-blue-100 text-blue-700' :
-                                tank === 'B' ? 'bg-purple-100 text-purple-700' :
-                                tank === 'Acid' ? 'bg-red-100 text-red-700' :
-                                tank === 'Micro' ? 'bg-emerald-100 text-emerald-700' :
-                                'bg-gray-100 text-gray-700'
-                              }`}>
-                                {tank.charAt(0)}
-                              </span>
-                            </td>
-                          ) : null}
-                          <td className="px-4 py-2 text-gray-700">{f.name}</td>
-                          <td className="px-4 py-2 text-gray-500 text-xs font-mono">{f.formula}</td>
-                          <td className="px-4 py-2 text-right font-medium text-gray-900">{dosageDisplay}</td>
-                        </tr>
-                      );
-                    });
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <DataTable<FertilizerRow>
+              data={fertilizerRows}
+              columns={fertilizerColumns}
+              keyExtractor={(row) => `${row.tank}-${row.formula}`}
+              emptyMessage="No fertilizer allocation"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              compact
+              className="border-0 rounded-none shadow-none"
+            />
           </div>
 
           {/* Ion Balance */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
-            <h3 className="text-sm font-semibold text-gray-800 mb-3">Ion Balance Check</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3">Ion Balance Check</h3>
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
-                <span className="text-xs text-gray-500 block">Total Cations</span>
-                <span className="text-sm font-bold text-gray-900">{fmt(result.ionBalance.totalCations)} meq/L</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 block">Total Cations</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{fmt(result.ionBalance.totalCations)} meq/L</span>
               </div>
               <div>
-                <span className="text-xs text-gray-500 block">Total Anions</span>
-                <span className="text-sm font-bold text-gray-900">{fmt(result.ionBalance.totalAnions)} meq/L</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 block">Total Anions</span>
+                <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{fmt(result.ionBalance.totalAnions)} meq/L</span>
               </div>
               <div>
-                <span className="text-xs text-gray-500 block">Balance</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 block">Balance</span>
                 <span className={`text-sm font-bold ${
                   Math.abs(result.ionBalance.balancePercent) <= 5 ? 'text-green-700' : 'text-amber-700'
                 }`}>

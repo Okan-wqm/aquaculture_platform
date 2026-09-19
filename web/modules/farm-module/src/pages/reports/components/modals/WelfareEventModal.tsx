@@ -4,7 +4,7 @@
  * Contact: varsling.akva@mattilsynet.no
  */
 import React, { useState, useCallback, useMemo } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import {
   WelfareEventReport,
   WelfareEventType,
@@ -375,14 +375,14 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
         )}
 
         {/* Site Info */}
-        <div className="bg-gray-50 rounded-md p-3">
-          <span className="text-sm text-gray-500">Site: </span>
-          <span className="text-sm font-medium text-gray-900">{siteName}</span>
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-md p-3">
+          <span className="text-sm text-gray-500 dark:text-gray-400">Site: </span>
+          <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{siteName}</span>
         </div>
 
         {/* Event Type */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Event Type <span className="text-red-500">*</span>
           </label>
           <div className="space-y-2">
@@ -394,7 +394,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                         ${
                           formData.eventType === option.value
                             ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                         }
                       `}
               >
@@ -404,11 +404,11 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   value={option.value}
                   checked={formData.eventType === option.value}
                   onChange={(e) => handleChange('eventType', e.target.value as WelfareEventType)}
-                  className="mt-0.5 h-4 w-4 text-blue-600 border-gray-300"
+                  className="mt-0.5 h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600"
                 />
                 <div className="ml-3">
-                  <span className="block text-sm font-medium text-gray-900">{option.label}</span>
-                  <span className="block text-xs text-gray-500">{option.description}</span>
+                  <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">{option.label}</span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">{option.description}</span>
                 </div>
               </label>
             ))}
@@ -418,7 +418,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
         {/* Severity */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Severity <span className="text-red-500">*</span>
           </label>
           <div className="flex gap-4">
@@ -430,7 +430,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                         ${
                           formData.severity === option.value
                             ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                         }
                       `}
               >
@@ -440,7 +440,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   value={option.value}
                   checked={formData.severity === option.value}
                   onChange={(e) => handleChange('severity', e.target.value as WelfareEventSeverity)}
-                  className="h-4 w-4 text-blue-600 border-gray-300"
+                  className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600"
                 />
                 <span className={`ml-2 text-sm font-medium ${option.color}`}>{option.label}</span>
               </label>
@@ -451,10 +451,10 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
         {/* Type-specific fields */}
         {formData.eventType === 'mortality_threshold' && (
           <div className="space-y-4 p-4 bg-orange-50 rounded-md border border-orange-200">
-            <h4 className="text-sm font-medium text-gray-900">Mortality Data</h4>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Mortality Data</h4>
 
             {/* Tip note */}
-            <div className="bg-white rounded-md p-3 border border-orange-100">
+            <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-orange-100">
               <p className="text-xs text-orange-700">
                 Tip: Check Tanks page for current mortality rates
               </p>
@@ -466,7 +466,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   <div className="space-y-1">
                     {highMortalityTanks.slice(0, 5).map((tank) => (
                       <div key={tank.id} className="flex items-center justify-between text-xs">
-                        <span className="text-gray-700">
+                        <span className="text-gray-700 dark:text-gray-300">
                           {tank.name} ({tank.code})
                         </span>
                         <span className="font-medium text-red-600">
@@ -481,7 +481,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-700 mb-1">
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Mortality Rate (%) <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -491,7 +491,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   onChange={(e) => handleChange('mortalityRate', e.target.value)}
                   className={`
                           block w-full rounded-md shadow-sm text-sm
-                          ${errors.mortalityRate ? 'border-red-300' : 'border-gray-300'}
+                          ${errors.mortalityRate ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-blue-500 focus:border-blue-500
                         `}
                   placeholder="e.g., 2.5"
@@ -501,7 +501,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 )}
               </div>
               <div>
-                <label className="block text-sm text-gray-700 mb-1">
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Mortality Count <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -510,7 +510,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   onChange={(e) => handleChange('mortalityCount', e.target.value)}
                   className={`
                           block w-full rounded-md shadow-sm text-sm
-                          ${errors.mortalityCount ? 'border-red-300' : 'border-gray-300'}
+                          ${errors.mortalityCount ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-blue-500 focus:border-blue-500
                         `}
                   placeholder="Total dead fish"
@@ -521,13 +521,13 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
               </div>
             </div>
             <div>
-              <label className="block text-sm text-gray-700 mb-1">Period</label>
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Period</label>
               <select
                 value={formData.mortalityPeriod}
                 onChange={(e) =>
                   handleChange('mortalityPeriod', e.target.value as '1_day' | '3_day' | '7_day')
                 }
-                className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="1_day">1 Day</option>
                 <option value="3_day">3 Days</option>
@@ -562,17 +562,17 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
             {/* Affected Batches */}
             {batches.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Select Affected Batches
                 </label>
-                <div className="max-h-40 overflow-y-auto border border-gray-200 rounded-md bg-white">
+                <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900">
                   {batches.map((batch) => {
                     // Try to find the tank for this batch
                     const tank = tanks.find((t) => t.batchMetrics?.batchId === batch.id);
                     return (
                       <label
                         key={batch.id}
-                        className={`flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${
+                        className={`flex items-center px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer border-b border-gray-100 dark:border-gray-700 last:border-b-0 ${
                           formData.affectedBatchIds.includes(batch.id) ? 'bg-blue-50' : ''
                         }`}
                       >
@@ -580,19 +580,19 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                           type="checkbox"
                           checked={formData.affectedBatchIds.includes(batch.id)}
                           onChange={() => toggleBatch(batch.id)}
-                          className="h-4 w-4 text-blue-600 border-gray-300 rounded"
+                          className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
                         />
                         <div className="ml-3 flex-1 min-w-0">
                           <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-gray-900 truncate">
+                            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                               {batch.batchNumber}
                               {batch.name ? ` - ${batch.name}` : ''}
                             </span>
-                            <span className="text-xs text-gray-500 ml-2 flex-shrink-0">
+                            <span className="text-xs text-gray-500 dark:text-gray-400 ml-2 flex-shrink-0">
                               {batch.currentQuantity?.toLocaleString()} fish
                             </span>
                           </div>
-                          <div className="text-xs text-gray-500">
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
                             {tank ? `Tank: ${tank.name}` : ''}
                             {batch.mortalityRate != null && (
                               <span
@@ -626,11 +626,11 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
         {formData.eventType === 'equipment_failure' && (
           <div className="space-y-4 p-4 bg-yellow-50 rounded-md border border-yellow-200">
-            <h4 className="text-sm font-medium text-gray-900">Equipment Details</h4>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Equipment Details</h4>
 
             {/* Equipment Type Quick Select */}
             <div>
-              <label className="block text-sm text-gray-700 mb-1">Equipment Type</label>
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Equipment Type</label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {EQUIPMENT_TYPE_OPTIONS.map((type) => (
                   <button
@@ -647,7 +647,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                     className={`px-3 py-1 text-xs rounded-full border transition-colors ${
                       formData.equipmentType === type
                         ? 'bg-blue-100 border-blue-400 text-blue-800'
-                        : 'bg-white border-gray-300 text-gray-600 hover:border-gray-400'
+                        : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500'
                     }`}
                   >
                     {type}
@@ -658,7 +658,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-700 mb-1">
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Equipment Name <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -670,7 +670,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   }}
                   className={`
                           block w-full rounded-md shadow-sm text-sm
-                          ${errors.equipmentName ? 'border-red-300' : 'border-gray-300'}
+                          ${errors.equipmentName ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-blue-500 focus:border-blue-500
                         `}
                   placeholder={
@@ -684,7 +684,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 )}
               </div>
               <div>
-                <label className="block text-sm text-gray-700 mb-1">
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Failure Type <span className="text-red-500">*</span>
                 </label>
                 <select
@@ -692,7 +692,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   onChange={(e) => handleChange('failureType', e.target.value)}
                   className={`
                           block w-full rounded-md shadow-sm text-sm
-                          ${errors.failureType ? 'border-red-300' : 'border-gray-300'}
+                          ${errors.failureType ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-blue-500 focus:border-blue-500
                         `}
                 >
@@ -710,33 +710,33 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-700 mb-1">Injured Fish</label>
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Injured Fish</label>
                 <input
                   type="number"
                   value={formData.injuredFishCount}
                   onChange={(e) => handleChange('injuredFishCount', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
                   placeholder="0"
                 />
               </div>
               <div>
-                <label className="block text-sm text-gray-700 mb-1">Mortality Count</label>
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Mortality Count</label>
                 <input
                   type="number"
                   value={formData.mortalityCount}
                   onChange={(e) => handleChange('mortalityCount', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
                   placeholder="0"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm text-gray-700 mb-1">Description</label>
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Description</label>
               <textarea
                 value={formData.description}
                 onChange={(e) => handleChange('description', e.target.value)}
                 rows={2}
-                className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Describe the equipment failure and its impact..."
               />
             </div>
@@ -745,9 +745,9 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
         {formData.eventType === 'welfare_impact' && (
           <div className="space-y-4 p-4 bg-blue-50 rounded-md border border-blue-200">
-            <h4 className="text-sm font-medium text-gray-900">Welfare Impact Details</h4>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Welfare Impact Details</h4>
             <div>
-              <label className="block text-sm text-gray-700 mb-1">
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                 Description <span className="text-red-500">*</span>
               </label>
               <textarea
@@ -756,7 +756,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 rows={3}
                 className={`
                         block w-full rounded-md shadow-sm text-sm
-                        ${errors.description ? 'border-red-300' : 'border-gray-300'}
+                        ${errors.description ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
                         focus:ring-blue-500 focus:border-blue-500
                       `}
                 placeholder="Describe the welfare event and its impact on fish..."
@@ -767,7 +767,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-700 mb-1">
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                   Affected Fish Estimate <span className="text-red-500">*</span>
                 </label>
                 <input
@@ -776,7 +776,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   onChange={(e) => handleChange('affectedFishEstimate', e.target.value)}
                   className={`
                           block w-full rounded-md shadow-sm text-sm
-                          ${errors.affectedFishEstimate ? 'border-red-300' : 'border-gray-300'}
+                          ${errors.affectedFishEstimate ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'}
                           focus:ring-blue-500 focus:border-blue-500
                         `}
                   placeholder="Number of fish"
@@ -786,13 +786,13 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 )}
               </div>
               <div>
-                <label className="block text-sm text-gray-700 mb-1">Affected Percentage (%)</label>
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Affected Percentage (%)</label>
                 <input
                   type="number"
                   step="0.1"
                   value={formData.affectedPercentage}
                   onChange={(e) => handleChange('affectedPercentage', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
                   placeholder="e.g., 15"
                 />
               </div>
@@ -811,7 +811,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
         {/* Suggested Immediate Actions */}
         {suggestedActions.length > 0 && (
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Suggested Actions
             </label>
             <div className="flex flex-wrap gap-2">
@@ -826,7 +826,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                     className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
                       isAdded
                         ? 'bg-green-100 border-green-300 text-green-700 cursor-default'
-                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400'
+                        : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-400 dark:hover:border-gray-500'
                     }`}
                   >
                     {isAdded ? (
@@ -873,17 +873,17 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
         {/* Immediate Actions */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Immediate Actions Taken <span className="text-red-500">*</span>
           </label>
           <div className="space-y-2">
             {formData.immediateActions.map((action, index) => (
-              <div key={index} className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-md">
-                <span className="flex-1 text-sm text-gray-700">{action}</span>
+              <div key={index} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md">
+                <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{action}</span>
                 <button
                   type="button"
                   onClick={() => removeAction(index)}
-                  className="text-gray-400 hover:text-red-500"
+                  className="text-gray-400 dark:text-gray-500 hover:text-red-500"
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path
@@ -908,13 +908,13 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   addAction();
                 }
               }}
-              className="flex-1 rounded-md border-gray-300 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
+              className="flex-1 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm focus:ring-blue-500 focus:border-blue-500"
               placeholder="Add an action taken..."
             />
             <button
               type="button"
               onClick={addAction}
-              className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
+              className="px-3 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 text-sm"
             >
               Add
             </button>
@@ -925,8 +925,8 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
         </div>
       </div>
 
-      <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
-        <p className="text-xs text-gray-500">
+      <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           This report will be sent to Mattilsynet immediately upon submission.
         </p>
         <div className="flex gap-3">
@@ -934,7 +934,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -946,21 +946,7 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
           >
             {isSubmitting ? (
               <>
-                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                  />
-                </svg>
+                <Spinner size="sm" color="inherit" />
                 Submitting...
               </>
             ) : (

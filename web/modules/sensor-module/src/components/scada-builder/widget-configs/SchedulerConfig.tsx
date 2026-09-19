@@ -66,23 +66,23 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
     <div className="space-y-3">
       {/* Title */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Title</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Title</label>
         <input
           type="text"
           value={title}
           onChange={(e) => onChange({ title: e.target.value })}
           placeholder="Schedule"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Show Hour Labels */}
-      <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+      <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
         <input
           type="checkbox"
           checked={showHourLabels}
           onChange={(e) => onChange({ showHourLabels: e.target.checked })}
-          className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+          className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
         />
         Show hour labels
       </label>
@@ -90,7 +90,7 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
       {/* Entries */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <label className="block text-xs text-gray-500 font-medium">Schedule Entries</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 font-medium">Schedule Entries</label>
           <button
             type="button"
             onClick={addEntry}
@@ -101,12 +101,12 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
         </div>
 
         {entries.length === 0 && (
-          <p className="text-xs text-gray-400 italic">No schedule entries yet. Click &quot;Add Entry&quot; to begin.</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 italic">No schedule entries yet. Click &quot;Add Entry&quot; to begin.</p>
         )}
 
         <div className="space-y-3">
           {entries.map((entry, idx) => (
-            <div key={entry.id} className="p-2 border border-gray-200 rounded-lg bg-gray-50 space-y-2">
+            <div key={entry.id} className="p-2 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-2">
               {/* Header row with label + remove */}
               <div className="flex items-center gap-2">
                 <input
@@ -114,7 +114,7 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                   value={entry.label}
                   onChange={(e) => updateEntry(idx, { label: e.target.value })}
                   placeholder="Block label"
-                  className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
                 <button
                   type="button"
@@ -129,11 +129,11 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
               {/* Day + Hours */}
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-[10px] text-gray-400 mb-0.5">Day</label>
+                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Day</label>
                   <select
                     value={entry.day}
                     onChange={(e) => updateEntry(idx, { day: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     {DAY_OPTIONS.map((d) => (
                       <option key={d.value} value={d.value}>{d.label}</option>
@@ -141,11 +141,11 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400 mb-0.5">Start Hour</label>
+                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Start Hour</label>
                   <select
                     value={entry.startHour}
                     onChange={(e) => updateEntry(idx, { startHour: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     {HOUR_OPTIONS.map((h) => (
                       <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
@@ -153,11 +153,11 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400 mb-0.5">End Hour</label>
+                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">End Hour</label>
                   <select
                     value={entry.endHour}
                     onChange={(e) => updateEntry(idx, { endHour: Number(e.target.value) })}
-                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     {HOUR_OPTIONS.map((h) => (
                       <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
@@ -168,19 +168,19 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
 
               {/* Color */}
               <div>
-                <label className="block text-[10px] text-gray-400 mb-0.5">Color</label>
+                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Color</label>
                 <div className="flex items-center gap-2">
                   <input
                     type="color"
                     value={entry.color || themeColors.info[500]}
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
-                    className="w-6 h-6 rounded border border-gray-300 cursor-pointer"
+                    className="w-6 h-6 rounded border border-gray-300 dark:border-gray-600 cursor-pointer"
                   />
                   <input
                     type="text"
                     value={entry.color || themeColors.info[500]}
                     onChange={(e) => updateEntry(idx, { color: e.target.value })}
-                    className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
                 </div>
               </div>
@@ -188,23 +188,23 @@ export const SchedulerConfig: React.FC<WidgetConfigProps> = ({ config, onChange 
               {/* Optional: Tag Name + Tag Value */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] text-gray-400 mb-0.5">Tag Name (optional)</label>
+                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Tag Name (optional)</label>
                   <input
                     type="text"
                     value={entry.tagName ?? ''}
                     onChange={(e) => updateEntry(idx, { tagName: e.target.value || undefined })}
                     placeholder="e.g. pump1.schedule"
-                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] text-gray-400 mb-0.5">Tag Value (optional)</label>
+                  <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Tag Value (optional)</label>
                   <input
                     type="text"
                     value={entry.tagValue ?? ''}
                     onChange={(e) => updateEntry(idx, { tagValue: e.target.value || undefined })}
                     placeholder="e.g. ON"
-                    className="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
                 </div>
               </div>

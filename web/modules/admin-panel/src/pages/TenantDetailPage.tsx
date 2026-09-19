@@ -5,17 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import {
-  Card,
-  Button,
-  Badge,
-  Input,
-  Select,
-  Modal,
-  Alert,
-  formatDate,
-  formatNumber,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Modal, Alert, formatDate, formatNumber, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -44,7 +34,7 @@ const SimpleTabs: React.FC<{
   activeTab: string;
   onChange: (value: string) => void;
 }> = ({ tabs, activeTab, onChange }) => (
-  <div className="border-b border-gray-200">
+  <div className="border-b border-gray-200 dark:border-gray-700">
     <div className="-mb-px flex space-x-8" aria-label="Tabs" role="tablist">
       {tabs.map((tab) => (
         <button
@@ -55,7 +45,7 @@ const SimpleTabs: React.FC<{
           className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${
             activeTab === tab.value
               ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
           }`}
         >
           {tab.label}
@@ -139,13 +129,13 @@ const ProgressBar: React.FC<{ value: number; max: number; label?: string }> = ({
     <div className="space-y-1">
       {label && (
         <div className="flex justify-between text-sm">
-          <span className="text-gray-600">{label}</span>
-          <span className="text-gray-900 font-medium">
+          <span className="text-gray-600 dark:text-gray-400">{label}</span>
+          <span className="text-gray-900 dark:text-gray-100 font-medium">
             {value} / {max === -1 ? 'Unlimited' : max}
           </span>
         </div>
       )}
-      <div className="w-full bg-gray-200 rounded-full h-2">
+      <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
         <div
           className={`${colorClass} h-2 rounded-full transition-all`}
           style={{ width: `${percentage}%` }}
@@ -329,7 +319,7 @@ const TenantDetailPage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -353,43 +343,45 @@ const TenantDetailPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent onRetry={reload} />
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start space-x-4">
-          <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </Button>
-          <div>
-            <div className="flex items-center space-x-3">
-              <h1 className="text-2xl font-bold text-gray-900">{tenant.name}</h1>
+      <PageHeader
+        title={
+          <>
+            <span className="flex items-center gap-3">
+              {tenant.name}
               <Badge variant={getStatusVariant(tenant.status)}>{tenant.status}</Badge>
               <Badge variant={getTierVariant(tenant.tier)}>{tenant.tier}</Badge>
               {tenant.isTrialActive && (
                 <Badge variant="warning">Trial Active</Badge>
               )}
-            </div>
-            <p className="text-gray-500 mt-1">
-              {tenant.slug} {tenant.domain && `• ${tenant.domain}`}
-            </p>
-          </div>
-        </div>
-        <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setIsEditModalOpen(true)}>
-            Edit
+            </span>
+          </>
+        }
+        description={<>{tenant.slug} {tenant.domain && `• ${tenant.domain}`}</>}
+        leading={
+          <Button variant="ghost" onClick={() => navigate('/admin/tenants')}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
           </Button>
-          {getAvailableActions(tenant).has('suspend') && (
-            <Button variant="danger" onClick={() => setIsSuspendModalOpen(true)}>
-              Suspend
+        }
+        actions={
+          <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setIsEditModalOpen(true)}>
+              Edit
             </Button>
-          )}
-          {getAvailableActions(tenant).has('activate') && (
-            <Button variant="outline" onClick={handleActivate}>
-              Activate
-            </Button>
-          )}
-        </div>
-      </div>
+            {getAvailableActions(tenant).has('suspend') && (
+              <Button variant="danger" onClick={() => setIsSuspendModalOpen(true)}>
+                Suspend
+              </Button>
+            )}
+            {getAvailableActions(tenant).has('activate') && (
+              <Button variant="outline" onClick={handleActivate}>
+                Activate
+              </Button>
+            )}
+          </div>
+        }
+      />
 
       {/* Tabs */}
       <SimpleTabs
@@ -414,33 +406,33 @@ const TenantDetailPage: React.FC = () => {
             <h3 className="text-lg font-semibold mb-4">General Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-gray-500">Company Name</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">Company Name</label>
                 <p className="font-medium">{tenant.name}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Slug</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">Slug</label>
                 <p className="font-mono text-sm">{tenant.slug}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Domain</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">Domain</label>
                 <p className="font-medium">{tenant.domain || '-'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Country / Region</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">Country / Region</label>
                 <p className="font-medium">
                   {tenant.country || '-'} {tenant.region && `/ ${tenant.region}`}
                 </p>
               </div>
               <div className="col-span-2">
-                <label className="text-xs text-gray-500">Description</label>
-                <p className="text-gray-600">{tenant.description || '-'}</p>
+                <label className="text-xs text-gray-500 dark:text-gray-400">Description</label>
+                <p className="text-gray-600 dark:text-gray-400">{tenant.description || '-'}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Created</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">Created</label>
                 <p className="font-medium">{formatDate(new Date(tenant.createdAt), 'long')}</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500">Last Activity</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">Last Activity</label>
                 <p className="font-medium">
                   {/*
                     Read off the newest tenant activity, not off a
@@ -460,27 +452,27 @@ const TenantDetailPage: React.FC = () => {
             {/* Contacts */}
             <h4 className="text-md font-semibold mt-6 mb-3">Contact Information</h4>
             <div className="grid grid-cols-2 gap-4">
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <label className="text-xs text-gray-500">Primary Contact</label>
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <label className="text-xs text-gray-500 dark:text-gray-400">Primary Contact</label>
                 {tenant.primaryContact ? (
                   <>
                     <p className="font-medium">{tenant.primaryContact.name}</p>
-                    <p className="text-sm text-gray-600">{tenant.primaryContact.email}</p>
-                    <p className="text-sm text-gray-500">{tenant.primaryContact.role}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{tenant.primaryContact.email}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{tenant.primaryContact.role}</p>
                   </>
                 ) : (
-                  <p className="text-gray-500">Not specified</p>
+                  <p className="text-gray-500 dark:text-gray-400">Not specified</p>
                 )}
               </div>
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <label className="text-xs text-gray-500">Billing Contact</label>
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <label className="text-xs text-gray-500 dark:text-gray-400">Billing Contact</label>
                 {tenant.billingContact ? (
                   <>
                     <p className="font-medium">{tenant.billingContact.name}</p>
-                    <p className="text-sm text-gray-600">{tenant.billingContact.email}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{tenant.billingContact.email}</p>
                   </>
                 ) : (
-                  <p className="text-gray-500">Not specified</p>
+                  <p className="text-gray-500 dark:text-gray-400">Not specified</p>
                 )}
               </div>
             </div>
@@ -495,8 +487,8 @@ const TenantDetailPage: React.FC = () => {
                 rendered as a measured zero — "0 users" for a tenant whose user
                 stats simply did not come back. */}
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Users</h4>
-              <p className="text-3xl font-bold text-gray-900">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Users</h4>
+              <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.userStats ? tenant.userStats.total.toLocaleString() : '—'}
               </p>
               <p className="text-sm text-green-600">
@@ -504,28 +496,28 @@ const TenantDetailPage: React.FC = () => {
               </p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Farms</h4>
-              <p className="text-3xl font-bold text-gray-900">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Farms</h4>
+              <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.farmCount.toLocaleString()}
               </p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Sensors</h4>
-              <p className="text-3xl font-bold text-gray-900">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Sensors</h4>
+              <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.sensorCount.toLocaleString()}
               </p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Active Modules</h4>
-              <p className="text-3xl font-bold text-gray-900">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Active Modules</h4>
+              <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.modules
                   ? tenant.modules.filter((m) => m.isActive).length.toLocaleString()
                   : '—'}
               </p>
             </Card>
             <Card className="p-4">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Storage Limit</h4>
-              <p className="text-3xl font-bold text-gray-900">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Storage Limit</h4>
+              <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">
                 {tenant.maxStorage === undefined || tenant.maxStorage === -1
                   ? 'Unlimited'
                   : `${tenant.maxStorage} GB`}
@@ -533,10 +525,10 @@ const TenantDetailPage: React.FC = () => {
             </Card>
             {tenant.isTrialActive && (
               <Card className="p-4 border-l-4 border-l-yellow-400">
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Trial Status</h4>
+                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Trial Status</h4>
                 <Badge variant="warning">Trial Active</Badge>
                 {tenant.trialEndsAt && (
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     Ends: {formatDate(new Date(tenant.trialEndsAt), 'short')}
                   </p>
                 )}
@@ -562,7 +554,7 @@ const TenantDetailPage: React.FC = () => {
               </div>
               <div className="flex justify-between">
                 <span>Inactive</span>
-                <span className="font-bold text-gray-500">{tenant.userStats.inactive}</span>
+                <span className="font-bold text-gray-500 dark:text-gray-400">{tenant.userStats.inactive}</span>
               </div>
               <div className="flex justify-between">
                 <span>Active in Last 7 Days</span>
@@ -600,11 +592,11 @@ const TenantDetailPage: React.FC = () => {
                 {tenant.modules.map((mod) => (
                   <div
                     key={mod.moduleId}
-                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                    className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
                   >
                     <div>
                       <p className="font-medium">{mod.moduleName}</p>
-                      <p className="text-xs text-gray-500">{mod.moduleCode}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{mod.moduleCode}</p>
                     </div>
                     <div className="flex items-center space-x-2">
                       <Badge variant={mod.isActive ? 'success' : 'default'}>
@@ -622,7 +614,7 @@ const TenantDetailPage: React.FC = () => {
                 ))}
               </div>
             ) : (
-              <p className="text-gray-500">No modules assigned</p>
+              <p className="text-gray-500 dark:text-gray-400">No modules assigned</p>
             )}
           </Card>
           <Card className="p-6">
@@ -633,11 +625,11 @@ const TenantDetailPage: React.FC = () => {
                 .map((mod) => (
                   <div
                     key={mod.id}
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
+                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     <div>
                       <p className="font-medium">{mod.name}</p>
-                      <p className="text-xs text-gray-500">{mod.code}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{mod.code}</p>
                     </div>
                     <Button size="sm" onClick={() => handleAssignModule(mod.id)}>
                       Assign
@@ -714,9 +706,9 @@ const TenantDetailPage: React.FC = () => {
                   <div className="flex-1">
                     <p className="font-medium">{activity.title}</p>
                     {activity.description && (
-                      <p className="text-sm text-gray-600">{activity.description}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{activity.description}</p>
                     )}
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       {activity.performedByEmail || 'System'} •{' '}
                       {formatRelativeTime(activity.createdAt)}
                     </p>
@@ -726,7 +718,7 @@ const TenantDetailPage: React.FC = () => {
               ))}
             </div>
           ) : (
-            <p className="text-gray-500">No activity records</p>
+            <p className="text-gray-500 dark:text-gray-400">No activity records</p>
           )}
         </Card>
       )}
@@ -777,7 +769,7 @@ const TenantDetailPage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <p className="text-gray-500">No billing information</p>
+              <p className="text-gray-500 dark:text-gray-400">No billing information</p>
             )}
           </Card>
           <Card className="p-6">
@@ -799,7 +791,7 @@ const TenantDetailPage: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <p className="text-gray-500">No payment records</p>
+              <p className="text-gray-500 dark:text-gray-400">No payment records</p>
             )}
           </Card>
         </div>
@@ -818,13 +810,13 @@ const TenantDetailPage: React.FC = () => {
                 <div
                   key={note.id}
                   className={`p-4 rounded-lg border ${
-                    note.isPinned ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200'
+                    note.isPinned ? 'border-yellow-400 bg-yellow-50' : 'border-gray-200 dark:border-gray-700'
                   }`}
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
-                      <p className="text-gray-800 whitespace-pre-wrap">{note.content}</p>
-                      <p className="text-xs text-gray-500 mt-2">
+                      <p className="text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{note.content}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
                         {note.createdByEmail || note.createdBy} •{' '}
                         {formatRelativeTime(note.createdAt)} •{' '}
                         <Badge variant="default">{note.category}</Badge>
@@ -842,7 +834,7 @@ const TenantDetailPage: React.FC = () => {
               ))}
             </div>
           ) : (
-            <p className="text-gray-500">No notes</p>
+            <p className="text-gray-500 dark:text-gray-400">No notes</p>
           )}
         </Card>
       )}
@@ -932,7 +924,7 @@ const TenantDetailPage: React.FC = () => {
             ]}
           />
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Note</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Note</label>
             <textarea
               className="w-full border rounded-lg p-3 min-h-[120px]"
               value={newNote.content}
@@ -961,7 +953,7 @@ const TenantDetailPage: React.FC = () => {
           This action will block access for all users of this tenant.
         </Alert>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reason</label>
           <textarea
             className="w-full border rounded-lg p-3 min-h-[100px]"
             value={suspendReason}

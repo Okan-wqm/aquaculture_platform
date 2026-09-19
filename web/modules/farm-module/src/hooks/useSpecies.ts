@@ -489,7 +489,7 @@ export const speciesStatusLabels: Record<SpeciesStatus, string> = {
 
 export const speciesStatusColors: Record<SpeciesStatus, string> = {
   [SpeciesStatus.ACTIVE]: 'bg-green-100 text-green-800',
-  [SpeciesStatus.INACTIVE]: 'bg-gray-100 text-gray-800',
+  [SpeciesStatus.INACTIVE]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   [SpeciesStatus.EXPERIMENTAL]: 'bg-yellow-100 text-yellow-800',
   [SpeciesStatus.DISCONTINUED]: 'bg-red-100 text-red-800',
 };
@@ -502,7 +502,7 @@ export const speciesCategoryColors: Record<SpeciesCategory, string> = {
   [SpeciesCategory.LOBSTER]: 'bg-purple-100 text-purple-800',
   [SpeciesCategory.MOLLUSK]: 'bg-teal-100 text-teal-800',
   [SpeciesCategory.SEAWEED]: 'bg-green-100 text-green-800',
-  [SpeciesCategory.OTHER]: 'bg-gray-100 text-gray-800',
+  [SpeciesCategory.OTHER]: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 export const waterTypeColors: Record<SpeciesWaterType, string> = {

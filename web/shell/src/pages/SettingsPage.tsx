@@ -8,16 +8,7 @@
  * - Privacy: GDPR consent management (view/toggle/withdraw consents, history)
  */
 
-import {
-  useAuthContext,
-  Button,
-  Input,
-  Alert,
-  Card,
-  Modal,
-  useToast,
-  graphqlClient,
-} from '@aquaculture/shared-ui';
+import { useAuthContext, Button, Input, Alert, Card, Modal, useToast, graphqlClient, Spinner, PageHeader, Tabs, TabPanel } from '@aquaculture/shared-ui';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -202,18 +193,18 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
       {/* Avatar Section */}
       <Card>
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Profile Picture</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Profile Picture</h3>
           <div className="flex items-center gap-6">
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg">
               {(user?.firstName?.[0] || user?.email?.[0] || '?').toUpperCase()}
             </div>
             <div>
-              <p className="text-sm text-gray-600 mb-2">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                 {user?.firstName && user?.lastName
                   ? `${user.firstName} ${user.lastName}`
                   : user?.email}
               </p>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-gray-400 dark:text-gray-500">
                 Avatar changes will be available in a future update.
               </p>
             </div>
@@ -226,7 +217,7 @@ const ProfileTab: React.FC<TabProps> = ({ showToast }) => {
         <form onSubmit={(event) => {
           void handleSubmit(event);
         }} className="p-6 space-y-5">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Personal Information</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Personal Information</h3>
 
           {successMessage && (
             <Alert type="success" dismissible onDismiss={() => setSuccessMessage('')}>
@@ -645,8 +636,8 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Change Password</h3>
-              <p className="text-sm text-gray-500">Update your password to keep your account secure</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Change Password</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Update your password to keep your account secure</p>
             </div>
           </div>
 
@@ -719,8 +710,8 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                 </svg>
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">Two-Factor Authentication</h3>
-                <p className="text-sm text-gray-500">Add an extra layer of security to your account</p>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Two-Factor Authentication</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Add an extra layer of security to your account</p>
               </div>
             </div>
             <span
@@ -729,7 +720,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                   ? 'bg-green-100 text-green-800'
                   : mfaEnabled && !mfaAvailable
                     ? 'bg-red-100 text-red-800'
-                  : 'bg-gray-100 text-gray-600'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
               }`}
             >
               {mfaEnabled ? (mfaAvailable ? 'Enabled' : 'Unavailable') : 'Disabled'}
@@ -756,7 +747,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
 
           {!mfaEnabled ? (
             <div className="mt-4">
-              <p className="text-sm text-gray-600 mb-4">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                 Use an authenticator app (like Google Authenticator, Authy, or 1Password) to generate
                 one-time verification codes for additional security.
               </p>
@@ -802,8 +793,8 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Biometric / Passkey Credentials</h3>
-              <p className="text-sm text-gray-500">Manage your registered biometric login devices</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Biometric / Passkey Credentials</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Manage your registered biometric login devices</p>
             </div>
           </div>
 
@@ -814,11 +805,11 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
           )}
 
           {isLoadingCredentials ? (
-            <div className="py-8 text-center text-sm text-gray-500">Loading credentials...</div>
+            <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">Loading credentials...</div>
           ) : webAuthnCredentials.length === 0 ? (
             <div className="py-6 text-center">
-              <p className="text-sm text-gray-500 mb-2">No biometric credentials registered.</p>
-              <p className="text-xs text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">No biometric credentials registered.</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
                 You can register biometric login from a supported browser and device.
               </p>
             </div>
@@ -827,7 +818,7 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
               {webAuthnCredentials.map((credential) => (
                 <div
                   key={credential.credentialId}
-                  className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200"
+                  className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -836,8 +827,8 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
                       </svg>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-900">{credential.deviceName || 'Unnamed Device'}</p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{credential.deviceName || 'Unnamed Device'}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
                         Registered {new Date(credential.createdAt).toLocaleDateString()}
                         {credential.lastUsedAt && ` · Last used ${new Date(credential.lastUsedAt).toLocaleDateString()}`}
                       </p>
@@ -872,17 +863,17 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
           {mfaSetupData && (
             <>
               <div className="text-center">
-                <p className="text-sm text-gray-600 mb-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
                   Scan this QR code with your authenticator app, then enter the 6-digit code below.
                 </p>
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+                <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 mb-4">
                   <QrCode value={mfaSetupData.qrCodeUri} className="mx-auto w-48 h-48" />
                 </div>
                 <details className="text-left">
-                  <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
+                  <summary className="text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-100">
                     Can&apos;t scan? Enter this key manually
                   </summary>
-                  <code className="block mt-2 p-2 bg-gray-100 rounded text-xs font-mono text-gray-800 break-all select-all">
+                  <code className="block mt-2 p-2 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-gray-800 dark:text-gray-200 break-all select-all">
                     {mfaSetupData.secret}
                   </code>
                 </details>
@@ -936,10 +927,10 @@ const SecurityTab: React.FC<TabProps> = ({ showToast }) => {
             If you lose access to your authenticator app, you can use these codes to log in.
           </Alert>
 
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
             <div className="grid grid-cols-2 gap-2">
               {recoveryCodes.map((code, index) => (
-                <code key={index} className="text-sm font-mono text-gray-800 p-1 select-all">
+                <code key={index} className="text-sm font-mono text-gray-800 dark:text-gray-200 p-1 select-all">
                   {code}
                 </code>
               ))}
@@ -1193,8 +1184,8 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
   const NotifToggle: React.FC<{ enabled: boolean; onChange: (v: boolean) => void; label: string; desc: string }> = ({ enabled, onChange, label, desc }) => (
     <div className="flex items-center justify-between py-3">
       <div>
-        <p className="text-sm font-medium text-gray-900">{label}</p>
-        <p className="text-xs text-gray-500">{desc}</p>
+        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{label}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">{desc}</p>
       </div>
       <button
         type="button"
@@ -1204,7 +1195,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
         }`}
       >
         <span
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0 transition duration-200 ease-in-out ${
             enabled ? 'translate-x-5' : 'translate-x-0'
           }`}
         />
@@ -1224,8 +1215,8 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Appearance</h3>
-              <p className="text-sm text-gray-500">Customize the look and feel of the application</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Appearance</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Customize the look and feel of the application</p>
             </div>
           </div>
 
@@ -1242,7 +1233,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                 className={`p-3 rounded-lg border-2 text-center text-sm font-medium transition-all ${
                   themePreference === theme.id
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500'
                 }`}
                 aria-pressed={themePreference === theme.id}
               >
@@ -1250,7 +1241,7 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-3">
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
             Current theme: {resolvedTheme === 'dark' ? 'Dark' : 'Light'}
           </p>
         </div>
@@ -1266,8 +1257,8 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Language</h3>
-              <p className="text-sm text-gray-500">Choose your preferred language</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Language</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Choose your preferred language</p>
             </div>
           </div>
 
@@ -1282,16 +1273,16 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg border-2 text-sm font-medium transition-all ${
                   lang.code === 'tr'
                     ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 opacity-50 cursor-not-allowed'
+                    : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 opacity-50 cursor-not-allowed'
                 }`}
                 disabled={lang.code !== 'tr'}
               >
-                <span className="text-xs font-bold px-1.5 py-0.5 bg-gray-100 rounded">{lang.flag}</span>
+                <span className="text-xs font-bold px-1.5 py-0.5 bg-gray-100 dark:bg-gray-800 rounded">{lang.flag}</span>
                 {lang.label}
               </button>
             ))}
           </div>
-          <p className="text-xs text-gray-400 mt-3">Multi-language support coming soon.</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">Multi-language support coming soon.</p>
         </div>
       </Card>
 
@@ -1305,21 +1296,21 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
               </svg>
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-gray-900">Notifications</h3>
-              <p className="text-sm text-gray-500">Manage how you receive notifications</p>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Notifications</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Manage how you receive notifications</p>
             </div>
           </div>
 
           {notifLoading ? (
             <div className="flex items-center justify-center py-6">
-              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+              <Spinner size="md" />
             </div>
           ) : (
             <>
               {/* Channel toggles */}
               <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Channels</p>
-                <div className="divide-y divide-gray-100">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Channels</p>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700">
                   <NotifToggle enabled={notifPrefs.emailEnabled} onChange={(v) => updatePref('emailEnabled', v)} label="Email Notifications" desc="Receive notifications via email" />
                   <NotifToggle enabled={notifPrefs.smsEnabled} onChange={(v) => updatePref('smsEnabled', v)} label="SMS Notifications" desc="Receive critical alerts via text message" />
                   <NotifToggle enabled={notifPrefs.pushEnabled} onChange={(v) => updatePref('pushEnabled', v)} label="Push Notifications" desc="Push notifications on your devices" />
@@ -1328,8 +1319,8 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
 
               {/* Category toggles */}
               <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Categories</p>
-                <div className="divide-y divide-gray-100">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Categories</p>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700">
                   <NotifToggle enabled={notifPrefs.alertNotifications} onChange={(v) => updatePref('alertNotifications', v)} label="Sensor Alerts" desc="Sensor threshold breaches and critical alerts" />
                   <NotifToggle enabled={notifPrefs.taskNotifications} onChange={(v) => updatePref('taskNotifications', v)} label="Task Notifications" desc="Task assignments, updates, and reminders" />
                   <NotifToggle enabled={notifPrefs.systemNotifications} onChange={(v) => updatePref('systemNotifications', v)} label="System Notifications" desc="System updates, maintenance, and reports" />
@@ -1338,36 +1329,36 @@ const PreferencesTab: React.FC<TabProps> = ({ showToast }) => {
 
               {/* Quiet hours */}
               <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Quiet Hours</p>
-                <p className="text-xs text-gray-500 mb-3">Suppress non-critical notifications during specified hours.</p>
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Quiet Hours</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">Suppress non-critical notifications during specified hours.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label htmlFor="quiet-hours-start" className="block text-xs font-medium text-gray-600 mb-1">Start</label>
+                    <label htmlFor="quiet-hours-start" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Start</label>
                     <input
                       id="quiet-hours-start"
                       type="time"
                       value={notifPrefs.quietHoursStart}
                       onChange={(e) => updatePref('quietHoursStart', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label htmlFor="quiet-hours-end" className="block text-xs font-medium text-gray-600 mb-1">End</label>
+                    <label htmlFor="quiet-hours-end" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End</label>
                     <input
                       id="quiet-hours-end"
                       type="time"
                       value={notifPrefs.quietHoursEnd}
                       onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
                   <div>
-                    <label htmlFor="quiet-hours-timezone" className="block text-xs font-medium text-gray-600 mb-1">Timezone</label>
+                    <label htmlFor="quiet-hours-timezone" className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Timezone</label>
                     <select
                       id="quiet-hours-timezone"
                       value={notifPrefs.quietHoursTimezone}
                       onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                       <option value="Europe/Istanbul">Istanbul (UTC+3)</option>
                       <option value="UTC">UTC</option>
@@ -1440,37 +1431,28 @@ const SettingsPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto">
       {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="mt-1 text-sm text-gray-500">Manage your account settings and preferences</p>
-      </div>
+      <PageHeader
+        title="Settings"
+        description="Manage your account settings and preferences"
+        className="mb-8"
+      />
 
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex gap-1 -mb-px">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => handleTabChange(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <Tabs items={TABS} value={activeTab} onChange={handleTabChange} tabsId="settings" aria-label="Settings sections" className="mb-6" />
 
       {/* Tab Content */}
-      {activeTab === 'profile' && <ProfileTab showToast={toast} />}
-      {activeTab === 'security' && <SecurityTab showToast={toast} />}
-      {activeTab === 'preferences' && <PreferencesTab showToast={toast} />}
-      {activeTab === 'privacy' && <ConsentSettingsPage />}
+      <TabPanel tabsId="settings" value="profile" selected={activeTab}>
+        <ProfileTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="security" selected={activeTab}>
+        <SecurityTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="preferences" selected={activeTab}>
+        <PreferencesTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="privacy" selected={activeTab}>
+        <ConsentSettingsPage />
+      </TabPanel>
     </div>
   );
 };

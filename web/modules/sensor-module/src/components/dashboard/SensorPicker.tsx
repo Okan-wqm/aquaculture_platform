@@ -70,7 +70,7 @@ const getSensorIcon = (type?: string) => {
     DISSOLVED_OXYGEN: <Droplets size={18} className="text-blue-500" />,
     SALINITY: <Activity size={18} className="text-cyan-500" />,
   };
-  return iconMap[type?.toUpperCase() || ''] || <Activity size={18} className="text-gray-500" />;
+  return iconMap[type?.toUpperCase() || ''] || <Activity size={18} className="text-gray-500 dark:text-gray-400" />;
 };
 
 // Type labels
@@ -161,7 +161,7 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                 <>
                   <button
                     onClick={() => setSelectedSensor(null)}
-                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                   >
                     Geri
                   </button>
@@ -175,12 +175,12 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                 </>
               ) : (
                 <>
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-gray-500 dark:text-gray-400">
                     {sensors.length} sensör mevcut
                   </span>
                   <button
                     onClick={handleClose}
-                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                    className="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
                   >
                     Kapat
                   </button>
@@ -195,21 +195,21 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
               <div className="relative mb-4">
                 <Search
                   size={18}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400"
                 />
                 <input
                   type="text"
                   placeholder="Sensör ara..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500"
                 />
               </div>
 
               {/* Sensor List */}
               <div className="max-h-[400px] overflow-y-auto space-y-2">
                 {filteredSensors.length === 0 ? (
-                  <div className="text-center py-8 text-gray-500">
+                  <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                     <Activity size={32} className="mx-auto mb-2 opacity-50" />
                     <p>Sensör bulunamadı</p>
                   </div>
@@ -224,8 +224,8 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                         className={`
                           w-full flex items-center gap-3 p-3 rounded-lg text-left transition-colors
                           ${isAdded
-                            ? 'bg-gray-50 opacity-60 cursor-not-allowed'
-                            : 'hover:bg-cyan-50 border border-gray-200 hover:border-cyan-300'
+                            ? 'bg-gray-50 dark:bg-gray-800 opacity-60 cursor-not-allowed'
+                            : 'hover:bg-cyan-50 border border-gray-200 dark:border-gray-700 hover:border-cyan-300'
                           }
                         `}
                       >
@@ -237,7 +237,7 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                         {/* Sensor Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium text-gray-900 truncate">
+                            <span className="font-medium text-gray-900 dark:text-gray-100 truncate">
                               {sensor.name}
                             </span>
                             {isAdded && (
@@ -248,11 +248,11 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                             )}
                           </div>
                           <div className="flex items-center gap-2 mt-1">
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-gray-500 dark:text-gray-400">
                               {TYPE_LABELS[sensor.type?.toUpperCase() || ''] || sensor.type || 'Bilinmiyor'}
                             </span>
                             {sensor.serialNumber && (
-                              <span className="text-xs text-gray-500">
+                              <span className="text-xs text-gray-500 dark:text-gray-400">
                                 • {sensor.serialNumber}
                               </span>
                             )}
@@ -264,13 +264,13 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                           {sensor.connectionStatus?.isConnected ? (
                             <Wifi size={16} className="text-green-500" />
                           ) : (
-                            <WifiOff size={16} className="text-gray-500" />
+                            <WifiOff size={16} className="text-gray-500 dark:text-gray-400" />
                           )}
                         </div>
 
                         {/* Arrow */}
                         {!isAdded && (
-                          <ChevronRight size={18} className="text-gray-500" />
+                          <ChevronRight size={18} className="text-gray-500 dark:text-gray-400" />
                         )}
                       </button>
                     );
@@ -284,15 +284,15 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
               <div className="flex items-center gap-3 p-3 bg-cyan-50 rounded-lg mb-4">
                 {getSensorIcon(selectedSensor.type)}
                 <div>
-                  <p className="font-medium text-gray-900">{selectedSensor.name}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{selectedSensor.name}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
                     {TYPE_LABELS[selectedSensor.type?.toUpperCase() || ''] || selectedSensor.type}
                   </p>
                 </div>
               </div>
 
               {/* Widget Type Selection */}
-              <h3 className="text-sm font-medium text-gray-700 mb-3">
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                 Widget Tipini Seçin
               </h3>
               <div className="grid grid-cols-2 gap-3">
@@ -304,7 +304,7 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                       flex items-center gap-3 p-4 rounded-lg border-2 transition-all
                       ${selectedWidgetType === widget.type
                         ? 'border-cyan-500 bg-cyan-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                       }
                     `}
                   >
@@ -313,15 +313,15 @@ export const SensorPicker: React.FC<SensorPickerProps> = ({
                         p-2 rounded-lg
                         ${selectedWidgetType === widget.type
                           ? 'bg-cyan-100 text-cyan-700'
-                          : 'bg-gray-100 text-gray-600'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                         }
                       `}
                     >
                       {widget.icon}
                     </div>
                     <div className="text-left">
-                      <p className="font-medium text-gray-900">{widget.label}</p>
-                      <p className="text-xs text-gray-500">{widget.description}</p>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">{widget.label}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{widget.description}</p>
                     </div>
                     {selectedWidgetType === widget.type && (
                       <Check size={18} className="ml-auto text-cyan-600" />

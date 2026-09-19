@@ -4,13 +4,7 @@
  * Supports hierarchical parent-child relationships
  */
 import React, { useState, useMemo } from 'react';
-import {
-  Modal,
-  DeleteConfirmationDialog,
-  DeletePreviewData,
-  AffectedItemGroup,
-  useToast,
-} from '@aquaculture/shared-ui';
+import { Modal, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner } from '@aquaculture/shared-ui';
 import {
   useSystemList,
   useCreateSystem,
@@ -63,7 +57,7 @@ const typeColors: Record<string, string> = {
   NURSERY: 'bg-lime-100 text-lime-800',
   BIOFLOC: 'bg-teal-100 text-teal-800',
   AQUAPONICS: 'bg-sky-100 text-sky-800',
-  OTHER: 'bg-gray-100 text-gray-800',
+  OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 interface SystemFormData {
@@ -340,10 +334,10 @@ export const SystemsTab: React.FC = () => {
               placeholder="Search systems..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -359,7 +353,7 @@ export const SystemsTab: React.FC = () => {
           <select
             value={filterSiteId}
             onChange={(e) => setFilterSiteId(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="">All Sites</option>
             {sites.map((site) => (
@@ -368,12 +362,12 @@ export const SystemsTab: React.FC = () => {
               </option>
             ))}
           </select>
-          <label className="flex items-center text-sm text-gray-600 ml-2">
+          <label className="flex items-center text-sm text-gray-600 dark:text-gray-400 ml-2">
             <input
               type="checkbox"
               checked={showOrphanedOnly}
               onChange={(e) => setShowOrphanedOnly(e.target.checked)}
-              className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
             />
             Orphaned only
           </label>
@@ -397,8 +391,8 @@ export const SystemsTab: React.FC = () => {
       {/* Loading State */}
       {isLoading && (
         <div className="text-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-2 text-gray-500">Loading systems...</p>
+          <Spinner size="lg" block />
+          <p className="mt-2 text-gray-500 dark:text-gray-400">Loading systems...</p>
         </div>
       )}
 
@@ -431,24 +425,24 @@ export const SystemsTab: React.FC = () => {
             <div
               key={system.id}
               className={`rounded-lg shadow-sm border hover:shadow-md transition-shadow ${
-                !system.departmentId ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-white'
+                !system.departmentId ? 'border-red-300 bg-red-50' : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
               }`}
             >
               <div className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="text-lg font-semibold text-gray-900">{system.name}</h3>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{system.name}</h3>
                       <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[system.status] || 'bg-gray-100 text-gray-800'}`}
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[system.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                       >
                         {system.status}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 mt-1">
-                      <p className="text-sm text-gray-500">{system.code}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{system.code}</p>
                       <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeColors[system.type] || 'bg-gray-100 text-gray-800'}`}
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${typeColors[system.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                       >
                         {systemTypes.find((t) => t.value === system.type)?.label || system.type}
                       </span>
@@ -457,7 +451,7 @@ export const SystemsTab: React.FC = () => {
                   <div className="flex items-center space-x-2">
                     <button
                       onClick={() => handleEdit(system)}
-                      className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                      className="p-1 text-gray-400 dark:text-gray-500 hover:text-blue-600 transition-colors"
                       title="Edit"
                     >
                       <svg
@@ -476,7 +470,7 @@ export const SystemsTab: React.FC = () => {
                     </button>
                     <button
                       onClick={() => handleDelete(system)}
-                      className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                      className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600 transition-colors"
                       title="Delete"
                       disabled={deleteSystem.isPending}
                     >
@@ -499,9 +493,9 @@ export const SystemsTab: React.FC = () => {
 
                 <div className="mt-4 space-y-2">
                   {system.site && (
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <svg
-                        className="w-4 h-4 mr-2 text-gray-400"
+                        className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -517,9 +511,9 @@ export const SystemsTab: React.FC = () => {
                     </div>
                   )}
                   {system.department ? (
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <svg
-                        className="w-4 h-4 mr-2 text-gray-400"
+                        className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -552,9 +546,9 @@ export const SystemsTab: React.FC = () => {
                     </div>
                   )}
                   {system.parentSystem && (
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <svg
-                        className="w-4 h-4 mr-2 text-gray-400"
+                        className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -570,9 +564,9 @@ export const SystemsTab: React.FC = () => {
                     </div>
                   )}
                   {system.totalVolumeM3 && (
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <svg
-                        className="w-4 h-4 mr-2 text-gray-400"
+                        className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -588,9 +582,9 @@ export const SystemsTab: React.FC = () => {
                     </div>
                   )}
                   {system.maxBiomassKg && (
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <svg
-                        className="w-4 h-4 mr-2 text-gray-400"
+                        className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -608,7 +602,7 @@ export const SystemsTab: React.FC = () => {
                 </div>
 
                 {system.description && (
-                  <p className="mt-3 text-sm text-gray-500 line-clamp-2">{system.description}</p>
+                  <p className="mt-3 text-sm text-gray-500 dark:text-gray-400 line-clamp-2">{system.description}</p>
                 )}
               </div>
             </div>
@@ -620,7 +614,7 @@ export const SystemsTab: React.FC = () => {
       {!isLoading && systems.length === 0 && (
         <div className="text-center py-12">
           <svg
-            className="mx-auto h-12 w-12 text-gray-400"
+            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -632,8 +626,8 @@ export const SystemsTab: React.FC = () => {
               d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"
             />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No systems found</h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No systems found</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {searchTerm || filterSiteId
               ? 'Try adjusting your filters.'
               : 'Get started by creating a new system.'}
@@ -667,7 +661,7 @@ export const SystemsTab: React.FC = () => {
           <>
             <button
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>
@@ -690,22 +684,22 @@ export const SystemsTab: React.FC = () => {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
               <input
                 type="text"
                 value={formData.name}
                 onChange={(e) => handleFormChange('name', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="System name"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Code *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Code *</label>
               <input
                 type="text"
                 value={formData.code}
                 onChange={(e) => handleFormChange('code', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="SYS-001"
               />
             </div>
@@ -713,11 +707,11 @@ export const SystemsTab: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type *</label>
               <select
                 value={formData.type}
                 onChange={(e) => handleFormChange('type', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 {systemTypes.map((type) => (
                   <option key={type.value} value={type.value}>
@@ -727,11 +721,11 @@ export const SystemsTab: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status</label>
               <select
                 value={formData.status}
                 onChange={(e) => handleFormChange('status', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 {systemStatuses.map((status) => (
                   <option key={status.value} value={status.value}>
@@ -743,11 +737,11 @@ export const SystemsTab: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Site *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site *</label>
             <select
               value={formData.siteId}
               onChange={(e) => handleFormChange('siteId', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={!!editingSystem}
             >
               <option value="">Select a site</option>
@@ -761,11 +755,11 @@ export const SystemsTab: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Department</label>
               <select
                 value={formData.departmentId}
                 onChange={(e) => handleFormChange('departmentId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 disabled={!formData.siteId}
               >
                 <option value="">
@@ -786,11 +780,11 @@ export const SystemsTab: React.FC = () => {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Parent System</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parent System</label>
               <select
                 value={formData.parentSystemId}
                 onChange={(e) => handleFormChange('parentSystemId', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 disabled={!formData.siteId}
               >
                 <option value="">No parent (root system)</option>
@@ -804,50 +798,50 @@ export const SystemsTab: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
             <textarea
               value={formData.description}
               onChange={(e) => handleFormChange('description', e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               placeholder="System description..."
             />
           </div>
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Total Volume (m³)
               </label>
               <input
                 type="number"
                 value={formData.totalVolumeM3}
                 onChange={(e) => handleFormChange('totalVolumeM3', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="0"
                 step="0.01"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Max Biomass (kg)
               </label>
               <input
                 type="number"
                 value={formData.maxBiomassKg}
                 onChange={(e) => handleFormChange('maxBiomassKg', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="0"
                 step="0.01"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tank Count</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tank Count</label>
               <input
                 type="number"
                 value={formData.tankCount}
                 onChange={(e) => handleFormChange('tankCount', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="0"
               />
             </div>

@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, DataTable, Input, Modal, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Modal, useConfirm, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   CustomPlan,
@@ -266,7 +266,7 @@ const CustomPlansListPage: React.FC = () => {
   if (loading && plans.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -277,9 +277,9 @@ const CustomPlansListPage: React.FC = () => {
       header: 'Plan',
       render: (_value, plan) => (
         <>
-          <div className="font-medium text-gray-900">{plan.name}</div>
+          <div className="font-medium text-gray-900 dark:text-gray-100">{plan.name}</div>
           {plan.description && (
-            <div className="text-sm text-gray-500 truncate max-w-xs">
+            <div className="text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">
               {plan.description}
             </div>
           )}
@@ -290,7 +290,7 @@ const CustomPlansListPage: React.FC = () => {
       key: 'tenantId',
       header: 'Tenant',
       render: (_value, plan) => (
-        <div className="text-sm font-mono text-gray-600 truncate max-w-[180px]" title={plan.tenantId}>
+        <div className="text-sm font-mono text-gray-600 dark:text-gray-400 truncate max-w-[180px]" title={plan.tenantId}>
           {plan.tenantId}
         </div>
       ),
@@ -309,7 +309,7 @@ const CustomPlansListPage: React.FC = () => {
       header: 'Monthly Total',
       render: (_value, plan) => (
         <>
-          <div className="text-sm font-semibold text-gray-900">
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             {formatCurrencyAmount(plan.monthlyTotal, plan.currency)}
           </div>
           {Number(plan.discountPercent) > 0 && (
@@ -324,7 +324,7 @@ const CustomPlansListPage: React.FC = () => {
       key: 'modules',
       header: 'Modules',
       render: (_value, plan) => (
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-gray-600 dark:text-gray-400">
           {plan.modules?.length || 0} module{(plan.modules?.length || 0) !== 1 ? 's' : ''}
         </div>
       ),
@@ -336,7 +336,7 @@ const CustomPlansListPage: React.FC = () => {
         <>
           <div>{formatDate(plan.validFrom)}</div>
           {plan.validTo && (
-            <div className="text-gray-400">to {formatDate(plan.validTo)}</div>
+            <div className="text-gray-400 dark:text-gray-500">to {formatDate(plan.validTo)}</div>
           )}
         </>
       ),
@@ -355,7 +355,7 @@ const CustomPlansListPage: React.FC = () => {
               </div>
             )}
             {plan.approvedBy && plan.status === CustomPlanStatus.APPROVED && (
-              <div className="text-xs text-gray-400 mt-1">
+              <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                 by {plan.approvedBy}
               </div>
             )}
@@ -461,19 +461,17 @@ const CustomPlansListPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Custom Plans</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage custom plans, approvals, and activations
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0">
-          <Button onClick={() => navigate('/admin/billing/custom-plan-builder')}>
-            Create Custom Plan
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Custom Plans"
+        description="Manage custom plans, approvals, and activations"
+        actions={
+          <div className="mt-4 sm:mt-0">
+            <Button onClick={() => navigate('/admin/billing/custom-plan-builder')}>
+              Create Custom Plan
+            </Button>
+          </div>
+        }
+      />
 
       {/* Alerts */}
       {error && (
@@ -511,7 +509,7 @@ const CustomPlansListPage: React.FC = () => {
               className={`p-3 cursor-pointer transition-all ${
                 statusFilter === statusItem.value
                   ? 'ring-2 ring-blue-500 bg-blue-50'
-                  : 'hover:bg-gray-50'
+                  : 'hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
               onClick={() =>
                 setStatusFilter(
@@ -519,8 +517,8 @@ const CustomPlansListPage: React.FC = () => {
                 )
               }
             >
-              <div className="text-xs font-medium text-gray-500">{cfg.label}</div>
-              <div className="mt-1 text-xl font-bold text-gray-900">{count}</div>
+              <div className="text-xs font-medium text-gray-500 dark:text-gray-400">{cfg.label}</div>
+              <div className="mt-1 text-xl font-bold text-gray-900 dark:text-gray-100">{count}</div>
             </Card>
           );
         })}
@@ -538,7 +536,7 @@ const CustomPlansListPage: React.FC = () => {
           </div>
           <div>
             <select
-              className="w-full sm:w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="w-full sm:w-48 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               value={statusFilter}
               onChange={(e) =>
                 setStatusFilter(e.target.value as CustomPlanStatus | 'all')
@@ -578,7 +576,7 @@ const CustomPlansListPage: React.FC = () => {
           title="Reject Plan"
           description={
             <>
-              Rejecting: <span className="font-medium text-gray-700">{rejectModal.planName}</span>
+              Rejecting: <span className="font-medium text-gray-700 dark:text-gray-300">{rejectModal.planName}</span>
             </>
           }
           bodyClassName="p-6"
@@ -599,11 +597,11 @@ const CustomPlansListPage: React.FC = () => {
         >
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Rejection Reason <span className="text-red-500">*</span>
               </label>
               <textarea
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
                 rows={3}
                 placeholder="Explain why this plan is being rejected..."
                 value={rejectReason}
@@ -623,7 +621,7 @@ const CustomPlansListPage: React.FC = () => {
           title="Clone Plan"
           description={
             <>
-              Cloning: <span className="font-medium text-gray-700">{cloneModal.planName}</span>
+              Cloning: <span className="font-medium text-gray-700 dark:text-gray-300">{cloneModal.planName}</span>
             </>
           }
           bodyClassName="p-6"
@@ -643,7 +641,7 @@ const CustomPlansListPage: React.FC = () => {
         >
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Target Tenant ID <span className="text-red-500">*</span>
               </label>
               <Input
@@ -651,7 +649,7 @@ const CustomPlansListPage: React.FC = () => {
                 value={cloneTenantId}
                 onChange={(e) => setCloneTenantId(e.target.value)}
               />
-              <p className="mt-1 text-xs text-gray-400">
+              <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
                 The cloned plan will be created as a draft for this tenant.
               </p>
             </div>

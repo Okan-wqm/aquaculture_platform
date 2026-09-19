@@ -165,7 +165,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
               ? 'text-orange-400'
               : warningCount > 0
               ? 'text-yellow-400'
-              : 'text-gray-500'
+              : 'text-gray-500 dark:text-gray-400'
           }`}
         />
 
@@ -175,7 +175,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           label="Critical"
           icon={<AlertCircle className="h-3.5 w-3.5" />}
           activeClass="bg-red-700 text-white"
-          mutedClass="bg-gray-800 text-gray-500"
+          mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
         <SeverityChip
@@ -183,7 +183,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           label="High"
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
           activeClass="bg-orange-600 text-white"
-          mutedClass="bg-gray-800 text-gray-500"
+          mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
         <SeverityChip
@@ -191,7 +191,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           label="Warning"
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
           activeClass="bg-yellow-500 text-gray-900"
-          mutedClass="bg-gray-800 text-gray-500"
+          mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
         <SeverityChip
@@ -199,7 +199,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           label="Info"
           icon={<Info className="h-3.5 w-3.5" />}
           activeClass="bg-blue-600 text-white"
-          mutedClass="bg-gray-800 text-gray-500"
+          mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
         {/* Total badge (muted when zero) */}
@@ -207,14 +207,14 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           className={`ml-1 px-2 py-0.5 rounded text-xs font-bold ${
             totalActive > 0
               ? 'bg-red-600 text-white'
-              : 'bg-gray-700 text-gray-500'
+              : 'bg-gray-700 text-gray-500 dark:text-gray-400'
           }`}
         >
           {totalActive} active
         </div>
 
         {/* Expand indicator */}
-        <div className="ml-auto flex items-center gap-1 text-gray-500 text-xs">
+        <div className="ml-auto flex items-center gap-1 text-gray-500 dark:text-gray-400 text-xs">
           <ChevronUp className="h-4 w-4" />
           <span className="hidden sm:inline">Alarms</span>
         </div>

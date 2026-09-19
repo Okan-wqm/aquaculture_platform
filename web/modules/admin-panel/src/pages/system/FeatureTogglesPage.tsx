@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, DataTable, Input, Select, Modal, useConfirm, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Select, Modal, useConfirm, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -256,13 +256,13 @@ export const FeatureTogglesPage: React.FC = () => {
   if (loading) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/4" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl p-6 h-24" />
+            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl p-6 h-24" />
           ))}
         </div>
-        <div className="bg-white rounded-xl p-6 h-96" />
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 h-96" />
       </div>
     );
   }
@@ -274,14 +274,14 @@ export const FeatureTogglesPage: React.FC = () => {
       render: (_value, toggle) => (
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-gray-900">{toggle.name}</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{toggle.name}</span>
             {toggle.isExperimental && (
               <Badge variant="warning" size="sm">Experimental</Badge>
             )}
           </div>
-          <span className="text-sm font-mono text-gray-500">{toggle.key}</span>
+          <span className="text-sm font-mono text-gray-500 dark:text-gray-400">{toggle.key}</span>
           {toggle.description && (
-            <span className="text-sm text-gray-500 mt-1 line-clamp-1">
+            <span className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-1">
               {toggle.description}
             </span>
           )}
@@ -312,22 +312,22 @@ export const FeatureTogglesPage: React.FC = () => {
       render: (_value, toggle) =>
         toggle.status === 'percentage_rollout' ? (
           <div className="flex items-center gap-2">
-            <div className="w-20 bg-gray-200 rounded-full h-2">
+            <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
               <div
                 className="bg-blue-600 h-2 rounded-full transition-all"
                 style={{ width: `${toggle.rolloutPercentage}%` }}
               />
             </div>
-            <span className="text-sm text-gray-600">{toggle.rolloutPercentage}%</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">{toggle.rolloutPercentage}%</span>
           </div>
         ) : (
-          <span className="text-sm text-gray-500">-</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">-</span>
         ),
     },
     {
       key: 'category',
       header: 'Category',
-      render: (_value, toggle) => <span className="text-sm text-gray-600">{toggle.category || '-'}</span>,
+      render: (_value, toggle) => <span className="text-sm text-gray-600 dark:text-gray-400">{toggle.category || '-'}</span>,
     },
     {
       key: 'actions',
@@ -349,7 +349,7 @@ export const FeatureTogglesPage: React.FC = () => {
           <button
             type="button"
             onClick={() => openEditModal(toggle)}
-            className="px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
           >
             Edit
           </button>
@@ -368,20 +368,18 @@ export const FeatureTogglesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Feature Toggles</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage feature flags and rollouts across the platform
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Create Toggle
-        </Button>
-      </div>
+      <PageHeader
+        title="Feature Toggles"
+        description="Manage feature flags and rollouts across the platform"
+        actions={
+          <Button onClick={() => setShowCreateModal(true)}>
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Create Toggle
+          </Button>
+        }
+      />
 
       {/* A failed read or a rejected flag action, named where the operator is
           looking rather than in a fixed toast in the corner. */}
@@ -394,24 +392,24 @@ export const FeatureTogglesPage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Toggles</div>
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Toggles</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-green-600">{stats.enabled}</div>
-          <div className="text-sm text-gray-500">Enabled</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Enabled</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-600">{stats.disabled}</div>
-          <div className="text-sm text-gray-500">Disabled</div>
+          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">{stats.disabled}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Disabled</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-blue-600">{stats.rollout}</div>
-          <div className="text-sm text-gray-500">Rolling Out</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Rolling Out</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-yellow-600">{stats.experimental}</div>
-          <div className="text-sm text-gray-500">Experimental</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Experimental</div>
         </Card>
       </div>
 
@@ -500,7 +498,7 @@ export const FeatureTogglesPage: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Key <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -512,7 +510,7 @@ export const FeatureTogglesPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Name <span className="text-red-500">*</span>
                 </label>
                 <Input
@@ -524,21 +522,21 @@ export const FeatureTogglesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Description
               </label>
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 rows={3}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="Describe what this feature does..."
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Scope
                 </label>
                 <Select
@@ -561,7 +559,7 @@ export const FeatureTogglesPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Category
                 </label>
                 <Input
@@ -573,7 +571,7 @@ export const FeatureTogglesPage: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Rollout Percentage
               </label>
               <div className="flex items-center gap-4">
@@ -595,9 +593,9 @@ export const FeatureTogglesPage: React.FC = () => {
                   type="checkbox"
                   checked={formData.isExperimental}
                   onChange={(e) => setFormData({ ...formData, isExperimental: e.target.checked })}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                 />
-                <span className="text-sm text-gray-700">Experimental</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300">Experimental</span>
               </label>
             </div>
           </div>

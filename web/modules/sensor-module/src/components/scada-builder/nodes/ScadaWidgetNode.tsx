@@ -577,16 +577,7 @@ const ScadaWidgetNode: React.FC<NodeProps<Node<ScadaWidgetNodeData>>> = ({ id, d
       {/* Lock indicator (top-right, only when locked) */}
       {locked && (
         <div
-          style={{
-            position: 'absolute',
-            top: 4,
-            right: 4,
-            zIndex: 10,
-            background: 'rgba(31, 41, 55, 0.6)',
-            borderRadius: 4,
-            padding: 2,
-            lineHeight: 0,
-          }}
+          className="absolute top-1 right-1 z-10 bg-gray-800/60 rounded p-[2px] leading-[0]"
           title="Kilitli"
         >
           <Lock style={{ width: 12, height: 12, color: colors.white }} />

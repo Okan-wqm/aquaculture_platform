@@ -25,8 +25,9 @@ import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { HubHeader, KpiStrip, QuickActionGrid } from '@/components/hub';
+import { KpiStrip, QuickActionGrid } from '@/components/hub';
 import type { KpiItem } from '@/components/hub';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { useDailyOpsStats } from '@/hooks/useDailyOpsStats';
 import { useMyTasks } from '@/hooks/useMyTasks';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
@@ -185,14 +186,16 @@ export function DailyOpsHubPage(): JSX.Element {
   return (
     <ErrorBoundary fallbackTitle="Daily Operations Error">
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <HubHeader
+        <PageHeader
+          variant="hub"
+          tone="orange"
+          back
+          icon={Clock}
           title="Daily Operations"
           subtitle={subtitle}
-          icon={Clock}
-          gradient="from-orange-600 via-orange-500 to-amber-500"
         >
           <KpiStrip items={kpiItems} />
-        </HubHeader>
+        </PageHeader>
 
         <main className="px-5 pt-4 space-y-5">
           {/* WHY: Offline indicator warns workers that KPI data may be stale. */}

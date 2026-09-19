@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import { messagingApi, type RetentionPolicy } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 
@@ -71,7 +71,7 @@ const EditRetentionModal: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
           >
             Cancel
           </button>
@@ -87,13 +87,13 @@ const EditRetentionModal: React.FC<{
     >
     <div className="space-y-4">
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
           Retention Period
         </label>
         <select
           value={selectedRetention}
           onChange={(e) => setSelectedRetention(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
         >
           {RETENTION_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -103,12 +103,12 @@ const EditRetentionModal: React.FC<{
         </select>
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+      <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 cursor-pointer">
         <input
           type="checkbox"
           checked={applyToAll}
           onChange={(e) => setApplyToAll(e.target.checked)}
-          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
         />
         Apply to all channels (override existing channel-level settings)
       </label>
@@ -149,7 +149,7 @@ const AddChannelOverrideModal: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+            className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
           >
             Cancel
           </button>
@@ -170,21 +170,21 @@ const AddChannelOverrideModal: React.FC<{
     >
     <div className="space-y-4">
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">Channel ID</label>
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Channel ID</label>
         <input
           type="text"
           value={channelId}
           onChange={(e) => setChannelId(e.target.value)}
           placeholder="Enter channel UUID..."
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-500 mb-1">Retention Period</label>
+        <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Retention Period</label>
         <select
           value={retentionDays}
           onChange={(e) => setRetentionDays(Number(e.target.value))}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
         >
           {RETENTION_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.days}>
@@ -262,8 +262,8 @@ const MessagingRetentionPage: React.FC = () => {
       header: 'Tenant',
       render: (_value, p) => (
         <>
-          <p className="text-sm font-medium text-gray-900">{p.tenantName}</p>
-          <p className="text-xs text-gray-400 font-mono">{p.tenantId.slice(0, 8)}...</p>
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.tenantName}</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">{p.tenantId.slice(0, 8)}...</p>
         </>
       ),
     },
@@ -294,7 +294,7 @@ const MessagingRetentionPage: React.FC = () => {
       header: 'Expired',
       align: 'right',
       render: (_value, p) => (
-        <span className={p.expiredCount > 0 ? 'text-orange-600 font-medium' : 'text-gray-400'}>
+        <span className={p.expiredCount > 0 ? 'text-orange-600 font-medium' : 'text-gray-400 dark:text-gray-500'}>
           {p.expiredCount.toLocaleString()}
         </span>
       ),
@@ -348,27 +348,25 @@ const MessagingRetentionPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Retention Policies</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Manage message retention periods, channel-level overrides, and cleanup schedules
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5">
-            Next cleanup: 02:00 UTC
+      <PageHeader
+        title="Retention Policies"
+        description="Manage message retention periods, channel-level overrides, and cleanup schedules"
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-gray-400 dark:text-gray-500 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5">
+              Next cleanup: 02:00 UTC
+            </div>
+            <Button
+              onClick={() => void fetchData()}
+              disabled={loading}
+              variant="secondary"
+              size="sm"
+            >
+              {loading ? 'Refreshing...' : 'Refresh'}
+            </Button>
           </div>
-          <Button
-            onClick={() => void fetchData()}
-            disabled={loading}
-            variant="secondary"
-            size="sm"
-          >
-            {loading ? 'Refreshing...' : 'Refresh'}
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       {/* Error Banner */}
       {error && (
@@ -380,15 +378,15 @@ const MessagingRetentionPage: React.FC = () => {
       {/* Retention Table */}
       <Card>
         <div className="p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">Per-Tenant Retention</h3>
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Per-Tenant Retention</h3>
           {policies.length === 0 && !loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
                 <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
-                <p className="text-sm text-gray-500">No tenant retention policies configured.</p>
-                <p className="text-xs text-gray-400 mt-1">
+                <p className="text-sm text-gray-500 dark:text-gray-400">No tenant retention policies configured.</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                   Retention policies will appear once tenants enable messaging.
                 </p>
               </div>

@@ -52,12 +52,12 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
 
   const saving = updateSettingsMutation.isPending;
   const inputClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   return (
     <div className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Tenant Name</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tenant Name</label>
         <input
           type="text"
           value={tenantName}
@@ -67,7 +67,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Contact Email</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Contact Email</label>
         <input
           type="email"
           value={contactEmail}
@@ -77,7 +77,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Contact Phone</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Contact Phone</label>
         <input
           type="tel"
           value={contactPhone}
@@ -87,7 +87,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Address</label>
         <textarea
           value={address}
           onChange={(e) => setAddress(e.target.value)}
@@ -108,7 +108,7 @@ const GeneralSettings: React.FC<GeneralSettingsProps> = ({ canEdit }) => {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saved ? (
               <>

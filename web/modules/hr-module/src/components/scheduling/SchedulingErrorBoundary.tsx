@@ -95,25 +95,25 @@ export class SchedulingErrorBoundary extends Component<
             </div>
 
             {/* Title */}
-            <h2 className="text-xl font-semibold text-gray-900 mb-3">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-3">
               Cizelge Modulu Yüklenemedi
             </h2>
 
             {/* Description */}
-            <p className="text-gray-600 mb-6">
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
               Haftalik is cizelgesi yuklenirken beklenmeyen bir hata olustu.
               Lutfen sayfayi yenileyin veya daha sonra tekrar deneyin.
             </p>
 
             {/* Error details in development */}
             {import.meta.env.DEV && error && (
-              <div className="mb-6 p-4 bg-gray-100 rounded-lg text-left overflow-auto max-h-48">
-                <p className="text-xs font-mono text-gray-500 mb-1">Hata Detayi:</p>
+              <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg text-left overflow-auto max-h-48">
+                <p className="text-xs font-mono text-gray-500 dark:text-gray-400 mb-1">Hata Detayi:</p>
                 <p className="text-sm font-mono text-red-600 break-all">
                   {error.message}
                 </p>
                 {error.stack && (
-                  <pre className="text-xs font-mono text-gray-400 mt-2 whitespace-pre-wrap">
+                  <pre className="text-xs font-mono text-gray-400 dark:text-gray-500 mt-2 whitespace-pre-wrap">
                     {error.stack.split('\n').slice(1, 5).join('\n')}
                   </pre>
                 )}
@@ -139,8 +139,8 @@ export class SchedulingErrorBoundary extends Component<
                 onClick={this.handleRefresh}
                 className={cn(
                   'inline-flex items-center gap-2 px-4 py-2',
-                  'bg-white text-gray-700 border border-gray-300 rounded-lg',
-                  'hover:bg-gray-50 transition-colors',
+                  'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg',
+                  'hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
                   'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2'
                 )}
               >
@@ -151,7 +151,7 @@ export class SchedulingErrorBoundary extends Component<
                 onClick={this.handleGoBack}
                 className={cn(
                   'inline-flex items-center gap-2 px-4 py-2',
-                  'text-gray-600 hover:text-gray-800 transition-colors',
+                  'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors',
                   'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg'
                 )}
               >
@@ -163,7 +163,7 @@ export class SchedulingErrorBoundary extends Component<
                 onClick={this.handleGoHome}
                 className={cn(
                   'inline-flex items-center gap-2 px-4 py-2',
-                  'text-gray-600 hover:text-gray-800 transition-colors',
+                  'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 transition-colors',
                   'focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded-lg'
                 )}
               >
@@ -173,7 +173,7 @@ export class SchedulingErrorBoundary extends Component<
             </div>
 
             {/* Help text */}
-            <p className="text-sm text-gray-400 mt-8">
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-8">
               Sorun devam ederse sistem yoneticisi ile iletisime gecin.
             </p>
           </div>

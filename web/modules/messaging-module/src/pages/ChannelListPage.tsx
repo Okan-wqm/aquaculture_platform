@@ -1,3 +1,4 @@
+import { PageHeader } from '@aquaculture/shared-ui';
 import { MessageSquare, Sparkles, Users, RefreshCw, AlertCircle } from 'lucide-react';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -7,9 +8,9 @@ import { channelTitle } from '../lib/channelDisplay';
 import type { Channel } from '../types/messaging';
 
 function ChannelIcon({ channel }: { channel: Channel }): React.ReactElement {
-  if (channel.type === 'AI') return <Sparkles className="h-5 w-5 text-tenant-600" />;
-  if (channel.type === 'GROUP') return <Users className="h-5 w-5 text-gray-500" />;
-  return <MessageSquare className="h-5 w-5 text-gray-500" />;
+  if (channel.type === 'AI') return <Sparkles className="h-5 w-5 text-green-600" />;
+  if (channel.type === 'GROUP') return <Users className="h-5 w-5 text-gray-500 dark:text-gray-400" />;
+  return <MessageSquare className="h-5 w-5 text-gray-500 dark:text-gray-400" />;
 }
 
 const ChannelListPage: React.FC = () => {
@@ -18,10 +19,10 @@ const ChannelListPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-4 text-2xl font-bold text-gray-900">Messages</h1>
+      <PageHeader title="Messages" className="mb-4" />
 
       {isLoading && (
-        <div className="flex items-center gap-2 text-sm text-gray-500">
+        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
           <RefreshCw className="h-4 w-4 animate-spin" /> Loading channels…
         </div>
       )}
@@ -32,33 +33,33 @@ const ChannelListPage: React.FC = () => {
       )}
 
       {!isLoading && !isError && (channels?.length ?? 0) === 0 && (
-        <div className="rounded-lg bg-gray-50 p-8 text-center text-sm text-gray-500">
+        <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-8 text-center text-sm text-gray-500 dark:text-gray-400">
           No channels yet.
         </div>
       )}
 
-      <div className="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
+      <div className="divide-y divide-gray-100 dark:divide-gray-700 overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         {channels?.map((channel) => (
           <button
             key={channel.id}
             onClick={() => navigate(`/messaging/${channel.id}`)}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50"
+            className="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-800">
               <ChannelIcon channel={channel} />
             </span>
             <span className="min-w-0 flex-1">
               <span className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium text-gray-900">
+                <span className="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
                   {channelTitle(channel)}
                 </span>
                 {!!channel.unreadCount && channel.unreadCount > 0 && (
-                  <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-tenant-600 px-1.5 text-xs font-medium text-white">
+                  <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-green-600 px-1.5 text-xs font-medium text-white">
                     {channel.unreadCount}
                   </span>
                 )}
               </span>
-              <span className="mt-0.5 block truncate text-xs text-gray-400">
+              <span className="mt-0.5 block truncate text-xs text-gray-400 dark:text-gray-500">
                 {channel.lastMessage?.content ?? 'No messages yet'}
               </span>
             </span>

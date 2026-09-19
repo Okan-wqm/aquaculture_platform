@@ -97,8 +97,8 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
   });
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-3">
-      <h3 className="text-sm font-semibold text-gray-700 mb-2 text-center">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2 text-center">
         Deffeyes Diagram (ALK vs DIC)
       </h3>
       <div className="h-[460px]">
@@ -344,7 +344,7 @@ const SimDeffeyesChart: React.FC<SimDeffeyesChartProps> = ({
       {/* Legend for reagent lines */}
       <div className="flex flex-wrap gap-3 mt-1 px-2 justify-center">
         {HYDRO_REAGENTS.map(r => (
-          <span key={r.name} className="flex items-center gap-1 text-[10px] text-gray-600">
+          <span key={r.name} className="flex items-center gap-1 text-[10px] text-gray-600 dark:text-gray-400">
             <span className="inline-block w-3 h-0.5" style={{ backgroundColor: r.color }} />
             {r.formula}
           </span>

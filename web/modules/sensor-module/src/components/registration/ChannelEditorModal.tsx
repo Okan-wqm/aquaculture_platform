@@ -169,7 +169,7 @@ export function ChannelEditorModal({
     >
 
           {/* Tabs */}
-          <div className="flex border-b border-gray-200">
+          <div className="flex border-b border-gray-200 dark:border-gray-700">
             {(['basic', 'calibration', 'alerts', 'display'] as const).map(tab => (
               <button
                 key={tab}
@@ -177,7 +177,7 @@ export function ChannelEditorModal({
                 className={`flex-1 px-4 py-3 text-sm font-medium ${
                   activeTab === tab
                     ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
                 }`}
               >
                 {tab.charAt(0).toUpperCase() + tab.slice(1)}
@@ -191,18 +191,18 @@ export function ChannelEditorModal({
             {activeTab === 'basic' && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Channel Key <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     value={formData.channelKey}
                     onChange={(e) => handleChange('channelKey', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
                     placeholder="e.g., temperature, ph_level"
                     disabled={isPersisted}
                   />
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {isPersisted
                       ? 'Fixed after creation — stored readings are keyed by it.'
                       : 'Internal identifier. Lowercase letters, numbers, and underscores only.'}
@@ -210,26 +210,26 @@ export function ChannelEditorModal({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Display Label <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     value={formData.displayLabel}
                     onChange={(e) => handleChange('displayLabel', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     placeholder="e.g., Water Temperature"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Description
                   </label>
                   <textarea
                     value={formData.description || ''}
                     onChange={(e) => handleChange('description', e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     rows={2}
                     placeholder="Optional description for this channel"
                   />
@@ -239,7 +239,7 @@ export function ChannelEditorModal({
                   <div>
                     <label
                       htmlFor="channel-editor-data-type"
-                      className="block text-sm font-medium text-gray-700 mb-1"
+                      className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
                     >
                       Data Type
                     </label>
@@ -247,7 +247,7 @@ export function ChannelEditorModal({
                       id="channel-editor-data-type"
                       value={formData.dataType}
                       onChange={(e) => handleChange('dataType', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:text-gray-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
                       disabled={isPersisted}
                     >
                       <option value={ChannelDataType.NUMBER}>Number</option>
@@ -256,20 +256,20 @@ export function ChannelEditorModal({
                       <option value={ChannelDataType.ENUM}>Enum</option>
                     </select>
                     {isPersisted && (
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                         Fixed after creation — stored readings were parsed as this type.
                       </p>
                     )}
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Unit
                     </label>
                     <select
                       value={UNIT_OPTIONS.find(u => u.value === formData.unit) ? formData.unit : 'custom'}
                       onChange={(e) => handleChange('unit', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     >
                       {UNIT_OPTIONS.map(opt => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -280,7 +280,7 @@ export function ChannelEditorModal({
                         type="text"
                         value={customUnit || formData.unit || ''}
                         onChange={(e) => setCustomUnit(e.target.value)}
-                        className="mt-2 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                        className="mt-2 w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                         placeholder="Enter custom unit"
                       />
                     )}
@@ -289,7 +289,7 @@ export function ChannelEditorModal({
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Min Value
                     </label>
                     <input
@@ -297,12 +297,12 @@ export function ChannelEditorModal({
                       step="any"
                       value={formData.minValue ?? ''}
                       onChange={(e) => handleChange('minValue', e.target.value === '' ? undefined : parseFloat(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Optional"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Max Value
                     </label>
                     <input
@@ -310,16 +310,16 @@ export function ChannelEditorModal({
                       step="any"
                       value={formData.maxValue ?? ''}
                       onChange={(e) => handleChange('maxValue', e.target.value === '' ? undefined : parseFloat(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Optional"
                     />
                   </div>
                 </div>
 
                 {formData.sampleValue !== undefined && (
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <span className="text-sm text-gray-600">Sample Value: </span>
-                    <span className="text-sm font-medium text-gray-900">
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Sample Value: </span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {String(formData.sampleValue)} {formData.unit}
                     </span>
                   </div>
@@ -349,15 +349,15 @@ export function ChannelEditorModal({
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <span className="block text-xs text-gray-500">Durum</span>
-                    <span className="text-sm font-medium text-gray-900">
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                    <span className="block text-xs text-gray-500 dark:text-gray-400">Durum</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {formData.calibrationEnabled ? 'Aktif' : 'Pasif'}
                     </span>
                   </div>
-                  <div className="bg-gray-50 rounded-lg p-3">
-                    <span className="block text-xs text-gray-500">Formül</span>
-                    <span className="text-sm font-mono text-gray-900">
+                  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                    <span className="block text-xs text-gray-500 dark:text-gray-400">Formül</span>
+                    <span className="text-sm font-mono text-gray-900 dark:text-gray-100">
                       (ham × {formData.calibrationMultiplier}) + {formData.calibrationOffset}
                     </span>
                   </div>
@@ -368,7 +368,7 @@ export function ChannelEditorModal({
             {/* Alerts Tab */}
             {activeTab === 'alerts' && (
               <div className="space-y-6">
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   Configure alert thresholds for this channel. Alerts will trigger when values exceed these bounds.
                 </p>
 
@@ -388,7 +388,7 @@ export function ChannelEditorModal({
                         step="any"
                         value={formData.alertThresholds?.warning?.low ?? ''}
                         onChange={(e) => handleAlertChange('warning', 'low', e.target.value)}
-                        className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500 bg-white"
+                        className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500 bg-white dark:bg-gray-900"
                         placeholder="Below this = warning"
                       />
                     </div>
@@ -399,7 +399,7 @@ export function ChannelEditorModal({
                         step="any"
                         value={formData.alertThresholds?.warning?.high ?? ''}
                         onChange={(e) => handleAlertChange('warning', 'high', e.target.value)}
-                        className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500 bg-white"
+                        className="w-full px-3 py-2 border border-yellow-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500 bg-white dark:bg-gray-900"
                         placeholder="Above this = warning"
                       />
                     </div>
@@ -422,7 +422,7 @@ export function ChannelEditorModal({
                         step="any"
                         value={formData.alertThresholds?.critical?.low ?? ''}
                         onChange={(e) => handleAlertChange('critical', 'low', e.target.value)}
-                        className="w-full px-3 py-2 border border-red-300 rounded-md focus:ring-red-500 focus:border-red-500 bg-white"
+                        className="w-full px-3 py-2 border border-red-300 rounded-md focus:ring-red-500 focus:border-red-500 bg-white dark:bg-gray-900"
                         placeholder="Below this = critical"
                       />
                     </div>
@@ -433,7 +433,7 @@ export function ChannelEditorModal({
                         step="any"
                         value={formData.alertThresholds?.critical?.high ?? ''}
                         onChange={(e) => handleAlertChange('critical', 'high', e.target.value)}
-                        className="w-full px-3 py-2 border border-red-300 rounded-md focus:ring-red-500 focus:border-red-500 bg-white"
+                        className="w-full px-3 py-2 border border-red-300 rounded-md focus:ring-red-500 focus:border-red-500 bg-white dark:bg-gray-900"
                         placeholder="Above this = critical"
                       />
                     </div>
@@ -442,7 +442,7 @@ export function ChannelEditorModal({
 
                 {/* Hysteresis */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Hysteresis
                   </label>
                   <input
@@ -456,10 +456,10 @@ export function ChannelEditorModal({
                         hysteresis: e.target.value === '' ? undefined : parseFloat(e.target.value),
                       },
                     }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     placeholder="Optional - prevents alert flapping"
                   />
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Value must exceed threshold by this amount to trigger alert, and drop below by this amount to clear.
                   </p>
                 </div>
@@ -471,8 +471,8 @@ export function ChannelEditorModal({
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h4 className="text-sm font-medium text-gray-900">Show on Dashboard</h4>
-                    <p className="text-sm text-gray-500">Display this channel on the main dashboard</p>
+                    <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Show on Dashboard</h4>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">Display this channel on the main dashboard</p>
                   </div>
                   <button
                     onClick={() => handleDisplaySettingChange('showOnDashboard', !formData.displaySettings?.showOnDashboard)}
@@ -481,7 +481,7 @@ export function ChannelEditorModal({
                     }`}
                   >
                     <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 transition-transform ${
                         formData.displaySettings?.showOnDashboard ? 'translate-x-6' : 'translate-x-1'
                       }`}
                     />
@@ -489,7 +489,7 @@ export function ChannelEditorModal({
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Widget Type
                   </label>
                   <div className="grid grid-cols-2 gap-3">
@@ -500,18 +500,18 @@ export function ChannelEditorModal({
                         className={`p-3 text-left border rounded-lg transition-colors ${
                           formData.displaySettings?.widgetType === opt.value
                             ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                            : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500'
                         }`}
                       >
-                        <span className="text-sm font-medium text-gray-900">{opt.label}</span>
-                        <p className="text-xs text-gray-500 mt-0.5">{opt.description}</p>
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{opt.label}</span>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{opt.description}</p>
                       </button>
                     ))}
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Color
                   </label>
                   <div className="flex items-center space-x-2">
@@ -538,13 +538,13 @@ export function ChannelEditorModal({
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Decimal Precision
                     </label>
                     <select
                       value={formData.displaySettings?.precision ?? 2}
                       onChange={(e) => handleDisplaySettingChange('precision', parseInt(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value={0}>0 (Integer)</option>
                       <option value={1}>1 decimal</option>
@@ -554,14 +554,14 @@ export function ChannelEditorModal({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                       Icon
                     </label>
                     <input
                       type="text"
                       value={formData.displaySettings?.icon || ''}
                       onChange={(e) => handleDisplaySettingChange('icon', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-blue-500 focus:border-blue-500"
                       placeholder="e.g., thermometer"
                     />
                   </div>
@@ -571,10 +571,10 @@ export function ChannelEditorModal({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end px-6 py-4 bg-gray-50 border-t border-gray-200 space-x-3">
+          <div className="flex items-center justify-end px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 space-x-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>

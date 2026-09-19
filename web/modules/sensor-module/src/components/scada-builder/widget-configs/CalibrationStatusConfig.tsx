@@ -27,7 +27,7 @@ export const CalibrationStatusConfig: React.FC<WidgetConfigProps> = ({ config, o
     <div className="space-y-3">
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-gray-500">Sensors</label>
+          <label className="text-xs text-gray-500 dark:text-gray-400">Sensors</label>
           <button onClick={addSensor} className="text-xs text-cyan-600 hover:text-cyan-700">
             + Add Sensor
           </button>
@@ -50,7 +50,7 @@ export const CalibrationStatusConfig: React.FC<WidgetConfigProps> = ({ config, o
             </div>
           ))}
           {sensors.length === 0 && (
-            <p className="text-xs text-gray-500">No sensors added yet</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">No sensors added yet</p>
           )}
         </div>
       </div>

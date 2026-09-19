@@ -107,8 +107,7 @@ const AlarmPanel = React.memo(() => {
 
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col"
-      style={{ maxHeight: '40vh' }}
+      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col max-h-[40vh]"
       role="region"
       aria-label="Alarm panel"
     >
@@ -126,7 +125,7 @@ const AlarmPanel = React.memo(() => {
         <button
           type="button"
           onClick={toggleAlarmPanel}
-          className="text-gray-400 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400"
+          className="text-gray-400 dark:text-gray-500 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400"
           aria-label="Close alarm panel"
         >
           Close
@@ -136,7 +135,7 @@ const AlarmPanel = React.memo(() => {
       {/* Scrollable alarm list */}
       <div className="flex-1 overflow-y-auto">
         {activeAlarms.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-gray-400">
+          <div className="flex items-center justify-center gap-2 py-8 text-gray-400 dark:text-gray-500">
             <CheckCircle2 size={20} aria-hidden="true" />
             <span className="text-sm">No active alarms</span>
           </div>
@@ -164,11 +163,11 @@ const AlarmPanel = React.memo(() => {
                   <span className="text-xs font-medium text-gray-100 truncate block">
                     {alarm.ruleName}
                   </span>
-                  <span className="text-xs text-gray-400 truncate block">
+                  <span className="text-xs text-gray-400 dark:text-gray-500 truncate block">
                     {alarm.message}
                   </span>
                 </div>
-                <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   {new Date(alarm.onTime).toLocaleTimeString()}
                 </span>
                 <span
@@ -280,6 +279,7 @@ export const OperatorShell = React.memo<OperatorShellProps>(
         <div
           className="relative flex flex-col w-screen h-screen overflow-hidden bg-gray-950 text-gray-100"
           role="application"
+          data-theme="dark"
           aria-label="SCADA operator interface"
         >
           {/* ── Top header ── */}

@@ -53,8 +53,8 @@ const statusConfig: Record<SensorStatus, { icon: LucideIcon; color: string; bg: 
   },
   offline: {
     icon: WifiOff,
-    color: 'text-gray-500',
-    bg: 'bg-gray-100',
+    color: 'text-gray-500 dark:text-gray-400',
+    bg: 'bg-gray-100 dark:bg-gray-800',
     label: 'Offline',
   },
 };
@@ -112,7 +112,7 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
         <span className={`${config.fontSize} font-medium ${statusCfg.color}`}>
           {reading.value.toFixed(1)}
         </span>
-        <span className={`${config.fontSize} text-gray-500`}>{reading.unit}</span>
+        <span className={`${config.fontSize} text-gray-500 dark:text-gray-400`}>{reading.unit}</span>
         <StatusIcon
           size={config.iconSize - 4}
           className={`${statusCfg.color} ${
@@ -127,7 +127,7 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
   return (
     <div
       className={`
-        rounded-lg border border-gray-200/50 ${statusCfg.bg}
+        rounded-lg border border-gray-200/50 dark:border-gray-700/50 ${statusCfg.bg}
         ${config.padding} ${className}
         flex items-center gap-3
       `}
@@ -139,14 +139,14 @@ export const StatusWidget: React.FC<StatusWidgetProps> = ({
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <div className={`${config.fontSize} text-gray-500 capitalize`}>
+        <div className={`${config.fontSize} text-gray-500 dark:text-gray-400 capitalize`}>
           {reading.type.replace('_', ' ')}
         </div>
         <div className="flex items-center gap-2">
-          <span className={`text-lg font-bold text-gray-900`}>
+          <span className={`text-lg font-bold text-gray-900 dark:text-gray-100`}>
             {reading.value.toFixed(1)}
           </span>
-          <span className="text-sm text-gray-500">{reading.unit}</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{reading.unit}</span>
         </div>
       </div>
 

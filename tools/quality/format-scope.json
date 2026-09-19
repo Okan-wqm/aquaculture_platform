@@ -36196,6 +36196,12 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/frontend-expert/2026-09-19-design-rescan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/hr-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -49006,6 +49012,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tools/gates/format-merge-base.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tools/gates/format-scope-derived-scalars.spec.ts",
       "prettier_managed": true
     },
@@ -49265,6 +49277,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tools/quality/coverage-report-inventory.json",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tools/quality/format-merge-base.mjs",
       "prettier_managed": true
     },
     {
@@ -49905,12 +49923,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/components/hub/HubHeader.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/apps/aquamobil/src/components/hub/index.ts",
       "prettier_managed": true
     },
@@ -49942,6 +49954,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/InstallPrompt.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/LeaveTypeSwatch.tsx",
       "prettier_managed": true
     },
     {
@@ -50127,6 +50145,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/PageHeader.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/BottomSheet.tsx",
       "prettier_managed": true
     },
@@ -50140,6 +50164,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/IconButton.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/PageHeader.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Spinner.tsx",
       "prettier_managed": true
     },
     {
@@ -51315,6 +51351,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/vite-env.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/tailwind.config.d.ts",
       "prettier_managed": true
     },
     {
@@ -55004,12 +55046,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hydroponics-module/src/components/solution/FertilizerOptionRow.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/hydroponics-module/src/components/solution/ParameterRow.tsx",
       "prettier_managed": true
     },
     {
@@ -60492,6 +60528,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/a11y/SkipToContent.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/a11y/VisuallyHidden.tsx",
       "prettier_managed": true
     },
@@ -60672,6 +60714,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/__tests__/EmptyState.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/EmptyState.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Form/__tests__/Checkbox.surface.spec.tsx",
       "prettier_managed": true
     },
@@ -60685,6 +60745,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Form/__tests__/PasswordInput.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Form/__tests__/required.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60798,6 +60864,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/__tests__/PageHeader.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Header.tsx",
       "prettier_managed": true
     },
@@ -60810,7 +60882,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/PageHeader.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Sidebar.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Loading/__tests__/Spinner.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60829,6 +60913,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Modal/__tests__/ConfirmModal.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Modal/__tests__/Modal.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60883,6 +60973,24 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Table/Table.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/__tests__/Tabs.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/Tabs.tsx",
       "prettier_managed": true
     },
     {

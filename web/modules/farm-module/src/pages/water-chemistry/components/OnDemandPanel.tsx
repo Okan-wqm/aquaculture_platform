@@ -73,10 +73,10 @@ const OnDemandPanel: React.FC<OnDemandPanelProps> = ({ steps, co2ToxicMgL }) => 
   ];
 
   return (
-    <div className="bg-white rounded-lg shadow p-4">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
       <div className="mb-3">
-        <h3 className="text-sm font-semibold text-gray-900">Dosing Simulator — Results</h3>
-        <p className="text-xs text-gray-500 mt-0.5">Projected water chemistry after each dosing step</p>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Dosing Simulator — Results</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Projected water chemistry after each dosing step</p>
       </div>
 
       <div className="overflow-x-auto">
@@ -89,7 +89,7 @@ const OnDemandPanel: React.FC<OnDemandPanelProps> = ({ steps, co2ToxicMgL }) => 
           sortable={false}
           stickyHeader={false}
         />
-        <div className="flex gap-4 mt-2 text-xs text-gray-500">
+        <div className="flex gap-4 mt-2 text-xs text-gray-500 dark:text-gray-400">
           <span>
             ΔpH: <span className={pHColor(steps[steps.length - 1].ph)}>
               {(steps[steps.length - 1].ph - steps[0].ph > 0 ? '+' : '')}{(steps[steps.length - 1].ph - steps[0].ph).toFixed(2)}

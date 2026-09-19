@@ -137,18 +137,18 @@ export function VfdProgrammingPage() {
   return (
     <div className="flex min-h-full flex-col" data-testid="vfd-programming-page">
       {/* Header */}
-      <header className="border-b bg-white px-4 py-3 sm:px-6">
+      <header className="border-b bg-white dark:bg-gray-900 px-4 py-3 sm:px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Settings className="h-5 w-5 text-indigo-600" />
-            <h1 className="text-lg font-semibold text-gray-900">VFD Programming</h1>
+            <h1 className="text-lg font-semibold text-gray-900 dark:text-gray-100">VFD Programming</h1>
             <span className="text-gray-300">|</span>
             {/* Device Selector */}
             <div className="relative">
               <select
                 value={selectedVfdDeviceId ?? ''}
                 onChange={(e) => setSelectedDevice(e.target.value)}
-                className="appearance-none rounded-md border border-gray-300 bg-white py-1.5 pl-3 pr-8 text-sm font-medium text-gray-700 focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 disabled:text-gray-500"
+                className="appearance-none rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 py-1.5 pl-3 pr-8 text-sm font-medium text-gray-700 dark:text-gray-300 focus:border-indigo-500 focus:ring-indigo-500 disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
                 aria-label="Select VFD device"
                 data-testid="device-selector"
                 disabled={devices.length === 0}
@@ -165,12 +165,12 @@ export function VfdProgrammingPage() {
                   </option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
             </div>
           </div>
           <button
             type="button"
-            className="rounded-md p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="rounded-md p-1.5 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
             aria-label="Help"
           >
             <HelpCircle className="h-5 w-5" />
@@ -190,7 +190,7 @@ export function VfdProgrammingPage() {
               className={`inline-flex items-center gap-1.5 rounded-t-md px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'border-b-2 border-indigo-600 text-indigo-600'
-                  : 'text-gray-500 hover:text-gray-700'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
               data-testid={`tab-${tab.id}`}
             >

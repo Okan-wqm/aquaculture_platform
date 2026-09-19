@@ -4,17 +4,7 @@
  * Includes full lifecycle workflow: submit, approve, start, verify, cancel, hold, resume.
  */
 import React, { useState, useMemo, useCallback } from 'react';
-import {
-  Card,
-  Button,
-  Modal,
-  Input,
-  Select,
-  Badge,
-  Spinner,
-  Alert,
-  useConfirm,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, useConfirm, PageHeader } from '@aquaculture/shared-ui';
 import {
   useWorkOrders,
   useCreateWorkOrder,
@@ -43,7 +33,7 @@ import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 // ============================================================================
 
 const statusColors: Record<WorkOrderStatus, string> = {
-  DRAFT: 'bg-gray-100 text-gray-800',
+  DRAFT: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   PENDING_APPROVAL: 'bg-yellow-100 text-yellow-800',
   APPROVED: 'bg-blue-100 text-blue-800',
   SCHEDULED: 'bg-indigo-100 text-indigo-800',
@@ -55,7 +45,7 @@ const statusColors: Record<WorkOrderStatus, string> = {
 };
 
 const priorityColors: Record<WorkOrderPriority, string> = {
-  LOW: 'bg-gray-100 text-gray-800',
+  LOW: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   MEDIUM: 'bg-blue-100 text-blue-800',
   HIGH: 'bg-orange-100 text-orange-800',
   CRITICAL: 'bg-red-100 text-red-800',
@@ -589,10 +579,10 @@ export const WorkOrdersPage: React.FC = () => {
       header: 'Kod / Başlık',
       render: (_value, item) => (
         <>
-          <div className="text-sm font-medium text-gray-900">
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
             {item.workOrderCode}
           </div>
-          <div className="text-sm text-gray-500">{item.title}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{item.title}</div>
         </>
       ),
     },
@@ -673,15 +663,13 @@ export const WorkOrdersPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">İş Emirleri</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Bakım iş emirlerini görüntüleyin ve yönetin
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate}>Yeni İş Emri</Button>
-      </div>
+      <PageHeader
+        title="İş Emirleri"
+        description="Bakım iş emirlerini görüntüleyin ve yönetin"
+        actions={
+          <Button onClick={handleOpenCreate}>Yeni İş Emri</Button>
+        }
+      />
 
       {/* Filters */}
       <Card className="p-4">
@@ -738,8 +726,8 @@ export const WorkOrdersPage: React.FC = () => {
 
           {/* Pagination */}
           {data && data.totalPages > 1 && (
-            <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-              <div className="text-sm text-gray-500">
+            <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="text-sm text-gray-500 dark:text-gray-400">
                 Toplam {data.total} kayıt, Sayfa {data.page} / {data.totalPages}
               </div>
               <div className="flex gap-2">
@@ -771,14 +759,14 @@ export const WorkOrdersPage: React.FC = () => {
               {/* Detail Header */}
               <div className="flex items-start justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-900">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                     {selectedWorkOrder.workOrderCode}
                   </h2>
-                  <p className="text-sm text-gray-600 mt-1">{selectedWorkOrder.title}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{selectedWorkOrder.title}</p>
                 </div>
                 <button
                   onClick={() => setSelectedWorkOrder(null)}
-                  className="text-gray-400 hover:text-gray-600"
+                  className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -802,7 +790,7 @@ export const WorkOrdersPage: React.FC = () => {
                 if (actions.length === 0) return null;
                 return (
                   <div className="space-y-2">
-                    <h3 className="text-sm font-medium text-gray-700">İş Akışı</h3>
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300">İş Akışı</h3>
                     <div className="flex flex-wrap gap-2">
                       {actions.map((actionDef) => (
                         <button
@@ -827,7 +815,7 @@ export const WorkOrdersPage: React.FC = () => {
               })()}
 
               {/* Detail Info */}
-              <div className="space-y-3 border-t border-gray-200 pt-4">
+              <div className="space-y-3 border-t border-gray-200 dark:border-gray-700 pt-4">
                 <DetailRow label="Tip" value={typeLabels[selectedWorkOrder.type]} />
                 {selectedWorkOrder.description && (
                   <DetailRow label="Açıklama" value={selectedWorkOrder.description} />
@@ -880,17 +868,17 @@ export const WorkOrdersPage: React.FC = () => {
 
               {/* Checklist Progress */}
               {selectedWorkOrder.checklistProgress != null && (
-                <div className="border-t border-gray-200 pt-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Kontrol Listesi İlerlemesi
                   </h3>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
                     <div
                       className="bg-blue-600 h-2.5 rounded-full"
                       style={{ width: `${selectedWorkOrder.checklistProgress}%` }}
                     />
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     %{Math.round(selectedWorkOrder.checklistProgress)} tamamlandı
                   </p>
                 </div>
@@ -898,19 +886,19 @@ export const WorkOrdersPage: React.FC = () => {
 
               {/* Cost Summary */}
               {selectedWorkOrder.costSummary && (
-                <div className="border-t border-gray-200 pt-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">Maliyet Özeti</h3>
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                  <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Maliyet Özeti</h3>
                   <div className="space-y-1 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-gray-500">İşçilik</span>
+                      <span className="text-gray-500 dark:text-gray-400">İşçilik</span>
                       <span>{selectedWorkOrder.costSummary.laborCost.toLocaleString('tr-TR')} {selectedWorkOrder.costSummary.currency}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-gray-500">Malzeme</span>
+                      <span className="text-gray-500 dark:text-gray-400">Malzeme</span>
                       <span>{selectedWorkOrder.costSummary.materialCost.toLocaleString('tr-TR')} {selectedWorkOrder.costSummary.currency}</span>
                     </div>
                     <div className="flex justify-between font-medium border-t pt-1">
-                      <span className="text-gray-700">Toplam</span>
+                      <span className="text-gray-700 dark:text-gray-300">Toplam</span>
                       <span>{selectedWorkOrder.costSummary.totalCost.toLocaleString('tr-TR')} {selectedWorkOrder.costSummary.currency}</span>
                     </div>
                   </div>
@@ -918,7 +906,7 @@ export const WorkOrdersPage: React.FC = () => {
               )}
 
               {/* Quick Actions */}
-              <div className="border-t border-gray-200 pt-4 flex gap-2">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4 flex gap-2">
                 {selectedWorkOrder.status === 'DRAFT' && (
                   <Button
                     variant="secondary"
@@ -1047,7 +1035,7 @@ export const WorkOrdersPage: React.FC = () => {
 
           {/* Work Order Info */}
           {confirmAction && (
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-gray-600 dark:text-gray-400">
               <span className="font-medium">{confirmAction.workOrder.workOrderCode}</span>
               {' - '}
               {confirmAction.workOrder.title}
@@ -1057,14 +1045,14 @@ export const WorkOrdersPage: React.FC = () => {
           {/* Reason Input (for cancel and hold) */}
           {confirmAction?.actionDef.needsReason && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Sebep {confirmAction.actionDef.action === 'cancel' ? '(opsiyonel)' : '(opsiyonel)'}
               </label>
               <textarea
                 value={actionReason}
                 onChange={(e) => setActionReason(e.target.value)}
                 rows={3}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder={
                   confirmAction.actionDef.action === 'cancel'
                     ? 'İptal sebebini belirtin...'
@@ -1077,14 +1065,14 @@ export const WorkOrdersPage: React.FC = () => {
           {/* Notes Input (for approve, start, verify) */}
           {!confirmAction?.actionDef.needsReason && confirmAction?.actionDef.action !== 'submit' && confirmAction?.actionDef.action !== 'resume' && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Not (opsiyonel)
               </label>
               <textarea
                 value={actionNotes}
                 onChange={(e) => setActionNotes(e.target.value)}
                 rows={2}
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="Ek not ekleyin..."
               />
             </div>
@@ -1121,8 +1109,8 @@ export const WorkOrdersPage: React.FC = () => {
 
 const DetailRow: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <div>
-    <dt className="text-xs font-medium text-gray-500">{label}</dt>
-    <dd className="text-sm text-gray-900 mt-0.5">{value}</dd>
+    <dt className="text-xs font-medium text-gray-500 dark:text-gray-400">{label}</dt>
+    <dd className="text-sm text-gray-900 dark:text-gray-100 mt-0.5">{value}</dd>
   </div>
 );
 

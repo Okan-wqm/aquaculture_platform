@@ -31,7 +31,7 @@ const personnelColumns: DataTableColumn<HrPersonnelRow>[] = [
           </Link>
         </span>
       ) : (
-        <span className="text-gray-900">{laborCategoryLabel(row.category)}</span>
+        <span className="text-gray-900 dark:text-gray-100">{laborCategoryLabel(row.category)}</span>
       ),
   },
   {
@@ -71,7 +71,7 @@ export const PersonnelTableTab: React.FC<PersonnelTableTabProps> = ({ data, isLo
       searchable={false}
       sortable={false}
       stickyHeader={false}
-      className="rounded-xl border border-gray-100 shadow-sm"
+      className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
     />
   );
 };

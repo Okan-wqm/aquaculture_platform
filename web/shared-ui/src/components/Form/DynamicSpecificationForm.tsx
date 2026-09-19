@@ -133,7 +133,7 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
   // Schema yoksa mesaj göster
   if (!schema || !schema.fields || schema.fields.length === 0) {
     return (
-      <div className={`text-gray-500 text-sm italic py-4 ${className}`}>
+      <div className={`text-gray-500 dark:text-gray-400 text-sm italic py-4 ${className}`}>
         No technical specifications available for this equipment type.
       </div>
     );
@@ -272,21 +272,21 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
     const isCollapsed = collapsedGroups.has(group.name);
 
     return (
-      <div key={group.name} className="border border-gray-200 rounded-lg overflow-hidden">
+      <div key={group.name} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
         {/* Grup başlığı */}
         <button
           type="button"
           onClick={() => toggleGroup(group.name)}
-          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors"
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         >
           <div className="text-left">
-            <span className="font-medium text-gray-900">{group.label}</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{group.label}</span>
             {group.description && (
-              <p className="text-sm text-gray-500">{group.description}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{group.description}</p>
             )}
           </div>
           <svg
-            className={`w-5 h-5 text-gray-500 transition-transform ${isCollapsed ? '' : 'rotate-180'}`}
+            className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isCollapsed ? '' : 'rotate-180'}`}
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -316,8 +316,8 @@ export const DynamicSpecificationForm: React.FC<DynamicSpecificationFormProps> =
 
       {/* BUG-009: Render orphan group fields that reference unknown group names */}
       {orphanGroupKeys.map((groupKey) => (
-        <div key={groupKey} className="border border-gray-200 rounded-lg p-4">
-          <p className="text-xs text-gray-500 mb-3 uppercase">{groupKey}</p>
+        <div key={groupKey} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 uppercase">{groupKey}</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {groupedFields[groupKey].map((field) => renderField(field))}
           </div>

@@ -83,9 +83,9 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
 
   if (!supplierId) {
     return (
-      <div className="mt-6 p-4 bg-gray-50 border border-dashed border-gray-300 rounded-lg">
-        <h3 className="text-sm font-semibold text-gray-700">Onaylı Siteler</h3>
-        <p className="mt-1 text-xs text-gray-500">
+      <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Onaylı Siteler</h3>
+        <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
           Tedarikçi oluşturulduktan sonra onaylı site listesi
           düzenlenebilir. Önce yukarıdaki "Kaydet" butonu ile
           tedarikçiyi oluşturun.
@@ -98,11 +98,11 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
     // Read-only render for users without edit permission.
     return (
       <div className="mt-6">
-        <h3 className="text-sm font-semibold text-gray-700">Onaylı Siteler</h3>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Onaylı Siteler</h3>
         {approvalsQuery.isLoading ? (
-          <p className="mt-1 text-xs text-gray-500">Yükleniyor…</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Yükleniyor…</p>
         ) : (approvalsQuery.data ?? []).length === 0 ? (
-          <p className="mt-1 text-xs text-gray-500">Onaylı site yok.</p>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Onaylı site yok.</p>
         ) : (
           <ul className="mt-2 space-y-1 text-sm">
             {(approvalsQuery.data ?? []).map((a) => {
@@ -113,7 +113,7 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
                     {site?.name ?? a.siteId}
                   </span>
                   {site?.code && (
-                    <span className="text-gray-500"> · {site.code}</span>
+                    <span className="text-gray-500 dark:text-gray-400"> · {site.code}</span>
                   )}
                   {a.isPreferred && (
                     <span className="ml-2 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">
@@ -184,34 +184,34 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
   };
 
   return (
-    <div className="mt-6 border-t border-gray-200 pt-4">
+    <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-700">Onaylı Siteler</h3>
-        <p className="text-xs text-gray-500">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Onaylı Siteler</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           {selectedSiteIds.size} / {allSites.length} site seçili
         </p>
       </div>
-      <p className="mt-1 text-xs text-gray-500">
+      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
         Bu tedarikçinin teslimat yapabileceği siteler. En fazla bir
         site "tercih edilen" olarak işaretlenebilir.
       </p>
 
       {sitesQuery.isLoading || approvalsQuery.isLoading ? (
-        <p className="mt-3 text-sm text-gray-500">Yükleniyor…</p>
+        <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">Yükleniyor…</p>
       ) : allSites.length === 0 ? (
-        <div className="mt-3 p-3 bg-gray-50 border border-dashed border-gray-300 rounded text-sm text-gray-500 text-center">
+        <div className="mt-3 p-3 bg-gray-50 dark:bg-gray-800 border border-dashed border-gray-300 dark:border-gray-600 rounded text-sm text-gray-500 dark:text-gray-400 text-center">
           Aktif site yok. Önce Sites sekmesinden bir site oluşturun.
         </div>
       ) : (
-        <div className="mt-3 max-h-64 overflow-y-auto border border-gray-200 rounded">
-          <ul className="divide-y divide-gray-200">
+        <div className="mt-3 max-h-64 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded">
+          <ul className="divide-y divide-gray-200 dark:divide-gray-700">
             {allSites.map((site) => {
               const checked = selectedSiteIds.has(site.id);
               const isPreferred = preferredSiteId === site.id;
               return (
                 <li
                   key={site.id}
-                  className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-gray-50"
+                  className="flex items-center gap-3 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   <input
                     type="checkbox"
@@ -224,17 +224,17 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
                     htmlFor={`approved-site-${site.id}`}
                     className="flex-1 cursor-pointer"
                   >
-                    <span className="font-medium text-gray-900">
+                    <span className="font-medium text-gray-900 dark:text-gray-100">
                       {site.name}
                     </span>
                     {site.code && (
-                      <span className="ml-2 text-xs text-gray-500">
+                      <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
                         {site.code}
                       </span>
                     )}
                   </label>
                   {checked && (
-                    <label className="flex items-center gap-1 text-xs text-gray-700 cursor-pointer">
+                    <label className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
                       <input
                         type="radio"
                         name="preferredSupplierSite"
@@ -257,7 +257,7 @@ const SupplierApprovedSitesSection: React.FC<SupplierApprovedSitesSectionProps> 
           type="button"
           onClick={() => handleSetPreferred(null)}
           disabled={preferredSiteId === null}
-          className="text-xs text-gray-600 hover:text-gray-800 disabled:opacity-40"
+          className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 disabled:opacity-40"
         >
           Tercihten kaldır
         </button>

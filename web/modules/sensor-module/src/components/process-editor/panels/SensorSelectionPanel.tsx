@@ -19,10 +19,10 @@ import {
   WifiOff,
   GripVertical,
   AlertCircle,
-  Loader2,
 } from 'lucide-react';
 import { useSensorList, RegisteredSensor } from '../../../hooks/useSensorList';
 import { SensorMapping } from '../../../store/processStore';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -67,7 +67,7 @@ const TypeIcon: React.FC<{ type: string; className?: string }> = ({ type, classN
     power: <Activity className={`${className} text-violet-500`} />,
   };
 
-  return <>{icons[normalizedType] || <Activity className={`${className} text-gray-500`} />}</>;
+  return <>{icons[normalizedType] || <Activity className={`${className} text-gray-500 dark:text-gray-400`} />}</>;
 };
 
 // ============================================================================
@@ -101,18 +101,18 @@ const DataChannelItem: React.FC<DataChannelItemProps> = ({ channel, parentSensor
     <div
       draggable
       onDragStart={handleDragStart}
-      className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-grab hover:bg-gray-100 transition-colors group"
+      className="flex items-center gap-2 px-3 py-2 rounded-lg cursor-grab hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors group"
     >
-      <GripVertical className="w-3 h-3 text-gray-500 group-hover:text-gray-500" />
+      <GripVertical className="w-3 h-3 text-gray-500 dark:text-gray-400 group-hover:text-gray-500 dark:group-hover:text-gray-300" />
       <TypeIcon type={type} className="w-4 h-4" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-700 truncate">{channel.name}</p>
+        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{channel.name}</p>
         {channel.dataPath && (
-          <p className="text-xs text-gray-500 font-mono truncate">{channel.dataPath}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">{channel.dataPath}</p>
         )}
       </div>
       {channel.unit && (
-        <span className="text-xs text-gray-500">{channel.unit}</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{channel.unit}</span>
       )}
     </div>
   );
@@ -152,30 +152,30 @@ const DeviceGroup: React.FC<DeviceGroupProps> = ({ group, defaultExpanded = fals
   }
 
   return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       {/* Device Header */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+        className="w-full flex items-center gap-2 px-3 py-2 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
       >
         {isExpanded ? (
-          <ChevronDown className="w-4 h-4 text-gray-500" />
+          <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
         ) : (
-          <ChevronRight className="w-4 h-4 text-gray-500" />
+          <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
         )}
         <Server className="w-4 h-4 text-cyan-600" />
-        <span className="flex-1 text-sm font-medium text-gray-700 truncate">{parent.name}</span>
+        <span className="flex-1 text-sm font-medium text-gray-700 dark:text-gray-300 truncate">{parent.name}</span>
         {isConnected ? (
           <Wifi className="w-3 h-3 text-green-500" />
         ) : (
-          <WifiOff className="w-3 h-3 text-gray-500" />
+          <WifiOff className="w-3 h-3 text-gray-500 dark:text-gray-400" />
         )}
-        <span className="text-xs text-gray-500">{filteredChildren.length}</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">{filteredChildren.length}</span>
       </button>
 
       {/* Data Channels */}
       {isExpanded && filteredChildren.length > 0 && (
-        <div className="border-t border-gray-200 bg-white py-1">
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 py-1">
           {filteredChildren.map((channel) => (
             <DataChannelItem
               key={channel.id}
@@ -188,7 +188,7 @@ const DeviceGroup: React.FC<DeviceGroupProps> = ({ group, defaultExpanded = fals
 
       {/* Empty state when expanded but no channels */}
       {isExpanded && filteredChildren.length === 0 && (
-        <div className="border-t border-gray-200 bg-white p-4 text-center text-sm text-gray-500">
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 text-center text-sm text-gray-500 dark:text-gray-400">
           Veri kanalı bulunamadı
         </div>
       )}
@@ -241,25 +241,25 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
   );
 
   return (
-    <div className={`flex flex-col h-full bg-white border-l border-gray-200 ${className}`}>
+    <div className={`flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 ${className}`}>
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-200">
-        <h3 className="text-sm font-semibold text-gray-900">Sensör Verileri</h3>
-        <p className="text-xs text-gray-500 mt-0.5">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Sensör Verileri</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
           {loading ? 'Yükleniyor...' : `${groupedDevices.length} cihaz, ${totalChannels} kanal`}
         </p>
       </div>
 
       {/* Search */}
-      <div className="px-4 py-3 border-b border-gray-200">
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Sensör ara..."
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
           />
         </div>
       </div>
@@ -268,20 +268,20 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {/* Loading State */}
         {loading && (
-          <div className="flex flex-col items-center justify-center py-8 text-gray-500">
-            <Loader2 className="w-6 h-6 animate-spin mb-2" />
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400">
+            <Spinner size="md" color="inherit" className="mb-2" />
             <p className="text-sm">Sensörler yükleniyor...</p>
           </div>
         )}
 
         {/* Error State */}
         {error && (
-          <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400">
             <AlertCircle className="w-6 h-6 text-red-500 mb-2" />
             <p className="text-sm text-red-600">Hata: {error}</p>
             <button
               onClick={() => refetch()}
-              className="mt-2 px-3 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded"
+              className="mt-2 px-3 py-1 text-xs bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded"
             >
               Tekrar Dene
             </button>
@@ -290,7 +290,7 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
 
         {/* Empty State */}
         {!loading && !error && groupedDevices.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+          <div className="flex flex-col items-center justify-center py-8 text-gray-500 dark:text-gray-400">
             <Activity className="w-8 h-8 mb-2 opacity-50" />
             <p className="text-sm">
               {searchTerm ? 'Sonuç bulunamadı' : 'Henüz sensör yok'}
@@ -318,8 +318,8 @@ export const SensorSelectionPanel: React.FC<SensorSelectionPanelProps> = ({ clas
       </div>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
-        <p className="text-xs text-gray-500 text-center">
+      <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+        <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
           Sensör verilerini ekipman üzerine sürükleyin
         </p>
       </div>

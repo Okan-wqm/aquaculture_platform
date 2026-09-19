@@ -190,7 +190,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
       <svg
         width={availW}
         height={height - PAD * 2}
-        style={{ display: 'block', overflow: 'visible' }}
+        className="block overflow-visible"
       >
         {/* Title */}
         <text
@@ -262,7 +262,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
                   fontSize={Math.min(9, radius * 0.15)}
                   fontWeight={600}
                   fill="white"
-                  style={{ pointerEvents: 'none' }}
+                  className="pointer-events-none"
                 >
                   {(slice.fraction * 100).toFixed(0)}%
                 </text>
@@ -332,7 +332,7 @@ const PieChartRenderer: React.FC<WidgetRendererProps> = ({
               {sources.map((source, i) => (
                 <span
                   key={source.tagName + i}
-                  style={{ display: 'flex', alignItems: 'center', gap: 2 }}
+                  className="flex items-center gap-[2px]"
                 >
                   <span
                     style={{

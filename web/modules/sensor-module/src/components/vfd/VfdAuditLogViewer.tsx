@@ -8,13 +8,12 @@
 import React, { useState, useMemo } from 'react';
 import {
   ChevronDown,
-  Loader2,
   AlertTriangle,
   History,
   Filter,
 } from 'lucide-react';
 import { VfdParameterAuditLog, VfdRiskLevel } from '../../types/vfd.types';
-import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -125,11 +124,11 @@ export function VfdAuditLogViewer({
     <div data-testid="vfd-audit-log">
       {/* Filter bar */}
       <div className="mb-4 flex items-center gap-3">
-        <Filter className="h-4 w-4 text-gray-400" />
+        <Filter className="h-4 w-4 text-gray-400 dark:text-gray-500" />
         <select
           value={paramFilter}
           onChange={(e) => handleFilterChange(e.target.value)}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+          className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
           aria-label="Filter by parameter"
         >
           <option value="">All Parameters</option>
@@ -139,7 +138,7 @@ export function VfdAuditLogViewer({
             </option>
           ))}
         </select>
-        <span className="ml-auto text-xs text-gray-400">
+        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
           {logs.length} log entr{logs.length !== 1 ? 'ies' : 'y'}
         </span>
       </div>
@@ -147,12 +146,12 @@ export function VfdAuditLogViewer({
       {/* Table */}
       {loading && logs.length === 0 ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          <Spinner size="md" />
         </div>
       ) : logs.length === 0 ? (
         <div className="py-12 text-center">
           <History className="mx-auto mb-2 h-8 w-8 text-gray-300" />
-          <p className="text-sm text-gray-500">No audit log entries</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No audit log entries</p>
         </div>
       ) : (
         <DataTable<VfdParameterAuditLog>
@@ -174,9 +173,9 @@ export function VfdAuditLogViewer({
             type="button"
             onClick={onLoadMore}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+            {loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
             Load More
           </button>
         </div>

@@ -30,7 +30,7 @@ function formatTimeSince(dateInput: Date | string): string {
 }
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
-import { colors as themeColors } from '@aquaculture/shared-ui';
+import { colors as themeColors, Spinner } from '@aquaculture/shared-ui';
 
 interface SparklineWidgetContentProps {
   config: WidgetConfig;
@@ -51,14 +51,14 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="md" />
       </div>
     );
   }
 
   if (error || !data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-xs">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-xs">
         {error || 'No data'}
       </div>
     );
@@ -90,7 +90,7 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
     normal: 'text-green-600',
     warning: 'text-yellow-600',
     critical: 'text-red-600',
-    offline: 'text-gray-500',
+    offline: 'text-gray-500 dark:text-gray-400',
   };
 
   // SVG sparkline
@@ -130,12 +130,12 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
         {/* Value and trend */}
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
-            <span className="text-xl font-bold text-gray-900">
+            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">
               {value.toFixed(config.settings?.decimalPlaces ?? 1)}
             </span>
-            <span className="text-xs text-gray-500">{unit}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">{unit}</span>
           </div>
-          <div className={`flex items-center gap-1 ${statusColors[status] || 'text-gray-500'}`}>
+          <div className={`flex items-center gap-1 ${statusColors[status] || 'text-gray-500 dark:text-gray-400'}`}>
             <TrendIcon size={14} />
             <span className="text-xs capitalize">{status}</span>
           </div>
@@ -186,7 +186,7 @@ export const SparklineWidgetContent: React.FC<SparklineWidgetContentProps> = ({
         )}
       </div>
       {/* Last update time */}
-      <div className="flex items-center justify-center gap-1 text-xs text-gray-500 pt-1 border-t border-gray-100 mt-1">
+      <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-gray-700 mt-1">
         <Clock size={10} />
         <span>{formatTimeSince(reading.timestamp)}</span>
       </div>

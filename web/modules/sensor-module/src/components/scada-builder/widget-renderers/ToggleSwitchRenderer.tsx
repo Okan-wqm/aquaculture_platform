@@ -54,7 +54,7 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
       onClick={handleToggle}
     >
       {/* Extra SVG height to accommodate glow filter overflow */}
-      <svg width={trackW + 8} height={trackH + 8} style={{ overflow: 'visible' }}>
+      <svg width={trackW + 8} height={trackH + 8} className="overflow-visible">
         <defs>
           {/* 3D knob gradient - subtle top-light / bottom-shadow */}
           <radialGradient id={ids.knobGradient} cx="40%" cy="35%" r="60%">
@@ -82,7 +82,7 @@ const ToggleSwitchRenderer: React.FC<WidgetRendererProps> = ({ config, value, wi
             width={trackW} height={trackH}
             rx={trackH / 2}
             fill={isOn ? colors.success[500] : colors.neutral[300]}
-            style={{ transition: 'fill 200ms ease-in-out' }}
+            className="transition-[fill] duration-200 ease-in-out"
             filter={isOn ? `url(#${ids.glowFilter})` : undefined}
           />
 

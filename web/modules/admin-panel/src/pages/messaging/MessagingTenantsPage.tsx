@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
@@ -146,30 +146,28 @@ const MessagingTenantsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Tenants</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Per-tenant messaging management and controls
-          </p>
-        </div>
-        <Button
-          onClick={() => void overviewQuery.refresh()}
-          disabled={overviewQuery.loading}
-          variant="secondary"
-          size="sm"
-        >
-          {overviewQuery.loading ? 'Refreshing...' : 'Refresh'}
-        </Button>
-      </div>
+      <PageHeader
+        title="Messaging Tenants"
+        description="Per-tenant messaging management and controls"
+        actions={
+          <Button
+            onClick={() => void overviewQuery.refresh()}
+            disabled={overviewQuery.loading}
+            variant="secondary"
+            size="sm"
+          >
+            {overviewQuery.loading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
 
       {/* Tenant Overview */}
       <Card>
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-semibold text-gray-900">Tenant Messaging Overview</h3>
-              <p className="text-xs text-gray-500 mt-0.5">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Tenant Messaging Overview</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                 Message volume and active channel counts per tenant, sorted by 24h volume
               </p>
             </div>
@@ -190,13 +188,13 @@ const MessagingTenantsPage: React.FC = () => {
           )}
 
           {!overviewQuery.error && overviewQuery.loading && tenants.length === 0 && (
-            <div className="py-10 text-center text-sm text-gray-500">
+            <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               Loading tenant messaging overview...
             </div>
           )}
 
           {!overviewQuery.error && !overviewQuery.loading && tenants.length === 0 && (
-            <div className="py-10 text-center text-sm text-gray-500">
+            <div className="py-10 text-center text-sm text-gray-500 dark:text-gray-400">
               No tenant messaging activity recorded yet.
             </div>
           )}
@@ -204,7 +202,7 @@ const MessagingTenantsPage: React.FC = () => {
           {tenants.length > 0 && <OverviewTable tenants={tenants} />}
 
           {overviewQuery.data && (
-            <p className="text-xs text-gray-400 mt-4">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-4">
               Aggregated by the messaging service and cached for 60 seconds. Last computed:{' '}
               {new Date(overviewQuery.data.generatedAt).toLocaleString()}
             </p>
@@ -215,17 +213,17 @@ const MessagingTenantsPage: React.FC = () => {
       {/* Data Export */}
       <Card>
         <div className="p-6">
-          <h3 className="text-sm font-semibold text-gray-900 mb-1">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-1">
             Trigger Tenant Data Export
           </h3>
-          <p className="text-xs text-gray-500 mb-4">
+          <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             Export all messaging data for a specific tenant. The export job runs
             asynchronously and respects active legal holds.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-end">
             <div className="flex-1 w-full">
-              <label htmlFor="export-tenant-id" className="block text-xs font-medium text-gray-700 mb-1">
+              <label htmlFor="export-tenant-id" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Tenant ID (UUID)
               </label>
               <input
@@ -238,11 +236,11 @@ const MessagingTenantsPage: React.FC = () => {
                   setExportError(null);
                   setExportResult(null);
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-hidden"
               />
             </div>
             <div>
-              <label htmlFor="export-format" className="block text-xs font-medium text-gray-700 mb-1">
+              <label htmlFor="export-format" className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Format
               </label>
               <select
@@ -254,7 +252,7 @@ const MessagingTenantsPage: React.FC = () => {
                     format: e.target.value as 'csv' | 'json',
                   }))
                 }
-                className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm"
               >
                 <option value="json">JSON</option>
                 <option value="csv">CSV</option>

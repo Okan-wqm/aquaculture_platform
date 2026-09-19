@@ -21,7 +21,7 @@ const FertilizerOptionRow: React.FC<FertilizerOptionRowProps> = ({
 }) => {
   return (
     <div className="flex items-center gap-3 py-2">
-      <span className="text-sm text-gray-700 w-28 shrink-0">{label}</span>
+      <span className="text-sm text-gray-700 dark:text-gray-300 w-28 shrink-0">{label}</span>
       <div className="flex-1 max-w-[240px]">
         <Select
           options={fertilizerOptions}

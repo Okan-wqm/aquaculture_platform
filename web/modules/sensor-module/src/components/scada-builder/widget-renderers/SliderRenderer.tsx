@@ -28,7 +28,7 @@ const SliderRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, h
       </div>
 
       {/* Range input */}
-      <div style={{ padding: '8px 16px' }}>
+      <div className="px-4 py-2">
         <input
           type="range"
           min={min}

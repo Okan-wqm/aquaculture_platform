@@ -28,7 +28,7 @@ const CalibrationWizardRenderer: React.FC<WidgetRendererProps> = ({ config, widt
       </div>
 
       {/* Step indicator */}
-      <svg width="100%" height={svgH} viewBox={`0 0 ${width} ${svgH}`} preserveAspectRatio="xMidYMid meet" style={{ display: 'block', flexShrink: 0 }}>
+      <svg width="100%" height={svgH} viewBox={`0 0 ${width} ${svgH}`} preserveAspectRatio="xMidYMid meet" className="block shrink-0">
         {/* Connecting line */}
         <line
           x1={padX}

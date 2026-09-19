@@ -45,7 +45,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
       closeLabel="Close"
       title={
         <span className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-tenant-600" />
+          <Sparkles className="h-5 w-5 text-primary-600" />
           <span>AI Assistant</span>
         </span>
       }
@@ -66,12 +66,12 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
               rows={1}
               placeholder="Message the assistant…"
               disabled={status === 'offline' || status === 'connecting'}
-              className="max-h-32 flex-1 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
+              className="max-h-32 flex-1 resize-none rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm focus:border-transparent focus:outline-hidden focus:ring-2 focus:ring-primary-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
             />
             <button
               onClick={handleSend}
               disabled={!draft.trim() || status === 'thinking' || status === 'offline'}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-tenant-600 text-white hover:bg-tenant-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
               title="Send"
             >
               <Send className="h-4 w-4" />
@@ -80,12 +80,12 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
         </div>
       }
     >
-      <div className="flex items-center justify-end border-b border-gray-100 px-2 py-1">
+      <div className="flex items-center justify-end border-b border-gray-100 dark:border-gray-700 px-2 py-1">
         <button
           type="button"
           onClick={reset}
           title="New conversation"
-          className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          className="rounded-lg p-2 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
         >
           <RefreshCw className="h-4 w-4" />
         </button>
@@ -93,7 +93,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
         {messages.length === 0 && (
-          <div className="mt-10 text-center text-sm text-gray-400">
+          <div className="mt-10 text-center text-sm text-gray-400 dark:text-gray-500">
             <Sparkles className="mx-auto mb-2 h-8 w-8 text-gray-300" />
             Ask about your farm — batches, water quality, feeding, tasks.
           </div>
@@ -106,10 +106,10 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
             <div
               className={
                 m.role === 'user'
-                  ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-tenant-600 px-3 py-2 text-sm text-white'
+                  ? 'max-w-[85%] rounded-2xl rounded-br-sm bg-primary-600 px-3 py-2 text-sm text-white'
                   : m.errorCode
                     ? 'max-w-[85%] rounded-2xl rounded-bl-sm border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800'
-                    : 'max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-100 px-3 py-2 text-sm text-gray-800'
+                    : 'max-w-[85%] rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-800 dark:text-gray-200'
               }
             >
               {m.errorCode && (
@@ -126,7 +126,7 @@ const AiAssistantDrawer: React.FC<AiAssistantDrawerProps> = ({ open, onClose }) 
         ))}
         {status === 'thinking' && (
           <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-sm bg-gray-100 px-3 py-2 text-sm text-gray-400">
+            <div className="rounded-2xl rounded-bl-sm bg-gray-100 dark:bg-gray-800 px-3 py-2 text-sm text-gray-400 dark:text-gray-500">
               <RefreshCw className="inline h-4 w-4 animate-spin" />
             </div>
           </div>

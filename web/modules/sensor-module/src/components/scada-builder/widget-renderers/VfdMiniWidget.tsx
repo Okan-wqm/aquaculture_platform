@@ -112,7 +112,7 @@ const VfdMiniWidget: React.FC<WidgetRendererProps> = ({
         height="100%"
         viewBox="0 0 160 70"
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         {/* Background */}
         <rect x={1} y={1} width={158} height={68} rx={5} fill={themeColors.neutral[50]} stroke={themeColors.neutral[300]} strokeWidth={1.5} />
@@ -132,7 +132,7 @@ const VfdMiniWidget: React.FC<WidgetRendererProps> = ({
           x={4} y={56}
           width={status === 'running' ? 152 : status === 'ready' ? 76 : 0}
           height={3} rx={1.5} fill={ledColor}
-          style={{ transition: 'width 300ms ease-out' }}
+          className="transition-[width] duration-300 ease-out"
         />
       </svg>
     </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Card, useCanMutate, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, useCanMutate, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import {
   EnvironmentAvailabilityStatus,
@@ -29,7 +29,7 @@ const AVAILABILITY_STYLES: Record<EnvironmentAvailabilityStatus, string> = {
   READY: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   PARTIAL_FAILURE: 'bg-red-50 text-red-900 border-red-300',
   PARTIAL_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-300',
-  NO_DATA: 'bg-gray-100 text-gray-700 border-gray-200',
+  NO_DATA: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
   OUT_OF_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-200',
   STALE: 'bg-orange-50 text-orange-900 border-orange-200',
@@ -40,7 +40,7 @@ const AVAILABILITY_STYLES: Record<EnvironmentAvailabilityStatus, string> = {
 const QUALITY_STYLES: Record<EnvironmentQualityStatus, string> = {
   VALID: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   PROVISIONAL: 'bg-blue-50 text-blue-800 border-blue-200',
-  NO_DATA: 'bg-gray-100 text-gray-700 border-gray-200',
+  NO_DATA: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
   CLOUD_OBSCURED: 'bg-slate-100 text-slate-800 border-slate-300',
   OUT_OF_COVERAGE: 'bg-amber-50 text-amber-900 border-amber-200',
   STALE: 'bg-orange-50 text-orange-900 border-orange-200',
@@ -124,8 +124,8 @@ function ValueProvenance({ value }: { value: EnvironmentValue }): React.ReactEle
   const stationDistanceKm = value.stationDistanceKm;
 
   return (
-    <div className="text-xs text-gray-500">
-      <p className="font-medium text-gray-600">{providerLabel(value)}</p>
+    <div className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="font-medium text-gray-600 dark:text-gray-400">{providerLabel(value)}</p>
       {caveat && <p className="mt-1">{caveat}</p>}
       <dl className="mt-2 grid grid-cols-1 gap-1">
         {value.source === 'MET_FROST' && (
@@ -220,7 +220,7 @@ function LoadingState({ label }: { label: string }): React.ReactElement {
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-40 items-center justify-center rounded-lg border border-gray-200 bg-white text-sm text-gray-600"
+      className="flex min-h-40 items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-600 dark:text-gray-400"
     >
       {label}
     </div>
@@ -269,9 +269,9 @@ function EmptyState({
   description: string;
 }): React.ReactElement {
   return (
-    <div className="rounded-lg border border-dashed border-gray-300 bg-white px-6 py-10 text-center">
-      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600">{description}</p>
+    <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-6 py-10 text-center">
+      <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h2>
+      <p className="mx-auto mt-2 max-w-xl text-sm text-gray-600 dark:text-gray-400">{description}</p>
     </div>
   );
 }
@@ -287,10 +287,10 @@ function CurrentValueCard({
     <Card padding="md" className="min-w-0">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-gray-600">{label}</p>
+          <p className="truncate text-sm font-medium text-gray-600 dark:text-gray-400">{label}</p>
           <p className="mt-2 text-2xl font-bold text-gray-950">
             {formatValue(value.value)}{' '}
-            <span className="text-base font-medium text-gray-600">{value.unit}</span>
+            <span className="text-base font-medium text-gray-600 dark:text-gray-400">{value.unit}</span>
           </p>
         </div>
         <QualityPill status={value.qualityStatus} />
@@ -298,7 +298,7 @@ function CurrentValueCard({
       <div className="mt-3">
         <ValueProvenance value={value} />
       </div>
-      <dl className="mt-3 grid grid-cols-1 gap-1 text-xs text-gray-500">
+      <dl className="mt-3 grid grid-cols-1 gap-1 text-xs text-gray-500 dark:text-gray-400">
         <div>
           <dt className="inline font-medium">Valid:</dt>{' '}
           <dd className="inline">{formatDateTime(value.validAt)} UTC</dd>
@@ -370,7 +370,7 @@ function ValueTable({
   ];
 
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
       <DataTable<ValueRow>
         data={values}
         columns={valueRowColumns}
@@ -393,23 +393,23 @@ function LayerAvailabilityPanel({ layers }: { layers: EnvironmentLayer[] }): Rea
       subtitle="Labels, units and scientific meaning come from the backend catalog."
       padding="none"
     >
-      <ul className="max-h-[42rem] divide-y divide-gray-100 overflow-y-auto">
+      <ul className="max-h-[42rem] divide-y divide-gray-100 dark:divide-gray-700 overflow-y-auto">
         {layers.map((layer) => (
           <li key={layer.id} className="p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-semibold text-gray-900">{layer.name}</p>
-                <p className="mt-1 text-xs text-gray-600">{layer.description}</p>
+                <p className="font-semibold text-gray-900 dark:text-gray-100">{layer.name}</p>
+                <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">{layer.description}</p>
               </div>
               <StatusPill status={layer.availability} />
             </div>
-            <p className="mt-2 text-xs font-medium text-gray-700">{layer.scientificLabel}</p>
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-2 text-xs font-medium text-gray-700 dark:text-gray-300">{layer.scientificLabel}</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {layer.resolutionLabel}
               {layer.unit ? ` · Unit: ${layer.unit}` : ''}
             </p>
-            <p className="mt-2 text-xs text-gray-500">{availabilityMessage(layer.availability)}</p>
-            <p className="mt-2 text-xs text-gray-600">
+            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{availabilityMessage(layer.availability)}</p>
+            <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
               Coverage: {layer.coverage.successful}/{layer.coverage.expected} provider scopes
               completed
               {layer.coverage.failed > 0 ? ` · ${layer.coverage.failed} failed` : ''}
@@ -419,8 +419,8 @@ function LayerAvailabilityPanel({ layers }: { layers: EnvironmentLayer[] }): Rea
                 : ''}
             </p>
             {layer.coverage.scopes.some((scope) => scope.outcome !== 'AVAILABLE') && (
-              <details className="mt-2 text-xs text-gray-600">
-                <summary className="cursor-pointer font-medium text-gray-700">
+              <details className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+                <summary className="cursor-pointer font-medium text-gray-700 dark:text-gray-300">
                   Coverage gaps and failures
                 </summary>
                 <ul className="mt-2 space-y-1 pl-4">
@@ -709,7 +709,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (sitesQuery.isPending) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
         <LoadingState label="Loading your authorized sea-cage sites…" />
       </div>
     );
@@ -717,7 +717,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (sitesQuery.isError && !hasSiteListData) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
         <ErrorState message="Your authorized sites could not be loaded." />
       </div>
     );
@@ -725,7 +725,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (eligibleSites.length === 0) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
         <div className="mx-auto max-w-3xl">
           {sitesQuery.isError && (
             <div className="mb-4">
@@ -761,7 +761,7 @@ const EnvironmentPage: React.FC = () => {
 
   if (!selectedSite) {
     return (
-      <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-4 sm:p-6">
         <LoadingState label="Opening an authorized sea-cage site…" />
       </div>
     );
@@ -775,39 +775,43 @@ const EnvironmentPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="border-b border-gray-200 bg-white">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
+      <header className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
         <div className="px-4 py-6 sm:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
+          <PageHeader
+            title="Environmental monitoring"
+            description={
+              <>
+                Weather, Copernicus Marine model values and exact Sentinel-2 scenes for your
+                authorized sea-cage sites.
+              </>
+            }
+            eyebrow={
               <p className="text-xs font-semibold uppercase tracking-widest text-blue-700">
                 Site-specific
               </p>
-              <h1 className="mt-1 text-2xl font-bold text-gray-950">Environmental monitoring</h1>
-              <p className="mt-1 max-w-3xl text-sm text-gray-600">
-                Weather, Copernicus Marine model values and exact Sentinel-2 scenes for your
-                authorized sea-cage sites.
-              </p>
-            </div>
-            <label className="block min-w-64 text-sm font-medium text-gray-700">
-              Sea-cage site
-              <select
-                aria-label="Sea-cage site"
-                value={selectedSite.id}
-                onChange={(event) => {
-                  navigate(`/sites/environment/${encodeURIComponent(event.target.value)}`);
-                }}
-                className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {eligibleSites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name} ({site.code})
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
+            }
+            actions={
+              <label className="block min-w-64 text-sm font-medium text-gray-700 dark:text-gray-300">
+                Sea-cage site
+                <select
+                  aria-label="Sea-cage site"
+                  value={selectedSite.id}
+                  onChange={(event) => {
+                    navigate(`/sites/environment/${encodeURIComponent(event.target.value)}`);
+                  }}
+                  className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {eligibleSites.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.name} ({site.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            }
+          />
+          <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
             <span>
               Coordinates: {selectedSite.location.latitude.toFixed(5)},{' '}
               {selectedSite.location.longitude.toFixed(5)}
@@ -819,7 +823,7 @@ const EnvironmentPage: React.FC = () => {
       </header>
 
       <nav
-        className="border-b border-gray-200 bg-white px-4 sm:px-6"
+        className="border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 sm:px-6"
         aria-label="Environment views"
       >
         <div className="-mb-px flex gap-6 overflow-x-auto">
@@ -839,7 +843,7 @@ const EnvironmentPage: React.FC = () => {
               className={`whitespace-nowrap border-b-2 px-1 py-4 text-sm font-semibold ${
                 activeView === view
                   ? 'border-blue-600 text-blue-700'
-                  : 'border-transparent text-gray-600 hover:border-gray-300 hover:text-gray-900'
+                  : 'border-transparent text-gray-600 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-900 dark:hover:text-gray-100'
               }`}
             >
               {label}
@@ -892,15 +896,15 @@ const EnvironmentPage: React.FC = () => {
 
           {activeView === 'history' && (
             <div>
-              <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 bg-white p-4 sm:grid-cols-2">
-                <label className="text-sm font-medium text-gray-700">
+              <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 sm:grid-cols-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Metric
                   <select
                     aria-label="History metric"
                     value={activeHistoryMetric}
                     onChange={(event) => setSelectedHistoryMetric(event.target.value)}
                     disabled={historyMetricOptions.length === 0}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
+                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
                   >
                     {historyMetricOptions.map((metric) => (
                       <option key={metric} value={metric}>
@@ -909,13 +913,13 @@ const EnvironmentPage: React.FC = () => {
                     ))}
                   </select>
                 </label>
-                <label className="text-sm font-medium text-gray-700">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Period
                   <select
                     aria-label="History period"
                     value={historyDays}
                     onChange={(event) => setHistoryDays(event.target.value === '7' ? 7 : 30)}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
+                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
                   >
                     <option value={7}>Last 7 days</option>
                     <option value={30}>Last 30 days</option>
@@ -939,15 +943,15 @@ const EnvironmentPage: React.FC = () => {
 
           {activeView === 'forecast' && (
             <div>
-              <div className="mb-4 rounded-lg border border-gray-200 bg-white p-4">
-                <label className="block max-w-md text-sm font-medium text-gray-700">
+              <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+                <label className="block max-w-md text-sm font-medium text-gray-700 dark:text-gray-300">
                   Metric
                   <select
                     aria-label="Forecast metric"
                     value={activeForecastMetric}
                     onChange={(event) => setSelectedForecastMetric(event.target.value)}
                     disabled={forecastMetricOptions.length === 0}
-                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
+                    className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
                   >
                     {forecastMetricOptions.map((metric) => (
                       <option key={metric} value={metric}>
@@ -956,7 +960,7 @@ const EnvironmentPage: React.FC = () => {
                     ))}
                   </select>
                 </label>
-                <p className="mt-2 text-xs text-gray-600">
+                <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
                   Forecast horizon is capped at seven days. Copernicus Marine values are model
                   outputs, not sensor measurements.
                 </p>
@@ -987,14 +991,14 @@ const EnvironmentPage: React.FC = () => {
                 />
               ) : (
                 <>
-                  <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 bg-white p-4 lg:grid-cols-2">
-                    <label className="text-sm font-medium text-gray-700">
+                  <div className="mb-4 grid gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 lg:grid-cols-2">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       Satellite layer
                       <select
                         aria-label="Satellite layer"
                         value={selectedLayer?.id ?? ''}
                         onChange={(event) => setSelectedLayerId(event.target.value)}
-                        className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
+                        className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
                       >
                         {imageryLayers.map((layer) => (
                           <option key={layer.id} value={layer.id}>
@@ -1003,14 +1007,14 @@ const EnvironmentPage: React.FC = () => {
                         ))}
                       </select>
                     </label>
-                    <label className="text-sm font-medium text-gray-700">
+                    <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       Real acquisition
                       <select
                         aria-label="Sentinel scene"
                         value={selectedScene?.sceneId ?? ''}
                         onChange={(event) => setSelectedSceneId(event.target.value)}
                         disabled={scenes.length === 0}
-                        className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2"
+                        className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2"
                       >
                         {scenes.map((scene) => (
                           <option key={scene.id} value={scene.sceneId}>
@@ -1085,13 +1089,13 @@ const EnvironmentPage: React.FC = () => {
                   ) : sceneImage.error ? (
                     <ErrorState message={sceneImage.error} />
                   ) : sceneImage.imageUrl && selectedLayer && selectedScene ? (
-                    <figure className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                    <figure className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
                       <img
                         src={sceneImage.imageUrl}
                         alt={`${selectedLayer.name}, acquired ${formatDateTime(selectedScene.acquiredAt)}`}
                         className="aspect-video w-full bg-slate-950 object-contain"
                       />
-                      <figcaption className="grid gap-2 p-4 text-xs text-gray-600 sm:grid-cols-2">
+                      <figcaption className="grid gap-2 p-4 text-xs text-gray-600 dark:text-gray-400 sm:grid-cols-2">
                         <span>Acquired: {formatDateTime(selectedScene.acquiredAt)} UTC</span>
                         <span>
                           Cloud:{' '}

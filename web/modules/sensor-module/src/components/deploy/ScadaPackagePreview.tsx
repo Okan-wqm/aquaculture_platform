@@ -37,9 +37,9 @@ export const ScadaPackagePreview: React.FC<ScadaPackagePreviewProps> = ({ packag
         <p className="text-lg font-bold text-orange-700">{alarmCount}</p>
         <p className="text-xs text-orange-600">Alarms</p>
       </div>
-      <div className="p-2 bg-gray-50 rounded-lg text-center border border-gray-200">
-        <p className="text-lg font-bold text-gray-700">{jsonSizeStr}</p>
-        <p className="text-xs text-gray-500">Size</p>
+      <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded-lg text-center border border-gray-200 dark:border-gray-700">
+        <p className="text-lg font-bold text-gray-700 dark:text-gray-300">{jsonSizeStr}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400">Size</p>
       </div>
     </div>
   );

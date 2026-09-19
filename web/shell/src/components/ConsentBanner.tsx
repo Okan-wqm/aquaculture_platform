@@ -252,7 +252,7 @@ const ConsentBanner: React.FC = () => {
                 type="button"
                 onClick={handleEssentialOnly}
                 disabled={isBulkRecording}
-                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Essential Only
               </button>
@@ -261,7 +261,7 @@ const ConsentBanner: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/settings/privacy')}
-            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 focus:outline-hidden focus:underline"
+            className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 focus:outline-hidden focus:underline"
           >
             Manage in Settings
           </button>
@@ -288,7 +288,7 @@ const ConsentBanner: React.FC = () => {
             return (
               <div
                 key={ct}
-                className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               >
                 {/* Toggle */}
                 <button
@@ -305,7 +305,7 @@ const ConsentBanner: React.FC = () => {
                 >
                   <span
                     className={`
-                      pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0
+                      pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0
                       transition duration-200 ease-in-out
                       ${(isEssential || isGranted) ? 'translate-x-4' : 'translate-x-0'}
                     `}
@@ -315,7 +315,7 @@ const ConsentBanner: React.FC = () => {
                 {/* Label & description */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-900">
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {info.label}
                     </span>
                     {isEssential && (
@@ -324,7 +324,7 @@ const ConsentBanner: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 mt-0.5">{info.description}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{info.description}</p>
                 </div>
               </div>
             );

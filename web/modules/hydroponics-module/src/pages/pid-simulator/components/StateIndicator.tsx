@@ -9,7 +9,7 @@ interface StateIndicatorProps {
 }
 
 const STATE_INFO: Record<SimStateName, { label: string; bg: string; activeBg: string; text: string }> = {
-  IDLE:      { label: 'IDLE',      bg: 'bg-gray-100',   activeBg: 'bg-gray-600',   text: 'text-gray-500' },
+  IDLE:      { label: 'IDLE',      bg: 'bg-gray-100 dark:bg-gray-800',   activeBg: 'bg-gray-600',   text: 'text-gray-500 dark:text-gray-400' },
   EC:        { label: 'EC',        bg: 'bg-orange-100', activeBg: 'bg-orange-500', text: 'text-orange-500' },
   EC_WAIT:   { label: 'EC WAIT',   bg: 'bg-yellow-100', activeBg: 'bg-yellow-500', text: 'text-yellow-600' },
   CHEM_DT:   { label: 'CHEM DT',   bg: 'bg-amber-100', activeBg: 'bg-amber-500', text: 'text-amber-600' },
@@ -23,8 +23,8 @@ const STATES: SimStateName[] = ['IDLE', 'EC', 'EC_WAIT', 'CHEM_DT', 'PH', 'PH_WA
 
 const StateIndicator: React.FC<StateIndicatorProps> = ({ currentState }) => {
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-3">
-      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Controller</h4>
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Controller</h4>
       <div className="flex flex-wrap gap-1">
         {STATES.map(s => {
           const isActive = currentState === s;

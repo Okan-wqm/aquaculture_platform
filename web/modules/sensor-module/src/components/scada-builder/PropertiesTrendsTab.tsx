@@ -48,30 +48,30 @@ export const PropertiesTrendsTab: React.FC<PropertiesTrendsTabProps> = ({
 
   return (
     <div className="space-y-3">
-      <h4 className="text-sm font-medium text-gray-700">Trend Settings</h4>
+      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Trend Settings</h4>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Retention Period (days)</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Retention Period (days)</label>
         <input
           type="number"
           min={1}
           value={trendConfig.retentionDays}
           onChange={(e) => onTrendConfigChange?.({ ...trendConfig, retentionDays: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Sampling Interval (sec)</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sampling Interval (sec)</label>
         <input
           type="number"
           min={1}
           value={trendConfig.sampleIntervalSec}
           onChange={(e) => onTrendConfigChange?.({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
       <div>
         <div className="flex items-center justify-between mb-1">
-          <label className="text-xs text-gray-500">Tags</label>
+          <label className="text-xs text-gray-500 dark:text-gray-400">Tags</label>
           <button onClick={addTrendTag} className="text-xs text-cyan-600 hover:text-cyan-700">
             + Add Tag
           </button>
@@ -84,7 +84,7 @@ export const PropertiesTrendsTab: React.FC<PropertiesTrendsTabProps> = ({
                 value={tag}
                 onChange={(e) => updateTrendTag(i, e.target.value)}
                 placeholder="sensor.temperature"
-                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
               <button
                 onClick={() => removeTrendTag(i)}
@@ -96,7 +96,7 @@ export const PropertiesTrendsTab: React.FC<PropertiesTrendsTabProps> = ({
             </div>
           ))}
           {tags.length === 0 && (
-            <p className="text-xs text-gray-500 text-center py-2">No tags added yet</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">No tags added yet</p>
           )}
         </div>
       </div>

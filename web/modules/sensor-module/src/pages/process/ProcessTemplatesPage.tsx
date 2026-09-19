@@ -14,6 +14,7 @@ import {
   AlertTriangle,
   Cog,
 } from 'lucide-react';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 interface Template {
   id: string;
@@ -105,20 +106,20 @@ const ProcessTemplatesPage: React.FC = () => {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="mb-8">
-        <Link
-          to="/sensor/processes"
-          className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Processes
-        </Link>
-
-        <h1 className="text-2xl font-bold text-gray-900">Process Templates</h1>
-        <p className="text-gray-500 mt-1">
-          Start with a pre-built template and customize it for your needs
-        </p>
-      </div>
+      <PageHeader
+        title="Process Templates"
+        description="Start with a pre-built template and customize it for your needs"
+        eyebrow={
+          <Link
+            to="/sensor/processes"
+            className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 mb-4"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Processes
+          </Link>
+        }
+        className="mb-8"
+      />
 
       {/* Templates Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -128,31 +129,31 @@ const ProcessTemplatesPage: React.FC = () => {
           return (
             <div
               key={template.id}
-              className="bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden"
+              className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-md transition-shadow overflow-hidden"
             >
               {/* Template Header */}
-              <div className="p-5 border-b border-gray-100">
+              <div className="p-5 border-b border-gray-100 dark:border-gray-700">
                 <div className="flex items-start gap-4">
                   <div className="p-3 bg-blue-50 rounded-lg">
                     <IconComponent className="w-6 h-6 text-blue-600" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="text-lg font-semibold text-gray-900 truncate">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
                       {template.name}
                     </h3>
-                    <p className="text-sm text-gray-500 mt-1">{template.category}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{template.category}</p>
                   </div>
                 </div>
               </div>
 
               {/* Template Body */}
               <div className="p-5">
-                <p className="text-sm text-gray-600 line-clamp-3 mb-4">
+                <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-3 mb-4">
                   {template.description}
                 </p>
 
                 <div className="flex items-center gap-4 text-sm">
-                  <span className="text-gray-500">
+                  <span className="text-gray-500 dark:text-gray-400">
                     {template.nodeCount} components
                   </span>
                   <span
@@ -167,10 +168,10 @@ const ProcessTemplatesPage: React.FC = () => {
               </div>
 
               {/* Template Footer */}
-              <div className="px-5 py-4 bg-gray-50 border-t border-gray-100">
+              <div className="px-5 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700">
                 <button
                   onClick={() => handleUseTemplate(template.id)}
-                  className="w-full px-4 py-2 text-sm font-medium text-blue-600 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                  className="w-full px-4 py-2 text-sm font-medium text-blue-600 bg-white dark:bg-gray-900 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
                 >
                   Use This Template
                 </button>
@@ -181,12 +182,12 @@ const ProcessTemplatesPage: React.FC = () => {
       </div>
 
       {/* Empty State / Custom */}
-      <div className="mt-8 p-6 bg-gray-50 rounded-lg border border-gray-200 text-center">
-        <Cog className="w-10 h-10 mx-auto text-gray-500 mb-3" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">
+      <div className="mt-8 p-6 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+        <Cog className="w-10 h-10 mx-auto text-gray-500 dark:text-gray-400 mb-3" />
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
           Need something different?
         </h3>
-        <p className="text-gray-500 mb-4">
+        <p className="text-gray-500 dark:text-gray-400 mb-4">
           Start from scratch and build your own custom process diagram
         </p>
         <Link

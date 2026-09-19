@@ -30,7 +30,7 @@ const ORIGIN_GRID: Array<{ label: string; x: number; y: number }> = [
 ];
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onChange }) => {
   const [open, setOpen] = useState(false);
@@ -60,11 +60,11 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
   }, [onChange]);
 
   return (
-    <div className="border-t border-gray-100 pt-2">
+    <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700"
+        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
         aria-expanded={open}
         aria-label="Transform settings"
       >
@@ -83,7 +83,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
         <div className="space-y-3 mt-2">
           {/* Rotation */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Rotation (deg)</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Rotation (deg)</label>
             <div className="flex gap-1">
               <input
                 type="number"
@@ -106,7 +106,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
               <button
                 type="button"
                 onClick={() => handleChange({ rotation: 0 })}
-                className="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 border border-gray-300 rounded-lg shrink-0"
+                className="px-2 py-1 text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg shrink-0"
                 title="Reset rotation"
                 aria-label="Reset rotation"
               >
@@ -118,14 +118,14 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           {/* Scale */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-xs text-gray-500">Scale</label>
+              <label className="text-xs text-gray-500 dark:text-gray-400">Scale</label>
               <button
                 type="button"
                 onClick={() => setAspectLock(!aspectLock)}
                 className={`text-xs px-1.5 py-0.5 rounded ${
                   aspectLock
                     ? 'bg-cyan-100 text-cyan-700'
-                    : 'text-gray-400 hover:text-gray-600'
+                    : 'text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300'
                 }`}
                 title={aspectLock ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
                 aria-label={aspectLock ? 'Unlock aspect ratio' : 'Lock aspect ratio'}
@@ -136,7 +136,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] text-gray-400 mb-0.5">X</label>
+                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">X</label>
                 <input
                   type="number"
                   min={0.1}
@@ -149,7 +149,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-gray-400 mb-0.5">Y</label>
+                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Y</label>
                 <input
                   type="number"
                   min={0.1}
@@ -167,7 +167,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           {/* Skew */}
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Skew X</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Skew X</label>
               <input
                 type="number"
                 min={-89}
@@ -180,7 +180,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Skew Y</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Skew Y</label>
               <input
                 type="number"
                 min={-89}
@@ -196,9 +196,9 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
 
           {/* Origin 3x3 grid */}
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Origin</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Origin</label>
             <div
-              className="inline-grid grid-cols-3 gap-1 p-1.5 bg-gray-50 rounded-lg"
+              className="inline-grid grid-cols-3 gap-1 p-1.5 bg-gray-50 dark:bg-gray-800 rounded-lg"
               role="radiogroup"
               aria-label="Transform origin"
             >
@@ -215,7 +215,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                     className={`w-5 h-5 rounded-full border-2 transition-colors ${
                       isActive
                         ? 'bg-cyan-500 border-cyan-600'
-                        : 'bg-white border-gray-300 hover:border-cyan-400'
+                        : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-cyan-400'
                     }`}
                     data-testid={`origin-${point.label.replace(/\s+/g, '-').toLowerCase()}`}
                   />
@@ -228,7 +228,7 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           <button
             type="button"
             onClick={handleReset}
-            className="w-full py-1.5 text-xs text-gray-500 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg transition-colors"
+            className="w-full py-1.5 text-xs text-gray-500 dark:text-gray-400 hover:text-red-500 border border-gray-200 dark:border-gray-700 hover:border-red-200 rounded-lg transition-colors"
             aria-label="Reset all transforms"
             data-testid="transform-reset-all"
           >

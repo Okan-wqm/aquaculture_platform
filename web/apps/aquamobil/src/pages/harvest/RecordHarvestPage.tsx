@@ -28,7 +28,7 @@ const QUALITY_CLASSES: ReadonlyArray<{ value: QualityClass; label: string; color
 ];
 
 const HARVEST_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-violet-700 to-harvest',
+  headerTone: 'violet',
   accentText: 'text-harvest',
   summaryHeaderBg: 'bg-purple-50 dark:bg-purple-900/20 border-purple-100 dark:border-purple-800/50',
   summaryHeaderText: 'text-purple-700 dark:text-purple-300',
@@ -202,7 +202,7 @@ export function RecordHarvestPage(): JSX.Element {
 
       {/* Quality class — uses horizontal scroll + color dots, distinct from cull/mortality 4-col emoji grid */}
       <div className="px-4 mt-5">
-        <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Quality Class</h3>
+        <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">Quality Class</h3>
         <div className="flex gap-2 overflow-x-auto pb-1">
           {QUALITY_CLASSES.map((g) => {
             const selected = qualityClass === g.value;

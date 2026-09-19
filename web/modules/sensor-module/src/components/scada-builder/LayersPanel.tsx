@@ -155,7 +155,7 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
       className={`
         flex items-center gap-1 px-2 py-1.5 text-xs cursor-pointer select-none
         transition-colors group border-b border-gray-50
-        ${isSelected ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700 hover:bg-gray-50'}
+        ${isSelected ? 'bg-cyan-50 text-cyan-700' : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'}
         ${!isVisible ? 'opacity-50' : ''}
       `}
       onClick={() => onSelect(widget.id)}
@@ -164,22 +164,22 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
     >
       {/* Visibility toggle */}
       <button
-        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 transition-colors"
+        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
         onClick={handleVisibilityToggle}
         aria-label={isVisible ? 'Hide widget' : 'Show widget'}
         title={isVisible ? 'Hide widget' : 'Show widget'}
         data-testid={`layer-visibility-${widget.id}`}
       >
         {isVisible ? (
-          <Eye className="w-3.5 h-3.5 text-gray-500" />
+          <Eye className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
         ) : (
-          <EyeOff className="w-3.5 h-3.5 text-gray-400" />
+          <EyeOff className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
         )}
       </button>
 
       {/* Lock toggle */}
       <button
-        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 transition-colors"
+        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
         onClick={handleLockToggle}
         aria-label={isLocked ? 'Unlock widget' : 'Lock widget'}
         title={isLocked ? 'Unlock widget' : 'Lock widget'}
@@ -188,36 +188,36 @@ const LayerRow: React.FC<LayerRowProps> = React.memo(({
         {isLocked ? (
           <Lock className="w-3.5 h-3.5 text-amber-500" />
         ) : (
-          <Unlock className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100" />
+          <Unlock className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100" />
         )}
       </button>
 
       {/* Widget type icon */}
-      <IconComponent className="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
+      <IconComponent className="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
 
       {/* Widget name (truncated) */}
-      <span className="flex-1 min-w-0 truncate" style={{ maxWidth: 120 }}>
+      <span className="flex-1 min-w-0 truncate max-w-[120px]">
         {displayName}
       </span>
 
       {/* Move up / Move down buttons (visible on hover) */}
       <button
-        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={handleMoveUp}
         aria-label="Move up (bring forward)"
         title="Move up (bring forward)"
         data-testid={`layer-up-${widget.id}`}
       >
-        <ChevronUp className="w-3 h-3 text-gray-500" />
+        <ChevronUp className="w-3 h-3 text-gray-500 dark:text-gray-400" />
       </button>
       <button
-        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="flex-shrink-0 p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={handleMoveDown}
         aria-label="Move down (send backward)"
         title="Move down (send backward)"
         data-testid={`layer-down-${widget.id}`}
       >
-        <ChevronDown className="w-3 h-3 text-gray-500" />
+        <ChevronDown className="w-3 h-3 text-gray-500 dark:text-gray-400" />
       </button>
     </div>
   );
@@ -349,13 +349,13 @@ export const LayersPanel: React.FC = () => {
   const hasSelection = selectedWidgetId !== null;
 
   return (
-    <div className="flex flex-col border-t border-gray-200 bg-white" data-testid="layers-panel">
+    <div className="flex flex-col border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900" data-testid="layers-panel">
       {/* Header */}
-      <div className="flex items-center justify-between px-2 py-1.5 border-b border-gray-200">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
-          <Layers className="w-3.5 h-3.5 text-gray-500" />
+      <div className="flex items-center justify-between px-2 py-1.5 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300">
+          <Layers className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           <span>Layers</span>
-          <span className="text-[11px] font-normal text-gray-500">
+          <span className="text-[11px] font-normal text-gray-500 dark:text-gray-400">
             ({widgets.length})
           </span>
         </div>
@@ -365,7 +365,7 @@ export const LayersPanel: React.FC = () => {
             disabled={!hasSelection}
             className={`p-1 rounded transition-colors ${
               hasSelection
-                ? 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                ? 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100'
                 : 'text-gray-300 cursor-not-allowed'
             }`}
             aria-label="Bring to front"
@@ -378,7 +378,7 @@ export const LayersPanel: React.FC = () => {
             disabled={!hasSelection}
             className={`p-1 rounded transition-colors ${
               hasSelection
-                ? 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+                ? 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-100'
                 : 'text-gray-300 cursor-not-allowed'
             }`}
             aria-label="Send to back"
@@ -392,7 +392,7 @@ export const LayersPanel: React.FC = () => {
       {/* Layer list -- group-aware rendering */}
       <div className="flex-1 overflow-y-auto max-h-48">
         {sortedWidgets.length === 0 ? (
-          <div className="py-4 text-center text-xs text-gray-500">
+          <div className="py-4 text-center text-xs text-gray-500 dark:text-gray-400">
             No widgets on this screen
           </div>
         ) : (
@@ -404,20 +404,20 @@ export const LayersPanel: React.FC = () => {
                 <div key={`group-${group.groupId}`} data-testid={`layer-group-${group.groupId}`}>
                   {/* Group header row */}
                   <button
-                    className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-gray-600 bg-gray-50 border-b border-gray-100 hover:bg-gray-100 transition-colors"
+                    className="w-full flex items-center gap-1.5 px-2 py-1 text-[10px] font-semibold text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                     onClick={() => toggleGroupCollapse(group.groupId)}
                   >
                     {isCollapsed ? (
-                      <ChevronRight className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                      <ChevronRight className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" />
                     ) : (
-                      <ChevronDown className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                      <ChevronDown className="w-3 h-3 text-gray-400 dark:text-gray-500 flex-shrink-0" />
                     )}
                     <span
                       className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                       style={{ backgroundColor: group.color }}
                     />
                     <span className="truncate">Group</span>
-                    <span className="text-gray-500 font-normal">({group.members.length})</span>
+                    <span className="text-gray-500 dark:text-gray-400 font-normal">({group.members.length})</span>
                   </button>
                   {/* Group members (indented) */}
                   {!isCollapsed && group.members.map((w) => (

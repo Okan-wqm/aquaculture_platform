@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   PaymentOverview,
@@ -46,7 +46,7 @@ const statusColors: Record<string, string> = {
   [PaymentStatus.PROCESSING]: 'bg-blue-100 text-blue-700',
   [PaymentStatus.SUCCEEDED]: 'bg-green-100 text-green-700',
   [PaymentStatus.FAILED]: 'bg-red-100 text-red-700',
-  [PaymentStatus.CANCELLED]: 'bg-gray-200 text-gray-500',
+  [PaymentStatus.CANCELLED]: 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400',
   [PaymentStatus.REFUNDED]: 'bg-purple-100 text-purple-700',
   [PaymentStatus.PARTIALLY_REFUNDED]: 'bg-orange-100 text-orange-700',
 };
@@ -275,7 +275,7 @@ const PaymentsPage: React.FC = () => {
       key: 'transactionId',
       header: 'Transaction',
       render: (_value, payment) => (
-        <div className="text-sm font-medium text-gray-900 font-mono">{payment.transactionId}</div>
+        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono">{payment.transactionId}</div>
       ),
     },
     {
@@ -292,7 +292,7 @@ const PaymentsPage: React.FC = () => {
       header: 'Amount',
       render: (_value, payment) => (
         <>
-          <div className="text-sm font-semibold text-gray-900">
+          <div className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             {formatCurrency(payment.amount, payment.currency)}
           </div>
           {payment.refundedAmount > 0 && (
@@ -307,7 +307,7 @@ const PaymentsPage: React.FC = () => {
       key: 'paymentMethod',
       header: 'Method',
       render: (_value, payment) => (
-        <span className="text-sm text-gray-700">
+        <span className="text-sm text-gray-700 dark:text-gray-300">
           {methodLabels[payment.paymentMethod] || payment.paymentMethod}
         </span>
       ),
@@ -316,7 +316,7 @@ const PaymentsPage: React.FC = () => {
       key: 'status',
       header: 'Status',
       render: (_value, payment) => (
-        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payment.status] || 'bg-gray-100 text-gray-700'}`}>
+        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payment.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
           {statusLabels[payment.status] || payment.status}
         </span>
       ),
@@ -325,7 +325,7 @@ const PaymentsPage: React.FC = () => {
       key: 'paymentDate',
       header: 'Date',
       render: (_value, payment) => (
-        <div className="text-sm text-gray-900">{formatDate(payment.paymentDate)}</div>
+        <div className="text-sm text-gray-900 dark:text-gray-100">{formatDate(payment.paymentDate)}</div>
       ),
     },
     {
@@ -369,38 +369,36 @@ const PaymentsPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Payments</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Record, track, and manage payments across all tenants
-          </p>
-        </div>
-        <button
-          onClick={() => setShowRecordModal(true)}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          Record Payment
-        </button>
-      </div>
+      <PageHeader
+        title="Payments"
+        description="Record, track, and manage payments across all tenants"
+        actions={
+          <button
+            onClick={() => setShowRecordModal(true)}
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Record Payment
+          </button>
+        }
+      />
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Total Payments</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{totalPayments}</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Total Payments</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{totalPayments}</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Succeeded Amount</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Succeeded Amount</p>
           <p className="text-2xl font-bold text-green-600 mt-1">{formatCurrency(totalSucceeded)}</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Refunded</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Refunded</p>
           <p className="text-2xl font-bold text-purple-600 mt-1">{formatCurrency(totalRefunded)}</p>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-          <p className="text-sm text-gray-500">Net Revenue</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(totalSucceeded - totalRefunded)}</p>
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Net Revenue</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{formatCurrency(totalSucceeded - totalRefunded)}</p>
         </div>
       </div>
 
@@ -418,7 +416,7 @@ const PaymentsPage: React.FC = () => {
       )}
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <div className="relative">
@@ -427,10 +425,10 @@ const PaymentsPage: React.FC = () => {
                 placeholder="Filter by invoice ID..."
                 value={invoiceIdFilter}
                 onChange={(e) => setInvoiceIdFilter(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
               <svg
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -447,7 +445,7 @@ const PaymentsPage: React.FC = () => {
                 className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors capitalize ${
                   statusFilter === status
                     ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                 }`}
               >
                 {status}
@@ -495,7 +493,7 @@ const PaymentsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedPayment(null)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 Close
               </button>
@@ -503,66 +501,66 @@ const PaymentsPage: React.FC = () => {
           }
         >
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Transaction ID</span>
-            <span className="text-sm font-mono font-medium text-gray-900">{selectedPayment.transactionId}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Transaction ID</span>
+            <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{selectedPayment.transactionId}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Invoice ID</span>
-            <span className="text-sm text-gray-900">{selectedPayment.invoiceId}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Invoice ID</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">{selectedPayment.invoiceId}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Status</span>
-            <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedPayment.status] || 'bg-gray-100 text-gray-700'}`}>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Status</span>
+            <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedPayment.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
               {statusLabels[selectedPayment.status] || selectedPayment.status}
             </span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Method</span>
-            <span className="text-sm text-gray-900">{methodLabels[selectedPayment.paymentMethod] || selectedPayment.paymentMethod}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Method</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">{methodLabels[selectedPayment.paymentMethod] || selectedPayment.paymentMethod}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-sm text-gray-500">Payment Date</span>
-            <span className="text-sm text-gray-900">{formatDateTime(selectedPayment.paymentDate)}</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Payment Date</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">{formatDateTime(selectedPayment.paymentDate)}</span>
           </div>
           {selectedPayment.processedAt && (
             <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Processed At</span>
-              <span className="text-sm text-gray-900">{formatDateTime(selectedPayment.processedAt)}</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Processed At</span>
+              <span className="text-sm text-gray-900 dark:text-gray-100">{formatDateTime(selectedPayment.processedAt)}</span>
             </div>
           )}
           {selectedPayment.failureReason && (
             <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Failure Reason</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Failure Reason</span>
               <span className="text-sm text-red-600">{selectedPayment.failureReason}</span>
             </div>
           )}
           {selectedPayment.notes && (
             <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Notes</span>
-              <span className="text-sm text-gray-900 max-w-[200px] text-right">{selectedPayment.notes}</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Notes</span>
+              <span className="text-sm text-gray-900 dark:text-gray-100 max-w-[200px] text-right">{selectedPayment.notes}</span>
             </div>
           )}
           {selectedPayment.createdBy && (
             <div className="flex justify-between">
-              <span className="text-sm text-gray-500">Recorded By</span>
-              <span className="text-sm text-gray-900">{selectedPayment.createdBy}</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Recorded By</span>
+              <span className="text-sm text-gray-900 dark:text-gray-100">{selectedPayment.createdBy}</span>
             </div>
           )}
 
-          <div className="border-t border-gray-200 pt-4 mt-4">
+          <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
             <div className="flex justify-between py-2">
-              <span className="text-sm text-gray-600">Amount</span>
-              <span className="text-sm font-medium text-gray-900">{formatCurrency(selectedPayment.amount, selectedPayment.currency)}</span>
+              <span className="text-sm text-gray-600 dark:text-gray-400">Amount</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{formatCurrency(selectedPayment.amount, selectedPayment.currency)}</span>
             </div>
             {selectedPayment.refundedAmount > 0 && (
               <div className="flex justify-between py-2">
-                <span className="text-sm text-gray-600">Refunded</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Refunded</span>
                 <span className="text-sm font-medium text-purple-600">-{formatCurrency(selectedPayment.refundedAmount, selectedPayment.currency)}</span>
               </div>
             )}
-            <div className="flex justify-between pt-3 border-t border-gray-200 mt-3">
-              <span className="text-sm font-semibold text-gray-900">Net Amount</span>
-              <span className="text-sm font-bold text-gray-900">
+            <div className="flex justify-between pt-3 border-t border-gray-200 dark:border-gray-700 mt-3">
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Net Amount</span>
+              <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
                 {formatCurrency(selectedPayment.amount - (selectedPayment.refundedAmount || 0), selectedPayment.currency)}
               </span>
             </div>
@@ -570,8 +568,8 @@ const PaymentsPage: React.FC = () => {
 
           {/* Refund History */}
           {selectedPayment.refunds && selectedPayment.refunds.length > 0 && (
-            <div className="border-t border-gray-200 pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-gray-900 mb-3">Refund History</h3>
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Refund History</h3>
               <div className="space-y-2">
                 {selectedPayment.refunds.map((refund, idx) => (
                   <div key={idx} className="bg-purple-50 border border-purple-100 rounded-lg p-3">
@@ -606,7 +604,7 @@ const PaymentsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowRecordModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 disabled={recordLoading}
               >
                 Cancel
@@ -623,42 +621,42 @@ const PaymentsPage: React.FC = () => {
           }
         >
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Invoice ID <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={recordForm.invoiceId}
               onChange={(e) => setRecordForm({ ...recordForm, invoiceId: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               placeholder="Enter invoice ID (UUID)"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Amount <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
               <input
                 type="number"
                 step="0.01"
                 min="0.01"
                 value={recordForm.amount}
                 onChange={(e) => setRecordForm({ ...recordForm, amount: e.target.value })}
-                className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                className="w-full pl-7 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 placeholder="0.00"
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Payment Method <span className="text-red-500">*</span>
             </label>
             <select
               value={recordForm.paymentMethod}
               onChange={(e) => setRecordForm({ ...recordForm, paymentMethod: e.target.value as PaymentMethod })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             >
               {Object.entries(methodLabels).map(([value, label]) => (
                 <option key={value} value={value}>{label}</option>
@@ -666,25 +664,25 @@ const PaymentsPage: React.FC = () => {
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Payment Date
             </label>
             <input
               type="date"
               value={recordForm.paymentDate}
               onChange={(e) => setRecordForm({ ...recordForm, paymentDate: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Notes
             </label>
             <textarea
               value={recordForm.notes}
               onChange={(e) => setRecordForm({ ...recordForm, notes: e.target.value })}
               rows={2}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               placeholder="Optional notes..."
             />
           </div>
@@ -708,7 +706,7 @@ const PaymentsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={closeRefundModal}
-                className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+                className="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 disabled={refundLoading}
               >
                 Cancel
@@ -744,11 +742,11 @@ const PaymentsPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Refund Amount <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
               <input
                 type="number"
                 step="0.01"
@@ -756,19 +754,19 @@ const PaymentsPage: React.FC = () => {
                 max={refundPayment.amount - (refundPayment.refundedAmount || 0)}
                 value={refundForm.amount}
                 onChange={(e) => setRefundForm({ ...refundForm, amount: e.target.value })}
-                className="w-full pl-7 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+                className="w-full pl-7 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
               />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Reason <span className="text-red-500">*</span>
             </label>
             <textarea
               value={refundForm.reason}
               onChange={(e) => setRefundForm({ ...refundForm, reason: e.target.value })}
               rows={3}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-purple-500"
               placeholder="Enter refund reason..."
             />
           </div>

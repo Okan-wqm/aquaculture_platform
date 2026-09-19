@@ -10,6 +10,7 @@ import {
   type GrowthAnalysis,
 } from '../../../hooks/useGrowth';
 import { useBatchList } from '../../../hooks/useBatches';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -321,6 +322,100 @@ export const GrowthTab: React.FC = () => {
 
   const measurements = measurementsData?.items ?? [];
 
+  type SampleRow = (typeof measurements)[number];
+  const sampleRowColumns: DataTableColumn<SampleRow>[] = [
+    {
+      key: 'tarih',
+      header: 'Tarih',
+      render: (_value, sample) => formatDate(sample.measurementDate),
+    },
+    {
+      key: 'batchTank',
+      header: 'Batch / Tank',
+      render: (_value, sample) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{sample.batchId.substring(0, 8)}...</div>
+          <div className="text-sm text-gray-500">{sample.tankId ? `Tank: ${sample.tankId.substring(0, 8)}...` : '-'}</div>
+        </>
+      ),
+    },
+    {
+      key: 'ornek',
+      header: 'Ornek',
+      align: 'right',
+      render: (_value, sample) => sample.sampleSize,
+    },
+    {
+      key: 'ortAgirlik',
+      header: 'Ort. Agirlik',
+      align: 'right',
+      render: (_value, sample) => (
+        <>
+          {sample.averageWeight.toFixed(1)} g
+        </>
+      ),
+    },
+    {
+      key: 'ortBoy',
+      header: 'Ort. Boy',
+      align: 'right',
+      render: (_value, sample) => (
+        <>
+          {sample.averageLength != null ? `${sample.averageLength.toFixed(1)} cm` : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'cv',
+      header: 'CV%',
+      align: 'right',
+      render: (_value, sample) => (
+        <span className={`text-sm font-medium ${sample.weightCV <= 15 ? 'text-green-600' : sample.weightCV <= 20 ? 'text-yellow-600' : 'text-red-600'}`}>
+          {sample.weightCV.toFixed(1)}%
+        </span>
+      ),
+    },
+    {
+      key: 'sgr',
+      header: 'SGR',
+      align: 'right',
+      render: (_value, sample) => sample.specificGrowthRate != null ? sample.specificGrowthRate.toFixed(2) : '-',
+    },
+    {
+      key: 'performans',
+      header: 'Performans',
+      render: (_value, sample) => (
+        <>
+          {sample.performance ? (
+            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${performanceLabels[sample.performance]?.color ?? 'bg-gray-100 text-gray-800'}`}>
+              {performanceLabels[sample.performance]?.label ?? sample.performance}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'dogrulandi',
+      header: 'Dogrulandi',
+      align: 'center',
+      render: (_value, sample) => (
+        <>
+          {sample.isVerified ? (
+            <svg className="h-5 w-5 text-green-500 inline" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg className="h-5 w-5 text-gray-300 inline" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z" clipRule="evenodd" />
+            </svg>
+          )}
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* View Toggle + Batch Selector */}
@@ -483,89 +578,15 @@ export const GrowthTab: React.FC = () => {
           <EmptyState message="Henuz buyume olcumu bulunmuyor" />
         ) : (
           <div className="bg-white shadow rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tarih
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Batch / Tank
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ornek
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ort. Agirlik
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Ort. Boy
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    CV%
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    SGR
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Performans
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Dogrulandi
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {measurements.map((sample) => (
-                  <tr key={sample.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(sample.measurementDate)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">{sample.batchId.substring(0, 8)}...</div>
-                      <div className="text-sm text-gray-500">{sample.tankId ? `Tank: ${sample.tankId.substring(0, 8)}...` : '-'}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {sample.sampleSize}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {sample.averageWeight.toFixed(1)} g
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                      {sample.averageLength != null ? `${sample.averageLength.toFixed(1)} cm` : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <span className={`text-sm font-medium ${sample.weightCV <= 15 ? 'text-green-600' : sample.weightCV <= 20 ? 'text-yellow-600' : 'text-red-600'}`}>
-                        {sample.weightCV.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-medium text-right">
-                      {sample.specificGrowthRate != null ? sample.specificGrowthRate.toFixed(2) : '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {sample.performance ? (
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${performanceLabels[sample.performance]?.color ?? 'bg-gray-100 text-gray-800'}`}>
-                          {performanceLabels[sample.performance]?.label ?? sample.performance}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-gray-400">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center">
-                      {sample.isVerified ? (
-                        <svg className="h-5 w-5 text-green-500 inline" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                        </svg>
-                      ) : (
-                        <svg className="h-5 w-5 text-gray-300 inline" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 100-12 6 6 0 000 12z" clipRule="evenodd" />
-                        </svg>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable<SampleRow>
+              data={measurements}
+              columns={sampleRowColumns}
+              keyExtractor={(sample) => sample.id}
+              emptyMessage="No records found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
 
             {/* Pagination info */}
             {measurementsData && (

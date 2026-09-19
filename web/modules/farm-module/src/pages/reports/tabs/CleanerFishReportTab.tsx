@@ -29,6 +29,7 @@ import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { toBackendReportMonth } from '../utils/reportPeriod';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -640,6 +641,76 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
     });
   };
 
+  type EntryRow = NonNullable<NonNullable<typeof formData>['perCageData']>[number];
+  const entryRowColumns: DataTableColumn<EntryRow>[] = [
+    {
+      key: 'cageMerdid',
+      header: 'Cage (merdId)',
+      render: (_value, entry) => (
+        <>
+          <div className="text-sm font-medium text-gray-700">{entry.tankName}</div>
+          <div className="text-xs text-gray-400">{entry.tankCode}</div>
+        </>
+      ),
+    },
+    {
+      key: 'species',
+      header: 'Species',
+      render: (_value, entry) => (
+        <>
+          <span className="text-sm text-gray-700">{getSpeciesLabel(entry.species)}</span>
+          <span className="text-xs text-gray-400 ml-1">
+            ({getSpeciesMattilsynetCode(entry.species)})
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'openingStock',
+      header: 'Opening Stock',
+      align: 'right',
+      render: (_value, entry, index) => (
+        <input
+          type="number"
+          min="0"
+          value={entry.openingStock || ''}
+          onChange={(e) =>
+            updatePerCageEntry(index, { openingStock: parseInt(e.target.value) || 0 })
+          }
+          className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 rounded-md"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: 'added',
+      header: 'Added',
+      align: 'right',
+      render: (_value, entry, index) => (
+        <input
+          type="number"
+          min="0"
+          value={entry.added || ''}
+          onChange={(e) =>
+            updatePerCageEntry(index, { added: parseInt(e.target.value) || 0 })
+          }
+          className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 rounded-md"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: 'closingStock',
+      header: 'Closing Stock',
+      align: 'right',
+      render: (_value, entry) => (
+        <span className="text-sm font-medium text-gray-900">
+          {formatNumber(entry.closingStock)}
+        </span>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-4">
       <div>
@@ -698,64 +769,15 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-100 text-left">
-                <th className="px-3 py-2 text-xs font-medium text-gray-500">Cage (merdId)</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500">Species</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Opening Stock</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Added</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Closing Stock</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {formData.perCageData.map((entry, index) => (
-                <tr key={`${entry.tankId}-${entry.species}-${index}`} className="hover:bg-gray-50">
-                  <td className="px-3 py-2">
-                    <div className="text-sm font-medium text-gray-700">{entry.tankName}</div>
-                    <div className="text-xs text-gray-400">{entry.tankCode}</div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="text-sm text-gray-700">{getSpeciesLabel(entry.species)}</span>
-                    <span className="text-xs text-gray-400 ml-1">
-                      ({getSpeciesMattilsynetCode(entry.species)})
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="number"
-                      min="0"
-                      value={entry.openingStock || ''}
-                      onChange={(e) =>
-                        updatePerCageEntry(index, { openingStock: parseInt(e.target.value) || 0 })
-                      }
-                      className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 rounded-md"
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="number"
-                      min="0"
-                      value={entry.added || ''}
-                      onChange={(e) =>
-                        updatePerCageEntry(index, { added: parseInt(e.target.value) || 0 })
-                      }
-                      className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 rounded-md"
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <span className="text-sm font-medium text-gray-900">
-                      {formatNumber(entry.closingStock)}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<EntryRow>
+          data={formData.perCageData}
+          columns={entryRowColumns}
+          keyExtractor={(entry, index) => String(`${entry.tankId}-${entry.species}-${index}`)}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
     </div>
   );
@@ -918,6 +940,38 @@ interface ReviewStepProps {
 const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   const totalDeployed = formData.deployments.reduce((sum, d) => sum + d.quantity, 0);
 
+  type EntryRow = NonNullable<NonNullable<typeof formData>['perCageData']>[number];
+  const entryRowColumns: DataTableColumn<EntryRow>[] = [
+    {
+      key: 'cage',
+      header: 'Cage',
+      render: (_value, entry) => entry.tankCode,
+    },
+    {
+      key: 'species',
+      header: 'Species',
+      render: (_value, entry) => getSpeciesMattilsynetCode(entry.species),
+    },
+    {
+      key: 'opening',
+      header: 'Opening',
+      align: 'right',
+      render: (_value, entry) => formatNumber(entry.openingStock),
+    },
+    {
+      key: 'added',
+      header: 'Added',
+      align: 'right',
+      render: (_value, entry) => formatNumber(entry.added),
+    },
+    {
+      key: 'closing',
+      header: 'Closing',
+      align: 'right',
+      render: (_value, entry) => formatNumber(entry.closingStock),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Summary Header */}
@@ -1021,32 +1075,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
           <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
             Per-Cage Breakdown ({formData.perCageData.length} entries)
           </h5>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left border-b border-gray-100">
-                  <th className="pb-1 text-gray-500 font-medium">Cage</th>
-                  <th className="pb-1 text-gray-500 font-medium">Species</th>
-                  <th className="pb-1 text-gray-500 font-medium text-right">Opening</th>
-                  <th className="pb-1 text-gray-500 font-medium text-right">Added</th>
-                  <th className="pb-1 text-gray-500 font-medium text-right">Closing</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {formData.perCageData.map((entry, i) => (
-                  <tr key={i}>
-                    <td className="py-1 text-gray-700">{entry.tankCode}</td>
-                    <td className="py-1 text-gray-600">
-                      {getSpeciesMattilsynetCode(entry.species)}
-                    </td>
-                    <td className="py-1 text-right text-gray-700">{formatNumber(entry.openingStock)}</td>
-                    <td className="py-1 text-right text-gray-700">{formatNumber(entry.added)}</td>
-                    <td className="py-1 text-right font-medium text-gray-900">{formatNumber(entry.closingStock)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<EntryRow>
+            data={formData.perCageData}
+            columns={entryRowColumns}
+            keyExtractor={(_entry, i) => String(i)}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
 

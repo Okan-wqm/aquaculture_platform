@@ -20,7 +20,7 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
-import { Modal, useToast, useConfirm } from '@aquaculture/shared-ui';
+import { Modal, useToast, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -656,6 +656,86 @@ export const ChemicalsTab: React.FC = () => {
     return supplier?.name || '-';
   };
 
+  type ChemicalRow = (typeof filteredChemicals)[number];
+  const chemicalRowColumns: DataTableColumn<ChemicalRow>[] = [
+    {
+      key: 'chemical',
+      header: 'Chemical',
+      render: (_value, chemical) => (
+        <>
+          <div className="text-sm font-medium text-gray-900">{chemical.name}</div>
+          <div className="text-sm text-gray-500">{chemical.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, chemical) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[chemical.type] || 'bg-gray-100 text-gray-800'}`}
+          >
+            {categoryLabels[chemical.type] || chemical.type}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'manufacturer',
+      header: 'Manufacturer',
+      render: (_value, chemical) => getSupplierName(chemical.supplierId),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, chemical) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[chemical.status] || 'bg-gray-100 text-gray-800'}`}
+          >
+            {statusLabels[chemical.status] || chemical.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      render: (_value, chemical) => chemical.notes || '-',
+    },
+    {
+      key: 'documents',
+      header: 'Documents',
+      render: (_value, chemical) => (
+        <>
+          {chemical.documents?.length || 0} docs
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, chemical) => (
+        <>
+          <button
+            onClick={() => handleEdit(chemical)}
+            className="text-blue-600 hover:text-blue-900 mr-3"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => handleDelete(chemical.id)}
+            className="text-red-600 hover:text-red-900"
+          >
+            Delete
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div>
       {/* Toolbar */}
@@ -746,80 +826,15 @@ export const ChemicalsTab: React.FC = () => {
       {/* Chemicals Table */}
       {!isLoading && !error && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Chemical
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Manufacturer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Notes
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Documents
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredChemicals.map((chemical) => (
-                <tr key={chemical.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{chemical.name}</div>
-                    <div className="text-sm text-gray-500">{chemical.code}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[chemical.type] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {categoryLabels[chemical.type] || chemical.type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {getSupplierName(chemical.supplierId)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[chemical.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {statusLabels[chemical.status] || chemical.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                    {chemical.notes || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {chemical.documents?.length || 0} docs
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(chemical)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(chemical.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<ChemicalRow>
+            data={filteredChemicals}
+            columns={chemicalRowColumns}
+            keyExtractor={(chemical) => chemical.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
           {/* Empty State */}
           {filteredChemicals.length === 0 && (

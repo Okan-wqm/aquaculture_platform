@@ -4,7 +4,7 @@
  * Only shown in edit mode (when equipmentId exists)
  */
 import React, { useState, useEffect } from 'react';
-import { useToast } from '@aquaculture/shared-ui';
+import { useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useFeederCalibrations,
   useSaveFeederCalibrations,
@@ -106,6 +106,101 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
     );
   }
 
+  type RowRow = (typeof rows)[number];
+  const rowRowColumns: DataTableColumn<RowRow>[] = [
+    {
+      key: 'feedSizeMm',
+      header: 'Feed Size (mm)',
+      render: (_value, row) => (
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={row.feedSizeMm}
+          onChange={(e) =>
+            updateRow(row._key, 'feedSizeMm', parseFloat(e.target.value) || 0)
+          }
+          className="w-20 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+        />
+      ),
+    },
+    {
+      key: 'label',
+      header: 'Label',
+      render: (_value, row) => (
+        <input
+          type="text"
+          value={row.feedSizeLabel || ''}
+          onChange={(e) => updateRow(row._key, 'feedSizeLabel', e.target.value)}
+          placeholder="e.g., Starter"
+          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+        />
+      ),
+    },
+    {
+      key: 'dispensingGShot',
+      header: 'Dispensing (g/shot)',
+      render: (_value, row) => (
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={row.gramsPerDispensing}
+          onChange={(e) =>
+            updateRow(row._key, 'gramsPerDispensing', parseFloat(e.target.value) || 0)
+          }
+          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+        />
+      ),
+    },
+    {
+      key: 'siloCapacityKg',
+      header: 'Silo Capacity (kg)',
+      render: (_value, row) => (
+        <input
+          type="number"
+          step="0.01"
+          min="0"
+          value={row.siloCapacityKg}
+          onChange={(e) =>
+            updateRow(row._key, 'siloCapacityKg', parseFloat(e.target.value) || 0)
+          }
+          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+        />
+      ),
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      render: (_value, row) => (
+        <input
+          type="text"
+          value={row.notes || ''}
+          onChange={(e) => updateRow(row._key, 'notes', e.target.value)}
+          className="w-32 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
+        />
+      ),
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, row) => (
+        <>
+          <button
+            type="button"
+            onClick={() => removeRow(row._key)}
+            className="text-red-500 hover:text-red-700"
+            title="Remove row"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div>
       <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
@@ -116,101 +211,15 @@ export const FeederCalibrationSection: React.FC<FeederCalibrationSectionProps> =
       </p>
 
       {rows.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm border border-gray-200 rounded">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                  Feed Size (mm)
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                  Label
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                  Dispensing (g/shot)
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                  Silo Capacity (kg)
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500">
-                  Notes
-                </th>
-                <th className="px-3 py-2 w-10"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {rows.map((row) => (
-                <tr key={row._key}>
-                  <td className="px-3 py-1">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={row.feedSizeMm}
-                      onChange={(e) =>
-                        updateRow(row._key, 'feedSizeMm', parseFloat(e.target.value) || 0)
-                      }
-                      className="w-20 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </td>
-                  <td className="px-3 py-1">
-                    <input
-                      type="text"
-                      value={row.feedSizeLabel || ''}
-                      onChange={(e) => updateRow(row._key, 'feedSizeLabel', e.target.value)}
-                      placeholder="e.g., Starter"
-                      className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </td>
-                  <td className="px-3 py-1">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={row.gramsPerDispensing}
-                      onChange={(e) =>
-                        updateRow(row._key, 'gramsPerDispensing', parseFloat(e.target.value) || 0)
-                      }
-                      className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </td>
-                  <td className="px-3 py-1">
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={row.siloCapacityKg}
-                      onChange={(e) =>
-                        updateRow(row._key, 'siloCapacityKg', parseFloat(e.target.value) || 0)
-                      }
-                      className="w-24 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </td>
-                  <td className="px-3 py-1">
-                    <input
-                      type="text"
-                      value={row.notes || ''}
-                      onChange={(e) => updateRow(row._key, 'notes', e.target.value)}
-                      className="w-32 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </td>
-                  <td className="px-3 py-1">
-                    <button
-                      type="button"
-                      onClick={() => removeRow(row._key)}
-                      className="text-red-500 hover:text-red-700"
-                      title="Remove row"
-                    >
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<RowRow>
+          data={rows}
+          columns={rowRowColumns}
+          keyExtractor={(row) => row._key}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {rows.length === 0 && (

@@ -236,7 +236,17 @@ calibration and threshold pages (their row components hold per-row edit
 state, which has to move up to the page first), the automation editor's
 variable table (same), the translations matrix and CSV import mapping
 (language / column-keyed dynamic columns), tag watch, variable sync and the
-grouped auto-detect results. **Owner:** okan · **Expiry:** 2027-06-30.
+grouped auto-detect results. Batch 15: farm-module (59 → 33) — cleaner-fish
+batches, environment values, FCR analysis, the feeding summary's feed-type
+breakdown (its currency threads into the columns), growth-forecast feed
+requirements, harvest plans, a batch's feed assignments, batch input,
+growth measurements, the cleaner-fish and sea-lice report cage rows, feeder
+calibration, sub-equipment, chemicals, consumables, departments, equipment,
+a feed's feeding curve, fish-health chemicals, slaughter facilities,
+workers, purchase-order lines, delivery receipts, on-demand steps and
+recent water-chemistry entries. Rows that had no identity of their own
+(form arrays keyed by position) needed `DataTable`'s `keyExtractor` to see
+the row index, which it now does. **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -249,8 +259,8 @@ grouped auto-detect results. **Owner:** okan · **Expiry:** 2027-06-30.
 - Remaining overlay entries (8 runtime surfaces; see allowlist entries).
 - Hex residues: AquaMobil (9; no shared-ui import) and the pH scale (10).
 - Static inline style in SCADA symbol geometry (133).
-- Raw `<table>` → `DataTable`: 92 remain after batch 14 (admin-panel 3,
-  tenant-admin 1, hr 3, shell 1, hydroponics 10, sensor 15, farm 59).
+- Raw `<table>` → `DataTable`: 66 remain after batch 15 (admin-panel 3,
+  tenant-admin 1, hr 3, shell 1, hydroponics 10, sensor 15, farm 33).
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, dark mode reach, i18n reach) — design
   work with product decisions attached; not gated here.

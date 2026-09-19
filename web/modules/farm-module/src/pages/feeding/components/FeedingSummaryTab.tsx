@@ -4,7 +4,7 @@
  * Shows feeding summary statistics including totals, variance analysis,
  * FCR calculation, and feed type breakdown for a selected batch.
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import React, { useState, useMemo } from 'react';
 import {
   useFeedingSummary,
@@ -100,6 +100,52 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
 
   // Find the current batch for FCR calculation display
   const currentBatch = batches.find(b => b.id === effectiveBatchId);
+
+  const feedTypeSummaryColumns = (currency: string): DataTableColumn<FeedTypeSummary>[] => [
+    {
+      key: 'feed',
+      header: 'Feed',
+      render: (_value, ft) => ft.feedName,
+    },
+    {
+      key: 'totalKg',
+      header: 'Total (kg)',
+      align: 'right',
+      render: (_value, ft) => ft.totalKg.toFixed(1),
+    },
+    {
+      key: 'percentage',
+      header: 'Percentage',
+      align: 'right',
+      render: (_value, ft) => (
+        <>
+          {ft.percentage.toFixed(1)}%
+        </>
+      ),
+    },
+    {
+      key: 'cost',
+      header: 'Cost',
+      align: 'right',
+      render: (_value, ft) => (
+        <>
+          {ft.cost.toFixed(0)} {currency}
+        </>
+      ),
+    },
+    {
+      key: 'distribution',
+      header: 'Distribution',
+      render: (_value, ft) => (
+        <div className="w-32 bg-gray-200 rounded-full h-2">
+          <div
+            className="bg-blue-500 h-2 rounded-full"
+            style={{ width: `${ft.percentage}%` }}
+          />
+        </div>
+      ),
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -242,45 +288,15 @@ export const FeedingSummaryTab: React.FC<FeedingSummaryTabProps> = ({
               <div className="px-4 py-3 border-b border-gray-200">
                 <h3 className="text-lg font-medium text-gray-900">Feed Type Breakdown</h3>
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Feed</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Total (kg)</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Percentage</th>
-                      <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost</th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Distribution</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {data.byFeedType.map((ft: FeedTypeSummary) => (
-                      <tr key={ft.feedId} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {ft.feedName}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                          {ft.totalKg.toFixed(1)}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-500">
-                          {ft.percentage.toFixed(1)}%
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                          {ft.cost.toFixed(0)} {data.currency || 'NOK'}
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <div className="w-32 bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-blue-500 h-2 rounded-full"
-                              style={{ width: `${ft.percentage}%` }}
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<FeedTypeSummary>
+                data={data.byFeedType}
+                columns={feedTypeSummaryColumns(data.currency || 'NOK')}
+                keyExtractor={(ft) => ft.feedId}
+                emptyMessage="No records found"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+              />
             </div>
           )}
         </>

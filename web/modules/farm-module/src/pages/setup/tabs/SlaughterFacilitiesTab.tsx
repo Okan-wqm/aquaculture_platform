@@ -9,7 +9,7 @@
  * at submit time.
  */
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 import {
   SlaughterFacility,
@@ -112,6 +112,72 @@ export const SlaughterFacilitiesTab: React.FC = () => {
 
   const pending = createFacility.isPending || updateFacility.isPending;
 
+  type FacilityRow = (typeof facilities)[number];
+  const facilityRowColumns: DataTableColumn<FacilityRow>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      render: (_value, facility) => (
+        <>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-900">{facility.name}</span>
+            {facility.isDefault && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                Default
+              </span>
+            )}
+          </div>
+          {facility.address && (
+            <div className="text-xs text-gray-400">{facility.address}</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'godkjenningsnummer',
+      header: 'Godkjenningsnummer',
+      render: (_value, facility) => facility.godkjenningsnummer,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, facility) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              facility.isActive
+                ? 'bg-green-100 text-green-800'
+                : 'bg-gray-100 text-gray-600'
+            }`}
+          >
+            {facility.isActive ? 'Active' : 'Inactive'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, facility) => (
+        <>
+          <button
+            onClick={() => openEditModal(facility)}
+            className="text-blue-600 hover:text-blue-800"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => toggleActive(facility)}
+            className="text-gray-500 hover:text-gray-700"
+          >
+            {facility.isActive ? 'Deactivate' : 'Activate'}
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div>
       {/* Toolbar */}
@@ -164,73 +230,15 @@ export const SlaughterFacilitiesTab: React.FC = () => {
       )}
 
       {!isLoading && !error && facilities.length > 0 && (
-        <div className="overflow-hidden bg-white rounded-lg border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Godkjenningsnummer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {facilities.map((facility) => (
-                <tr key={facility.id} className={facility.isActive ? '' : 'bg-gray-50'}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900">{facility.name}</span>
-                      {facility.isDefault && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          Default
-                        </span>
-                      )}
-                    </div>
-                    {facility.address && (
-                      <div className="text-xs text-gray-400">{facility.address}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-700">
-                    {facility.godkjenningsnummer}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        facility.isActive
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-600'
-                      }`}
-                    >
-                      {facility.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3">
-                    <button
-                      onClick={() => openEditModal(facility)}
-                      className="text-blue-600 hover:text-blue-800"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => toggleActive(facility)}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      {facility.isActive ? 'Deactivate' : 'Activate'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<FacilityRow>
+          data={facilities}
+          columns={facilityRowColumns}
+          keyExtractor={(facility) => facility.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       <Modal

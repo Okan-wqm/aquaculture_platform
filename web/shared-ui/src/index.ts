@@ -162,6 +162,15 @@ export {
 export { I18nProvider, useI18n } from './i18n';
 export type { I18nProviderProps, I18nContextValue, SupportedLocale, MessageKey } from './i18n';
 export {
+  SUPPORTED_LOCALES,
+  DEFAULT_LOCALE,
+  LOCALE_STORAGE_KEY,
+  isSupportedLocale,
+  getStoredLocale,
+  persistLocale,
+  resolveInitialLocale,
+} from './i18n';
+export {
   useGraphQLQuery,
   useGraphQLMutation,
   usePrefetchQuery,
@@ -170,6 +179,7 @@ export {
 } from './hooks/useGraphQL';
 export { useToast, ToastContainer, ToastProvider } from './hooks/useToast';
 export { useFeedbackMutation, DEFAULT_MUTATION_ERROR_TITLE } from './hooks/useFeedbackMutation';
+export { useActAsContext } from './hooks/useActAsContext';
 export type { MutationFeedback, FeedbackMutationOptions } from './hooks/useFeedbackMutation';
 export type { ToastOptions, ToastAction } from './hooks/useToast';
 export { useConfirm, usePrompt, ConfirmProvider } from './hooks/useConfirm';

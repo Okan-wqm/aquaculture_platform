@@ -9,6 +9,8 @@
  */
 
 import React, { useCallback, useId, useRef } from 'react';
+
+import { useI18n } from '../../i18n';
 import { createPortal } from 'react-dom';
 
 import { dialogThemeAttributes, useDialogBehavior, type DialogTheme } from '../Modal/useDialogBehavior';
@@ -127,7 +129,7 @@ export const Drawer: React.FC<DrawerProps> = ({
   closeOnOverlayClick = true,
   closeOnEscape = true,
   showCloseButton = true,
-  closeLabel = 'Kapat',
+  closeLabel: closeLabelProp,
   ariaLabel,
   theme = 'auto',
   footer,
@@ -135,6 +137,8 @@ export const Drawer: React.FC<DrawerProps> = ({
   className = '',
   bodyClassName = 'flex-1 min-h-0 overflow-y-auto p-4',
 }) => {
+  const { t } = useI18n();
+  const closeLabel = closeLabelProp ?? t('common.close');
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const descriptionId = useId();

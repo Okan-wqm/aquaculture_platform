@@ -51512,12 +51512,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/admin-panel/src/components/admin-nav-items.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/admin-panel/src/components/CreateInvoiceModal.tsx",
       "prettier_managed": true
     },
@@ -54535,6 +54529,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/hr-module/src/components/certification/CertificationDialogs.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/hr-module/src/components/certification/CertificationExpiryAlert.tsx",
       "prettier_managed": true
     },
@@ -54614,6 +54614,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hr-module/src/components/leave/LeaveBalanceWidget.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/hr-module/src/components/leave/NewLeaveRequestModal.tsx",
       "prettier_managed": true
     },
     {
@@ -61205,7 +61211,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "b8d4d8a4cde661af73ec6c08839d4fd6c59ddc2289744c7a153feede860a71ae",
+      "content_sha256": "697aae9fa76cef6e203ee167a984f62210599bc9c74694fcdd0b74789237d57b",
       "hash_policy": "sha256",
       "owner": "codegen-owner",
       "path": "web/shared-ui/src/generated/graphql-types.ts",
@@ -61248,6 +61254,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/hooks/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/useActAsContext.ts",
       "prettier_managed": true
     },
     {
@@ -61325,6 +61337,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/i18n/__tests__/I18nProvider.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/i18n/I18nProvider.tsx",
       "prettier_managed": true
     },
@@ -61332,6 +61350,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/i18n/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/i18n/localePreference.ts",
       "prettier_managed": true
     },
     {
@@ -61434,6 +61458,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/utils/backend-health-circuit.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/utils/csv.ts",
       "prettier_managed": true
     },
     {
@@ -61703,7 +61733,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shell/src/components/__tests__/ActAsTenantBanner.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shell/src/components/__tests__/FishBackground.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/components/ActAsTenantBanner.tsx",
       "prettier_managed": true
     },
     {
@@ -61746,6 +61788,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shell/src/components/RemoteModuleLoader.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shell/src/components/UserLocaleSync.tsx",
       "prettier_managed": true
     },
     {

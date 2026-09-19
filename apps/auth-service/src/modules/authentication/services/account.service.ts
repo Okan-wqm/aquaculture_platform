@@ -84,6 +84,10 @@ export class AccountService {
       user.lastName = lastName;
     }
 
+    if (input.preferredLanguage !== undefined) {
+      user.preferredLanguage = input.preferredLanguage;
+    }
+
     const savedUser = await this.userRepository.save(user);
 
     await Promise.allSettled([

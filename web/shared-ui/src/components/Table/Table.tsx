@@ -5,6 +5,8 @@
  */
 
 import React, { useCallback, useMemo } from 'react';
+
+import { useI18n } from '../../i18n';
 import type { TableColumn } from '../../types';
 
 // ============================================================================
@@ -188,6 +190,7 @@ const Pagination: React.FC<PaginationProps> = ({
   onChange,
   labels,
 }) => {
+  const { t } = useI18n();
   const totalPages = Math.ceil(total / pageSize);
   const startItem = (current - 1) * pageSize + 1;
   const endItem = Math.min(current * pageSize, total);
@@ -218,7 +221,7 @@ const Pagination: React.FC<PaginationProps> = ({
         <span className="font-medium">{endItem}</span>
         {' / '}
         <span className="font-medium">{total}</span>
-        {` ${labels?.recordUnit ?? 'kayıt'}`}
+        {` ${labels?.recordUnit ?? t('table.recordUnit')}`}
       </div>
       <nav className="flex items-center space-x-1">
         <button
@@ -226,7 +229,7 @@ const Pagination: React.FC<PaginationProps> = ({
           disabled={current === 1}
           className="px-3 py-1 rounded border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
         >
-          {labels?.previous ?? 'Önceki'}
+          {labels?.previous ?? t('table.previous')}
         </button>
         {pages.map((page, index) =>
           page === 'ellipsis' ? (
@@ -252,7 +255,7 @@ const Pagination: React.FC<PaginationProps> = ({
           disabled={current === totalPages}
           className="px-3 py-1 rounded border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
         >
-          {labels?.next ?? 'Sonraki'}
+          {labels?.next ?? t('table.next')}
         </button>
       </nav>
     </div>
@@ -298,7 +301,7 @@ export function Table<T extends object = Record<string, unknown>>({
   keyExtractor,
   rowKey,
   isLoading = false,
-  emptyMessage = 'Gösterilecek veri bulunamadı',
+  emptyMessage: emptyMessageProp,
   selectable = false,
   selectedRows = [],
   onSelectionChange,
@@ -310,6 +313,8 @@ export function Table<T extends object = Record<string, unknown>>({
   compact = false,
   className = '',
 }: TableProps<T>): React.ReactElement {
+  const { t } = useI18n();
+  const emptyMessage = emptyMessageProp ?? t('table.noData');
   // BUG-008: Handle all three cases of rowKey: function extractor (from keyExtractor or rowKey function overload),
   // string field name, or default 'id'. Previously the rowKey function overload was silently ignored.
   const resolvedRowKey: string | ((row: T) => string) =

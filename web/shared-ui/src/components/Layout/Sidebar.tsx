@@ -6,6 +6,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 import type { NavigationItem, UserRole } from '../../types';
+import { useI18n } from '../../i18n';
 import { useDialogBehavior } from '../Modal/useDialogBehavior';
 
 // Alias for backward compatibility
@@ -465,6 +466,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const themeStyle = sidebarThemeStyles[theme];
   const asideRef = useRef<HTMLElement>(null);
+  const { t } = useI18n();
 
   const closeOverlay = useCallback(() => onMobileOpenChange(false), [onMobileOpenChange]);
 
@@ -517,7 +519,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ref={asideRef}
         id={id}
         tabIndex={-1}
-        aria-label="Main navigation"
+        aria-label={t('sidebar.mainNavigation')}
         className={`
           flex-col ${placement}
           md:h-screen ${themeStyle.bg} border-r ${themeStyle.border}
@@ -533,7 +535,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               onClick={closeOverlay}
               className={`md:hidden p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 ${themeStyle.toggleHover} rounded-lg`}
-              aria-label="Close navigation"
+              aria-label={t('header.closeNavigation')}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -545,7 +547,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={() => onCollapsedChange(!collapsed)}
                 className={`hidden md:inline-flex p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 ${themeStyle.toggleHover} rounded-lg`}
                 title={collapsed ? 'Expand' : 'Collapse'}
-                aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                aria-label={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
               >
                 <svg
                   className={`w-5 h-5 transition-transform ${collapsed ? 'rotate-180' : ''}`}

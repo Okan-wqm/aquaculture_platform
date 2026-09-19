@@ -29,6 +29,7 @@ import type { LeaveRequest, LeaveRequestFilterInput, LeaveRequestStatus, Paginat
 import { LEAVE_STATUS_CONFIG, LEAVE_CATEGORY_CONFIG } from '../../types';
 // SEC-006: sanitize API-sourced color codes before use in inline styles
 import { sanitizeColor } from '../../components/leave/LeaveBalanceWidget';
+import { NewLeaveRequestModal } from '../../components/leave';
 
 export function LeavesPage() {
   // BUG-011: use centralised hook for consistent auth→employeeId mapping
@@ -42,6 +43,7 @@ export function LeavesPage() {
   const [showFilters, setShowFilters] = useState(false);
   // BUG-010 / SEC-006: replace prompt() with controlled input state
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [showNewRequest, setShowNewRequest] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
 
   // Data fetching
@@ -219,12 +221,13 @@ export function LeavesPage() {
           <Textarea fullWidth id="leave-reject-reason" value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} rows={3} placeholder="Enter the reason for rejection..." autoFocus />
         </Modal>
       )}
+      <NewLeaveRequestModal open={showNewRequest} onClose={() => setShowNewRequest(false)} />
       {/* Header */}
       <PageHeader
         title="Leave Management"
         description="Track and manage employee leave requests"
         actions={
-          <Button variant="primary" className="justify-center sm:w-auto" leftIcon={<Plus className="h-4 w-4" />}>New Request</Button>
+          <Button variant="primary" className="justify-center sm:w-auto" leftIcon={<Plus className="h-4 w-4" />} onClick={() => setShowNewRequest(true)}>New Request</Button>
         }
       />
 

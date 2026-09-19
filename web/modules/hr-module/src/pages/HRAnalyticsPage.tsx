@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom';
 import { BarChart3, TrendingUp, Users, Calendar, Award, Clock, Download } from 'lucide-react';
 import { useHRDashboardStats, useDepartments } from '../hooks';
 import { useHrFinanceSummary } from '../hooks/useHrFinance';
-import { colors, PageHeader } from '@aquaculture/shared-ui';
+import { colors, PageHeader, Button, downloadCsv } from '@aquaculture/shared-ui';
 
 const HRAnalyticsPage: React.FC = () => {
   const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
@@ -44,6 +44,25 @@ const HRAnalyticsPage: React.FC = () => {
 
   const isLoading = loadingStats || loadingDepts;
 
+  // The report the page shows, as a file: the headline metrics, then one row
+  // per department with its headcount (the same numbers the bars draw).
+  const handleExportReport = (): void => {
+    const rows: unknown[][] = [
+      ['Total employees', stats?.totalEmployees ?? ''],
+      ['Active employees', stats?.activeEmployees ?? ''],
+      ['On leave', stats?.onLeaveEmployees ?? ''],
+      ['Terminated', stats?.terminatedEmployees ?? ''],
+      ['New hires this month', stats?.newHiresThisMonth ?? ''],
+      ['Offshore employees', stats?.offshoreEmployees ?? ''],
+      ['Onshore employees', stats?.onshoreEmployees ?? ''],
+      ['Attendance rate (%)', stats?.attendanceRate ?? ''],
+      ['Pending leave requests', stats?.pendingLeaveRequests ?? ''],
+      ['Departments', stats?.totalDepartments ?? ''],
+      ...(departments ?? []).map((dept) => [`Headcount — ${dept.name}`, headcountByDepartment.get(dept.id) ?? '']),
+    ];
+    downloadCsv(`hr-analytics-${new Date().toISOString().slice(0, 10)}`, ['Metric', 'Value'], rows);
+  };
+
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
@@ -51,10 +70,9 @@ const HRAnalyticsPage: React.FC = () => {
         title="HR Analytics"
         description="Human resources metrics and insights"
         actions={
-          <button className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
-            <Download className="h-4 w-4" />
+          <Button variant="secondary" leftIcon={<Download className="h-4 w-4" />} onClick={handleExportReport} disabled={isLoading}>
             Export Report
-          </button>
+          </Button>
         }
       />
 

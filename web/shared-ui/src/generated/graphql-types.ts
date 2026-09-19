@@ -23518,6 +23518,7 @@ export type UpdateMobileUserSettingsInput = {
 export type UpdateMyProfileInput = {
   firstName?: InputMaybe<Scalars['String']['input']>;
   lastName?: InputMaybe<Scalars['String']['input']>;
+  preferredLanguage?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateNotificationPreferencesInput = {
@@ -23687,6 +23688,7 @@ export type UpdateProfileInput = {
   email?: InputMaybe<Scalars['String']['input']>;
   firstName?: InputMaybe<Scalars['String']['input']>;
   lastName?: InputMaybe<Scalars['String']['input']>;
+  preferredLanguage?: InputMaybe<Scalars['String']['input']>;
 };
 
 export type UpdateProgramInput = {

@@ -59,7 +59,7 @@ describe('Drawer — görünürlük ve erişilebilirlik', () => {
         <p>içerik</p>
       </Drawer>,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Kapat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

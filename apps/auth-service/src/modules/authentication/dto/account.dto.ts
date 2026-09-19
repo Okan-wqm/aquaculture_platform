@@ -1,7 +1,11 @@
 import { Field, InputType, ObjectType } from '@nestjs/graphql';
-import { IsEmail, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 
 import { PASSWORD_POLICY_MESSAGE, PASSWORD_POLICY_REGEX } from './password-policy';
+
+/** UI locales the web clients ship; the SSoT the profile mutation validates against. */
+export const SUPPORTED_UI_LOCALES = ['tr', 'en'] as const;
+export type SupportedUiLocale = (typeof SUPPORTED_UI_LOCALES)[number];
 
 @InputType()
 export class UpdateMyProfileInput {
@@ -16,6 +20,16 @@ export class UpdateMyProfileInput {
   @IsString()
   @MaxLength(100)
   lastName?: string;
+
+  /**
+   * The UI language the user chose (FE-HIGH-089). Persisted on the account so
+   * it follows the user across devices; the shell applies it on sign-in and
+   * the settings page writes it here. Only the locales the web clients ship.
+   */
+  @Field(() => String, { nullable: true })
+  @IsOptional()
+  @IsIn(SUPPORTED_UI_LOCALES)
+  preferredLanguage?: SupportedUiLocale;
 }
 
 @InputType()

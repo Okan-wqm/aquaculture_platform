@@ -33,9 +33,11 @@ import dispatch_failure as _dispatch_failure
 try:
     sys.path.insert(0, str(_POC_DIR.parents[1] / "aria-kernel"))
     from aria_kernel.circuit_breaker import evaluate_breaker, record_failure
+    from aria_kernel.agent_surface import JUDGE_ROLES as _JUDGE_ROLES
 except ImportError:  # pragma: no cover — kernel-less standalone import
     evaluate_breaker = None  # type: ignore[assignment]
     record_failure = None  # type: ignore[assignment]
+    _JUDGE_ROLES = ()  # type: ignore[assignment]
 
 
 # ARIA-HIGH-003 — failure classes that name an environment condition no
@@ -335,8 +337,13 @@ def _next_pending_for_role(
     repo_root: Path,
     role_filter: str | None,
     attempted: set[str],
+    target_agent: str | None = None,
 ) -> tuple[dict | None, str | None]:
-    """One kernel next-pending query. Returns (candidate, error_reason)."""
+    """One kernel next-pending query. Returns (candidate, error_reason).
+
+    ``target_agent`` (typed-judgment plan Phase 4b) narrows the selection to
+    one agent — the batch fill asks for siblings of the request it holds.
+    """
     # The one spelling of a kernel CLI subprocess (`-P`: the cwd off
     # sys.path — the drain runs in the checkout, the child in a request
     # worktree; neither may resolve the kernel from where it stands).
@@ -346,6 +353,8 @@ def _next_pending_for_role(
     )
     if role_filter is not None:
         argv += ["--role", role_filter]
+    if target_agent:
+        argv += ["--target-agent", target_agent]
     for excluded in sorted(attempted):
         argv += ["--exclude", excluded]
     pending_proc = subprocess.run(
@@ -380,6 +389,35 @@ def _next_pending_for_role(
     if candidate and candidate.get("request_id"):
         return candidate, None
     return None, None
+
+
+def _judge_batch_policy(repo_root: Path) -> tuple[int, tuple[str, ...]]:
+    """`judge_batch_size` and `judge_batch_runtimes` from the judgment
+    pipeline policy; (1, ()) when the kernel is unreachable — no batching."""
+    try:
+        from aria_kernel.genesis_policy import judgment_pipeline_policy
+    except ImportError:  # pragma: no cover — kernel-less standalone import
+        return 1, ()
+    block = judgment_pipeline_policy(repo_root)
+    return max(1, int(block["judge_batch_size"])), tuple(str(r) for r in block["judge_batch_runtimes"])
+
+
+def _provider_runtime(provider_key: str) -> str | None:
+    """The fleet's runtime hint for a provider key ('zai' for the kernel's
+    own HTTP transport); None when the fleet does not know the key."""
+    try:
+        from aria_kernel.model_fleet import _FLEET
+    except ImportError:  # pragma: no cover — kernel-less standalone import
+        return None
+    return next((entry.runtime_hint for entry in _FLEET if entry.key == provider_key), None)
+
+
+def _batch_key(batch: list[dict]) -> str:
+    """The batch child's summary-channel key: the same digest the child
+    derives for its `batch_id` (`ci_executor_judge_batch._batch_id`)."""
+    import hashlib
+    digest = hashlib.sha256("\n".join(sorted(str(r["request_id"]) for r in batch)).encode("utf-8")).hexdigest()[:16]
+    return f"jb-{digest}"
 
 
 class _FinishedChild:
@@ -650,13 +688,37 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     executor_cfg = _executor_policy(repo_root)
     max_concurrent = int(executor_cfg["max_concurrent"])
     worktree_per_request = bool(executor_cfg["worktree_per_request"])
+    judge_batch_size, judge_batch_runtimes = _judge_batch_policy(repo_root)
+
+    def _batch_fill_cap(elapsed_seconds: float) -> int:
+        """How many requests one batch child may still legally serve inside
+        the window: the largest K whose `batch_worst_case_seconds(K)` fits."""
+        k = 1
+        while k < judge_batch_size and elapsed_seconds + _engine._batch_worst_case_seconds(
+            k + 1, worktree_per_request=worktree_per_request,
+        ) <= _drain_budget_seconds():
+            k += 1
+        return k
     inflight: list[dict] = []
 
-    def _launch(request: dict, request_id: str, target_agent: str, worktree: Path | None) -> None:
-        """Start one child (Plan 032 Faz 032h: in its own worktree when one was added)."""
-        child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
-        if target_agent:
-            child_argv.append(target_agent)
+    def _launch(request: dict, request_id: str, target_agent: str, worktree: Path | None,
+                batch: list[dict] | None = None) -> None:
+        """Start one child (Plan 032 Faz 032h: in its own worktree when one was added).
+
+        ``batch`` (typed-judgment plan Phase 4b) is the list of requests a
+        batch child serves — ``request`` is its first member; the child is
+        `ci_executor.py --judge-batch <role> <target_agent> <id>...` and its
+        summary channel is keyed by the batch, not the first request.
+        """
+        if batch:
+            child_key = _batch_key(batch)
+            child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), "--judge-batch",
+                          str(request.get("role") or ""), target_agent, *[str(r["request_id"]) for r in batch]]
+        else:
+            child_key = request_id
+            child_argv = ["python3", str(_POC_DIR / "ci_executor.py"), request_id]
+            if target_agent:
+                child_argv.append(target_agent)
         # The child writes its summary under RUNNER_TEMP and publishes the
         # path through GITHUB_OUTPUT; both are handed to it explicitly so the
         # summary channel exists wherever the drain runs (a local drain with
@@ -666,7 +728,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         # as cwd that fallback is the tracked skeleton at target_sha, not the
         # store this drain selected the request from.
         runner_temp = Path(os.environ.get("RUNNER_TEMP", "/tmp"))
-        child_output = runner_temp / f"aria-drain-output-{request_id}.txt"
+        child_output = runner_temp / f"aria-drain-output-{child_key}.txt"
         child_env = {**os.environ, "GITHUB_OUTPUT": str(child_output), "RUNNER_TEMP": str(runner_temp),
                      "ARIA_TOOLS_DIR": str(tools_dir),
                      # ARIA-HIGH-124 (round 4) — the child's import path is
@@ -679,6 +741,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         _engine._stage(
             f"drain_dispatch request_id={request_id} target={target_agent or '-'} "
             f"concurrency={len(inflight) + 1}/{max_concurrent} worktree={'yes' if worktree else 'no'}"
+            + (f" batch={child_key} k={len(batch)}" if batch else "")
         )
         if max_concurrent <= 1:
             # Serial lane (the default): the same blocking `subprocess.run` the
@@ -687,7 +750,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             proc: Any = _FinishedChild(subprocess.run(child_argv, env=child_env, cwd=str(cwd)))
         else:
             proc = subprocess.Popen(child_argv, env=child_env, cwd=str(cwd))
-        inflight.append({"request": request, "request_id": request_id, "output": child_output, "proc": proc, "worktree": worktree})
+        inflight.append({"request": request, "request_id": request_id, "output": child_output, "proc": proc,
+                         "worktree": worktree, "requests": list(batch) if batch else [request], "child_key": child_key})
 
     def _settle(entry: dict) -> None:
         """Wait for one child and account for it (the pre-032h loop body, verbatim)."""
@@ -715,7 +779,13 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                             "run_id": run_ref,
                         },
                     )
-        summary: dict | None = None
+        # Typed-judgment plan Phase 4b — a batch child writes one summary per
+        # request it served; every `dispatch_summary_path=` line is read and
+        # keyed by the summary's own request_id (a foreign id is ignored),
+        # and each request the child was launched with is accounted from its
+        # own summary. The single-request child is the K = 1 case: the last
+        # line wins for its one id, as it always did.
+        summaries: dict[str, dict] = {}
         if child_output.exists():
             for line in child_output.read_text(encoding="utf-8").splitlines():
                 if line.startswith("envelope_path="):
@@ -725,12 +795,25 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 elif line.startswith("dispatch_summary_path="):
                     summary_path = Path(line.split("=", 1)[1])
                     try:
-                        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+                        read = json.loads(summary_path.read_text(encoding="utf-8"))
                     except (OSError, json.JSONDecodeError) as exc:
                         _engine._stage(
                             f"drain_summary_unreadable request_id={request_id}: {exc}"
                         )
+                        continue
+                    summary_id = str((read or {}).get("request_id") or request_id)
+                    summaries[summary_id] = read
             child_output.unlink()
+        breaker_recorded: set[str] = set()
+        for member in entry.get("requests") or [request]:
+            member_id = str(member.get("request_id") or request_id)
+            _account_request(member, member_id, summaries.get(member_id), child, breaker_recorded)
+
+    def _account_request(request: dict, request_id: str, summary: dict | None, child: Any,
+                         breaker_recorded: set[str]) -> None:
+        """Fold ONE request's terminal outcome (the pre-4b `_settle` tail, verbatim);
+        the persistent breaker is told once per child per kind."""
+        nonlocal succeeded, failed
 
         # ARIA-HIGH-003 — classify the terminal outcome from the child's own
         # v1 summary and fold it into the circuit, the persistent breaker,
@@ -782,7 +865,10 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 }
             )
             persistent_kind = PERSISTENT_BREAKER_KIND_BY_CLASS.get(counted_class)
-            if persistent_kind is not None:
+            if persistent_kind is not None and persistent_kind not in breaker_recorded:
+                # One vendor event is one breaker failure however many
+                # requests the child served (Phase 4b review, C3).
+                breaker_recorded.add(persistent_kind)
                 _record_breaker_failure(
                     tools_dir,
                     kind=persistent_kind,
@@ -921,12 +1007,49 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         # drain with the room — and excluded from tonight's selection, so the
         # roles that fit keep draining; the whole loop stops only when the
         # cheapest child no longer fits (the check above).
-        request_worst_case = _engine._child_worst_case_seconds(
-            worktree_per_request=worktree_per_request,
-            implementation_delivery_seconds=_engine._request_delivery_seconds(
-                tools_dir=tools_dir, request_id=request_id,
-            ),
-        )
+        # Typed-judgment plan Phase 4b — a judge request on a batchable
+        # route gathers siblings: same role, same agent, same anchor, up to
+        # `judge_batch_size` and what the window and the run cap leave.
+        # The fill stops at the first key mismatch and excludes nothing
+        # (the mismatched candidate is the next round's first pick).
+        batch_members: list[dict] = [request]
+        if (
+            judge_batch_size > 1
+            and route is not None
+            and _provider_runtime(route.provider) in judge_batch_runtimes
+            and str(request.get("role") or "") in _JUDGE_ROLES
+        ):
+            batch_cap = min(
+                judge_batch_size,
+                _engine._max_requests() - len(attempted) - len(quota_pending),
+                _batch_fill_cap(time.monotonic() - started),
+            )
+            batch_excluded = set(excluded) | {request_id}
+            while len(batch_members) < batch_cap:
+                sibling, sibling_error = _next_pending_for_role(
+                    tools_dir=tools_dir, repo_root=repo_root, role_filter=str(request.get("role") or ""),
+                    attempted=batch_excluded, target_agent=str(request.get("target_agent") or ""),
+                )
+                if sibling_error is not None or sibling is None:
+                    break
+                if (
+                    str(sibling.get("target_agent") or "") != str(request.get("target_agent") or "")
+                    or str(sibling.get("target_sha") or "") != str(request.get("target_sha") or "")
+                ):
+                    break
+                batch_members.append(sibling)
+                batch_excluded.add(str(sibling["request_id"]))
+        if len(batch_members) > 1:
+            request_worst_case = _engine._batch_worst_case_seconds(
+                len(batch_members), worktree_per_request=worktree_per_request,
+            )
+        else:
+            request_worst_case = _engine._child_worst_case_seconds(
+                worktree_per_request=worktree_per_request,
+                implementation_delivery_seconds=_engine._request_delivery_seconds(
+                    tools_dir=tools_dir, request_id=request_id,
+                ),
+            )
         elapsed = time.monotonic() - started
         if elapsed + request_worst_case > _drain_budget_seconds():
             window_excluded.add(request_id)
@@ -965,11 +1088,12 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 failed += 1
                 break
             worktree = added.path
-        attempted.add(request_id)
+        for member in batch_members:
+            attempted.add(str(member["request_id"]))
         dispatched_target_shas.add(str(request.get("target_sha") or ""))
 
         target_agent = str(request.get("target_agent") or "").strip()
-        _launch(request, request_id, target_agent, worktree)
+        _launch(request, request_id, target_agent, worktree, batch=batch_members if len(batch_members) > 1 else None)
         if len(inflight) >= max_concurrent:
             _settle(inflight.pop(0))
 

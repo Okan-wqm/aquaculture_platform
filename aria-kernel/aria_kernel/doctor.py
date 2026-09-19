@@ -510,6 +510,46 @@ def _check_economy(tools_dir: Path) -> DoctorCheck:
     return DoctorCheck("economy", "ok", "" if stats else "no_usage_rows", detail)
 
 
+CALIBRATION_GATE_DOWNGRADE_WARN_DAYS: int = 7
+
+
+def _check_calibration_gate(tools_dir: Path, *, now: Any | None = None) -> DoctorCheck:
+    """Typed-judgment plan Phase 6 — an `enforce` the cycle keeps downgrading
+    is a configuration that has not taken effect: after seven days of
+    `configured=enforce, effective=measure_only` on the governance ledger the
+    operator hears it here, not from a ledger read."""
+    from datetime import datetime, timedelta, timezone
+
+    from .ledger import load_jsonl
+
+    path = tools_dir / "governance.jsonl"
+    rows = [row for row in (load_jsonl(path) if path.exists() else []) if row.get("kind") == "calibration_gate"]
+    if not rows:
+        return DoctorCheck("calibration_gate", "ok", detail={"rows": 0})
+    latest = rows[-1].get("details") or {}
+    detail = {"configured": latest.get("configured"), "effective": latest.get("effective"),
+              "reason": latest.get("reason"), "calibrated_judges": latest.get("calibrated_judges")}
+    if latest.get("configured") != "enforce" or latest.get("effective") != "measure_only":
+        return DoctorCheck("calibration_gate", "ok", detail=detail)
+    # How long has the downgrade been continuous?
+    since = None
+    for row in reversed(rows):
+        entry = row.get("details") or {}
+        if entry.get("configured") == "enforce" and entry.get("effective") == "measure_only":
+            since = row.get("ts") or row.get("recorded_at")
+            continue
+        break
+    detail["downgraded_since"] = since
+    try:
+        started = datetime.fromisoformat(str(since).replace("Z", "+00:00")) if since else None
+    except ValueError:
+        started = None
+    current = now or datetime.now(timezone.utc)
+    if started is not None and current - started > timedelta(days=CALIBRATION_GATE_DOWNGRADE_WARN_DAYS):
+        return DoctorCheck("calibration_gate", "warn", "calibration_gate_enforce_downgraded_over_seven_days", detail)
+    return DoctorCheck("calibration_gate", "ok", detail=detail)
+
+
 def _check_deadlines(tools_dir: Path, workspace_root: Path) -> DoctorCheck:
     """ARIA-MEDIUM-128 — a deadline the kernel will enforce is announced here
     `DEADLINE_WARNING_DAYS` ahead, named, with days left.
@@ -592,6 +632,7 @@ def run_doctor(
         _guarded("orchestrator", lambda: _check_orchestrator(tools_dir)),
         _guarded("tools", lambda: _check_tools(tools_dir)),
         _guarded("deadlines", lambda: _check_deadlines(tools_dir, workspace)),
+        _guarded("calibration_gate", lambda: _check_calibration_gate(tools_dir)),
     )
     return DoctorReport(
         checks=(*store_checks, *host_checks),

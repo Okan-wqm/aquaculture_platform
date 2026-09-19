@@ -37,15 +37,47 @@ SAMPLE_RECENCY_HOURS = 168
 # apart on what counts as a legitimate non-verdict outcome.
 CONSENSUS_UNCERTAINTY_REASONS = (
     "conformal_abstain",
+    # Typed-judgment plan Phase 6 (ARIA-HIGH-167/173) — under `enforce`, the
+    # judges that agreed did not include two CALIBRATED judges of distinct
+    # models; their verdict is a suggestion the label queue reads, never
+    # a closer.
+    "confidence_uncalibrated",
     "evidence_not_repo_verified",
     "judge_disagreement",
     "low_confidence",
     "missing_confidence",
+    # ARIA-MEDIUM-164 — emitted for years by `generate_ai_consensus` and
+    # absent from this vocabulary, so the sweep dropped it as benign: an
+    # anchor-grade group whose observer has no model identity.
+    "observer_identity_missing",
     "single_judge",
 )
+# Typed-judgment plan Phase 6 — how the consensus gate treats calibration.
+# `measure_only`: the legacy confidence gate bit for bit, the row records
+# what `enforce` would have excluded; `enforce`: closing authority belongs
+# to calibrated judges of distinct models alone.
+CALIBRATION_GATES = ("measure_only", "enforce")
+CALIBRATED_QUORUM_MIN_JUDGES = 2
+CALIBRATED_QUORUM_MIN_MODELS = 2
 FEEDBACK_SEVERITIES = ("low", "medium", "high", "critical")
 FEEDBACK_SOURCE_TYPES = ("human", "ai_judge", "ai_consensus")
-JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "random")
+# Typed-judgment plan (ARIA-HIGH-167) — where a judge's confidence came
+# from. The ROUTE stamps it on the envelope (``self_reported``: the model's
+# own number, every CLI and chat completion in the fleet;
+# ``provider_reported``: a typed decision transport returned the probability
+# natively). A human label carries None. Calibration is scored per source.
+CONFIDENCE_SOURCES = ("self_reported", "provider_reported")
+# ARIA-MEDIUM-170 — how the row's evidence refs were chosen. ``ref``: the
+# judge wrote the path itself (the legacy envelope); ``index``: the judge
+# cited by index into the request's refs and quoted the pinned excerpt.
+# Consensus never treats two identical index sets as independent
+# corroboration.
+EVIDENCE_SELECTIONS = ("ref", "index")
+# Typed-judgment plan Phase 6 — the label queue's own sample (label_queue.py):
+# items are the judge groups themselves, in strata, so a label lands on the
+# exact group the judges voted on.
+CALIBRATION_STRATIFIED_STRATEGY = "calibration_stratified"
+JUDGMENT_STRATEGIES = ("stratified_by_uncertainty", "stratified_by_rule", "random", CALIBRATION_STRATIFIED_STRATEGY)
 DEFAULT_MIN_JUDGED_SAMPLES = 10
 CONSENSUS_MIN_CONFIDENCE = 0.80
 
@@ -503,10 +535,20 @@ def record_operator_feedback(
     judges_voted: int | None = None,
     judgment_subject: str = JUDGMENT_SUBJECT_FINDING,
     observers: list[dict[str, str]] | None = None,
+    confidence_source: str | None = None,
+    evidence_selection: str | None = None,
+    calibration_basis: dict[str, Any] | None = None,
+    label_provenance: dict[str, Any] | None = None,
     base_dir: str | Path | None = None,
 ) -> dict[str, Any]:
     if judgment_subject not in JUDGMENT_SUBJECTS:
         raise GovernanceError(f"unknown judgment subject: {judgment_subject}")
+    if confidence_source is not None and confidence_source not in CONFIDENCE_SOURCES:
+        raise GovernanceError(f"unknown confidence_source: {confidence_source}")
+    if evidence_selection is not None and evidence_selection not in EVIDENCE_SELECTIONS:
+        raise GovernanceError(f"unknown evidence_selection: {evidence_selection}")
+    if confidence_source is not None and confidence is None:
+        raise GovernanceError("confidence_source names a confidence the row does not carry")
     if verdict not in FEEDBACK_VERDICTS:
         raise GovernanceError(f"unknown feedback verdict: {verdict}")
     if severity not in FEEDBACK_SEVERITIES:
@@ -606,6 +648,18 @@ def record_operator_feedback(
             {"judge_id": str(o["judge_id"]).strip(), "model": str(o["model"]).strip()}
             for o in (observers or [])
         ] or None,
+        # Additive (typed-judgment plan): absent on rows written before it,
+        # which verify unchanged — the signature covers the bytes each row
+        # actually carries.
+        "confidence_source": confidence_source,
+        "evidence_selection": evidence_selection,
+        # Phase 6 — on a consensus row: the gate the row closed under and
+        # the agreeing judges the calibrated quorum left out.
+        "calibration_basis": calibration_basis,
+        # Phase 6 — on a human row from the label queue: the queue and the
+        # stratum the finding was drawn from (escalated labels are reported,
+        # never the basis of `calibrated`).
+        "label_provenance": label_provenance,
     }
     # The stored row carries the signature the signer added; return that
     # so callers (judge lanes, the CLI) see the row exactly as recorded.
@@ -630,6 +684,8 @@ def record_operator_feedback_batch(
     sample = _sample_by_id(sample_id, base_dir)
     if sample is None:
         raise GovernanceError(f"unknown judgment sample: {sample_id}")
+    if sample.get("status") == "recorded":
+        raise GovernanceError(f"judgment sample already recorded: {sample_id} (a correction is a new `feedback record` row)")
     verdicts = verdict_payload.get("verdicts") if isinstance(verdict_payload, dict) else verdict_payload
     if not isinstance(verdicts, list):
         raise GovernanceError("batch verdict file must be an array or an object with verdicts array")
@@ -662,8 +718,21 @@ def record_operator_feedback_batch(
         first = missing[0]
         raise GovernanceError(f"batch verdict missing sample item: {first[0]} {first[1]}")
 
+    stratified = sample.get("strategy") == CALIBRATION_STRATIFIED_STRATEGY
     rows = []
     for verdict, item in normalized:
+        if stratified:
+            # The label queue's law: nothing is pre-filled, everything is
+            # confirmed. An unchanged verdict file mints no ground truth.
+            if verdict.get("verdict") not in FEEDBACK_VERDICTS:
+                raise GovernanceError(
+                    f"label queue verdict is not decided for {item.get('run_id')} {item.get('finding_id')}: "
+                    f"{verdict.get('verdict')!r}"
+                )
+            if verdict.get("confirmed_by_operator") is not True:
+                raise GovernanceError(
+                    f"label queue verdict is not confirmed by the operator for {item.get('run_id')} {item.get('finding_id')}"
+                )
         rows.append(
             record_operator_feedback(
                 tool_id=str(item.get("tool_id") or sample.get("tool_id") or ""),
@@ -675,14 +744,27 @@ def record_operator_feedback_batch(
                 affected_belief_ids=_optional_string_list(verdict.get("affected_belief_ids")),
                 evidence_refs=_optional_string_list(verdict.get("evidence_refs")) or _evidence_refs_from_item(item),
                 rationale=str(verdict.get("rationale") or ""),
-                judgment_group_id=str(verdict.get("judgment_group_id") or sample_id),
+                # ARIA-HIGH-165 — the group the JUDGES voted on: the item's
+                # (the queue copies it from the judge rows), the verdict's
+                # only as an explicit override, and the sample id — a key no
+                # judge group carries — never again.
+                judgment_group_id=str(
+                    verdict.get("judgment_group_id") or item.get("judgment_group_id") or sample_id
+                ),
                 finding_fingerprint=str(item.get("finding_fingerprint") or ""),
+                label_provenance=(
+                    {"queue_id": sample_id, "stratum": str(item.get("stratum") or "")} if stratified else None
+                ),
                 base_dir=base_dir,
             ),
         )
     stored_sample = dict(sample)
     stored_sample["status"] = "recorded"
     stored_sample["recorded_feedback_count"] = len(rows)
+    stored_sample["recorded_at_status"] = utc_now()
+    # ARIA-HIGH-165 (F13) — the status used to be built and dropped: 125
+    # `pending` / 65 `empty` samples on the live store, none ever recorded.
+    append_jsonl(judgment_samples_path(base_dir), stored_sample)
     return {"schema_version": 1, "sample_id": sample_id, "recorded_count": len(rows), "feedback": rows}
 
 
@@ -716,6 +798,7 @@ def record_ai_feedback_file(
                 evidence_refs=_optional_string_list(verdict.get("evidence_refs")),
                 judgment_group_id=str(verdict.get("judgment_group_id") or ""),
                 finding_fingerprint=str(verdict.get("finding_fingerprint") or ""),
+                confidence_source=str(verdict.get("confidence_source") or "self_reported"),
                 base_dir=base_dir,
             ),
         )
@@ -748,6 +831,8 @@ def generate_ai_consensus(
     base_dir: str | Path | None = None,
     judge_weights: dict[str, float] | None = None,
     conformal_floor: float | None = None,
+    judge_calibration: dict[str, str] | None = None,
+    calibration_gate: str = "measure_only",
 ) -> dict[str, Any]:
     """Kalibre Zekâ Z2a/Z2c — both knobs default OFF, preserving the
     legacy gate bit for bit:
@@ -767,6 +852,13 @@ def generate_ai_consensus(
     """
     if min_confidence < 0 or min_confidence > 1:
         raise GovernanceError("min_confidence must be between 0 and 1")
+    if calibration_gate not in CALIBRATION_GATES:
+        raise GovernanceError(f"unknown calibration_gate: {calibration_gate}")
+    # Typed-judgment plan Phase 6 — without a calibration map there is
+    # nothing to enforce: the gate is measure_only by construction (the
+    # legacy callers and their pins are unchanged).
+    if judge_calibration is None:
+        calibration_gate = "measure_only"
     ai_rows = [
         row
         for row in load_feedback(tool_id=tool_id, base_dir=base_dir)
@@ -849,8 +941,33 @@ def generate_ai_consensus(
         # because one row lacked a number. Absent confidence now stays out of
         # the mean; a group with NO numeric confidence at all escalates under
         # its own name instead of masquerading as low confidence.
+        # Phase 6 — closing authority. Under `enforce` the mean is taken over
+        # the agreeing judges whose confidence is calibrated, and two of them
+        # of distinct models must exist (a calibrated judge alone would close
+        # a split its uncalibrated partner only detected); under
+        # `measure_only` the legacy mean stands and the row records what
+        # `enforce` would have left out.
+        calibrated_agreeing = [
+            row for row in agreeing
+            if judge_calibration is not None
+            and judge_calibration.get(str(row.get("judge_id") or "")) == "calibrated"
+        ]
+        excluded_judges = sorted(
+            str(row.get("judge_id") or "") for row in agreeing if row not in calibrated_agreeing
+        ) if judge_calibration is not None else []
+        closing = agreeing
+        if calibration_gate == "enforce":
+            distinct_models = {str(row.get("model") or "").strip() for row in calibrated_agreeing if str(row.get("model") or "").strip()}
+            if len(calibrated_agreeing) < CALIBRATED_QUORUM_MIN_JUDGES or len(distinct_models) < CALIBRATED_QUORUM_MIN_MODELS:
+                uncertainties.append(_consensus_uncertainty(tool_id, run_id, finding_id, group_id, "confidence_uncalibrated"))
+                continue
+            closing = calibrated_agreeing
+        calibration_basis = (
+            {"gate": calibration_gate, "excluded_judges": excluded_judges}
+            if judge_calibration is not None else None
+        )
         confidences = [
-            gated for row in agreeing
+            gated for row in closing
             if (gated := confidence_in_unit_interval(row.get("confidence"))) is not None
         ]
         if not confidences:
@@ -876,7 +993,7 @@ def generate_ai_consensus(
             continue
         dissenting = len(rows) - len(agreeing)
         severity = _max_severity(str(row.get("severity") or "medium") for row in agreeing)
-        note = f"AI consensus from {len(agreeing)} independent judges"
+        note = f"AI consensus from {len(closing)} independent judges"
         if dissenting:
             note += (
                 f" over {dissenting} dissenting (weighted majority; "
@@ -889,8 +1006,8 @@ def generate_ai_consensus(
         # Fail-closed: a group that would settle at anchor grade but cannot
         # name its observers escalates as an uncertainty instead of
         # laundering unknown provenance into repository truth.
-        if len(agreeing) >= ANCHOR_MIN_JUDGE_COUNT and any(
-            not str(row.get("model") or "").strip() for row in agreeing
+        if len(closing) >= ANCHOR_MIN_JUDGE_COUNT and any(
+            not str(row.get("model") or "").strip() for row in closing
         ):
             uncertainties.append(
                 _consensus_uncertainty(
@@ -926,7 +1043,7 @@ def generate_ai_consensus(
                         "judge_id": str(row.get("judge_id") or ""),
                         "model": str(row.get("model") or ""),
                     }
-                    for row in agreeing
+                    for row in closing
                     # A judge row that cannot name its model contributes no
                     # receipt. Dropping it here rather than writing an empty
                     # one keeps the sub-anchor lane writable while the anchor
@@ -934,8 +1051,8 @@ def generate_ai_consensus(
                     if str(row.get("model") or "").strip()
                 ] or None,
                 confidence=round(avg_confidence, 3),
-                rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in agreeing if row.get("rationale") or row.get("note"))[:2000],
-                evidence_refs=sorted({ref for row in agreeing for ref in _optional_string_list(row.get("evidence_refs"))}),
+                rationale="; ".join(str(row.get("rationale") or row.get("note") or "") for row in closing if row.get("rationale") or row.get("note"))[:2000],
+                evidence_refs=sorted({ref for row in closing for ref in _optional_string_list(row.get("evidence_refs"))}),
                 judgment_group_id=group_id,
                 finding_fingerprint=next((str(row.get("finding_fingerprint")) for row in rows if row.get("finding_fingerprint")), ""),
                 # JJ-1 - the anchor discriminator, read off the pair
@@ -943,8 +1060,9 @@ def generate_ai_consensus(
                 # and >= ANCHOR_MIN_JUDGE_COUNT is what makes this row
                 # ground-truth-bearing; anything less still settles the
                 # finding for the adapter-precision lane and nothing else.
-                judge_count=len(agreeing),
+                judge_count=len(closing),
                 judges_voted=len(rows),
+                calibration_basis=calibration_basis,
                 base_dir=base_dir,
             ),
         )

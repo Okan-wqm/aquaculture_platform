@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .confidence import confidence_in_unit_interval
-from .ledger import append_declared_jsonl, append_jsonl as append_chained_jsonl
+from .ledger import append_declared_jsonl, append_declared_jsonl_many, append_jsonl as append_chained_jsonl
+from .ledger import append_jsonl_many as append_chained_jsonl_many
 from .ledger import load_jsonl as load_chained_jsonl
 from .ledger import rewrite_jsonl as rewrite_chained_jsonl
 from .runtime_artifacts import resolve_finding_from_artifact, run_ledger_format
@@ -337,6 +338,7 @@ def record_raw_findings_for_run(
     # security signal, not a sampling source — re-flag them as invalid.
     runner_block = run.get("runner") or {}
     has_scope_out = bool(runner_block.get("scope_out_mutations"))
+    rows_to_append: list[dict[str, Any]] = []
     for finding_index, finding in enumerate(raw_findings):
         if not isinstance(finding, dict):
             continue
@@ -378,7 +380,12 @@ def record_raw_findings_for_run(
                 "rule": str(finding.get("rule") or ""),
                 "id": str(finding.get("id") or ""),
             }
-        append_jsonl(raw_findings_path(base_dir), row)
+        rows_to_append.append(row)
+    # ARIA-HIGH-160 — one batch per run: the per-row append verified the
+    # whole chain, re-read the tail, fsynced and refreshed the index once
+    # PER FINDING (3,000 findings × a 24,000-row ledger per run).
+    if rows_to_append:
+        append_jsonl_many(raw_findings_path(base_dir), rows_to_append)
 
 
 def record_findings_for_run(
@@ -1574,6 +1581,19 @@ def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
         append_declared_jsonl(path, payload, expected_surface=surface)
         return
     append_chained_jsonl(path, payload)
+
+
+def append_jsonl_many(path: Path, payloads: list[dict[str, Any]]) -> None:
+    """ARIA-HIGH-160 — the batch form of ``append_jsonl`` above, routed by
+    the same filename map. The signed operator-feedback ledger has no batch
+    form on purpose (every row is signed one by one); it is refused here."""
+    surface = _DECLARED_SURFACE_BY_FILENAME.get(path.name)
+    if surface == "operator_feedback":
+        raise GovernanceError("operator_feedback_rows_are_signed_one_by_one")
+    if surface is not None:
+        append_declared_jsonl_many(path, payloads, expected_surface=surface)
+        return
+    append_chained_jsonl_many(path, payloads)
 
 
 def rewrite_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:

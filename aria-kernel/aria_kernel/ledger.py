@@ -35,6 +35,8 @@ __all__ = [
     "StateTransaction",
     "append_declared_jsonl",
     "append_jsonl",
+    "append_jsonl_many",
+    "append_declared_jsonl_many",
     "canonical_json",
     "stamp_row_format",
     "file_hash",
@@ -501,6 +503,32 @@ class StateTransaction:
             held_file_lock_paths=self.paths,
         )
 
+    def append_jsonl_many(
+        self,
+        path: str | Path,
+        records: list[dict[str, Any]],
+        *,
+        allow_legacy: bool = False,
+        legacy_reason: str | None = None,
+        expires_at: str | None = None,
+        test_fixture: bool = False,
+    ) -> list[dict[str, Any]]:
+        """ARIA-HIGH-160 — the batch form of ``append_jsonl``: same admission,
+        same locks, one chain verification and one write for all rows."""
+        resolved = self._canonical_path(path)
+        _assert_raw_jsonl_append_allowed(
+            resolved,
+            allow_legacy=allow_legacy,
+            legacy_reason=legacy_reason,
+            expires_at=expires_at,
+            test_fixture=test_fixture,
+        )
+        return _append_jsonl_many_locked_body(
+            resolved,
+            records,
+            held_file_lock_paths=self.paths,
+        )
+
     def append_declared_jsonl(
         self,
         path: str | Path,
@@ -518,6 +546,28 @@ class StateTransaction:
         return _append_jsonl_locked_body(
             resolved,
             record,
+            held_file_lock_paths=self.paths,
+        )
+
+    def append_declared_jsonl_many(
+        self,
+        path: str | Path,
+        records: list[dict[str, Any]],
+        *,
+        expected_surface: str,
+        bypass_profile_gate: bool = False,
+    ) -> list[dict[str, Any]]:
+        """ARIA-HIGH-160 — the batch form of ``append_declared_jsonl``: the
+        surface asserted once, the chain verified once, one write."""
+        resolved = self._canonical_path(path)
+        _assert_declared_surface(
+            resolved,
+            expected_surface=expected_surface,
+            enforce_write_profile=not bypass_profile_gate,
+        )
+        return _append_jsonl_many_locked_body(
+            resolved,
+            records,
             held_file_lock_paths=self.paths,
         )
 
@@ -1325,6 +1375,70 @@ def _append_jsonl_locked_body(
     return stored
 
 
+def _append_jsonl_many_locked_body(
+    path: Path,
+    records: list[dict[str, Any]],
+    *,
+    held_file_lock_paths: frozenset[Path] | None = None,
+) -> list[dict[str, Any]]:
+    """ARIA-HIGH-160 — one run's rows, one chain verification, one write.
+
+    The single-row body verifies the whole existing chain, re-reads every
+    row for the tail hash, fsyncs and refreshes the index — once PER ROW.
+    A tool run records its raw findings one row at a time, so a run with
+    3,000 findings against a 24,000-row ledger re-hashed the ledger 3,000
+    times (the tool phase of ``cyc-20260919T104443Z-auto``: 95 % of one
+    core for over an hour, growing with every published cycle). Here the
+    verification, the tail read, the write and the index refresh happen
+    once for the batch; every row is stamped and chained exactly as the
+    single-row body chains it, so the stored bytes are the same bytes the
+    per-row path would have written.
+    """
+    if not records:
+        return []
+    stamped = [_stamped_for_surface(path, record) for record in records]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _verify_existing_declared_chain_before_append(path)
+    heal_torn_tail(path)
+    rows = _read_jsonl_stored(path)
+    previous_hash = (
+        str(rows[-1].get("ledger_hash"))
+        if rows and rows[-1].get("ledger_hash")
+        else None
+    )
+    stored_rows: list[dict[str, Any]] = []
+    lines: list[bytes] = []
+    for record in stamped:
+        stored = dict(record)
+        stored["previous_ledger_hash"] = previous_hash
+        stored["ledger_hash"] = _record_hash(stored, previous_hash)
+        line = (
+            json.dumps(stored, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode("utf-8")
+        if len(line) > LEDGER_ROW_MAX_BYTES:
+            raise LedgerRowTooLargeError(
+                f"ledger_row_too_large:{path.as_posix()}:"
+                f"bytes={len(line)}:cap={LEDGER_ROW_MAX_BYTES}: the row would "
+                "be unpublishable (snapshot line cap); bound the writer's inline "
+                "payload with ledger_inline.spill_oversized_inline"
+            )
+        stored_rows.append(stored)
+        lines.append(line)
+        previous_hash = stored["ledger_hash"]
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    try:
+        os.write(fd, b"".join(lines))
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    _refresh_adjacent_index_grouped(
+        path,
+        held_file_lock_path=path,
+        held_file_lock_paths=held_file_lock_paths,
+    )
+    return stored_rows
+
+
 def _append_jsonl_unlocked(path: Path, record: dict[str, Any]) -> dict[str, Any]:
     """Plan 026R §A.1 — internal append helper.
 
@@ -1400,6 +1514,37 @@ def append_jsonl(
         )
 
 
+def append_jsonl_many(
+    path: Path,
+    records: list[dict[str, Any]],
+    *,
+    allow_legacy: bool = False,
+    legacy_reason: str | None = None,
+    expires_at: str | None = None,
+    test_fixture: bool = False,
+) -> list[dict[str, Any]]:
+    """ARIA-HIGH-160 — public atomic BATCH append: the locks ``append_jsonl``
+    takes, taken once; the chain verified once; the rows written in one
+    write and chained exactly as the per-row path chains them."""
+    resolved = Path(path).resolve()
+    _assert_raw_jsonl_append_allowed(
+        resolved,
+        allow_legacy=allow_legacy,
+        legacy_reason=legacy_reason,
+        expires_at=expires_at,
+        test_fixture=test_fixture,
+    )
+    with state_transaction([resolved]) as transaction:
+        return transaction.append_jsonl_many(
+            resolved,
+            records,
+            allow_legacy=allow_legacy,
+            legacy_reason=legacy_reason,
+            expires_at=expires_at,
+            test_fixture=test_fixture,
+        )
+
+
 def _reraise_enospc_as_environment(exc: OSError) -> None:
     """E18-b (ORPHAN-695 sibling; lived 2026-08-13) — a full disk during a
     ledger APPEND is an ENVIRONMENT failure, not phase logic. Pre-E18-b
@@ -1450,6 +1595,35 @@ def append_declared_jsonl(
             )
     except OSError as exc:
         _reraise_enospc_as_environment(exc)
+
+
+def append_declared_jsonl_many(
+    path: Path,
+    records: list[dict[str, Any]],
+    *,
+    expected_surface: str,
+    bypass_profile_gate: bool = False,
+) -> list[dict[str, Any]]:
+    """ARIA-HIGH-160 — ``append_declared_jsonl`` for a batch: the manifest
+    and profile checks once, one transaction, one chain verification, one
+    write; the rows chained exactly as the per-row path chains them."""
+    _assert_declared_surface(
+        path,
+        expected_surface=expected_surface,
+        enforce_write_profile=not bypass_profile_gate,
+    )
+    resolved = Path(path).resolve()
+    try:
+        with state_transaction([resolved]) as transaction:
+            return transaction.append_declared_jsonl_many(
+                resolved,
+                records,
+                expected_surface=expected_surface,
+                bypass_profile_gate=bypass_profile_gate,
+            )
+    except OSError as exc:
+        _reraise_enospc_as_environment(exc)
+    return []
 
 
 def _assert_raw_jsonl_append_allowed(

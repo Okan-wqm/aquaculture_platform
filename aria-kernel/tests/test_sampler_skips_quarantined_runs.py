@@ -230,3 +230,42 @@ class ShadowSamplerSkipsScopeOutTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ARunRecordsItsRawFindingsInOneBatch(unittest.TestCase):
+    """ARIA-HIGH-160 — the per-row path verified the whole raw-findings
+    chain, re-read its tail, fsynced and refreshed the index once PER
+    FINDING; a run with 3,000 findings against the 24,000-row live ledger
+    made the tool phase O(rows²). One batch per run."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-160-"))
+        self.base = self.tmp / "aria-tools"
+        self.base.mkdir()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_the_chain_is_verified_once_per_run_not_once_per_finding(self) -> None:
+        from unittest.mock import patch
+
+        from aria_kernel import ledger
+
+        verifications = {"n": 0}
+        original = ledger._verify_existing_declared_chain_before_append
+
+        def counting(path: Path) -> None:
+            if path.name == "raw-findings.jsonl":
+                verifications["n"] += 1
+            return original(path)
+
+        run = _make_run(run_id="r-batch", raw_findings_count=40)
+        findings = [{"id": f"finding-{i}", "rule": "r"} for i in range(40)]
+        with patch.object(ledger, "_verify_existing_declared_chain_before_append", side_effect=counting):
+            record_raw_findings_for_run(run, findings, base_dir=self.base)
+        self.assertEqual(verifications["n"], 1, f"one verification per run, got {verifications['n']}")
+        rows = [json.loads(l) for l in raw_findings_path(self.base).read_text().splitlines() if l]
+        self.assertEqual(len(rows), 40)
+        self.assertEqual([r["json_pointer"] for r in rows][:3], ["/payload/raw_findings/0", "/payload/raw_findings/1", "/payload/raw_findings/2"])
+        from aria_kernel.ledger import verify_jsonl
+        self.assertTrue(verify_jsonl(raw_findings_path(self.base))["valid"])

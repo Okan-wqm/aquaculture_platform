@@ -1840,3 +1840,32 @@ expired and could not be refreshed`. The managed spawn binds the login's one fil
   a queue that interleaves healthy routes keeps draining. Pinned in
   `test_executor_drain_breaker.py`: a streak stops after one dispatch and at most a handful of
   selections; a dispatch between skips resets it.
+
+## ARIA-HIGH-160 — every raw finding re-verified the whole ledger it was appended to
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-26
+- **Evidence (cycle `cyc-20260919T104443Z-auto`, run 35437815725):** the tool phase ran past 70
+  minutes at 95 % of one core with 7 of 9 adapters recorded. `py-spy` read
+  `run_tool → record_run → record_raw_findings_for_run → append_jsonl → _append_jsonl_locked_body
+→ _verify_existing_declared_chain_before_append → verify_jsonl → _record_hash` on every sample.
+  `record_raw_findings_for_run` appends a run's raw findings ONE ROW AT A TIME, and the
+  per-row body verifies the whole existing chain, re-reads every row for the tail hash,
+  fsyncs and refreshes the index — per row. The live ledger holds 24,364 rows (40 MB, three
+  published cycles of ~3,000 findings each); a run with 2,166 findings recorded so far had
+  re-hashed the ledger 2,166 times. The trial store (a few thousand rows) hid it as "the tool
+  phase takes ten minutes"; every published cycle makes the next one slower.
+- **Rule:** a run's rows are one write: the chain is verified once, the tail read once, the
+  bytes written once and the index refreshed once, and the stored rows are the same bytes the
+  per-row path would have stored.
+- **What is now true (2026-09-19):** `ledger.append_jsonl_many` / `append_declared_jsonl_many`
+  (the transaction's `append_jsonl_many` / `append_declared_jsonl_many`,
+  `_append_jsonl_many_locked_body`) take the same locks and admission as the per-row
+  primitives, verify once, chain every row on the previous row's hash and write once; an
+  over-cap row refuses the whole batch before any byte lands; an empty batch writes nothing.
+  `feedback_store.append_jsonl_many` routes by the same filename map as `append_jsonl` (the
+  signed operator-feedback ledger has no batch form, by name), and
+  `record_raw_findings_for_run` records a run's findings as one batch. Pinned in
+  `test_ledger_atomic_append.py` (batch rows equal per-row rows and chain identically; one
+  verification; empty batch; cap refusal) and `test_sampler_skips_quarantined_runs.py` (a run
+  verifies the raw-findings chain once, not once per finding — 40 before). The ledger lock and
+  roster invariants (282 tests) are unchanged.

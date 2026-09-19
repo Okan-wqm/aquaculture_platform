@@ -337,3 +337,67 @@ class RefreshGroupHeldLockAwareTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BatchAppendChainsLikeThePerRowPath(unittest.TestCase):
+    """ARIA-HIGH-160 — a tool run recorded its raw findings one row at a
+    time, and every row re-verified the whole chain, re-read the tail,
+    fsynced and refreshed the index: 3,000 findings against a 24,000-row
+    ledger per run. The batch form does each of those once and stores the
+    same bytes the per-row path would have stored."""
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="aria-160-test-"))
+
+    def tearDown(self) -> None:
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_batch_rows_equal_per_row_rows_and_verify_once(self) -> None:
+        from aria_kernel.ledger import append_jsonl_many, load_jsonl
+
+        per_row = self.tmp / "per-row.jsonl"
+        batch = self.tmp / "batch.jsonl"
+        records = [{"seq": i, "payload": f"row-{i}"} for i in range(12)]
+        seed = {"seq": -1, "payload": "seed"}
+        append_jsonl(per_row, seed)
+        append_jsonl(batch, seed)
+        for record in records:
+            append_jsonl(per_row, dict(record))
+
+        verifications = {"n": 0}
+        original = ledger._verify_existing_declared_chain_before_append
+
+        def counting(path: Path) -> None:
+            verifications["n"] += 1
+            return original(path)
+
+        with patch.object(ledger, "_verify_existing_declared_chain_before_append", side_effect=counting):
+            stored = append_jsonl_many(batch, [dict(r) for r in records])
+
+        self.assertEqual(verifications["n"], 1, "the batch verifies the existing chain exactly once")
+        self.assertEqual(len(stored), 12)
+        a = [{k: v for k, v in row.items() if k != "recorded_at"} for row in load_jsonl(per_row)]
+        b = [{k: v for k, v in row.items() if k != "recorded_at"} for row in load_jsonl(batch)]
+        # Same rows, same chain shape: each row's previous hash is the row before it.
+        self.assertEqual([r["seq"] for r in a], [r["seq"] for r in b])
+        for prev, row in zip(load_jsonl(batch), load_jsonl(batch)[1:]):
+            self.assertEqual(row["previous_ledger_hash"], prev["ledger_hash"])
+        self.assertTrue(verify_jsonl(batch)["valid"])
+        self.assertTrue(verify_jsonl(per_row)["valid"])
+
+    def test_an_empty_batch_writes_nothing(self) -> None:
+        from aria_kernel.ledger import append_jsonl_many
+
+        target = self.tmp / "empty.jsonl"
+        self.assertEqual(append_jsonl_many(target, []), [])
+        self.assertFalse(target.exists())
+
+    def test_a_row_over_the_cap_refuses_the_whole_batch_before_writing(self) -> None:
+        from aria_kernel.ledger import LEDGER_ROW_MAX_BYTES, LedgerRowTooLargeError, append_jsonl_many, load_jsonl
+
+        target = self.tmp / "cap.jsonl"
+        append_jsonl(target, {"seq": 0})
+        with self.assertRaises(LedgerRowTooLargeError):
+            append_jsonl_many(target, [{"seq": 1}, {"seq": 2, "blob": "x" * (LEDGER_ROW_MAX_BYTES + 1)}])
+        self.assertEqual([r["seq"] for r in load_jsonl(target)], [0], "nothing of a refused batch lands")

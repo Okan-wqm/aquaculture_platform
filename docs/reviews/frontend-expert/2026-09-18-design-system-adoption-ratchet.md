@@ -417,7 +417,21 @@ the toggle's "system" setting. `Modal` and `Drawer` take `theme="dark"`;
 white class with a dark one, pinned by the strict form of the ratchet. The
 ratchet gains a per-package `darkSurface` ceiling (light-only surfaces,
 shared-ui included) so the count only shrinks; the shell's override block is
-deleted when it reaches zero. **Owner:** okan · **Expiry:** 2027-06-30.
+deleted when it reaches zero. Batch 27: a converter pairs every light gray
+or white class in a file's class strings (quoted, template and `${}`
+expressions, comments skipped) with the dark counterpart the override
+palette implies in Tailwind grays (surface → gray-900, muted → gray-800,
+borders → gray-700/600, text → gray-100…400, hover and disabled variants
+alike), so a paired file looks as it did under the override; shell,
+dashboard, messaging, hydroponics and hr are paired (1 037 classes in 78
+files; darkSurface 2 593 → 2 400). Form controls get a base-layer dark
+default in `theme.css` (`:where()` under `[data-theme='dark']`, so any
+utility overrides it), which replaces the shell's `!important` input
+rules; the remaining class override rules take `:not([class*='dark:…'])`
+guards, so paired markup renders its own variants at once and the block
+is dead code the day the ratchet reaches zero; the shell's component
+classes (`.card`, `.data-table`, `.form-label`, …) are paired in their
+`@apply`. **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -434,8 +448,9 @@ deleted when it reaches zero. **Owner:** okan · **Expiry:** 2027-06-30.
   configuration drives columns and colours), the two feeding matrix editors (editable
   header cells, add/remove rows and columns — a spreadsheet, not a list),
   three report-export HTML strings, two calendar grids and a print document.
-- Light-only surfaces: 2.593 after batch 26 (`darkSurface` ratchet); the
-  shell's `!important` override block goes when the count reaches zero.
+- Light-only surfaces: 2.400 after batch 27 (`darkSurface` ratchet: admin-panel
+  376, farm 716, sensor 948, tenant-admin 224, shared-ui 75, aquamobil 61);
+  the shell's override block goes when the count reaches zero.
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, i18n reach) — design
   work with product decisions attached; not gated here.

@@ -442,7 +442,7 @@ export const QrCode: React.FC<QrCodeProps> = ({ value, size = 192, className = '
       <div
         role="img"
         aria-label="MFA QR code unavailable"
-        className={`flex items-center justify-center bg-white text-xs text-gray-500 ${className}`}
+        className={`flex items-center justify-center bg-white dark:bg-gray-900 text-xs text-gray-500 dark:text-gray-400 ${className}`}
         style={{ width: size, height: size }}
       >
         Manual key required

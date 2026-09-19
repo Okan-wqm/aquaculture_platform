@@ -105,7 +105,7 @@ export function AttendancePage() {
         return config ? (
           <StatusBadge label={config.label} variant={config.variant} size="sm" />
         ) : (
-          <span className="text-gray-400">{row.status}</span>
+          <span className="text-gray-400 dark:text-gray-500">{row.status}</span>
         );
       },
     },
@@ -135,9 +135,9 @@ export function AttendancePage() {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Present Today</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Present Today</p>
                   {loadingOverview ? (
-                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
+                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
                     <p className="mt-1 text-2xl font-bold text-green-600">
                       {overview?.present ?? '-'}
@@ -152,9 +152,9 @@ export function AttendancePage() {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Absent Today</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Absent Today</p>
                   {loadingOverview ? (
-                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
+                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
                     <p className="mt-1 text-2xl font-bold text-red-600">
                       {overview?.absent ?? '-'}
@@ -169,9 +169,9 @@ export function AttendancePage() {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">On Leave</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">On Leave</p>
                   {loadingOverview ? (
-                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
+                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
                     <p className="mt-1 text-2xl font-bold text-amber-600">
                       {overview?.onLeave ?? '-'}
@@ -186,13 +186,13 @@ export function AttendancePage() {
             <div className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-500">Attendance Rate</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Attendance Rate</p>
                   {loadingOverview ? (
-                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200" />
+                    <div className="mt-1 h-8 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
                   ) : (
                     <p className="mt-1 text-2xl font-bold text-indigo-600">
                       {overview?.attendanceRate?.toFixed(1) ?? '-'}
-                      <span className="text-sm font-normal text-gray-500">%</span>
+                      <span className="text-sm font-normal text-gray-500 dark:text-gray-400">%</span>
                     </p>
                   )}
                 </div>
@@ -220,7 +220,7 @@ export function AttendancePage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'overview'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Today's Overview
@@ -231,7 +231,7 @@ export function AttendancePage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'records'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Attendance Records
@@ -244,7 +244,7 @@ export function AttendancePage() {
           {/* Search & Filters */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 placeholder="Search employees..."

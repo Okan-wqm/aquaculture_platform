@@ -108,7 +108,7 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
           <span>{employeeCount} assigned</span>
         </div>
         {workArea.coordinates && (
-          <div className="flex items-center gap-1 text-sm text-gray-500">
+          <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
             <MapPin className="h-3 w-3" />
             {/* BUG-018: maritime GPS requires 5 decimal places (~1m precision) */}
             <span>
@@ -182,7 +182,7 @@ export function CrewAssignmentsPage() {
           <div>
             {/* WHY: Use workAreaName from the flat DTO as primary, fall back to enriched workArea */}
             <p className="font-medium text-gray-900 dark:text-white">{row.workAreaName || row.workArea?.name}</p>
-            <p className="text-sm text-gray-500 capitalize">{row.workArea?.workAreaType?.replace(/_/g, ' ') || ''}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">{row.workArea?.workAreaType?.replace(/_/g, ' ') || ''}</p>
           </div>
         </div>
       ),
@@ -192,9 +192,9 @@ export function CrewAssignmentsPage() {
       header: 'Assigned Crew',
       render: (_value, row) => (
         <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-gray-400" />
+          <Users className="h-4 w-4 text-gray-400 dark:text-gray-500" />
           <span className="text-gray-900 dark:text-white">{row.currentCount}</span>
-          <span className="text-gray-500">/ {row.maxCapacity}</span>
+          <span className="text-gray-500 dark:text-gray-400">/ {row.maxCapacity}</span>
         </div>
       ),
     },
@@ -340,7 +340,7 @@ export function CrewAssignmentsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'overview'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Overview
@@ -351,7 +351,7 @@ export function CrewAssignmentsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'assignments'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Assignments
@@ -362,7 +362,7 @@ export function CrewAssignmentsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'work-areas'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Work Areas
@@ -413,7 +413,7 @@ export function CrewAssignmentsPage() {
                       <p className="truncate font-medium text-gray-900 dark:text-white">
                         {emp.firstName} {emp.lastName}
                       </p>
-                      <p className="truncate text-sm text-gray-500">
+                      <p className="truncate text-sm text-gray-500 dark:text-gray-400">
                         {emp.position || 'Crew Member'}
                       </p>
                     </div>
@@ -431,7 +431,7 @@ export function CrewAssignmentsPage() {
           {/* Search and Filters */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 placeholder="Search employees..."

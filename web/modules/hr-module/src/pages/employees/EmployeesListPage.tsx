@@ -68,7 +68,7 @@ export function EmployeesListPage() {
             <p className="font-medium text-gray-900 dark:text-white">
               {row.firstName} {row.lastName}
             </p>
-            <p className="text-sm text-gray-500">{row.employeeNumber}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{row.employeeNumber}</p>
           </div>
         </div>
       ),
@@ -83,7 +83,7 @@ export function EmployeesListPage() {
             size="sm"
           />
         ) : (
-          <span className="text-gray-400">-</span>
+          <span className="text-gray-400 dark:text-gray-500">-</span>
         ),
     },
     {
@@ -99,7 +99,7 @@ export function EmployeesListPage() {
       key: 'personnelCategory',
       header: 'Category',
       render: (_value, row) => {
-        if (!row.personnelCategory) return <span className="text-gray-400">-</span>;
+        if (!row.personnelCategory) return <span className="text-gray-400 dark:text-gray-500">-</span>;
         const config = PERSONNEL_CATEGORY_CONFIG[row.personnelCategory];
         return (
           <div className="flex items-center gap-1">
@@ -232,7 +232,7 @@ export function EmployeesListPage() {
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Search employees..."
@@ -382,7 +382,7 @@ export function EmployeesListPage() {
           </div>
           <button
             onClick={() => setSelectedKeys([])}
-            className="ml-auto text-sm text-gray-500 hover:text-gray-700"
+            className="ml-auto text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             Clear selection
           </button>

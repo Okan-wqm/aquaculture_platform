@@ -53,9 +53,9 @@ const WaterAnalysisTab: React.FC = () => {
         const globalIndex = wa.parameters.findIndex((p) => p.id === param.id);
         return (
           <>
-            <div className="flex items-center gap-2 whitespace-nowrap text-gray-700">
+            <div className="flex items-center gap-2 whitespace-nowrap text-gray-700 dark:text-gray-300">
               <span>{param.label}</span>
-              {param.symbol && <span className="text-xs text-gray-400">({param.symbol})</span>}
+              {param.symbol && <span className="text-xs text-gray-400 dark:text-gray-500">({param.symbol})</span>}
             </div>
             {param.hasSubParameter && param.subParameterOptions && (
               <Select
@@ -109,7 +109,7 @@ const WaterAnalysisTab: React.FC = () => {
             size="xs"
           />
         ) : (
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {param.unit === 'mmol' ? 'mmol/L' : param.unit === 'ppm' ? 'mg/L' : param.unit}
           </span>
         );
@@ -119,7 +119,7 @@ const WaterAnalysisTab: React.FC = () => {
 
   const renderGroup = (title: string, params: WaterParameter[]) => (
     <div>
-      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{title}</h4>
+      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{title}</h4>
       <DataTable<WaterParameter>
         data={params}
         columns={parameterColumns}
@@ -136,7 +136,7 @@ const WaterAnalysisTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <Checkbox
           label="Use mixed water analysis"
           description="Enable if you are mixing multiple water sources"
@@ -145,24 +145,24 @@ const WaterAnalysisTab: React.FC = () => {
         />
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-6">
         {renderGroup('Macronutrients', macroParams)}
         {renderGroup('Micronutrients', microParams)}
         {renderGroup('Other Elements', otherParams)}
 
         {/* Summary Footer */}
-        <div className="border-t border-gray-200 pt-4">
+        <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
           <div className="flex gap-8 text-sm">
             <div>
-              <span className="text-gray-500">Sum of Cations:</span>{' '}
-              <span className="font-semibold text-gray-700">{cationSum.toFixed(2)} meq/L</span>
+              <span className="text-gray-500 dark:text-gray-400">Sum of Cations:</span>{' '}
+              <span className="font-semibold text-gray-700 dark:text-gray-300">{cationSum.toFixed(2)} meq/L</span>
             </div>
             <div>
-              <span className="text-gray-500">Sum of Anions:</span>{' '}
-              <span className="font-semibold text-gray-700">{anionSum.toFixed(2)} meq/L</span>
+              <span className="text-gray-500 dark:text-gray-400">Sum of Anions:</span>{' '}
+              <span className="font-semibold text-gray-700 dark:text-gray-300">{anionSum.toFixed(2)} meq/L</span>
             </div>
             <div>
-              <span className="text-gray-500">Balance:</span>{' '}
+              <span className="text-gray-500 dark:text-gray-400">Balance:</span>{' '}
               <span
                 className={`font-semibold ${
                   Math.abs(cationSum - anionSum) < 0.5 ? 'text-green-600' : 'text-amber-600'

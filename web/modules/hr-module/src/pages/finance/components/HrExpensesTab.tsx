@@ -65,13 +65,13 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
     {
       key: 'categoryId',
       header: 'Category',
-      render: (_value, entry) => <span className="text-gray-900">{categoryName.get(entry.categoryId) ?? '—'}</span>,
+      render: (_value, entry) => <span className="text-gray-900 dark:text-gray-100">{categoryName.get(entry.categoryId) ?? '—'}</span>,
     },
     {
       key: 'description',
       header: 'Description',
       render: (_value, entry) => (
-        <span className="block max-w-xs truncate text-gray-500">{entry.description ?? '—'}</span>
+        <span className="block max-w-xs truncate text-gray-500 dark:text-gray-400">{entry.description ?? '—'}</span>
       ),
     },
     {
@@ -79,7 +79,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
       header: 'Amount',
       align: 'right',
       render: (_value, entry) => (
-        <span className="whitespace-nowrap font-medium text-gray-900">
+        <span className="whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">
           {formatMoney(parseMoney(entry.amountDecimal), entry.currency)}
         </span>
       ),
@@ -181,7 +181,7 @@ export const HrExpensesTab: React.FC<HrExpensesTabProps> = ({ period }) => {
         sortable={false}
         stickyHeader={false}
         compact
-        className="rounded-xl border border-gray-100 shadow-sm"
+        className="rounded-xl border border-gray-100 dark:border-gray-700 shadow-sm"
       />
 
       {modal.open && <HrExpenseFormModal entry={modal.entry} onClose={() => setModal({ open: false })} />}

@@ -291,7 +291,7 @@ const DepartmentsPage: React.FC = () => {
                   )}
 
                   {(department.budgetCode || department.costCenter) && (
-                    <div className="mt-3 flex gap-3 text-xs text-gray-500">
+                    <div className="mt-3 flex gap-3 text-xs text-gray-500 dark:text-gray-400">
                       {department.budgetCode && (
                         <span>Budget: {department.budgetCode}</span>
                       )}
@@ -302,7 +302,7 @@ const DepartmentsPage: React.FC = () => {
                   )}
 
                   <div className="mt-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-gray-500">
+                    <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
                       <Users className="h-4 w-4" />
                       <span className="text-sm">
                         {department.isActive ? 'Active' : 'Inactive'}
@@ -326,8 +326,8 @@ const DepartmentsPage: React.FC = () => {
       {/* Empty state */}
       {!isLoading && (!departments || departments.length === 0) && !error && (
         <div className="flex h-48 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-gray-50 text-center dark:border-gray-600 dark:bg-gray-800/50">
-          <Building2 className="mb-3 h-10 w-10 text-gray-400" />
-          <p className="text-gray-500">No departments found</p>
+          <Building2 className="mb-3 h-10 w-10 text-gray-400 dark:text-gray-500" />
+          <p className="text-gray-500 dark:text-gray-400">No departments found</p>
           <button
             onClick={handleCreate}
             className="mt-3 text-sm font-medium text-indigo-600 hover:text-indigo-700 dark:text-indigo-400"
@@ -343,7 +343,7 @@ const DepartmentsPage: React.FC = () => {
           Organization Chart
         </h3>
         <div className="flex h-48 items-center justify-center rounded-lg border-2 border-dashed border-gray-200 bg-gray-50 dark:border-gray-600 dark:bg-gray-800/50">
-          <p className="text-gray-500">
+          <p className="text-gray-500 dark:text-gray-400">
             <Link
               to="/hr/organization"
               className="text-indigo-600 hover:underline dark:text-indigo-400"

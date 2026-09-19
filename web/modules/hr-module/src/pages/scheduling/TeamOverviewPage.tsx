@@ -46,8 +46,8 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
   if (!entry) {
     return (
       <td className={cn(
-        'px-2 py-3 text-center border-r border-gray-100',
-        isWeekend && 'bg-gray-50'
+        'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700',
+        isWeekend && 'bg-gray-50 dark:bg-gray-800'
       )}>
         <span className="text-gray-300">-</span>
       </td>
@@ -57,11 +57,11 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
   if (entry.entryType === 'off') {
     return (
       <td className={cn(
-        'px-2 py-3 text-center border-r border-gray-100',
-        isWeekend && 'bg-gray-50'
+        'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700',
+        isWeekend && 'bg-gray-50 dark:bg-gray-800'
       )}>
         <div className="flex items-center justify-center">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 rounded text-xs text-gray-600">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs text-gray-600 dark:text-gray-400">
             <Coffee className="h-3 w-3" />
             Tatil
           </span>
@@ -73,8 +73,8 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
   if (entry.entryType === 'leave') {
     return (
       <td className={cn(
-        'px-2 py-3 text-center border-r border-gray-100',
-        isWeekend && 'bg-gray-50'
+        'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700',
+        isWeekend && 'bg-gray-50 dark:bg-gray-800'
       )}>
         <div className="flex items-center justify-center">
           <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 rounded text-xs text-green-700">
@@ -89,7 +89,7 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
   if (entry.entryType === 'holiday') {
     return (
       <td className={cn(
-        'px-2 py-3 text-center border-r border-gray-100 bg-purple-50'
+        'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700 bg-purple-50'
       )}>
         <span className="text-xs text-purple-700 font-medium">Resmi Tatil</span>
       </td>
@@ -103,12 +103,12 @@ function DayCell({ entry, isWeekend }: DayCellProps) {
 
   return (
     <td className={cn(
-      'px-2 py-3 text-center border-r border-gray-100',
-      isWeekend && 'bg-gray-50'
+      'px-2 py-3 text-center border-r border-gray-100 dark:border-gray-700',
+      isWeekend && 'bg-gray-50 dark:bg-gray-800'
     )}>
       <div className="text-xs">
         <span className="font-medium text-blue-700">{entry.shiftCode || 'M'}</span>
-        <div className="text-gray-500 text-[10px]">{timeRange}</div>
+        <div className="text-gray-500 dark:text-gray-400 text-[10px]">{timeRange}</div>
       </div>
     </td>
   );
@@ -142,9 +142,9 @@ export function TeamOverviewPage() {
   }, [currentWeekStart]);
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <PageHeader
           title={
             <>
@@ -174,12 +174,12 @@ export function TeamOverviewPage() {
 
       {/* Stats Bar */}
       {overview && (
-        <div className="bg-white border-b border-gray-200 px-6 py-3">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3">
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-2">
-              <Users className="h-4 w-4 text-gray-400" />
-              <span className="text-sm text-gray-600">
-                <strong className="text-gray-900">{overview.totalEmployees}</strong> calisan
+              <Users className="h-4 w-4 text-gray-400 dark:text-gray-500" />
+              <span className="text-sm text-gray-600 dark:text-gray-400">
+                <strong className="text-gray-900 dark:text-gray-100">{overview.totalEmployees}</strong> calisan
               </span>
             </div>
 
@@ -188,15 +188,15 @@ export function TeamOverviewPage() {
                 key={day.dayOfWeek}
                 className="flex items-center gap-1.5 text-xs"
               >
-                <span className="font-medium text-gray-500">
+                <span className="font-medium text-gray-500 dark:text-gray-400">
                   {getWeekdayShortTR(day.dayOfWeek)}:
                 </span>
                 <span className="text-blue-600">{day.workingCount}C</span>
-                <span className="text-gray-400">/</span>
-                <span className="text-gray-500">{day.offCount}T</span>
+                <span className="text-gray-400 dark:text-gray-500">/</span>
+                <span className="text-gray-500 dark:text-gray-400">{day.offCount}T</span>
                 {day.leaveCount > 0 && (
                   <>
-                    <span className="text-gray-400">/</span>
+                    <span className="text-gray-400 dark:text-gray-500">/</span>
                     <span className="text-green-600">{day.leaveCount}I</span>
                   </>
                 )}
@@ -209,39 +209,39 @@ export function TeamOverviewPage() {
       {/* Main Content */}
       <div className="p-6">
         {isLoading ? (
-          <div className="bg-white rounded-xl shadow-sm p-8">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-8">
             <div className="animate-pulse space-y-4">
-              <div className="h-8 bg-gray-200 rounded w-full" />
+              <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-full" />
               {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className="h-12 bg-gray-100 rounded w-full" />
+                <div key={i} className="h-12 bg-gray-100 dark:bg-gray-800 rounded w-full" />
               ))}
             </div>
           </div>
         ) : error ? (
-          <div className="bg-white rounded-xl shadow-sm p-8 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-8 text-center">
             <AlertTriangle className="h-12 w-12 text-red-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
               Veri yuklenemedi
             </h3>
-            <p className="text-gray-500">{String(error)}</p>
+            <p className="text-gray-500 dark:text-gray-400">{String(error)}</p>
           </div>
         ) : !overview?.employeePlans.length ? (
-          <div className="bg-white rounded-xl shadow-sm p-12 text-center">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm p-12 text-center">
             <Calendar className="h-12 w-12 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
               Bu hafta icin plan bulunamadi
             </h3>
-            <p className="text-gray-500">
+            <p className="text-gray-500 dark:text-gray-400">
               Calisanlar icin haftalik plan olusturun.
             </p>
           </div>
         ) : (
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700 sticky left-0 bg-gray-50 z-10 min-w-[180px]">
+                  <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+                    <th className="text-left px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 sticky left-0 bg-gray-50 dark:bg-gray-800 z-10 min-w-[180px]">
                       Calisan
                     </th>
                     {WEEKDAYS.map((day) => (
@@ -250,23 +250,23 @@ export function TeamOverviewPage() {
                         className={cn(
                           'text-center px-2 py-3 text-sm font-semibold min-w-[90px]',
                           day === 'saturday' || day === 'sunday'
-                            ? 'text-gray-500 bg-gray-100'
-                            : 'text-gray-700'
+                            ? 'text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800'
+                            : 'text-gray-700 dark:text-gray-300'
                         )}
                       >
                         <div>{headerDates[day].short}</div>
-                        <div className="text-xs font-normal text-gray-500">
+                        <div className="text-xs font-normal text-gray-500 dark:text-gray-400">
                           {headerDates[day].date}
                         </div>
                       </th>
                     ))}
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 min-w-[70px]">
+                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[70px]">
                       Gun
                     </th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 min-w-[70px]">
+                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[70px]">
                       Saat
                     </th>
-                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 min-w-[70px]">
+                    <th className="text-center px-4 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[70px]">
                       Mesai
                     </th>
                   </tr>
@@ -279,8 +279,8 @@ export function TeamOverviewPage() {
                       <tr
                         key={emp.employeeId}
                         className={cn(
-                          'border-b border-gray-100 hover:bg-gray-50 transition-colors',
-                          idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/30'
+                          'border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
+                          idx % 2 === 0 ? 'bg-white dark:bg-gray-900' : 'bg-gray-50/30 dark:bg-gray-800/30'
                         )}
                       >
                         {/* Employee Name */}
@@ -296,11 +296,11 @@ export function TeamOverviewPage() {
                               </span>
                             </div>
                             <div className="min-w-0">
-                              <div className="font-medium text-gray-900 truncate">
+                              <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
                                 {emp.employeeName}
                               </div>
                               {emp.position && (
-                                <div className="text-xs text-gray-500 truncate">
+                                <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                                   {emp.position}
                                 </div>
                               )}
@@ -323,14 +323,14 @@ export function TeamOverviewPage() {
 
                         {/* Total Work Days */}
                         <td className="px-4 py-3 text-center">
-                          <span className="font-medium text-gray-900">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
                             {emp.totalWorkDays}
                           </span>
                         </td>
 
                         {/* Total Hours */}
                         <td className="px-4 py-3 text-center">
-                          <span className="font-medium text-gray-900">
+                          <span className="font-medium text-gray-900 dark:text-gray-100">
                             {formatMinutesAsHours(emp.totalMinutes)}
                           </span>
                         </td>
@@ -347,7 +347,7 @@ export function TeamOverviewPage() {
                               +{formatMinutesAsHours(emp.overtimeMinutes)}
                             </span>
                           ) : (
-                            <span className="text-gray-400">-</span>
+                            <span className="text-gray-400 dark:text-gray-500">-</span>
                           )}
                         </td>
                       </tr>
@@ -387,13 +387,13 @@ export function TeamOverviewPage() {
         )}
 
         {/* Legend */}
-        <div className="mt-4 flex items-center justify-center gap-6 text-xs text-gray-500">
+        <div className="mt-4 flex items-center justify-center gap-6 text-xs text-gray-500 dark:text-gray-400">
           <div className="flex items-center gap-1.5">
             <div className="w-4 h-4 rounded bg-blue-100 border border-blue-200" />
             <span>Mesai</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-4 h-4 rounded bg-gray-100 border border-gray-200" />
+            <div className="w-4 h-4 rounded bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700" />
             <span>Tatil</span>
           </div>
           <div className="flex items-center gap-1.5">

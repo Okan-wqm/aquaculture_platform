@@ -166,11 +166,11 @@ function transformSensorData(readings: SensorReadingData[]) {
 
 const ChartSkeleton: React.FC<{ height?: number }> = ({ height = 300 }) => (
   <div className="animate-pulse p-4" style={{ height }}>
-    <div className="h-4 bg-gray-200 rounded w-1/4 mb-4" />
-    <div className="h-3 bg-gray-200 rounded w-1/3 mb-6" />
+    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4" />
+    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-6" />
     <div className="flex items-end space-x-2 h-3/4">
       {[40, 60, 45, 70, 55, 80].map((h, i) => (
-        <div key={i} className="bg-gray-200 rounded-t flex-1" style={{ height: `${h}%` }} />
+        <div key={i} className="bg-gray-200 dark:bg-gray-700 rounded-t flex-1" style={{ height: `${h}%` }} />
       ))}
     </div>
   </div>
@@ -191,7 +191,7 @@ const ChartError: React.FC<{ title: string; onRetry: () => void }> = ({ title, o
 
 const ChartEmpty: React.FC<{ message: string }> = ({ message }) => (
   <div className="p-4 text-center py-8">
-    <p className="text-sm text-gray-500">{message}</p>
+    <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
 );
 
@@ -320,32 +320,32 @@ const AnalyticsPage: React.FC = () => {
       {summary && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Toplam Uretim</p>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Toplam Uretim</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {(summary.totalBiomassKg / 1000).toFixed(1)} Ton
             </p>
-            <p className="text-xs text-gray-400 mt-1">{summary.totalHarvests} hasat</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{summary.totalHarvests} hasat</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Toplam Gelir</p>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Toplam Gelir</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {summary.totalRevenue > 0 ? `${(summary.totalRevenue / 1000).toFixed(0)}K` : '0'}
             </p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               {summary.averagePricePerKg > 0 ? `Ort. ${summary.averagePricePerKg.toFixed(1)} /kg` : 'Fiyat verisi yok'}
             </p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Ort. Agirlik</p>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Ort. Agirlik</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {summary.averageWeight > 0 ? `${summary.averageWeight.toFixed(0)}g` : '-'}
             </p>
-            <p className="text-xs text-gray-400 mt-1">Hasat basina ortalama</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Hasat basina ortalama</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Aktif Sensorler</p>
-            <p className="text-2xl font-bold text-gray-900">{activeSensorIds.length}</p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Aktif Sensorler</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{activeSensorIds.length}</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               {sensorsQuery.data?.length ?? 0} toplam sensor
             </p>
           </Card>
@@ -354,9 +354,9 @@ const AnalyticsPage: React.FC = () => {
 
       {/* Uretim Trendi */}
       <Card>
-        <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Uretim Trendi</h2>
-          <p className="text-sm text-gray-500">Aylik uretim miktari (ton)</p>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Uretim Trendi</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Aylik uretim miktari (ton)</p>
         </div>
         {harvestQuery.isLoading ? (
           <ChartSkeleton />
@@ -408,9 +408,9 @@ const AnalyticsPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Sensor Trendleri */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Sensor Verileri</h2>
-            <p className="text-sm text-gray-500">Son sensor okumalari</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Sensor Verileri</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Son sensor okumalari</p>
           </div>
           {sensorsQuery.isLoading || readingsQuery.isLoading ? (
             <ChartSkeleton height={250} />
@@ -438,9 +438,9 @@ const AnalyticsPage: React.FC = () => {
 
         {/* Ciftlik Dagilimi */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Ciftlik Dagilimi</h2>
-            <p className="text-sm text-gray-500">Ciftlik durumuna gore dagilim</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Ciftlik Dagilimi</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Ciftlik durumuna gore dagilim</p>
           </div>
           {statsQuery.isLoading ? (
             <ChartSkeleton height={250} />
@@ -474,9 +474,9 @@ const AnalyticsPage: React.FC = () => {
 
       {/* Tur Bazli Uretim */}
       <Card>
-        <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Tur Bazli Uretim</h2>
-          <p className="text-sm text-gray-500">Aktif partilerdeki tur dagilimi</p>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tur Bazli Uretim</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Aktif partilerdeki tur dagilimi</p>
         </div>
         {batchesQuery.isLoading ? (
           <ChartSkeleton />

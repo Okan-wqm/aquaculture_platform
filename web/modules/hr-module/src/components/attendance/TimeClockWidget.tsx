@@ -147,14 +147,14 @@ export function TimeClockWidget({
         <div className="text-4xl font-bold text-gray-900 dark:text-white">
           {formatTime(currentTime)}
         </div>
-        <div className="mt-1 text-sm text-gray-500">{formatDate(currentTime)}</div>
+        <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">{formatDate(currentTime)}</div>
       </div>
 
       {/* Today's Status */}
       {todayRecord && (
         <div className="border-t border-gray-200 px-4 py-3 dark:border-gray-700">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Today's Status</span>
+            <span className="text-sm text-gray-500 dark:text-gray-400">Today's Status</span>
             <StatusBadge
               label={ATTENDANCE_STATUS_CONFIG[todayRecord.status].label}
               variant={ATTENDANCE_STATUS_CONFIG[todayRecord.status].variant}
@@ -164,7 +164,7 @@ export function TimeClockWidget({
 
           <div className="mt-2 grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-500">Clock In</span>
+              <span className="text-gray-500 dark:text-gray-400">Clock In</span>
               <p className="font-medium text-gray-900 dark:text-white">
                 {todayRecord.clockIn
                   ? new Date(todayRecord.clockIn).toLocaleTimeString()
@@ -172,7 +172,7 @@ export function TimeClockWidget({
               </p>
             </div>
             <div>
-              <span className="text-gray-500">Clock Out</span>
+              <span className="text-gray-500 dark:text-gray-400">Clock Out</span>
               <p className="font-medium text-gray-900 dark:text-white">
                 {todayRecord.clockOut
                   ? new Date(todayRecord.clockOut).toLocaleTimeString()
@@ -183,7 +183,7 @@ export function TimeClockWidget({
 
           {todayRecord.workedMinutes > 0 && (
             <div className="mt-2">
-              <span className="text-sm text-gray-500">Worked Time</span>
+              <span className="text-sm text-gray-500 dark:text-gray-400">Worked Time</span>
               <p className="font-medium text-gray-900 dark:text-white">
                 {Math.floor(todayRecord.workedMinutes / 60)}h {todayRecord.workedMinutes % 60}m
               </p>
@@ -231,17 +231,17 @@ export function TimeClockWidget({
       {enableGps && gpsConsented !== null && (
         <div className="border-t border-gray-200 px-4 py-2 dark:border-gray-700">
           <div className="flex items-center gap-2 text-sm">
-            <MapPin className="h-4 w-4 text-gray-400" />
+            <MapPin className="h-4 w-4 text-gray-400 dark:text-gray-500" />
             {gpsConsented === false ? (
-              <span className="text-gray-400">Location sharing declined</span>
+              <span className="text-gray-400 dark:text-gray-500">Location sharing declined</span>
             ) : isGettingLocation ? (
-              <span className="text-gray-500">Getting location...</span>
+              <span className="text-gray-500 dark:text-gray-400">Getting location...</span>
             ) : gpsError ? (
               <span className="text-red-500">{gpsError}</span>
             ) : location ? (
               <span className="text-green-600">Location captured</span>
             ) : (
-              <span className="text-gray-500">Location will be captured on clock action</span>
+              <span className="text-gray-500 dark:text-gray-400">Location will be captured on clock action</span>
             )}
           </div>
         </div>

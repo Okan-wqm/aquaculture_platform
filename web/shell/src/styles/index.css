@@ -77,45 +77,38 @@ html[data-theme='dark'] {
   }
 }
 
-html[data-theme='dark'] .bg-white,
-html[data-theme='dark'] .card {
+/* Dark-theme fallback for markup that has not yet been paired with its own
+   `dark:` classes (FE-MEDIUM-072). An element that carries a dark variant for
+   the property is left alone (`:not([class*="dark:bg-"])` and its siblings), so
+   every file the darkSurface ratchet pairs switches to its explicit variants
+   at once; this block is deleted when that ratchet reaches zero. Form controls
+   no longer need it: theme.css gives them a base-layer default under
+   `[data-theme='dark']` that any utility overrides. */
+html[data-theme='dark'] .bg-white:not([class*='dark:bg-']) {
   background-color: var(--color-surface) !important;
 }
 
-html[data-theme='dark'] .bg-gray-50,
-html[data-theme='dark'] .bg-gray-100 {
+html[data-theme='dark'] .bg-gray-50:not([class*='dark:bg-']),
+html[data-theme='dark'] .bg-gray-100:not([class*='dark:bg-']) {
   background-color: var(--color-surface-muted) !important;
 }
 
-html[data-theme='dark'] .text-gray-900,
-html[data-theme='dark'] .text-gray-800,
-html[data-theme='dark'] .text-gray-700 {
+html[data-theme='dark'] .text-gray-900:not([class*='dark:text-']),
+html[data-theme='dark'] .text-gray-800:not([class*='dark:text-']),
+html[data-theme='dark'] .text-gray-700:not([class*='dark:text-']) {
   color: var(--color-text) !important;
 }
 
-html[data-theme='dark'] .text-gray-600,
-html[data-theme='dark'] .text-gray-500,
-html[data-theme='dark'] .text-gray-400 {
+html[data-theme='dark'] .text-gray-600:not([class*='dark:text-']),
+html[data-theme='dark'] .text-gray-500:not([class*='dark:text-']),
+html[data-theme='dark'] .text-gray-400:not([class*='dark:text-']) {
   color: var(--color-text-muted) !important;
 }
 
-html[data-theme='dark'] .border-gray-100,
-html[data-theme='dark'] .border-gray-200,
-html[data-theme='dark'] .border-gray-300 {
+html[data-theme='dark'] .border-gray-100:not([class*='dark:border-']),
+html[data-theme='dark'] .border-gray-200:not([class*='dark:border-']),
+html[data-theme='dark'] .border-gray-300:not([class*='dark:border-']) {
   border-color: var(--color-border) !important;
-}
-
-html[data-theme='dark'] input,
-html[data-theme='dark'] select,
-html[data-theme='dark'] textarea {
-  background-color: var(--color-surface) !important;
-  color: var(--color-text) !important;
-  border-color: var(--color-border) !important;
-}
-
-html[data-theme='dark'] input:disabled {
-  background-color: var(--color-surface-muted) !important;
-  color: var(--color-text-muted) !important;
 }
 
 /* ============================================================================
@@ -134,20 +127,20 @@ html[data-theme='dark'] input:disabled {
   }
 
   .page-title {
-    @apply text-2xl font-bold text-gray-900;
+    @apply text-2xl font-bold text-gray-900 dark:text-gray-100;
   }
 
   .page-description {
-    @apply mt-1 text-sm text-gray-500;
+    @apply mt-1 text-sm text-gray-500 dark:text-gray-400;
   }
 
   /* Card styles */
   .card {
-    @apply bg-white rounded-lg shadow-sm border border-gray-200;
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 dark:bg-gray-900 dark:border-gray-700;
   }
 
   .card-header {
-    @apply px-4 py-3 border-b border-gray-200;
+    @apply px-4 py-3 border-b border-gray-200 dark:border-gray-700;
   }
 
   .card-body {
@@ -155,7 +148,7 @@ html[data-theme='dark'] input:disabled {
   }
 
   .card-footer {
-    @apply px-4 py-3 border-t border-gray-100 bg-gray-50;
+    @apply px-4 py-3 border-t border-gray-100 bg-gray-50 dark:border-gray-700 dark:bg-gray-800;
   }
 
   /* Form stilleri */
@@ -164,11 +157,11 @@ html[data-theme='dark'] input:disabled {
   }
 
   .form-label {
-    @apply block text-sm font-medium text-gray-700;
+    @apply block text-sm font-medium text-gray-700 dark:text-gray-300;
   }
 
   .form-hint {
-    @apply text-xs text-gray-500;
+    @apply text-xs text-gray-500 dark:text-gray-400;
   }
 
   .form-error {
@@ -177,23 +170,23 @@ html[data-theme='dark'] input:disabled {
 
   /* Tablo stilleri */
   .data-table {
-    @apply min-w-full divide-y divide-gray-200;
+    @apply min-w-full divide-y divide-gray-200 dark:divide-gray-700;
   }
 
   .data-table thead {
-    @apply bg-gray-50;
+    @apply bg-gray-50 dark:bg-gray-800;
   }
 
   .data-table th {
-    @apply px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+    @apply px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider dark:text-gray-400;
   }
 
   .data-table td {
-    @apply px-4 py-3 text-sm text-gray-900;
+    @apply px-4 py-3 text-sm text-gray-900 dark:text-gray-100;
   }
 
   .data-table tbody tr {
-    @apply hover:bg-gray-50 transition-colors;
+    @apply hover:bg-gray-50 transition-colors dark:hover:bg-gray-800;
   }
 
   /* Status badge */
@@ -223,15 +216,15 @@ html[data-theme='dark'] input:disabled {
   }
 
   .empty-state-icon {
-    @apply mx-auto h-12 w-12 text-gray-400;
+    @apply mx-auto h-12 w-12 text-gray-400 dark:text-gray-500;
   }
 
   .empty-state-title {
-    @apply mt-2 text-sm font-medium text-gray-900;
+    @apply mt-2 text-sm font-medium text-gray-900 dark:text-gray-100;
   }
 
   .empty-state-description {
-    @apply mt-1 text-sm text-gray-500;
+    @apply mt-1 text-sm text-gray-500 dark:text-gray-400;
   }
 }
 
@@ -266,11 +259,11 @@ html[data-theme='dark'] input:disabled {
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-gray-300 rounded-full;
+    @apply bg-gray-300 rounded-full dark:bg-gray-600;
   }
 
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    @apply bg-gray-400;
+    @apply bg-gray-400 dark:bg-gray-500;
   }
 
   /* Gradient text */
@@ -280,7 +273,7 @@ html[data-theme='dark'] input:disabled {
 
   /* Glass effect */
   .glass {
-    @apply bg-white/80 backdrop-blur-sm;
+    @apply bg-white/80 backdrop-blur-sm dark:bg-gray-900/80;
   }
 
   /* Truncate multi-line */
@@ -621,10 +614,10 @@ html[data-theme='dark'] input:disabled {
   text-align: left;
 }
 
-/* The global dark-theme compatibility rules above use !important for generic
-   controls. Auth controls are an explicit light glass surface, so re-assert its
-   scoped component tokens here instead of allowing a stored app theme to turn
-   only the fields dark. */
+/* theme.css gives form controls a dark default under [data-theme='dark'].
+   Auth controls are an explicit light glass surface, so pin its scoped
+   component tokens here instead of allowing a stored app theme to turn only
+   the fields dark. */
 html[data-theme='dark'] .industrial-auth-card input:not([type='checkbox']) {
   border-color: var(--surface-field-border) !important;
   color: var(--surface-field-fg) !important;

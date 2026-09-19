@@ -66,9 +66,9 @@ const CurrentNsFormulaTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-2">Current NS Formula</h3>
-        <p className="text-xs text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Current NS Formula</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
           Enter the nutrient solution formula currently being applied. This is used as the baseline for readjustment calculations.
         </p>
 
@@ -90,9 +90,9 @@ const CurrentNsFormulaTab: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase">Formula Parameters</h4>
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Formula Parameters</h4>
         </div>
         <DataTable<ParamRow>
           data={FORMULA_PARAMS}

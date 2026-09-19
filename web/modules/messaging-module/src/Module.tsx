@@ -17,7 +17,7 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading } = useAuthContext();
   if (isLoading) {
     return (
-      <div className="flex h-48 items-center justify-center text-sm text-gray-500">
+      <div className="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
         Checking session…
       </div>
     );
@@ -30,7 +30,7 @@ const MessagingModule: React.FC = () => (
   <RequireAuth>
     <Suspense
       fallback={
-        <div className="flex h-48 items-center justify-center text-sm text-gray-500">
+        <div className="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
           Loading…
         </div>
       }

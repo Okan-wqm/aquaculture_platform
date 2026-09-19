@@ -26,8 +26,8 @@ interface TimeSeriesChartsProps {
 }
 
 const ChartWrapper: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-white rounded-lg border border-gray-200 p-2">
-    <h4 className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1">{title}</h4>
+  <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-2">
+    <h4 className="text-[10px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">{title}</h4>
     <div className="h-[110px]">
       {children}
     </div>
@@ -55,7 +55,7 @@ const TimeSeriesCharts: React.FC<TimeSeriesChartsProps> = ({
       <div className="space-y-2">
         {['pH', 'EC', 'Pumps', 'DIC / ALK'].map(t => (
           <ChartWrapper key={t} title={t}>
-            <div className="flex items-center justify-center h-full text-[11px] text-gray-400">
+            <div className="flex items-center justify-center h-full text-[11px] text-gray-400 dark:text-gray-500">
               No data - press START
             </div>
           </ChartWrapper>

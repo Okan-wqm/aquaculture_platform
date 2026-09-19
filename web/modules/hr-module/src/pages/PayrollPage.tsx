@@ -557,11 +557,11 @@ const PayrollPage: React.FC = () => {
                   <p className="font-medium text-gray-900 dark:text-white">
                     {row.employee.firstName} {row.employee.lastName}
                   </p>
-                  <p className="text-xs text-gray-500">{row.payrollNumber}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{row.payrollNumber}</p>
                 </div>
               </>
             ) : (
-              <span className="text-gray-500">{row.payrollNumber}</span>
+              <span className="text-gray-500 dark:text-gray-400">{row.payrollNumber}</span>
             )}
           </div>
         ),
@@ -574,7 +574,7 @@ const PayrollPage: React.FC = () => {
             <p className="text-gray-900 dark:text-white">
               {formatDate(row.payPeriodStart)} - {formatDate(row.payPeriodEnd)}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {PAY_PERIOD_TYPE_LABELS[row.payPeriodType] || row.payPeriodType}
             </p>
           </div>
@@ -767,7 +767,7 @@ const PayrollPage: React.FC = () => {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'all'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           All Payrolls
@@ -778,7 +778,7 @@ const PayrollPage: React.FC = () => {
             'flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'pending'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Pending Approval
@@ -793,7 +793,7 @@ const PayrollPage: React.FC = () => {
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Search payrolls..."

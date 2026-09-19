@@ -120,7 +120,7 @@ const UsageBar: React.FC<{
   icon: React.ReactNode;
 }> = ({ label, current, limit, unit = '', icon }) => {
   const percentage = limit > 0 ? Math.min((current / limit) * 100, 100) : 0;
-  let barColor = 'bg-tenant-500';
+  let barColor = 'bg-green-500';
   if (percentage >= 90) barColor = 'bg-red-500';
   else if (percentage >= 70) barColor = 'bg-yellow-500';
 
@@ -366,11 +366,11 @@ const TenantBillingPage: React.FC = () => {
       {/* Subscription Card */}
       {subscription ? (
         <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-          <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-tenant-50 to-white">
+          <div className="p-6 border-b border-gray-100 dark:border-gray-700 bg-gradient-to-r from-green-50 to-white">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-center gap-4">
-                <div className="p-3 rounded-xl bg-tenant-100">
-                  <CreditCard className="w-6 h-6 text-tenant-600" />
+                <div className="p-3 rounded-xl bg-green-100">
+                  <CreditCard className="w-6 h-6 text-green-600" />
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{subscription.plan} Plan</h2>
@@ -412,10 +412,10 @@ const TenantBillingPage: React.FC = () => {
             )}
           </div>
           {isUpgradeable && (
-            <div className="p-6 border-t border-gray-100 dark:border-gray-700 bg-gradient-to-r from-tenant-50/50 to-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="p-6 border-t border-gray-100 dark:border-gray-700 bg-gradient-to-r from-green-50/50 to-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-tenant-100">
-                  <ArrowUpCircle className="w-5 h-5 text-tenant-600" />
+                <div className="p-2 rounded-lg bg-green-100">
+                  <ArrowUpCircle className="w-5 h-5 text-green-600" />
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">Ready for more?</p>
@@ -428,7 +428,7 @@ const TenantBillingPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => navigate('/tenant/support')}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-tenant-600 text-white text-sm font-medium hover:bg-tenant-700 focus:outline-none focus:ring-2 focus:ring-tenant-500 focus:ring-offset-2 whitespace-nowrap"
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 whitespace-nowrap"
               >
                 <ArrowUpCircle className="w-4 h-4" />
                 Upgrade plan
@@ -455,7 +455,7 @@ const TenantBillingPage: React.FC = () => {
               label="Farms"
               current={planLimits.currentFarms}
               limit={planLimits.maxFarms}
-              icon={<Waves className="w-4 h-4 text-tenant-500" />}
+              icon={<Waves className="w-4 h-4 text-green-500" />}
             />
             <UsageBar
               label="Sensors"
@@ -489,8 +489,8 @@ const TenantBillingPage: React.FC = () => {
               label="API Calls"
               value={usageMetrics.apiCallsThisMonth.toLocaleString()}
               subtext={`of ${usageMetrics.apiCallsLimit.toLocaleString()} limit`}
-              icon={<TrendingUp className="w-5 h-5 text-tenant-600" />}
-              color="bg-tenant-50"
+              icon={<TrendingUp className="w-5 h-5 text-green-600" />}
+              color="bg-green-50"
             />
             <StatCard
               label="Storage Used"

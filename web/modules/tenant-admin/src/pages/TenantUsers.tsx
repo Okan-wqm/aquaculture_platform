@@ -281,7 +281,7 @@ const TenantUsers: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-green-600" />
       </div>
     );
   }
@@ -312,7 +312,7 @@ const TenantUsers: React.FC = () => {
                   setEditingUser(null);
                   setIsModalOpen(true);
                 }}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
               >
                 <UserPlus className="w-4 h-4" />
                 Add User

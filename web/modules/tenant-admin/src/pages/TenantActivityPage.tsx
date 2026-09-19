@@ -105,7 +105,7 @@ const PeriodSelector: React.FC<{
         onClick={() => onChange(p)}
         className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
           value === p
-            ? 'bg-white dark:bg-gray-900 text-tenant-700 shadow-sm'
+            ? 'bg-white dark:bg-gray-900 text-green-700 shadow-sm'
             : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
         }`}
       >
@@ -146,7 +146,7 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
             {/* Bar */}
             <div
               className={`w-full rounded-t transition-all duration-200 ${
-                isToday ? 'bg-tenant-500' : 'bg-tenant-300 group-hover:bg-tenant-400'
+                isToday ? 'bg-green-500' : 'bg-green-300 group-hover:bg-green-400'
               }`}
               style={{ height: `${Math.max(heightPercent, 2)}%`, minHeight: '2px' }}
             />
@@ -265,8 +265,8 @@ const TenantActivityPage: React.FC = () => {
         <StatCard
           label="Unique Users"
           value={uniqueActiveUsers}
-          icon={<Users className="w-5 h-5 text-tenant-600" />}
-          color="bg-tenant-50"
+          icon={<Users className="w-5 h-5 text-green-600" />}
+          color="bg-green-50"
           subtext={`${period === '7d' ? 'Last 7 days' : 'Last 30 days'}`}
         />
         <StatCard

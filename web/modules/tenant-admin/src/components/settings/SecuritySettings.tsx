@@ -93,7 +93,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
 
   const saving = updateMutation.isPending;
   const inputClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   if (isLoading) {
     return (
@@ -116,7 +116,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center gap-2 mb-1 text-tenant-700">
+        <div className="flex items-center gap-2 mb-1 text-green-700">
           <ShieldCheck className="w-4 h-4" />
           <h3 className="text-sm font-semibold uppercase tracking-wider">Authentication</h3>
         </div>
@@ -193,7 +193,7 @@ const SecuritySettings: React.FC<SecuritySettingsProps> = ({ canEdit }) => {
           <button
             onClick={handleSave}
             disabled={saving || timeoutError !== null}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saved ? (
               <>

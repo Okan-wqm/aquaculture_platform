@@ -78,7 +78,7 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
 
   const saving = updateMutation.isPending;
   const selectClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   // Seçilen zonda "şu an" — operatör kaydetmeden önce doğru zonu seçtiğini görür.
   let localNow = '';
@@ -162,7 +162,7 @@ const LocalizationSettings: React.FC<LocalizationSettingsProps> = ({ canEdit = f
           <button
             onClick={() => void handleSave()}
             disabled={saving || isLoading}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saved ? (
               <>

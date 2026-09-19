@@ -104,8 +104,8 @@ export const EffectivePermissionsModal: React.FC<EffectivePermissionsModalProps>
           {permissions && (
             <>
               {/* Role */}
-              <div className="flex items-center gap-3 p-3 bg-tenant-50 rounded-lg border border-tenant-100">
-                <Shield className="w-5 h-5 text-tenant-600" aria-hidden="true" />
+              <div className="flex items-center gap-3 p-3 bg-green-50 rounded-lg border border-green-100">
+                <Shield className="w-5 h-5 text-green-600" aria-hidden="true" />
                 <div>
                   <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{permissions.roleName}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Assigned role</p>

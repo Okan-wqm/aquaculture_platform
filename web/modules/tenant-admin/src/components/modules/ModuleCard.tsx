@@ -115,7 +115,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
       <div className="p-6 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-tenant-50 flex items-center justify-center text-2xl">
+            <div className="w-12 h-12 rounded-xl bg-green-50 flex items-center justify-center text-2xl">
               {module.icon}
             </div>
             <div>
@@ -146,10 +146,10 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
 
       {/* Usage Statistics */}
       {usageStats && (
-        <div className="px-6 py-3 bg-tenant-50/50 border-t border-gray-100 dark:border-gray-700">
+        <div className="px-6 py-3 bg-green-50/50 border-t border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-3.5 h-3.5 text-tenant-500" />
-            <span className="text-xs font-medium text-tenant-700 uppercase tracking-wider">
+            <Activity className="w-3.5 h-3.5 text-green-500" />
+            <span className="text-xs font-medium text-green-700 uppercase tracking-wider">
               Usage Stats
             </span>
           </div>
@@ -193,7 +193,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
         {module.manager ? (
           <div className="flex items-center justify-between mt-3">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-xs font-medium">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white text-xs font-medium">
                 {module.manager.name
                   .split(' ')
                   .map((n) => n[0])
@@ -208,7 +208,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
             </div>
             <button
               onClick={() => onAssignManager(module)}
-              className="text-xs text-tenant-600 hover:text-tenant-700 font-medium"
+              className="text-xs text-green-600 hover:text-green-700 font-medium"
             >
               Change
             </button>
@@ -216,7 +216,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
         ) : (
           <button
             onClick={() => onAssignManager(module)}
-            className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400 hover:border-tenant-300 hover:text-tenant-600 transition-colors"
+            className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700 text-sm text-gray-500 dark:text-gray-400 hover:border-green-300 hover:text-green-600 transition-colors"
           >
             <UserPlus className="w-4 h-4" />
             Assign Manager
@@ -246,7 +246,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
       {/* Actions */}
       <div className="px-4 pb-4 flex items-center gap-2">
         <button
-          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-tenant-600 bg-tenant-50 rounded-lg hover:bg-tenant-100 transition-colors"
+          className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-green-600 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
           onClick={() => onViewDetails(module)}
         >
           <BarChart3 className="w-4 h-4" />
@@ -254,7 +254,7 @@ const ModuleCard: React.FC<ModuleCardProps> = ({
         </button>
         {canOpen ? (
           <button
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
             onClick={() => onOpenModule(module)}
             title={`${module.name} Dashboard'a git`}
           >

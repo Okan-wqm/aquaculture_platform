@@ -204,7 +204,7 @@ const RoleModal = memo<RoleModalProps>(({
                   placeholder="e.g., Supervisor, Technician"
                   required
                   disabled={role?.isSystem}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
                 />
               </div>
 
@@ -218,7 +218,7 @@ const RoleModal = memo<RoleModalProps>(({
                   max="100"
                   value={formData.level}
                   onChange={handleLevelChange}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500"
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Higher = more authority (1-100)
@@ -235,7 +235,7 @@ const RoleModal = memo<RoleModalProps>(({
                 onChange={handleDescriptionChange}
                 placeholder="Describe what this role is for..."
                 rows={2}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 resize-none"
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 resize-none"
               />
             </div>
 
@@ -258,7 +258,7 @@ const RoleModal = memo<RoleModalProps>(({
                 id="isDefault"
                 checked={formData.isDefault}
                 onChange={handleIsDefaultChange}
-                className="rounded border-gray-300 dark:border-gray-600 text-tenant-600 focus:ring-tenant-500"
+                className="rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500"
               />
               <label htmlFor="isDefault" className="flex-1">
                 <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
@@ -313,7 +313,7 @@ const RoleModal = memo<RoleModalProps>(({
               <button
                 type="submit"
                 disabled={isSubmitDisabled}
-                className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isLoading ? (
                   <>
@@ -539,7 +539,7 @@ const TenantRolesPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-green-600" />
       </div>
     );
   }
@@ -581,7 +581,7 @@ const TenantRolesPage: React.FC = () => {
                 )}
                 <button
                   onClick={handleOpenCreate}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
                 >
                   <Plus className="w-4 h-4" />
                   Create Role
@@ -654,7 +654,7 @@ const TenantRolesPage: React.FC = () => {
               </button>
               <button
                 onClick={handleOpenCreate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Create Role

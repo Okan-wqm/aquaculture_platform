@@ -340,7 +340,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
               <button
                 type="button"
                 onClick={handleClose}
-                className="rounded-lg bg-tenant-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-tenant-700"
+                className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700"
               >
                 Close
               </button>
@@ -349,8 +349,8 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
         ) : visiblePendingAction ? (
           <div className="px-6 py-8" aria-live="polite">
             <div className="mx-auto max-w-lg text-center">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-tenant-100">
-                <ShieldCheck className="h-6 w-6 text-tenant-700" aria-hidden="true" />
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
+                <ShieldCheck className="h-6 w-6 text-green-700" aria-hidden="true" />
               </div>
               <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {confirmationIsAssignment ? 'Assign site access?' : 'Remove site access?'}
@@ -387,7 +387,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                 disabled={operationPending}
                 className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                   confirmationIsAssignment
-                    ? 'bg-tenant-600 hover:bg-tenant-700'
+                    ? 'bg-green-600 hover:bg-green-700'
                     : 'bg-red-600 hover:bg-red-700'
                 }`}
               >
@@ -418,7 +418,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                   role="status"
                   aria-live="polite"
                 >
-                  <RefreshCw className="h-5 w-5 animate-spin text-tenant-600" aria-hidden="true" />
+                  <RefreshCw className="h-5 w-5 animate-spin text-green-600" aria-hidden="true" />
                   Loading site access...
                 </div>
               ) : blockingQueryError ? (
@@ -568,7 +568,7 @@ export const SiteAccessModal: React.FC<SiteAccessModalProps> = ({ isOpen, onClos
                                 className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
                                   isAssigned
                                     ? 'border-red-200 text-red-700 hover:bg-red-50'
-                                    : 'border-tenant-200 text-tenant-700 hover:bg-tenant-50'
+                                    : 'border-green-200 text-green-700 hover:bg-green-50'
                                 }`}
                               >
                                 {isAssigned ? 'Remove access' : 'Assign access'}

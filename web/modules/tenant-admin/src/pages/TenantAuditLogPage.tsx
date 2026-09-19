@@ -313,7 +313,7 @@ const TenantAuditLogPage: React.FC = () => {
               e.stopPropagation();
               setSelectedEntry(entry);
             }}
-            className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-tenant-600 hover:bg-tenant-50 transition-colors"
+            className="p-1.5 rounded-lg text-gray-500 dark:text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
             title="View details"
           >
             <Eye className="w-4 h-4" />
@@ -351,14 +351,14 @@ const TenantAuditLogPage: React.FC = () => {
               onClick={() => setShowFilters(!showFilters)}
               className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 showFilters || hasActiveFilters
-                  ? 'text-tenant-700 bg-tenant-50 border border-tenant-200'
+                  ? 'text-green-700 bg-green-50 border border-green-200'
                   : 'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               <Filter className="w-4 h-4" />
               Filters
               {hasActiveFilters && (
-                <span className="w-2 h-2 rounded-full bg-tenant-500" />
+                <span className="w-2 h-2 rounded-full bg-green-500" />
               )}
             </button>
           </div>
@@ -390,7 +390,7 @@ const TenantAuditLogPage: React.FC = () => {
             {hasActiveFilters && (
               <button
                 onClick={resetFilters}
-                className="text-xs text-tenant-600 hover:text-tenant-700 font-medium"
+                className="text-xs text-green-600 hover:text-green-700 font-medium"
               >
                 Clear all
               </button>
@@ -403,7 +403,7 @@ const TenantAuditLogPage: React.FC = () => {
                 type="date"
                 value={filters.startDate || ''}
                 onChange={(e) => updateFilters({ startDate: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
               />
             </div>
             <div>
@@ -412,7 +412,7 @@ const TenantAuditLogPage: React.FC = () => {
                 type="date"
                 value={filters.endDate || ''}
                 onChange={(e) => updateFilters({ endDate: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
               />
             </div>
             <div>
@@ -422,7 +422,7 @@ const TenantAuditLogPage: React.FC = () => {
                 placeholder="e.g. USER_CREATE"
                 value={filters.action || ''}
                 onChange={(e) => updateFilters({ action: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
               />
             </div>
             <div>
@@ -430,7 +430,7 @@ const TenantAuditLogPage: React.FC = () => {
               <select
                 value={filters.severity || ''}
                 onChange={(e) => updateFilters({ severity: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
               >
                 <option value="">All</option>
                 <option value="info">Info</option>
@@ -446,7 +446,7 @@ const TenantAuditLogPage: React.FC = () => {
                 placeholder="Email or ID"
                 value={filters.performedBy || ''}
                 onChange={(e) => updateFilters({ performedBy: e.target.value || null })}
-                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500"
               />
             </div>
           </div>
@@ -462,7 +462,7 @@ const TenantAuditLogPage: React.FC = () => {
             placeholder="Search audit logs by action, user, or entity..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
           />
         </div>
       </div>
@@ -497,7 +497,7 @@ const TenantAuditLogPage: React.FC = () => {
                 {hasActiveFilters && (
                   <button
                     onClick={resetFilters}
-                    className="mt-4 px-4 py-2 text-sm font-medium text-tenant-600 hover:bg-tenant-50 rounded-lg transition-colors"
+                    className="mt-4 px-4 py-2 text-sm font-medium text-green-600 hover:bg-green-50 rounded-lg transition-colors"
                   >
                     Clear Filters
                   </button>
@@ -540,7 +540,7 @@ const TenantAuditLogPage: React.FC = () => {
                         onClick={() => goToPage(pageNum)}
                         className={`w-8 h-8 text-sm rounded-lg transition-colors ${
                           page === pageNum
-                            ? 'bg-tenant-600 text-white'
+                            ? 'bg-green-600 text-white'
                             : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
                       >

@@ -72,9 +72,9 @@ const moduleIconMap: Record<string, string> = {
  */
 const colorClasses = {
   green: {
-    bg: 'bg-tenant-50',
-    icon: 'bg-tenant-100 text-tenant-600',
-    text: 'text-tenant-600',
+    bg: 'bg-green-50',
+    icon: 'bg-green-100 text-green-600',
+    text: 'text-green-600',
   },
   blue: {
     bg: 'bg-blue-50',
@@ -262,7 +262,7 @@ const TenantDashboard: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64" role="status" aria-live="polite">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" aria-hidden="true" />
+        <RefreshCw className="w-8 h-8 animate-spin text-green-600" aria-hidden="true" />
         <span className="sr-only">Dashboard loading...</span>
       </div>
     );
@@ -285,7 +285,7 @@ const TenantDashboard: React.FC = () => {
             </button>
             <button
               onClick={() => navigate('/tenant/users')}
-              className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
             >
               Add User
             </button>
@@ -312,11 +312,11 @@ const TenantDashboard: React.FC = () => {
 
       {/* Subscription Banner */}
       {subscription && (
-        <div className="bg-gradient-to-r from-tenant-50 via-blue-50 to-purple-50 rounded-xl border border-tenant-200 p-6">
+        <div className="bg-gradient-to-r from-green-50 via-blue-50 to-purple-50 rounded-xl border border-green-200 p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-tenant-100">
-                <Package className="w-6 h-6 text-tenant-600" />
+              <div className="p-3 rounded-xl bg-green-100">
+                <Package className="w-6 h-6 text-green-600" />
               </div>
               <div>
                 <div className="flex items-center gap-2">
@@ -342,7 +342,7 @@ const TenantDashboard: React.FC = () => {
             </div>
             <div className="flex items-center gap-6">
               <div className="text-right">
-                <p className="text-2xl font-bold text-tenant-600">
+                <p className="text-2xl font-bold text-green-600">
                   ${parseMoney(subscription.pricing.basePriceDecimal)}
                   <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/mo</span>
                 </p>
@@ -412,7 +412,7 @@ const TenantDashboard: React.FC = () => {
               </h2>
               <button
                 onClick={() => navigate('/tenant/modules')}
-                className="text-sm text-tenant-600 hover:text-tenant-700 font-medium"
+                className="text-sm text-green-600 hover:text-green-700 font-medium"
               >
                 View All
               </button>
@@ -433,7 +433,7 @@ const TenantDashboard: React.FC = () => {
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-tenant-100 flex items-center justify-center text-xl">
+                      <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center text-xl">
                         {module.icon}
                       </div>
                       <div>
@@ -511,24 +511,24 @@ const TenantDashboard: React.FC = () => {
       </div>
 
       {/* Quick Actions */}
-      <div className="bg-gradient-to-r from-tenant-600 to-tenant-700 rounded-xl p-6 text-white">
+      <div className="bg-gradient-to-r from-green-600 to-green-700 rounded-xl p-6 text-white">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
             <h3 className="text-lg font-semibold">Need to add more users?</h3>
-            <p className="text-tenant-100 text-sm mt-1">
+            <p className="text-green-100 text-sm mt-1">
               Invite team members to collaborate on your aquaculture operations.
             </p>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/tenant/modules')}
-              className="px-4 py-2 text-sm font-medium text-tenant-600 bg-white dark:bg-gray-900 rounded-lg hover:bg-tenant-50 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-green-600 bg-white dark:bg-gray-900 rounded-lg hover:bg-green-50 transition-colors"
             >
               View Modules
             </button>
             <button
               onClick={() => navigate('/tenant/users')}
-              className="px-4 py-2 text-sm font-medium text-white bg-tenant-800 rounded-lg hover:bg-tenant-900 transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white bg-green-800 rounded-lg hover:bg-green-900 transition-colors"
             >
               Invite Users
             </button>

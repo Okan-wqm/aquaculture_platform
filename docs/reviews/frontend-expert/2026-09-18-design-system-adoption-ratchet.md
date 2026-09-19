@@ -484,7 +484,10 @@ light on purpose. **Owner:** okan · **Expiry:** 2027-06-30.
 
 - Governed floors (re-evaluated at expiry, never raised): 5 runtime
   overlays, 13 non-list `<table>` elements, 11 non-header titles.
-- Wave 2/3 of the design map (messaging to web, dashboard redesign, the
-  tenant-admin palette, AquaMobil on Tailwind 4, i18n reach, the
-  super-admin language) — design work with product decisions attached;
-  not gated here.
+- Wave 2/3 of the design map (messaging to web, dashboard redesign,
+  AquaMobil on Tailwind 4, i18n reach, the super-admin language) — design
+  work with product decisions attached; not gated here. The tenant-admin
+  and messaging palettes are done: their private `@theme` (Tailwind's green
+  and slate under the names `tenant-*` and `dark-*`) is gone, both read the
+  design system's scales, and `web-theme-token-parity.spec.ts` refuses a
+  second `@theme` under `web/`.

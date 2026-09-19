@@ -24,6 +24,7 @@
  * the raw-hex ratchet (`web-design-system-ratchet.spec.ts`) can send chart
  * colours to `colors` knowing they ARE the theme.
  */
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -76,5 +77,20 @@ describe('INVARIANT (FE-HIGH-066): TypeScript colour tokens mirror theme.css', (
   it('`colors` declares nothing theme.css does not have', () => {
     const orphans = [...ts.keys()].filter((name) => !css.has(name)).sort();
     expect(orphans).toEqual([]);
+  });
+
+  it('no CSS entry under web/ opens a second @theme — theme.css is the only token source', () => {
+    // tenant-admin and messaging-module used to carry a private @theme (Tailwind's
+    // green and slate scales under the names tenant-* and dark-*): a fourth visual
+    // language, invisible to `colors` and to this parity check. A package that
+    // needs a scale uses the design system's; a new scale is added to theme.css.
+    const entries = execFileSync('git', ['-C', REPO_ROOT, 'ls-files', '--', 'web/*.css', 'web/**/*.css'], {
+      encoding: 'utf8',
+    })
+      .split('\n')
+      .filter((file) => file && !file.includes('/node_modules/') && file !== THEME_CSS);
+    expect(entries.length).toBeGreaterThan(5);
+    const offenders = entries.filter((file) => /@theme\b/.test(readFileSync(resolve(REPO_ROOT, file), 'utf8')));
+    expect(offenders).toEqual([]);
   });
 });

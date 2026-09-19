@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import { Modal, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
 import {
   RecurringTemplate,
   TaskCategory,
@@ -164,67 +164,49 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
 
           {/* Category + Priority */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Kategori *
-              </label>
-              <select
-                value={formData.category}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, category: e.target.value as TaskCategory }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                {Object.entries(CATEGORY_CONFIG).map(([key, val]) => (
-                  <option key={key} value={key}>
-                    {val.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Öncelik *
-              </label>
-              <select
-                value={formData.priority}
-                onChange={(e) =>
-                  setFormData((prev) => ({ ...prev, priority: e.target.value as TaskPriority }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                {Object.entries(PRIORITY_CONFIG).map(([key, val]) => (
-                  <option key={key} value={key}>
-                    {val.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Kategori"
+              required
+              value={formData.category}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, category: e.target.value as TaskCategory }))
+              }
+              options={Object.entries(CATEGORY_CONFIG).map(([key, val]) => ({
+                value: key,
+                label: val.label,
+              }))}
+            />
+            <Select
+              label="Öncelik"
+              required
+              value={formData.priority}
+              onChange={(e) =>
+                setFormData((prev) => ({ ...prev, priority: e.target.value as TaskPriority }))
+              }
+              options={Object.entries(PRIORITY_CONFIG).map(([key, val]) => ({
+                value: key,
+                label: val.label,
+              }))}
+            />
           </div>
 
           {/* Frequency + Frequency Detail */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Sıklık *
-              </label>
-              <select
-                value={formData.frequency}
-                onChange={(e) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    frequency: e.target.value as RecurrenceFrequency,
-                  }))
-                }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              >
-                {Object.entries(FREQUENCY_CONFIG).map(([key, val]) => (
-                  <option key={key} value={key}>
-                    {val.label}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <Select
+              label="Sıklık"
+              required
+              value={formData.frequency}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  frequency: e.target.value as RecurrenceFrequency,
+                }))
+              }
+              options={Object.entries(FREQUENCY_CONFIG).map(([key, val]) => ({
+                value: key,
+                label: val.label,
+              }))}
+            />
             {formData.frequency === 'CUSTOM' && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
@@ -244,24 +226,14 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
           </div>
 
           {/* Assignee */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Atanan Kişi *
-            </label>
-            <select
-              value={formData.assignedTo}
-              onChange={(e) => handleAssigneeChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500"
-              required
-            >
-              <option value="">{users.length === 0 ? 'Yükleniyor...' : 'Seçin...'}</option>
-              {users.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            label="Atanan Kişi"
+            required
+            placeholder={users.length === 0 ? 'Yükleniyor...' : 'Seçin...'}
+            value={formData.assignedTo}
+            onChange={(e) => handleAssigneeChange(e.target.value)}
+            options={users.map((a) => ({ value: a.id, label: a.name }))}
+          />
 
           {/* Location + Estimated Minutes */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

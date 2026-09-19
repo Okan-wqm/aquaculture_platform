@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { useConfirm, DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
+import {
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
 import {
   Task,
   TaskCategory,
@@ -204,54 +210,53 @@ export const AllTasksTab: React.FC<AllTasksTabProps> = ({
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Kategori filtresi"
+            fullWidth={false}
+            size="sm"
             value={filterCategory}
             onChange={(e) => setFilterCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
-          >
-            <option value="all">Tüm Kategoriler</option>
-            {Object.entries(CATEGORY_CONFIG).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v.label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'Tüm Kategoriler' },
+              ...Object.entries(CATEGORY_CONFIG).map(([k, v]) => ({ value: k, label: v.label })),
+            ]}
+          />
+          <Select
+            aria-label="Durum filtresi"
+            fullWidth={false}
+            size="sm"
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
-          >
-            <option value="all">Tüm Durumlar</option>
-            {Object.entries(STATUS_CONFIG).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v.label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'Tüm Durumlar' },
+              ...Object.entries(STATUS_CONFIG).map(([k, v]) => ({ value: k, label: v.label })),
+            ]}
+          />
+          <Select
+            aria-label="Öncelik filtresi"
+            fullWidth={false}
+            size="sm"
             value={filterPriority}
             onChange={(e) => setFilterPriority(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
-          >
-            <option value="all">Tüm Öncelikler</option>
-            {Object.entries(PRIORITY_CONFIG).map(([k, v]) => (
-              <option key={k} value={k}>
-                {v.label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'Tüm Öncelikler' },
+              ...Object.entries(PRIORITY_CONFIG).map(([k, v]) => ({ value: k, label: v.label })),
+            ]}
+          />
+          <Select
+            aria-label="Kişi filtresi"
+            fullWidth={false}
+            size="sm"
             value={filterAssignee}
             onChange={(e) => setFilterAssignee(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm"
-          >
-            <option value="all">Tüm Kişiler</option>
-            {assignees.map((a: { id: string; name: string }) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'Tüm Kişiler' },
+              ...assignees.map((a: { id: string; name: string }) => ({
+                value: a.id,
+                label: a.name,
+              })),
+            ]}
+          />
         </div>
         <Button variant="primary" onClick={() => setShowCreateModal(true)}>
           + Yeni Görev

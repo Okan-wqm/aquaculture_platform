@@ -114,6 +114,14 @@ def _breaker_state(tools_dir: Path) -> str:
 # below a minute of selection cost on the live store.
 CIRCUIT_SKIP_STREAK_STOP = 5
 
+# ARIA-HIGH-159 — admission refusals that are facts about the FLEET, not the
+# request: every provider decided and none is eligible. A child refused this
+# way costs a full selection + spawn admission (~35 s on the live store) and
+# the next request meets the same fleet, so a streak of them ends the drain
+# by name; the queue stays pending. Per-request refusals (a target revision
+# mismatch, a budget signal, an operator cancel) never count.
+FLEET_REFUSAL_DETAILS: tuple[str, ...] = ("no_eligible_provider",)
+
 
 def _circuit_label(key: tuple[str, str, str]) -> str:
     return "/".join(key)
@@ -624,6 +632,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     # skips says the route is the problem, not the request: the drain stops
     # by name and the queue stays pending for the next healthy drain.
     circuit_skip_streak = 0
+    fleet_refusal_streak = 0
+    fleet_stop_reason: str | None = None
     failure_counts: dict[str, int] = {}
     by_provider_model_role: dict[str, dict] = {}
     failure_details: list[dict] = []
@@ -691,7 +701,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
 
     def _settle(entry: dict) -> None:
         """Wait for one child and account for it (the pre-032h loop body, verbatim)."""
-        nonlocal succeeded, failed
+        nonlocal succeeded, failed, fleet_refusal_streak, fleet_stop_reason
         request = entry["request"]
         request_id = entry["request_id"]
         child_output = entry["output"]
@@ -755,7 +765,17 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             # never a breaker event: it stays visible as the
             # attempted/succeeded/failed delta, and its detail names why.
             _engine._stage(f"drain_child_refused request_id={request_id} detail={detail_code or '-'}")
+            if detail_code in FLEET_REFUSAL_DETAILS:
+                fleet_refusal_streak += 1
+                if fleet_refusal_streak >= CIRCUIT_SKIP_STREAK_STOP and fleet_stop_reason is None:
+                    fleet_stop_reason = f"fleet_refusal_streak:{detail_code}"
+                    _engine._stage(
+                        f"drain_fleet_refusal_streak refusals={fleet_refusal_streak} detail={detail_code}"
+                    )
+            else:
+                fleet_refusal_streak = 0
         elif outcome == "succeeded":
+            fleet_refusal_streak = 0
             succeeded += 1
             bucket["succeeded"] += 1
         else:
@@ -799,6 +819,11 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 open_circuits.add((provider, model, counted_class))
 
     while True:
+        # ARIA-HIGH-159 — a settled child said the fleet refuses everyone:
+        # nothing new is claimed; the queue stays pending for a fleet that can.
+        if fleet_stop_reason is not None:
+            stop_reason = fleet_stop_reason
+            break
         # Plan 032 Faz 032e — operator pause: nothing new is claimed.
         if _operator_paused(tools_dir):
             stop_reason = "operator_paused"

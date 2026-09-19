@@ -175,7 +175,7 @@ const BarChartRenderer: React.FC<WidgetRendererProps> = ({
       <svg
         width={innerW}
         height={innerH}
-        style={{ display: 'block', overflow: 'visible' }}
+        className="block overflow-visible"
       >
         {/* Title label */}
         <text

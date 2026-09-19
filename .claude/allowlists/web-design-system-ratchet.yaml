@@ -36,7 +36,7 @@
 # it reports. Keyed by package/file, never by line number.
 version: 1
 overlays:
-  ceiling: 5
+  ceiling: 6
   entries:
     - site: web/apps/aquamobil/src/components/BarcodeScanButton.tsx
       batch: runtime
@@ -68,6 +68,12 @@ overlays:
       expiry: 2027-06-30
       findingId: FE-HIGH-065
       reason: SCADA popup-view layer driven by screen navigation; nests operator views, not a dialog
+    - site: web/modules/sensor-module/src/engine/views/ModalDialog.tsx
+      batch: dialog
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-065
+      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
 rawHex:
   entries: []
 rawTable:
@@ -127,10 +133,4 @@ rawPageTitle:
 darkSurface:
   entries: []
 inlineStyle:
-  entries:
-    - package: web/modules/sensor-module
-      ceiling: 133
-      owner: okan
-      expiry: 2027-06-30
-      findingId: FE-MEDIUM-067
-      reason: static inline style objects (every value a literal) bypass the utility classes and tokens Tailwind can express; move each to a class or a token and lower this ceiling
+  entries: []

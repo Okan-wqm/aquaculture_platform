@@ -190,7 +190,16 @@ gradient moved from the component into `index.css`, which also takes the
 shell's raw hex to 0); the 133 that remain are SCADA symbol geometry
 (absolute positions and sizes inside process-node drawings), pinned as
 sensor-module's ceiling until the symbol layer draws with SVG attributes.
-**Owner:** okan · **Expiry:** 2027-06-30.
+Batch 32: the 133 are read declaration by declaration — display,
+pointer-events, position and the symbols' absolute geometry, transforms,
+transitions (`transition-[stroke-dashoffset,stroke] duration-300
+ease-out`), fonts, z-index, the overlay tints — and every one maps to a
+utility (spacing on the scale when it fits, `[Npx]` otherwise, arbitrary
+properties for `pointer-events: all|stroke`), merged into the element's
+existing `className` (string, template or `cn()` call) or written where
+the style attribute was; each emitted class was compiled with the repo's
+Tailwind to confirm it yields a rule. 133 → 0 in 67 files; every package
+holds at zero. **Closed.** **Owner:** okan · **Expiry:** 2027-06-30.
 
 #### FE-HIGH-069 — Hand-rolled `<table>` re-implements DataTable
 
@@ -458,7 +467,6 @@ light on purpose. **Owner:** okan · **Expiry:** 2027-06-30.
 ## Out of this cycle (tracked above, not done)
 
 - Remaining overlay entries (5 runtime surfaces; see allowlist entries).
-- Static inline style in SCADA symbol geometry (133).
 - Raw `<table>` → `DataTable`: 13 remain after batch 26 (hr 3, sensor 5,
   farm 5): the SCADA runtime grid widgets and heat map (widget
   configuration drives columns and colours), the two feeding matrix editors (editable

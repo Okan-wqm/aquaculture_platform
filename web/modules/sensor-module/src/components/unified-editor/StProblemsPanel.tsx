@@ -133,7 +133,7 @@ const StProblemsPanel: React.FC<StProblemsPanelProps> = ({
 
       {/* Expanded content */}
       {isExpanded && (
-        <div className="flex flex-col" style={{ height: 200 }}>
+        <div className="flex flex-col h-[200px]">
           {/* Filter bar */}
           <div className="flex items-center gap-1 px-3 py-1 border-b border-gray-800 flex-shrink-0">
             {(['error', 'warning', 'info', 'hint'] as const).map((sev) => {

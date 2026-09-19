@@ -153,7 +153,7 @@ const ImageAnimator = memo<ImageAnimatorProps>(
             href={imageUrl}
             width={imageSize}
             height={imageSize}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           />
         ))}
       </>

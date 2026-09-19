@@ -178,7 +178,7 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
             strokeLinecap="round"
             strokeDasharray={ARC_LENGTH}
             strokeDashoffset={dashOffset}
-            style={{ transition: 'stroke-dashoffset 350ms ease-out, stroke 350ms ease-out' }}
+            className="transition-[stroke-dashoffset,stroke] duration-[350ms] ease-out"
           />
 
           {/* Needle */}
@@ -318,9 +318,7 @@ const RuntimeGauge: React.FC<RuntimeWidgetProps> = ({
                 cy={pt.y}
                 r={6}
                 fill={colors.neutral[700]}
-                style={{
-                  transition: 'cx 350ms ease-out, cy 350ms ease-out',
-                }}
+                className="transition-[cx,cy] duration-[350ms] ease-out"
               />
             );
           })()

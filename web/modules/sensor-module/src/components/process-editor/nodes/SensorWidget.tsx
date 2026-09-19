@@ -227,7 +227,7 @@ const SensorWidget: React.FC<NodeProps<Node<SensorWidgetData>>> = ({ data, selec
         height={H}
         viewBox={`0 0 ${W} ${H}`}
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         {/* Background gradient — unique ID per widget instance (BUG-014) */}
         <defs>

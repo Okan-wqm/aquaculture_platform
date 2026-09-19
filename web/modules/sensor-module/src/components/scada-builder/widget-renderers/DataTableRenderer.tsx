@@ -231,13 +231,9 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
       data-testid="data-table-widget"
     >
       {/* Table container */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      <div className="flex-1 overflow-auto min-h-0">
         <table
-          style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            tableLayout: 'fixed',
-          }}
+          className="w-full border-collapse table-fixed"
         >
           {/* Column widths */}
           <colgroup>
@@ -341,7 +337,7 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
           <span>
             Page {safeCurrentPage + 1} of {totalPages}
           </span>
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div className="flex gap-1">
             <button
               onClick={() => setCurrentPage(Math.max(0, safeCurrentPage - 1))}
               disabled={safeCurrentPage === 0}

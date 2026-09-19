@@ -308,9 +308,8 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                       step={15}
                       value={gradient.angle}
                       onChange={(e) => handleAngleChange(Number(e.target.value))}
-                      className={INPUT_CLASS}
+                      className={`${INPUT_CLASS} max-w-20`}
                       aria-label="Gradient angle"
-                      style={{ maxWidth: 80 }}
                     />
                     {/* Visual angle indicator */}
                     <div

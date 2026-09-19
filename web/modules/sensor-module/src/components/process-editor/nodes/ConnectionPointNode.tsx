@@ -72,15 +72,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
 
       {/* Top Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 15,
-          top: 3,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[15px] top-[3px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -109,15 +101,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
 
       {/* Bottom Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 15,
-          top: 27,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[15px] top-[27px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -146,15 +130,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
 
       {/* Left Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 3,
-          top: 15,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[3px] top-[15px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -183,15 +159,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
 
       {/* Right Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 27,
-          top: 15,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[27px] top-[15px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();

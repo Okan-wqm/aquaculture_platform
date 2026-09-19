@@ -820,8 +820,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         {/* Process Background Layer */}
         {processBackground.processId && (
           <div
-            className="absolute inset-0 overflow-hidden"
-            style={{ zIndex: 0 }}
+            className="absolute inset-0 overflow-hidden z-0"
           >
             <ProcessBackgroundLayer
               processId={processBackground.processId}
@@ -842,7 +841,7 @@ export const GridStackDashboard: React.FC<GridStackDashboardProps> = ({
         )}
 
         {/* Scrollable Grid Area */}
-        <div className="h-full overflow-auto p-4 relative" style={{ zIndex: 1 }}>
+        <div className="h-full overflow-auto p-4 relative z-[1]">
           {localWidgets.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
               <div className="text-center">

@@ -33,7 +33,7 @@ const TankLevelRenderer: React.FC<WidgetRendererProps> = ({ config, value, width
       height="100%"
       viewBox={`0 0 100 ${tankH + padTop + 30}`}
       preserveAspectRatio="xMidYMid meet"
-      style={{ display: 'block' }}
+      className="block"
     >
       {/* Label */}
       <text x={50} y={14} textAnchor="middle" fontSize={10} fill={colors.gray[400]} fontWeight={500}>

@@ -86,7 +86,7 @@ const ScreenLinkRenderer: React.FC<WidgetRendererProps> = ({ config, width, heig
           e.currentTarget.style.background = colors.white;
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           <IconComponent size={iconSize} color={color} />
           <span
             style={{

@@ -113,8 +113,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
               activeGroup === 'widget-scoped'
                 ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
-            style={{ minHeight: '36px' }}
+            } min-h-9`}
           >
             {hasEdgeSelected ? (
               <>
@@ -141,8 +140,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
               activeGroup === 'package-scoped'
                 ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
-            }`}
-            style={{ minHeight: '36px' }}
+            } min-h-9`}
           >
             <Cpu className="w-3.5 h-3.5" />
             Package
@@ -170,8 +168,7 @@ export const PropertiesTabNav: React.FC<PropertiesTabNavProps> = ({
                   : active
                     ? 'text-cyan-600 border-b-2 border-cyan-500'
                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800 border-b-2 border-transparent'
-              }`}
-              style={{ minHeight: '44px' }}
+              } min-h-11`}
               title={disabled ? `${tab.label} is not available for edges` : tab.label}
             >
               <Icon className="w-4 h-4" />

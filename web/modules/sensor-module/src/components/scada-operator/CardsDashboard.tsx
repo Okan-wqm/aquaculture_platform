@@ -76,8 +76,7 @@ interface CardHeaderProps {
 const CardHeader = memo<CardHeaderProps>(
   ({ title, isMaximized, onClose, onToggleMaximize, onDragStart }) => (
     <div
-      className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700 select-none shrink-0"
-      style={{ cursor: 'grab', touchAction: 'none' }}
+      className="flex items-center justify-between px-3 py-1.5 bg-gray-800 border-b border-gray-700 select-none shrink-0 cursor-grab touch-none"
       onPointerDown={onDragStart}
     >
       <div className="flex items-center gap-1.5 min-w-0">

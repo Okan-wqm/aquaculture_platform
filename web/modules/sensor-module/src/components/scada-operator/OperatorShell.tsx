@@ -107,8 +107,7 @@ const AlarmPanel = React.memo(() => {
 
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col"
-      style={{ maxHeight: '40vh' }}
+      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col max-h-[40vh]"
       role="region"
       aria-label="Alarm panel"
     >

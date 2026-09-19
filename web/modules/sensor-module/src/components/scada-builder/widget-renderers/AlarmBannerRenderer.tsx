@@ -56,7 +56,7 @@ const AlarmBannerRenderer: React.FC<WidgetRendererProps> = ({ config, value, wid
         {colors.icon}
       </div>
       {/* Message */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="flex-1 min-w-0">
         <div style={{ fontSize: 9, fontWeight: 600, color: colors.text, textTransform: 'uppercase', letterSpacing: 0.5 }}>
           {severity}
         </div>

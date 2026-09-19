@@ -197,8 +197,7 @@ const RuntimeVideo: React.FC<RuntimeWidgetProps> = ({
     >
       {/* Video container */}
       <div
-        className="relative flex-1 bg-gray-900 flex items-center justify-center overflow-hidden"
-        style={{ minHeight: 0 }}
+        className="relative flex-1 bg-gray-900 flex items-center justify-center overflow-hidden min-h-0"
       >
         {showPlaceholder ? (
           /* Placeholder: no src or load error */

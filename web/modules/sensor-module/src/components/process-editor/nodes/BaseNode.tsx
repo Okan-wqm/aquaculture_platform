@@ -101,7 +101,7 @@ const BaseNode: React.FC<BaseNodeProps> = ({
         width={width}
         height={height}
         viewBox={`0 0 ${width} ${height}`}
-        style={{ pointerEvents: 'auto' }}
+        className="pointer-events-auto"
       >
         <g transform={`rotate(${rotation}, ${centerX}, ${centerY})`}>
           {render()}

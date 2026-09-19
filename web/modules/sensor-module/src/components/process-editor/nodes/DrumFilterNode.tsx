@@ -88,7 +88,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
       }}
     >
       <div style={{ transform: `scale(${SCALE_FACTOR})`, transformOrigin: 'top left' }}>
-        <svg width="812" height="315" viewBox="60 105 812 315" xmlns="http://www.w3.org/2000/svg" style={{ pointerEvents: 'auto' }}>
+        <svg width="812" height="315" viewBox="60 105 812 315" xmlns="http://www.w3.org/2000/svg" className="pointer-events-auto">
           <rect width="100%" height="100%" fill="transparent" />
           {/* Inlet pipe */}
           <rect x="90" y="230" width="70" height="40" fill={colors.neutral[400]} stroke="#333" strokeWidth="2" />
@@ -167,7 +167,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={inletType1}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
 
@@ -180,7 +180,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={inletType2}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
 
@@ -193,7 +193,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={inletType3}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
 
@@ -206,7 +206,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={drainType}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
 
@@ -219,7 +219,7 @@ const DrumFilterNode: React.FC<NodeProps<Node<DrumFilterNodeData>>> = ({ id, dat
           type={outlet}
           position={Position.Top}
           isConnectable={true}
-          style={{ position: 'relative', width: '100%', height: '100%', background: 'inherit', borderRadius: '50%', transform: 'none', left: 0, top: 0 }}
+          className="relative w-full h-full bg-inherit rounded-full transform-none left-0 top-0"
         />
       </div>
     </div>

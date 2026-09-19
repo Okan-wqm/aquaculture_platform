@@ -101,7 +101,7 @@ const renderFlowArrow = (pts: Point[], color: string = colors.neutral[700]): JSX
       points="-7,-5 0,0 -7,5"
       fill={color}
       transform={`translate(${mid.x},${mid.y}) rotate(${mid.angle})`}
-      style={{ pointerEvents: 'none' }}
+      className="pointer-events-none"
     >
       <animate attributeName="opacity" values="1;0.2;1" dur="1.5s" repeatCount="indefinite" />
     </polygon>
@@ -331,7 +331,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
         fill="none"
         stroke="transparent"
         strokeWidth={HIT_AREA_WIDTH}
-        style={{ cursor: 'pointer', pointerEvents: 'stroke' }}
+        className="cursor-pointer [pointer-events:stroke]"
         onMouseMove={handlePathMouseMove}
         onMouseLeave={handlePathMouseLeave}
         onDoubleClick={handlePathDoubleClick}
@@ -368,7 +368,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
           stroke={colors.info[500]}
           strokeWidth={(edgeStyle.strokeWidth || 2) + 4}
           strokeOpacity={0.3}
-          style={{ pointerEvents: 'none' }}
+          className="pointer-events-none"
         />
       )}
 
@@ -385,7 +385,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
           fillOpacity={0.5}
           stroke={colors.success[500]}
           strokeWidth={1}
-          style={{ pointerEvents: 'none' }}
+          className="pointer-events-none"
         />
       )}
 
@@ -423,7 +423,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
             fill={colors.success[500]}
             stroke={colors.success[600]}
             strokeWidth={1.5}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           />
           <circle
             cx={targetX}
@@ -432,7 +432,7 @@ const MultiHandleEdge: React.FC<EdgeProps<Edge<MultiHandleEdgeData>>> = (props) 
             fill={colors.error[500]}
             stroke={colors.error[600]}
             strokeWidth={1.5}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           />
         </>
       )}

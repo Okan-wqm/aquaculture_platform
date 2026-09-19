@@ -1600,7 +1600,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Code Tab - ST Editor */}
       {activeTab === 'code' && (
-        <div className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: 400 }}>
+        <div className="flex flex-col h-[calc(100vh_-_320px)] min-h-[400px]">
           {/* I/O Tag status bar */}
           {tagAnalysis.ioVariables.length > 0 && (
             <div className="flex items-center gap-3 px-3 py-1.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-t-lg text-xs flex-shrink-0">
@@ -1639,7 +1639,7 @@ const AutomationProgramEditorPage: React.FC = () => {
 
       {/* Simulation Tab */}
       {activeTab === 'simulation' && (
-        <div className="flex flex-col" style={{ height: 'calc(100vh - 320px)', minHeight: 400 }}>
+        <div className="flex flex-col h-[calc(100vh_-_320px)] min-h-[400px]">
           <SimulationPanel code={stCode} />
         </div>
       )}

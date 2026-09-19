@@ -42,7 +42,7 @@ const CalibrationHistoryRenderer: React.FC<WidgetRendererProps> = ({ config, wid
       </div>
 
       {/* Rows */}
-      <div style={{ flex: 1, overflow: 'hidden' }}>
+      <div className="flex-1 overflow-hidden">
         {rows.slice(0, visibleCount).map((row: any, i: number) => (
           <div key={i} style={{ display: 'flex', padding: '0 8px', height: rowH, alignItems: 'center', borderBottom: `1px solid ${themeColors.neutral[100]}`, fontSize: 9 }}>
             <div style={{ width: colW, color: colors.gray[400] }}>{row.date}</div>

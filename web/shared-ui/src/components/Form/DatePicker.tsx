@@ -142,7 +142,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
   return (
     <div ref={containerRef} className={`relative ${className}`}>
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {label}
           {required && <span className="text-red-500 ml-1">*</span>}
         </label>
@@ -155,29 +155,29 @@ export const DatePicker: React.FC<DatePickerProps> = ({
         disabled={disabled}
         className={`
           w-full flex items-center justify-between rounded-lg border
-          bg-white text-left
+          bg-white dark:bg-gray-900 text-left
           focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500
-          disabled:bg-gray-100 disabled:cursor-not-allowed
+          disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed
           transition-colors duration-200
           ${sizeClasses[size]}
-          ${error ? 'border-red-500' : 'border-gray-300'}
+          ${error ? 'border-red-500' : 'border-gray-300 dark:border-gray-600'}
         `}
       >
-        <span className={value ? 'text-gray-900' : 'text-gray-500'}>
+        <span className={value ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
           {value ? formatDate(value) : placeholder}
         </span>
         <div className="flex items-center gap-2">
           {clearable && value && !disabled && (
             <span
               onClick={handleClear}
-              className="text-gray-500 hover:text-gray-600"
+              className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </span>
           )}
-          <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
           </svg>
         </div>
@@ -185,13 +185,13 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
       {/* Calendar Dropdown */}
       {isOpen && (
-        <div className="absolute z-50 mt-1 w-72 bg-white rounded-lg shadow-lg border border-gray-200 p-4">
+        <div className="absolute z-50 mt-1 w-72 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <button
               type="button"
               onClick={handlePrevMonth}
-              className="p-1 hover:bg-gray-100 rounded"
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -203,7 +203,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             <button
               type="button"
               onClick={handleNextMonth}
-              className="p-1 hover:bg-gray-100 rounded"
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -216,7 +216,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
             {DAYS.map((day) => (
               <div
                 key={day}
-                className="text-center text-xs font-medium text-gray-500 py-1"
+                className="text-center text-xs font-medium text-gray-500 dark:text-gray-400 py-1"
               >
                 {day}
               </div>
@@ -246,7 +246,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                       ? 'bg-blue-600 text-white'
                       : isTodayDate
                       ? 'bg-blue-50 text-blue-600 font-medium'
-                      : 'hover:bg-gray-100'
+                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                     }
                     ${isDisabled ? 'text-gray-300 cursor-not-allowed' : 'cursor-pointer'}
                   `}
@@ -258,7 +258,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
           </div>
 
           {/* Today button */}
-          <div className="mt-3 pt-3 border-t border-gray-100">
+          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
             <button
               type="button"
               onClick={() => handleSelectDate(new Date())}
@@ -279,7 +279,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
 
       {/* Helper text */}
       {!error && helperText && (
-        <p className="mt-1 text-sm text-gray-500">{helperText}</p>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{helperText}</p>
       )}
     </div>
   );

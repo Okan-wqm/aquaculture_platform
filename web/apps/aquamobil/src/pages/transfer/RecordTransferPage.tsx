@@ -156,11 +156,11 @@ export function RecordTransferPage(): JSX.Element {
             </div>
             <div className="p-4 space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">From</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">From</span>
                 <span className="font-semibold text-gray-900 dark:text-white">{sourceTank?.name}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Batch</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Batch</span>
                 <span className="font-semibold text-gray-900 dark:text-white">{sourceMetrics?.batchNumber ?? '--'}</span>
               </div>
               <div className="flex justify-center">
@@ -169,19 +169,19 @@ export function RecordTransferPage(): JSX.Element {
                 </div>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">To</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">To</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
                   {destTank?.name}{!destTank?.batchMetrics ? ' (Empty)' : ''}
                 </span>
               </div>
               <div className="h-px bg-gray-100 dark:bg-gray-800" />
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Quantity</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
                 <span className="text-2xl font-bold text-blue-600">{qty.toLocaleString()} pcs</span>
               </div>
               {avgWeightG && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Avg weight</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Avg weight</span>
                   <span className="font-semibold text-gray-900 dark:text-white">{parseFloat(avgWeightG).toFixed(1)} g/fish</span>
                 </div>
               )}
@@ -189,7 +189,7 @@ export function RecordTransferPage(): JSX.Element {
                 <>
                   <div className="h-px bg-gray-100 dark:bg-gray-800" />
                   <div>
-                    <span className="text-sm text-gray-500">Reason</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Reason</span>
                     <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{transferReason}</p>
                   </div>
                 </>
@@ -258,7 +258,7 @@ export function RecordTransferPage(): JSX.Element {
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">{sourceTank.name}</h3>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {sourceMetrics.batchNumber ?? '--'} &middot; {(sourceMetrics.pieces ?? 0).toLocaleString()} pcs
               </p>
             </div>

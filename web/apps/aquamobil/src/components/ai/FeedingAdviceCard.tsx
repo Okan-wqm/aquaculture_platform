@@ -82,7 +82,7 @@ export function FeedingAdviceCard({ tankId }: FeedingAdviceCardProps): ReactElem
         {/* WHY: Rationale text builds operator trust in AI recommendations. Operators
             who understand "why" are more likely to follow the advice, improving FCR. */}
         <div className="bg-white/60 dark:bg-gray-800/40 rounded-lg p-3">
-          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">
+          <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">
             Rationale
           </p>
           <p className="text-xs text-purple-700 dark:text-purple-200 font-medium leading-relaxed">

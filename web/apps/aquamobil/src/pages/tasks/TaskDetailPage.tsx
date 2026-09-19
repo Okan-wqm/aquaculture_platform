@@ -18,7 +18,7 @@ const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
   URGENT: { label: 'Urgent', color: 'bg-red-100 text-red-700' },
   HIGH: { label: 'High', color: 'bg-orange-100 text-orange-700' },
   MEDIUM: { label: 'Medium', color: 'bg-blue-100 text-blue-700' },
-  LOW: { label: 'Low', color: 'bg-gray-100 text-gray-600' },
+  LOW: { label: 'Low', color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' },
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -36,11 +36,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  PENDING: { label: 'Pending', color: 'bg-gray-100 text-gray-600' },
+  PENDING: { label: 'Pending', color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' },
   IN_PROGRESS: { label: 'In Progress', color: 'bg-amber-100 text-amber-700' },
   COMPLETED: { label: 'Completed', color: 'bg-green-100 text-green-700' },
   OVERDUE: { label: 'Overdue', color: 'bg-red-100 text-red-700' },
-  CANCELLED: { label: 'Cancelled', color: 'bg-gray-100 text-gray-500' },
+  CANCELLED: { label: 'Cancelled', color: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' },
 };
 
 export function TaskDetailPage(): JSX.Element {
@@ -258,7 +258,7 @@ export function TaskDetailPage(): JSX.Element {
           {/* Meta info */}
           <div className="space-y-2">
             {task.dueDate && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <Clock size={14} />
                 <span>
                   {new Date(task.dueDate).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
@@ -267,19 +267,19 @@ export function TaskDetailPage(): JSX.Element {
               </div>
             )}
             {task.location && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <MapPin size={14} />
                 <span>{task.location}</span>
               </div>
             )}
             {task.estimatedMinutes && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <Clock size={14} />
                 <span>Estimated: {task.estimatedMinutes} minutes</span>
               </div>
             )}
             {task.tags && task.tags.length > 0 && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <Tag size={14} />
                 <div className="flex flex-wrap gap-1">
                   {task.tags.map((tag, i) => (
@@ -297,7 +297,7 @@ export function TaskDetailPage(): JSX.Element {
       {/* Checklist */}
       {checklistItems.length > 0 && (
         <div className="px-4 mt-4">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
             Checklist ({checklistItems.filter((c) => c.isCompleted).length}/{checklistItems.length})
           </h3>
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -328,7 +328,7 @@ export function TaskDetailPage(): JSX.Element {
                   className={clsx(
                     'text-sm',
                     item.isCompleted
-                      ? 'text-gray-400 line-through'
+                      ? 'text-gray-400 dark:text-gray-500 line-through'
                       : 'text-gray-900 dark:text-white',
                   )}
                 >
@@ -342,14 +342,14 @@ export function TaskDetailPage(): JSX.Element {
 
       {/* Notes */}
       <div className="px-4 mt-4">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Notes</h3>
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Notes</h3>
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
           {notes.length > 0 && (
             <div className="space-y-3 mb-4">
               {notes.map((note, index) => (
                 <div key={note.id || index} className="border-b border-gray-50 dark:border-gray-800 pb-3 last:border-0 last:pb-0">
                   <p className="text-sm text-gray-900 dark:text-white">{note.text}</p>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     {note.createdBy && `${note.createdBy} - `}
                     {note.createdAt && new Date(note.createdAt).toLocaleString('en-US')}
                   </p>

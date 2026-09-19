@@ -257,7 +257,7 @@ function BiometricPanel({ onClose }: BiometricPanelProps): JSX.Element {
               clearBiometricError();
               setSetupSuccess(false);
             }}
-            className="p-1 text-gray-400 hover:text-gray-600"
+            className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
           >
             <X size={18} />
           </button>
@@ -510,7 +510,7 @@ export function AccountPage(): JSX.Element {
                   {roleBadge.label}
                 </span>
                 {userTenantId && (
-                  <span className="text-[11px] text-gray-400">Tenant: {userTenantId}</span>
+                  <span className="text-[11px] text-gray-400 dark:text-gray-500">Tenant: {userTenantId}</span>
                 )}
               </div>
             </div>

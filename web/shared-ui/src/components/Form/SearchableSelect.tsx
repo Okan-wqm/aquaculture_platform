@@ -180,7 +180,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             )}
             {/* Chevron */}
             <svg
-              className={`w-4 h-4 text-gray-500 transition-transform pointer-events-none ${isOpen ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform pointer-events-none ${isOpen ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -231,7 +231,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     onClick={() => !option.disabled && handleSelect(option.value)}
                     className={`
                       px-3 py-2 text-sm
-                      ${option.disabled ? 'opacity-50 cursor-not-allowed text-gray-400' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
+                      ${option.disabled ? 'opacity-50 cursor-not-allowed text-gray-400 dark:text-gray-500' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
                       ${option.value === value ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-900 dark:text-gray-200'}
                     `}
                   >

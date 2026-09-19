@@ -335,7 +335,7 @@ export function RecordEntityPage<
             </div>
             <div className="flex-1">
               <h3 className="font-semibold text-gray-900 dark:text-white">{selectedTank.name}</h3>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {metrics.batchNumber ?? '--'} &middot; {(metrics.pieces ?? 0).toLocaleString()} fish
               </p>
             </div>
@@ -458,7 +458,7 @@ export function QuantityStepper(props: {
   const clamp = (n: number): number => Math.floor(Math.max(1, Math.min(n, max)));
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-5 border border-gray-100 dark:border-gray-800">
         <div className="flex items-center justify-center gap-5">
           <button
@@ -489,7 +489,7 @@ export function QuantityStepper(props: {
             <Plus size={22} className={theme.accentText} />
           </button>
         </div>
-        <p className="text-center text-xs text-gray-400 mt-3 font-medium">
+        <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-3 font-medium">
           Max: {max.toLocaleString()} fish in tank
         </p>
         {error && <p className="text-red-500 text-sm text-center mt-2">{error}</p>}
@@ -511,7 +511,7 @@ export function ReasonGrid<TValue extends string>(props: {
   const { label, value, onChange, options, theme } = props;
   return (
     <div className="px-4 mt-5">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-3">{label}</h3>
       <div className="grid grid-cols-4 gap-2">
         {options.map((r) => {
           const selected = value === r.value;
@@ -613,7 +613,7 @@ export function SummaryRow(props: {
   const { label, value, valueClass = 'font-semibold text-gray-900 dark:text-white' } = props;
   return (
     <div className="flex justify-between items-center">
-      <span className="text-sm text-gray-500">{label}</span>
+      <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
       <span className={valueClass}>{value}</span>
     </div>
   );
@@ -626,7 +626,7 @@ export function SummaryDivider(): JSX.Element {
 export function SummaryNotesBlock({ notes }: { notes: string }): JSX.Element {
   return (
     <div>
-      <span className="text-sm text-gray-500">Notes</span>
+      <span className="text-sm text-gray-500 dark:text-gray-400">Notes</span>
       <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{notes}</p>
     </div>
   );

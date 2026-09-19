@@ -476,7 +476,7 @@ export function AiChatPage(): JSX.Element {
         ) : errorMsg ? (
           <div className="text-center py-12 px-4">
             <AlertCircle size={40} className="mx-auto mb-3 text-gray-300 opacity-60" />
-            <p className="text-sm text-gray-500">{errorMsg}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{errorMsg}</p>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">

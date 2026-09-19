@@ -86,7 +86,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     // Glass yüzeyde renk token'larını kullan (rakip utility olmaması için değiştir).
     const checkboxSurfaceStyle = isGlass
       ? 'text-[var(--surface-btn-bg)] border-[var(--surface-field-border)] focus:ring-[var(--surface-field-focus-ring)]'
-      : 'text-blue-600 border-gray-300 focus:ring-blue-500';
+      : 'text-blue-600 border-gray-300 dark:border-gray-600 focus:ring-blue-500';
 
     // Indeterminate durumu için ref callback
     const checkboxRef = React.useCallback(
@@ -131,7 +131,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
               <label
                 htmlFor={checkboxId}
                 className={`
-                  font-medium ${isGlass ? 'text-[var(--surface-label-fg)]' : 'text-gray-700'}
+                  font-medium ${isGlass ? 'text-[var(--surface-label-fg)]' : 'text-gray-700 dark:text-gray-300'}
                   ${labelSizeStyles[size]}
                   ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 `}
@@ -142,7 +142,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
             {description && (
               <p
                 id={`${checkboxId}-description`}
-                className="text-sm text-gray-500 mt-0.5"
+                className="text-sm text-gray-500 dark:text-gray-400 mt-0.5"
               >
                 {description}
               </p>
@@ -231,7 +231,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
             rounded-full cursor-pointer
             transition-colors duration-200 ease-in-out
             focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-            ${checked ? 'bg-blue-600' : 'bg-gray-200'}
+            ${checked ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'}
             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
           `}
         >
@@ -239,7 +239,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
             className={`
               ${styles.thumb}
               pointer-events-none inline-block
-              rounded-full bg-white shadow-lg
+              rounded-full bg-white dark:bg-gray-900 shadow-lg
               transform ring-0
               transition duration-200 ease-in-out
               ${checked ? styles.translate : 'translate-x-0.5'}
@@ -267,7 +267,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
                 id={`${switchId}-label`}
                 htmlFor={switchId}
                 className={`
-                  font-medium text-gray-700
+                  font-medium text-gray-700 dark:text-gray-300
                   ${labelSizeStyles[size]}
                   ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 `}
@@ -276,7 +276,7 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
               </label>
             )}
             {description && (
-              <p className="text-sm text-gray-500 mt-0.5">{description}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
             )}
           </div>
         )}
@@ -352,7 +352,7 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
   return (
     <fieldset className={className}>
       {label && (
-        <legend className="text-sm font-medium text-gray-700 mb-2">{label}</legend>
+        <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{label}</legend>
       )}
       <div className={`${vertical ? 'space-y-2' : 'flex flex-wrap gap-4'}`}>
         {options.map((option) => {
@@ -373,7 +373,7 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
                   className={`
                     ${checkboxSizeStyles[size]}
                     text-blue-600
-                    border-gray-300
+                    border-gray-300 dark:border-gray-600
                     focus:ring-blue-500 focus:ring-2
                     disabled:opacity-50 disabled:cursor-not-allowed
                     ${error ? 'border-red-500' : ''}
@@ -384,7 +384,7 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
                 <label
                   htmlFor={optionId}
                   className={`
-                    font-medium text-gray-700
+                    font-medium text-gray-700 dark:text-gray-300
                     ${labelSizeStyles[size]}
                     ${isDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                   `}
@@ -392,7 +392,7 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
                   {option.label}
                 </label>
                 {option.description && (
-                  <p className="text-sm text-gray-500">{option.description}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{option.description}</p>
                 )}
               </div>
             </div>

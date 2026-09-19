@@ -157,7 +157,7 @@ export const BarChart: React.FC<BarChartProps> = ({
   if (!datasets || datasets.length === 0) {
     return (
       <div className={`flex items-center justify-center ${className}`} style={{ width, height }}>
-        <span className="text-gray-500 text-sm">No data available</span>
+        <span className="text-gray-500 dark:text-gray-400 text-sm">No data available</span>
       </div>
     );
   }
@@ -173,7 +173,7 @@ export const BarChart: React.FC<BarChartProps> = ({
                 className="w-3 h-3 rounded"
                 style={{ backgroundColor: dataset.color || defaultColors[i % defaultColors.length] }}
               />
-              <span className="text-gray-600">{dataset.label}</span>
+              <span className="text-gray-600 dark:text-gray-400">{dataset.label}</span>
             </div>
           ))}
         </div>
@@ -198,7 +198,7 @@ export const BarChart: React.FC<BarChartProps> = ({
         )}
 
         {/* Y axis labels */}
-        <g className="text-gray-500 text-xs">
+        <g className="text-gray-500 dark:text-gray-400 text-xs">
           {yTicks.map((tick, i) => (
             <text
               key={i}
@@ -215,7 +215,7 @@ export const BarChart: React.FC<BarChartProps> = ({
 
         {/* X axis labels */}
         {showLabels && (
-          <g className="text-gray-500 text-xs">
+          <g className="text-gray-500 dark:text-gray-400 text-xs">
             {labels.map((label, i) => {
               const groupWidth = chartWidth / labels.length;
               const x = padding.left + i * groupWidth + groupWidth / 2;
@@ -294,7 +294,7 @@ export const BarChart: React.FC<BarChartProps> = ({
                       className="w-2 h-2 rounded"
                       style={{ backgroundColor: item.color }}
                     />
-                    <span className="text-gray-500">{item.label}</span>
+                    <span className="text-gray-500 dark:text-gray-400">{item.label}</span>
                   </div>
                   <span className="font-medium">{item.value}</span>
                 </div>

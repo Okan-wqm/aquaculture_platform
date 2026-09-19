@@ -104,18 +104,18 @@ export function InstallPrompt(): ReactElement | null {
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-gray-900 dark:text-white text-sm">Install AquaMobil</h3>
             {isIOS ? (
-              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
                 Tap the <span className="inline-flex items-center"><svg className="w-4 h-4 inline text-ocean-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg></span> share button, then <strong>&quot;Add to Home Screen&quot;</strong>
               </p>
             ) : (
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Add to your home screen for quick access and offline support
               </p>
             )}
           </div>
           <button
             onClick={handleDismiss}
-            className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
+            className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
           >
             <X size={18} />
           </button>

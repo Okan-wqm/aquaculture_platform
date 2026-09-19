@@ -124,9 +124,12 @@ const DARK_AWARE_PRIMITIVES = [
   'web/shared-ui/src/components/Drawer/Drawer.tsx',
 ];
 
+/** Comment lines out of the way: a class named in prose (`// no competing \`bg-white\``) is not painted. */
+const COMMENT_LINE = /^[ \t]*(?:\/\/|\*|\/\*).*$/gm;
+
 function lightOnlySurfaces(source: string): number {
   let hits = 0;
-  for (const match of source.matchAll(STRING_LITERAL)) {
+  for (const match of source.replace(COMMENT_LINE, '').matchAll(STRING_LITERAL)) {
     if (LIGHT_SURFACE.test(match[0]) && !match[0].includes('dark:')) hits += 1;
   }
   return hits;
@@ -422,7 +425,7 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
   it('keys dark: on the shell theme and holds the dark-aware primitives to the strict form (FE-MEDIUM-072)', () => {
     expect(read('web/shared-ui/src/styles/theme.css')).toMatch(DARK_VARIANT_DEFINITION);
     for (const file of DARK_AWARE_PRIMITIVES) {
-      const unpaired = [...read(file).matchAll(STRING_LITERAL)]
+      const unpaired = [...read(file).replace(COMMENT_LINE, '').matchAll(STRING_LITERAL)]
         .map((match) => match[0])
         .filter((literal) => LIGHT_CLASS.test(literal) && !literal.includes('dark:'));
       expect(unpaired.length === 0 ? '' : `${file}: ${unpaired.join(' | ')}`).toBe('');

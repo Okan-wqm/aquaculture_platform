@@ -435,8 +435,15 @@ classes (`.card`, `.data-table`, `.form-label`, …) are paired in their
 files; the converter learned to step over regex literals inside template
 expressions); darkSurface 2 400 → 1 800. Batch 29: farm-module (4 748
 classes in 155 files); darkSurface 1 800 → 1 084. Batch 30: sensor-module
-(5 315 classes in 242 files); darkSurface 1 084 → 136. **Owner:** okan ·
-**Expiry:** 2027-06-30.
+(5 315 classes in 242 files); darkSurface 1 084 → 136. Batch 31: shared-ui
+(331 classes in 34 files) and AquaMobil (282 in 53, with the app's own
+convention — page surface gray-950, headline white, hairlines gray-800);
+darkSurface 136 → 0 in every package, the ratchet holds it there, and the
+shell's override block and the six palette variables only it read are
+deleted: the page keeps `--color-bg` and `--color-text`, and everything on
+it says what it looks like in the dark with its own classes. The one
+`!important` left under `data-theme` pins the login card's glass fields
+light on purpose. **Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
 
@@ -453,9 +460,6 @@ classes in 155 files); darkSurface 1 800 → 1 084. Batch 30: sensor-module
   configuration drives columns and colours), the two feeding matrix editors (editable
   header cells, add/remove rows and columns — a spreadsheet, not a list),
   three report-export HTML strings, two calendar grids and a print document.
-- Light-only surfaces: 136 after batch 30 (`darkSurface` ratchet: shared-ui
-  75, aquamobil 61); the shell's override block goes when the count reaches
-  zero.
 - Wave 2/3 of the design map (messaging to web, admin DataTable, dashboard,
   single palette across web + AquaMobil, i18n reach) — design
   work with product decisions attached; not gated here.

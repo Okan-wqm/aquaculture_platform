@@ -50,10 +50,10 @@ export function ChartCard({
   children: ReactNode;
 }): ReactElement {
   return (
-    <div className="bg-white rounded-lg shadow">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h3 className="text-base font-semibold text-gray-900">{title}</h3>
-        <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{subtitle}</p>
       </div>
       <div className="p-4" style={{ height: 320 }}>
         {children}

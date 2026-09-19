@@ -22,13 +22,13 @@ export function UpdatePrompt(): ReactElement | null {
           </div>
           <div className="flex-1 min-w-0">
             <h3 className="font-bold text-gray-900 dark:text-white text-sm">New version available</h3>
-            <p className="text-xs text-gray-500 mt-1">Reload to update. Unsent records stay queued on this device.</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Reload to update. Unsent records stay queued on this device.</p>
           </div>
           <button
             type="button"
             onClick={dismissUpdate}
             aria-label="Dismiss update notice"
-            className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0"
+            className="p-1 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0"
           >
             <X size={18} />
           </button>

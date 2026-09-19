@@ -83,7 +83,7 @@ function RiskGauge({ score }: { score: number }): ReactElement {
         <span className={clsx('text-2xl font-bold tabular-nums', colors.text)}>
           {score}
         </span>
-        <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+        <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
           Risk
         </span>
       </div>
@@ -113,7 +113,7 @@ export function AiInsightsCard(): ReactElement {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
         <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3">
-          <div className="h-4 w-32 bg-white/20 rounded skeleton" />
+          <div className="h-4 w-32 bg-white/20 dark:bg-gray-900/20 rounded skeleton" />
         </div>
         <div className="p-4 space-y-3">
           <div className="flex items-center gap-4">
@@ -145,7 +145,7 @@ export function AiInsightsCard(): ReactElement {
           <h3 className="text-sm font-bold text-white">AI Insights</h3>
         </div>
         <div className="p-4 flex items-center justify-center">
-          <p className="text-sm text-gray-400 font-medium">AI insights currently unavailable</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 font-medium">AI insights currently unavailable</p>
         </div>
       </div>
     );
@@ -198,7 +198,7 @@ export function AiInsightsCard(): ReactElement {
               <span className={clsx('text-sm font-bold', RISK_LEVEL_COLORS[riskTier].text)}>
                 {riskLabel}
               </span>
-              <p className="text-[10px] text-gray-400 font-medium">
+              <p className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
                 {insights.tankRisks.length} tank{insights.tankRisks.length !== 1 ? 's' : ''} monitored
               </p>
             </div>
@@ -222,7 +222,7 @@ export function AiInsightsCard(): ReactElement {
 
             {/* WHY: Tank risk count summary — tells the manager how many tanks need attention */}
             {insights.tankRisks.filter((t) => t.riskScore >= 50).length > 0 && (
-              <p className="text-[10px] text-gray-500 font-medium">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
                 {insights.tankRisks.filter((t) => t.riskScore >= 50).length} tank{insights.tankRisks.filter((t) => t.riskScore >= 50).length !== 1 ? 's' : ''} at elevated risk
               </p>
             )}

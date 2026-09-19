@@ -540,7 +540,7 @@ export function ChatRoomPage(): JSX.Element {
         ) : errorMsg ? (
           <div className="text-center py-12 px-4">
             <AlertCircle size={40} className="mx-auto mb-3 text-gray-300 opacity-60" />
-            <p className="text-sm text-gray-500">{errorMsg}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{errorMsg}</p>
           </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 px-4">
@@ -766,7 +766,7 @@ export function ChatRoomPage(): JSX.Element {
           <button
             type="button"
             aria-label="Dismiss"
-            className="ml-1 px-1.5 rounded-md hover:bg-white/10 touch-feedback text-base leading-none"
+            className="ml-1 px-1.5 rounded-md hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback text-base leading-none"
             onClick={() => setOfflineMediaNotice(null)}
           >
             <span aria-hidden="true">×</span>

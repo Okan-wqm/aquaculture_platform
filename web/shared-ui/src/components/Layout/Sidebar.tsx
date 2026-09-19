@@ -231,17 +231,17 @@ const resolveIcon = (
 const themeClasses = {
   default: {
     active: 'bg-blue-50 text-blue-700',
-    hover: 'text-gray-700 hover:bg-gray-100',
+    hover: 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700',
     badge: 'bg-blue-100 text-blue-700',
   },
   admin: {
     active: 'bg-indigo-50 text-indigo-700',
-    hover: 'text-gray-700 hover:bg-indigo-50',
+    hover: 'text-gray-700 dark:text-gray-300 hover:bg-indigo-50',
     badge: 'bg-indigo-100 text-indigo-700',
   },
   tenant: {
     active: 'bg-emerald-50 text-emerald-700',
-    hover: 'text-gray-700 hover:bg-emerald-50',
+    hover: 'text-gray-700 dark:text-gray-300 hover:bg-emerald-50',
     badge: 'bg-emerald-100 text-emerald-700',
   },
 };
@@ -412,9 +412,9 @@ const MenuItem: React.FC<{
  */
 const sidebarThemeStyles = {
   default: {
-    bg: 'bg-white',
-    border: 'border-gray-200',
-    toggleHover: 'hover:bg-gray-100',
+    bg: 'bg-white dark:bg-gray-900',
+    border: 'border-gray-200 dark:border-gray-700',
+    toggleHover: 'hover:bg-gray-100 dark:hover:bg-gray-700',
   },
   admin: {
     bg: 'bg-slate-50',
@@ -460,7 +460,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {onCollapsedChange && (
           <button
             onClick={() => onCollapsedChange(!collapsed)}
-            className={`p-2 text-gray-500 hover:text-gray-700 ${themeStyle.toggleHover} rounded-lg`}
+            className={`p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 ${themeStyle.toggleHover} rounded-lg`}
             title={collapsed ? 'Expand' : 'Collapse'}
             aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >

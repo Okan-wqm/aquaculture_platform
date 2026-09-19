@@ -285,7 +285,7 @@ export function ChannelListPage(): ReactElement {
             <div className="flex items-center gap-3">
               <button
                 onClick={handleCloseSearch}
-                className="min-w-[48px] min-h-[48px] p-3 -ml-2 rounded-xl hover:bg-white/10 touch-feedback flex items-center justify-center"
+                className="min-w-[48px] min-h-[48px] p-3 -ml-2 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback flex items-center justify-center"
               >
                 <X size={22} />
               </button>
@@ -295,7 +295,7 @@ export function ChannelListPage(): ReactElement {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search conversations..."
-                className="flex-1 bg-white/20 text-white placeholder-white/60 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white/30 transition-colors"
+                className="flex-1 bg-white/20 dark:bg-gray-900/20 text-white placeholder-white/60 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white/30 dark:focus:bg-gray-800/30 transition-colors"
               />
             </div>
           ) : (
@@ -306,7 +306,7 @@ export function ChannelListPage(): ReactElement {
               </div>
               <button
                 onClick={handleOpenSearch}
-                className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-white/10 touch-feedback flex items-center justify-center"
+                className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10 touch-feedback flex items-center justify-center"
               >
                 <Search size={20} />
               </button>
@@ -349,7 +349,7 @@ export function ChannelListPage(): ReactElement {
             <p className="font-medium text-gray-600 dark:text-gray-300">
               Could not load messages
             </p>
-            <p className="text-sm text-gray-400 mt-1">{errorMsg}</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{errorMsg}</p>
             <button
               onClick={() => {
                 void handleRefresh();

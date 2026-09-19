@@ -93,7 +93,7 @@ export function MobileLayout({ children }: MobileLayoutProps): ReactElement {
     },
     {
       id: 'account', icon: User, label: 'Account', path: '/account',
-      activeColor: 'text-gray-600', activeBg: 'bg-gray-100 dark:bg-gray-800/30',
+      activeColor: 'text-gray-600 dark:text-gray-400', activeBg: 'bg-gray-100 dark:bg-gray-800/30',
     },
   ];
 

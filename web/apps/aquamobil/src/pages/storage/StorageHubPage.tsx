@@ -108,7 +108,7 @@ const MOVEMENT_TYPE_CONFIG: Record<MovementType, {
   },
   WASTE: {
     icon: Trash2,
-    iconColor: 'text-gray-500',
+    iconColor: 'text-gray-500 dark:text-gray-400',
     iconBg: 'bg-gray-100 dark:bg-gray-800',
     label: 'WASTE',
   },
@@ -313,7 +313,7 @@ export function StorageHubPage(): JSX.Element {
               })}
             </div>
           ) : (
-            <div className="text-center py-12 text-gray-400">
+            <div className="text-center py-12 text-gray-400 dark:text-gray-500">
               <Warehouse size={48} className="mx-auto mb-3 opacity-30" />
               <p className="font-medium">You do not have access</p>
             </div>
@@ -338,7 +338,7 @@ export function StorageHubPage(): JSX.Element {
                       <p className="text-sm font-semibold text-gray-900 dark:text-white">
                         {coverage.feedCode}
                       </p>
-                      <p className="text-xs text-gray-500">{coverage.feedName}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">{coverage.feedName}</p>
                     </div>
                     <div className="text-right">
                       <p
@@ -353,7 +353,7 @@ export function StorageHubPage(): JSX.Element {
                           : 'OK'}
                       </p>
                       {coverage.stockoutDate && (
-                        <p className="text-xs text-gray-400">{coverage.stockoutDate}</p>
+                        <p className="text-xs text-gray-400 dark:text-gray-500">{coverage.stockoutDate}</p>
                       )}
                     </div>
                   </li>

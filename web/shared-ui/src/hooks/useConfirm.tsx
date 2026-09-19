@@ -100,9 +100,9 @@ const PromptDialog: React.FC<PromptDialogProps> = ({ options, onSubmit, onCancel
     <Modal isOpen onClose={onCancel} size="sm" title={options.title} showCloseButton={false}>
       <form onSubmit={handleSubmit}>
         {options.message !== undefined && (
-          <div className="mb-3 text-sm text-gray-500">{options.message}</div>
+          <div className="mb-3 text-sm text-gray-500 dark:text-gray-400">{options.message}</div>
         )}
-        <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 mb-1">
+        <label htmlFor={inputId} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           {options.label ?? options.title}
         </label>
         <input
@@ -113,13 +113,13 @@ const PromptDialog: React.FC<PromptDialogProps> = ({ options, onSubmit, onCancel
           value={value}
           placeholder={options.placeholder}
           onChange={(e) => setValue(e.target.value)}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-blue-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-blue-500"
         />
         <div className="mt-6 flex justify-end space-x-3">
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors"
           >
             {options.cancelText ?? 'İptal'}
           </button>

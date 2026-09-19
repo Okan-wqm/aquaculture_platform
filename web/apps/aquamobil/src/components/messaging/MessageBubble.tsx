@@ -421,7 +421,7 @@ export function MessageBubble({
             <div
               className={clsx(
                 'w-10 h-10 rounded-lg flex items-center justify-center shrink-0',
-                isOwn ? 'bg-white/20' : 'bg-ocean-50 dark:bg-ocean-900/30',
+                isOwn ? 'bg-white/20 dark:bg-gray-900/20' : 'bg-ocean-50 dark:bg-ocean-900/30',
               )}
             >
               <FileIcon size={18} className={isOwn ? 'text-white' : 'text-ocean-600 dark:text-ocean-400'} />
@@ -430,7 +430,7 @@ export function MessageBubble({
               <p className={clsx('text-xs font-semibold truncate', isOwn ? 'text-white' : 'text-gray-900 dark:text-gray-100')}>
                 {file.name}
               </p>
-              <p className={clsx('text-[10px]', isOwn ? 'text-white/75' : 'text-gray-400')}>
+              <p className={clsx('text-[10px]', isOwn ? 'text-white/75' : 'text-gray-400 dark:text-gray-500')}>
                 {file.size}
               </p>
             </div>
@@ -457,28 +457,28 @@ export function MessageBubble({
       <BottomSheet isOpen={showMenu} onClose={closeMenu} title="Message" bodyClassName="px-2 pb-2">
         {onReply && (
           <ActionRow
-            icon={<Reply size={18} className="text-gray-500" />}
+            icon={<Reply size={18} className="text-gray-500 dark:text-gray-400" />}
             label="Reply"
             onSelect={() => handleAction(onReply)}
           />
         )}
         {onCopy && (
           <ActionRow
-            icon={<Copy size={18} className="text-gray-500" />}
+            icon={<Copy size={18} className="text-gray-500 dark:text-gray-400" />}
             label="Copy"
             onSelect={() => handleAction(onCopy)}
           />
         )}
         {onForward && (
           <ActionRow
-            icon={<Forward size={18} className="text-gray-500" />}
+            icon={<Forward size={18} className="text-gray-500 dark:text-gray-400" />}
             label="Forward"
             onSelect={() => handleAction(onForward)}
           />
         )}
         {onEdit && (
           <ActionRow
-            icon={<Pencil size={18} className="text-gray-500" />}
+            icon={<Pencil size={18} className="text-gray-500 dark:text-gray-400" />}
             label="Edit"
             onSelect={() => handleAction(onEdit)}
           />

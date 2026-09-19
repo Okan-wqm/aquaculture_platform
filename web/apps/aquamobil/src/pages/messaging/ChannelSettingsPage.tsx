@@ -255,7 +255,7 @@ export function ChannelSettingsPage(): JSX.Element {
             </h2>
             {canEdit && channel.type === 'group' && (
               <button className="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 touch-feedback">
-                <Edit3 size={14} className="text-gray-400" />
+                <Edit3 size={14} className="text-gray-400 dark:text-gray-500" />
               </button>
             )}
           </div>
@@ -421,7 +421,7 @@ export function ChannelSettingsPage(): JSX.Element {
               >
                 <span
                   className={clsx(
-                    'absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow-sm transition-transform duration-200',
+                    'absolute top-0.5 left-0.5 w-6 h-6 bg-white dark:bg-gray-900 rounded-full shadow-sm transition-transform duration-200',
                     hasConsented && isAiEnabled && 'translate-x-5',
                   )}
                 />
@@ -431,7 +431,7 @@ export function ChannelSettingsPage(): JSX.Element {
             {/* Consent Status */}
             <div className="px-4 py-3 border-b border-gray-50 dark:border-gray-800">
               <div className="flex items-center gap-2">
-                <Sparkles size={14} className="text-gray-400" />
+                <Sparkles size={14} className="text-gray-400 dark:text-gray-500" />
                 <span className="text-xs text-gray-500 dark:text-gray-400">
                   Consent: {hasConsented ? 'Granted' : 'Not granted'}
                 </span>
@@ -560,7 +560,7 @@ export function ChannelSettingsPage(): JSX.Element {
         {/* User list */}
         <div className="min-h-0 flex-1 overflow-y-auto">
           {availableUsers.length === 0 ? (
-            <p className="text-center text-sm text-gray-400 py-6">
+            <p className="text-center text-sm text-gray-400 dark:text-gray-500 py-6">
               {addMemberSearch ? 'No users match your search' : 'All users are already members'}
             </p>
           ) : (

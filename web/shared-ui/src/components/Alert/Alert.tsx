@@ -220,12 +220,12 @@ export interface BadgeProps {
 }
 
 const badgeVariants = {
-  default: 'bg-gray-100 text-gray-800',
+  default: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   success: 'bg-green-100 text-green-800',
   warning: 'bg-yellow-100 text-yellow-800',
   error: 'bg-red-100 text-red-800',
   info: 'bg-blue-100 text-blue-800',
-  outline: 'bg-transparent border border-gray-300 text-gray-700',
+  outline: 'bg-transparent border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300',
 };
 
 const badgeSizes = {
@@ -261,7 +261,7 @@ export const Badge: React.FC<BadgeProps> = ({
     return (
       <span className={`inline-flex items-center ${className}`}>
         <span className={`w-2 h-2 rounded-full ${dotColors[variant]}`} />
-        {children && <span className="ml-2 text-sm text-gray-700">{children}</span>}
+        {children && <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{children}</span>}
       </span>
     );
   }

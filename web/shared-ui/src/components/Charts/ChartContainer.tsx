@@ -19,7 +19,7 @@ export interface ChartContainerProps {
 
 const LoadingSkeleton: React.FC<{ height: number | string }> = ({ height }) => (
   <div className="animate-pulse" style={{ height }}>
-    <div className="h-full bg-gray-100 rounded-lg" />
+    <div className="h-full bg-gray-100 dark:bg-gray-800 rounded-lg" />
   </div>
 );
 
@@ -50,13 +50,13 @@ const ChartContainerInner: React.FC<ChartContainerProps> = ({
   footer,
 }) => {
   return (
-    <div className={`bg-white rounded-xl shadow-sm border border-gray-200 ${className}`}>
+    <div className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 ${className}`}>
       {/* Header */}
       {(title || actions) && (
-        <div className="flex items-start justify-between p-4 border-b border-gray-100">
+        <div className="flex items-start justify-between p-4 border-b border-gray-100 dark:border-gray-700">
           <div>
-            {title && <h3 className="text-sm font-semibold text-gray-900">{title}</h3>}
-            {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+            {title && <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>}
+            {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{subtitle}</p>}
           </div>
           {actions && <div className="flex items-center gap-2">{actions}</div>}
         </div>
@@ -74,7 +74,7 @@ const ChartContainerInner: React.FC<ChartContainerProps> = ({
       </div>
 
       {/* Footer */}
-      {footer && <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">{footer}</div>}
+      {footer && <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">{footer}</div>}
     </div>
   );
 };

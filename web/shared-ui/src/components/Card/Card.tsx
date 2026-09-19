@@ -57,11 +57,11 @@ const shadowStyles = {
 
 const CardSkeleton: React.FC = () => (
   <div className="animate-pulse">
-    <div className="h-4 bg-gray-200 rounded w-3/4 mb-4"></div>
+    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-4"></div>
     <div className="space-y-3">
-      <div className="h-3 bg-gray-200 rounded"></div>
-      <div className="h-3 bg-gray-200 rounded w-5/6"></div>
-      <div className="h-3 bg-gray-200 rounded w-4/6"></div>
+      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
+      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-5/6"></div>
+      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-4/6"></div>
     </div>
   </div>
 );
@@ -119,9 +119,9 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
   ) => {
     // Temel stil sınıfları
     const baseStyles = `
-      bg-white rounded-lg
+      bg-white dark:bg-gray-900 rounded-lg
       ${shadowStyles[shadow]}
-      ${bordered ? 'border border-gray-200' : ''}
+      ${bordered ? 'border border-gray-200 dark:border-gray-700' : ''}
       ${hoverable ? 'hover:shadow-md transition-shadow duration-200 cursor-pointer' : ''}
       ${selected ? 'ring-2 ring-blue-500 border-blue-500' : ''}
     `;
@@ -141,17 +141,17 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
             className={`
               flex items-start justify-between
               ${padding !== 'none' ? paddingStyles[padding] : 'px-4 py-3'}
-              ${children || footer ? 'border-b border-gray-100' : ''}
+              ${children || footer ? 'border-b border-gray-100 dark:border-gray-700' : ''}
             `}
           >
             <div className="flex-1 min-w-0">
               {title && (
-                <h3 className="text-lg font-semibold text-gray-900 truncate">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 truncate">
                   {title}
                 </h3>
               )}
               {subtitle && (
-                <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
               )}
             </div>
             {headerAction && (
@@ -173,8 +173,8 @@ export const Card = forwardRef<HTMLDivElement, CardProps>(
           <div
             className={`
               ${paddingStyles[padding]}
-              border-t border-gray-100
-              bg-gray-50 rounded-b-lg
+              border-t border-gray-100 dark:border-gray-700
+              bg-gray-50 dark:bg-gray-800 rounded-b-lg
             `}
           >
             {footer}
@@ -304,7 +304,7 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   const trendColors = {
     up: 'text-green-600',
     down: 'text-red-600',
-    neutral: 'text-gray-600',
+    neutral: 'text-gray-600 dark:text-gray-400',
   };
 
   const trendIcons = {
@@ -322,10 +322,10 @@ export const MetricCard: React.FC<MetricCardProps> = ({
     >
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <p className="text-sm font-medium text-gray-500">{displayLabel}</p>
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{displayLabel}</p>
           <div className="mt-2 flex items-baseline">
-            <span className="text-3xl font-bold text-gray-900">{value}</span>
-            {unit && <span className="ml-1 text-sm text-gray-500">{unit}</span>}
+            <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">{value}</span>
+            {unit && <span className="ml-1 text-sm text-gray-500 dark:text-gray-400">{unit}</span>}
           </div>
           {change !== undefined && (
             <p className={`mt-2 text-sm ${trendColors[trend]}`}>
@@ -334,10 +334,10 @@ export const MetricCard: React.FC<MetricCardProps> = ({
               {/* trendLabel artık GERÇEKTEN render ediliyor — bildirilmiş ama
                   hiç kullanılmayan bir prop'tu, yani her çağıran sessizce
                   yok sayılıyordu. Türkçe varsayılan korunur. */}
-              <span className="ml-1 text-gray-500">{trendLabel ?? 'son 30 günde'}</span>
+              <span className="ml-1 text-gray-500 dark:text-gray-400">{trendLabel ?? 'son 30 günde'}</span>
             </p>
           )}
-          {subtitle && <div className="mt-2 text-sm text-gray-500">{subtitle}</div>}
+          {subtitle && <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">{subtitle}</div>}
         </div>
         {icon && (
           <div

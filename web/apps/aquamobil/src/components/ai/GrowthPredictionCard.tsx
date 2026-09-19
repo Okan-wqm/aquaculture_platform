@@ -64,10 +64,10 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
             The "arrow up/down" visual cue makes growth direction instantly scannable. */}
         <div className="flex items-center justify-between mb-4">
           <div className="text-center">
-            <div className="text-xs text-gray-400 font-medium mb-1">Current</div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 font-medium mb-1">Current</div>
             <div className="text-xl font-bold text-gray-900 dark:text-white tabular-nums">
               {prediction.currentAvgWeight.toFixed(0)}
-              <span className="text-xs text-gray-400 font-medium ml-0.5">g</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500 font-medium ml-0.5">g</span>
             </div>
           </div>
           {/* WHY: Arrow indicator between current and predicted weight — visual growth direction */}
@@ -78,10 +78,10 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
             </svg>
           </div>
           <div className="text-center">
-            <div className="text-xs text-gray-400 font-medium mb-1">Predicted (30d)</div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 font-medium mb-1">Predicted (30d)</div>
             <div className="text-xl font-bold text-purple-600 dark:text-purple-400 tabular-nums">
               {prediction.predictedAvgWeight30d.toFixed(0)}
-              <span className="text-xs text-gray-400 font-medium ml-0.5">g</span>
+              <span className="text-xs text-gray-400 dark:text-gray-500 font-medium ml-0.5">g</span>
             </div>
           </div>
           {/* WHY: Growth delta percentage badge — green for positive growth, red for negative */}
@@ -101,7 +101,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
             <div className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
               {prediction.predictedSGR.toFixed(2)}
             </div>
-            <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider">
               SGR %/d
             </div>
           </div>
@@ -109,7 +109,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
             <div className="text-sm font-bold text-gray-900 dark:text-white tabular-nums">
               {prediction.predictedFCR.toFixed(2)}
             </div>
-            <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider">
               FCR
             </div>
           </div>
@@ -119,7 +119,7 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
                 ? `${(prediction.estimatedBiomass30d / 1000).toFixed(1)}t`
                 : `${prediction.estimatedBiomass30d.toFixed(0)}kg`}
             </div>
-            <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+            <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider">
               Est. Biomass
             </div>
           </div>

@@ -28,26 +28,19 @@
    Theme Tokens
    ============================================================================ */
 
+/* The page itself under each theme. Everything on it says what it looks like
+   in the dark with its own `dark:` classes (theme.css keys them on this
+   attribute — FE-MEDIUM-072); the former !important override of light utility
+   classes is gone, and the web-design-system-ratchet keeps light-only surfaces
+   at zero. */
 :root {
   --color-bg: #f8fafc;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f1f5f9;
   --color-text: #111827;
-  --color-text-muted: #64748b;
-  --color-border: #dbe3ea;
-  --color-primary: #2563eb;
-  --color-primary-soft: #eff6ff;
 }
 
 html[data-theme='dark'] {
   --color-bg: #101418;
-  --color-surface: #171d23;
-  --color-surface-muted: #202832;
   --color-text: #e5edf5;
-  --color-text-muted: #9aa8b6;
-  --color-border: #33404d;
-  --color-primary: #60a5fa;
-  --color-primary-soft: #17243a;
 }
 
 /* ============================================================================
@@ -75,40 +68,6 @@ html[data-theme='dark'] {
   ::selection {
     @apply bg-primary-100 text-primary-900;
   }
-}
-
-/* Dark-theme fallback for markup that has not yet been paired with its own
-   `dark:` classes (FE-MEDIUM-072). An element that carries a dark variant for
-   the property is left alone (`:not([class*="dark:bg-"])` and its siblings), so
-   every file the darkSurface ratchet pairs switches to its explicit variants
-   at once; this block is deleted when that ratchet reaches zero. Form controls
-   no longer need it: theme.css gives them a base-layer default under
-   `[data-theme='dark']` that any utility overrides. */
-html[data-theme='dark'] .bg-white:not([class*='dark:bg-']) {
-  background-color: var(--color-surface) !important;
-}
-
-html[data-theme='dark'] .bg-gray-50:not([class*='dark:bg-']),
-html[data-theme='dark'] .bg-gray-100:not([class*='dark:bg-']) {
-  background-color: var(--color-surface-muted) !important;
-}
-
-html[data-theme='dark'] .text-gray-900:not([class*='dark:text-']),
-html[data-theme='dark'] .text-gray-800:not([class*='dark:text-']),
-html[data-theme='dark'] .text-gray-700:not([class*='dark:text-']) {
-  color: var(--color-text) !important;
-}
-
-html[data-theme='dark'] .text-gray-600:not([class*='dark:text-']),
-html[data-theme='dark'] .text-gray-500:not([class*='dark:text-']),
-html[data-theme='dark'] .text-gray-400:not([class*='dark:text-']) {
-  color: var(--color-text-muted) !important;
-}
-
-html[data-theme='dark'] .border-gray-100:not([class*='dark:border-']),
-html[data-theme='dark'] .border-gray-200:not([class*='dark:border-']),
-html[data-theme='dark'] .border-gray-300:not([class*='dark:border-']) {
-  border-color: var(--color-border) !important;
 }
 
 /* ============================================================================

@@ -18,9 +18,9 @@ import { renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ChannelMessagesPage } from '../../lib/messageCache';
 import { routeGraphql } from '../../__tests__/mockGraphqlClient';
 import { requestMock, TEST_TENANT_ID, TEST_USER_ID } from '../../__tests__/sharedUiMock';
+import type { ChannelMessagesPage } from '../../lib/messageCache';
 import type { Message } from '../../types/messaging';
 import { flattenChannelMessages, useChannelMessages, useSendMessage } from '../useMessagingData';
 

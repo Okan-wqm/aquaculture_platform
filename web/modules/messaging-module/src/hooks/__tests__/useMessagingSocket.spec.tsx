@@ -20,7 +20,6 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ChannelMessagesPage } from '../../lib/messageCache';
 import {
   ackLastEmit,
   fireSocketEvent,
@@ -38,6 +37,7 @@ import {
   TEST_TENANT_ID,
   TEST_USER_ID,
 } from '../../__tests__/sharedUiMock';
+import type { ChannelMessagesPage } from '../../lib/messageCache';
 import type { Channel, Message } from '../../types/messaging';
 import { useMessagingSocket } from '../useMessagingSocket';
 

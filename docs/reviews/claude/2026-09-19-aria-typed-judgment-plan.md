@@ -417,3 +417,29 @@ dispatch_model` under `if dispatch_model:` with `agent_profile.model`; `run_with
   stated confidence semantics, a citation the parser can check, and a failure vocabulary — before
   it is a prompt.
 - **Plan:** Phase 1 (`aria_kernel/typed_judgment.py`).
+
+## ARIA-HIGH-176 — the planner dispatch hook serves the child from the cycle's shared checkout
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-26
+- **Evidence:** `planner_dispatch_hook.dispatch_one_pending_planner_request` ran `ci_executor.py`
+  with `cwd=repo_root` and `ARIA_WORKSPACE_ROOT=repo_root` — the checkout the cycle stands in,
+  which is `main`. Under `managed_subscription` the native admission binds `request.target_sha` to
+  that checkout's `HEAD` (`_native_task_binding_refusal`), and `main` advances hourly on this
+  repository, so every planner request minted before the last advance is refused
+  `target_revision_mismatch`, released harness-class, and asked again next tick. Measured
+  2026-09-19: `AIR-aria-challenger-planner-2d16fdbb749e` (anchored at 09-18's `b8febe123`) was
+  refused forty times from `HEAD 254d1ef7cb`; no convergence, no implementation behind it. The
+  drain has served each request from `aria-worktrees/req-<id>` at its anchor since ARIA-HIGH-124 —
+  in its own private helpers, which the hook could not reuse.
+- **Rule:** a request is served from a tree at its own anchor by every caller that starts a child;
+  the per-request worktree bracket is one kernel spelling, not the drain's private one.
+- **Fix (this lane):** `aria_kernel/request_worktree.py` holds the bracket (bounded git, leftover
+  reconcile, refused vs unanswered as two receipts); `ci_executor_drain` delegates to it; the hook
+  adds the worktree at `request_anchor_sha(request)` before the child, runs the child there, and
+  removes it after. A git that refuses (an unknown sha) falls back to the shared checkout as before;
+  a git that does not answer starts no child, releases the lease `native_runtime_control_unavailable`
+  and returns `provider_control_unavailable`, on which the daemon already backs off.
+- **Proof:** `tests/test_planner_dispatch_worktree.py` — the child's `cwd`/`ARIA_WORKSPACE_ROOT`
+  is the worktree and its `HEAD` is the anchor while the shared checkout's `HEAD` has moved; refused
+  → shared checkout; unanswered → no child, lease released, request PENDING, exact governance
+  sequence; no anchor → shared checkout as before.

@@ -77,6 +77,41 @@ SELECTION_FAILURE_KIND = "executor_selection_failure"
 # detail_code carries the exit code, the only fact the drain has.
 CHILD_WITHOUT_SUMMARY_FAILURE_CLASS = "child_without_summary"
 
+# ARIA-MEDIUM-177 — whose failure the exit code reports. A child's summary
+# names its failure class from the executor's closed vocabulary; two of
+# those classes say the REQUEST's output was wrong (a contract violation
+# the pre-submit gate refused, a result the kernel rejected) and the
+# kernel already recorded that verdict on the request's own ledger. The
+# rest say the HOST could not serve (no auth, no credit, a hung child, a
+# child that said nothing) — the drain's condition, which the night's red
+# exists to announce. The first live drain after the chain restart (run
+# 35444645590) dispatched thirty, folded twenty-seven and was red for one
+# judge that cited a line range; the harness's health and the agents'
+# quality read as one colour. Request-class failures stay counted,
+# detailed and warned by name, and turn the run red only when they
+# DOMINATE it — every request failing the same way is the harness's
+# condition again (a contract every agent breaks is the contract's), so
+# that share is the floor of red, not the ceiling of green.
+REQUEST_FAULT_FAILURE_CLASSES: frozenset[str] = frozenset({"policy_violation", "response_schema_rejected"})
+REQUEST_FAULT_RED_SHARE = 0.5
+
+
+def drain_exit_code(*, attempted: int, succeeded: int, harness_failed: int, request_failed: int) -> int:
+    """The ONE rule for the drain's exit code (ARIA-MEDIUM-177).
+
+    1 when the harness failed at all, or when request-class failures reach
+    ``REQUEST_FAULT_RED_SHARE`` of what was attempted, or when they are the
+    only outcome; 0 otherwise — including a night where some requests'
+    outputs were rejected by name while the harness served every one.
+    """
+    if harness_failed > 0:
+        return 1
+    if request_failed == 0:
+        return 0
+    if succeeded == 0:
+        return 1
+    return 1 if request_failed >= attempted * REQUEST_FAULT_RED_SHARE else 0
+
 
 def _record_breaker_failure(
     tools_dir: Path,
@@ -146,6 +181,8 @@ def build_drain_governance_payload(
     open_circuits: set[tuple[str, str, str]],
     breaker_state: str,
     target_sha: str = "",
+    harness_failed: int = 0,
+    request_failed: int = 0,
 ) -> dict:
     """ARIA-HIGH-003 — the schema-v2 ``executor_drain_completed`` aggregate.
 
@@ -161,6 +198,9 @@ def build_drain_governance_payload(
         "attempted": attempted,
         "succeeded": succeeded,
         "failed": failed,
+        # ARIA-MEDIUM-177 — the halves the exit code is derived from.
+        "harness_failed": harness_failed,
+        "request_failed": request_failed,
         "stop_reason": stop_reason,
         "failure_counts": dict(sorted(failure_counts.items())),
         "by_provider_model_role": {
@@ -572,13 +612,20 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     would otherwise run under the `aria-evidence-judge` default profile even
     when the kernel minted it for a different agent.
 
-    Exit code: 0 when every attempted dispatch succeeded or was refused by
-    name (or none were pending); 1 when any child failed — the work that
-    DID succeed is already submitted by the children, so a red run reports
-    the failure without discarding the night's progress. Success is the
-    child's ``succeeded`` summary and nothing else: a child that exited
-    without a summary is a ``child_without_summary`` failure, and
-    ``drained`` counts summaries, never exit codes.
+    Exit code (`drain_exit_code`, ARIA-MEDIUM-177): 0 when every attempted
+    dispatch succeeded or was refused by name (or none were pending), and
+    also when the only failures are the REQUESTS' own — a contract
+    violation or a rejected result the kernel already recorded against the
+    request — as long as they do not dominate the run; 1 when the harness
+    failed at all (no auth, no credit, a hung or silent child, a selection
+    or worktree git that did not answer), or when request-class failures
+    reach ``REQUEST_FAULT_RED_SHARE`` of the attempted or are the only
+    outcome. The work that DID succeed is already submitted by the
+    children, so a red run reports the failure without discarding the
+    night's progress. Success is the child's ``succeeded`` summary and
+    nothing else: a child that exited without a summary is a
+    ``child_without_summary`` failure, and ``drained`` counts summaries,
+    never exit codes.
     """
     started = time.monotonic()
     attempted: set[str] = set()
@@ -600,6 +647,9 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
     # by name and the queue stays pending for the next healthy drain.
     circuit_skip_streak = 0
     failure_counts: dict[str, int] = {}
+    # ARIA-MEDIUM-177 — the two halves of `failed`, for the exit code.
+    harness_failed = 0
+    request_failed = 0
     by_provider_model_role: dict[str, dict] = {}
     failure_details: list[dict] = []
     # ARIA-HIGH-003 — the joined evidence target: the set of trusted
@@ -750,7 +800,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                          breaker_recorded: set[str]) -> None:
         """Fold ONE request's terminal outcome (the pre-4b `_settle` tail, verbatim);
         the persistent breaker is told once per child per kind."""
-        nonlocal succeeded, failed
+        nonlocal succeeded, failed, harness_failed, request_failed
 
         # ARIA-HIGH-003 — classify the terminal outcome from the child's own
         # v1 summary and fold it into the circuit, the persistent breaker,
@@ -787,6 +837,17 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 _engine._stage(f"drain_child_without_summary request_id={request_id} rc={child.returncode}")
             else:
                 counted_class = str(failure_class or "unknown")
+            if counted_class in REQUEST_FAULT_FAILURE_CLASSES:
+                request_failed += 1
+                # A GitHub annotation, so the request's own fault is read on
+                # the run page without opening the log; the harness is green.
+                sys.stdout.write(
+                    f"::warning title=request rejected by name::{request_id} {counted_class} "
+                    f"{detail_code or '-'} ({route_key})\n"
+                )
+                sys.stdout.flush()
+            else:
+                harness_failed += 1
             failure_counts[counted_class] = failure_counts.get(counted_class, 0) + 1
             bucket["failure_classes"][counted_class] = (
                 bucket["failure_classes"].get(counted_class, 0) + 1
@@ -896,6 +957,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             )
             stop_reason = selection_error
             failed += 1
+            harness_failed += 1
             break
         request_id = (request or {}).get("request_id")
         if not request_id:
@@ -1023,6 +1085,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                 )
                 stop_reason = WORKTREE_UNAVAILABLE_STOP_REASON
                 failed += 1
+                harness_failed += 1
                 break
             worktree = added.path
         for member in batch_members:
@@ -1038,7 +1101,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
         _settle(inflight.pop(0))
     _engine._stage(
         f"drain_done attempted={len(attempted)} succeeded={succeeded} "
-        f"failed={failed} stop={stop_reason} "
+        f"failed={failed} harness_failed={harness_failed} request_failed={request_failed} "
+        f"stop={stop_reason} "
         f"circuit_skipped={len(circuit_excluded)} window_skipped={len(window_excluded)}"
     )
     if _engine._append_tools_governance is not None:
@@ -1050,6 +1114,8 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
                     attempted=len(attempted),
                     succeeded=succeeded,
                     failed=failed,
+                    harness_failed=harness_failed,
+                    request_failed=request_failed,
                     stop_reason=stop_reason,
                     failure_counts=failure_counts,
                     by_provider_model_role=by_provider_model_role,
@@ -1073,4 +1139,7 @@ def drain_pending(*, tools_dir: Path, repo_root: Path) -> int:
             handle.write("ARIA_DRAIN_EOF\n")
             handle.write(f"drained={succeeded}\n")
             handle.write(f"drain_failed={failed}\n")
-    return 0 if failed == 0 else 1
+            handle.write(f"drain_harness_failed={harness_failed}\n")
+            handle.write(f"drain_request_failed={request_failed}\n")
+    return drain_exit_code(attempted=len(attempted), succeeded=succeeded,
+                           harness_failed=harness_failed, request_failed=request_failed)

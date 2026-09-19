@@ -16,6 +16,8 @@ nothing" class ci_executor.py itself condemns at ORPHAN-HIGH-472.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import sys
@@ -580,3 +582,70 @@ class DrainJudgeBatchTests(unittest.TestCase):
         )
         self.assertEqual([d[0] for d in calls["dispatch"]], ["single", "single"])
         self.assertIn("drained=2\n", output)
+
+
+class DrainExitCodeNamesWhoseFailureItIs(unittest.TestCase):
+    """ARIA-MEDIUM-177 — the night's red is the harness's; a request whose
+    output was rejected by name is counted, detailed and warned, and turns
+    the run red only when such failures dominate it."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(prefix="aria-drain-exit-")
+        self.addCleanup(self._tmp.cleanup)
+
+    def test_the_rule_by_table(self) -> None:
+        rule = ci_executor_drain.drain_exit_code
+        cases = [
+            # (attempted, succeeded, harness_failed, request_failed) -> exit
+            ((30, 27, 0, 1), 0),   # the live run: one judge's own fault, harness green
+            ((30, 29, 1, 0), 1),   # one harness failure is red
+            ((30, 27, 1, 2), 1),   # any harness failure is red whatever else happened
+            ((1, 0, 0, 1), 1),     # the only outcome is a request failure: red
+            ((4, 2, 0, 2), 1),     # request failures at half the attempted: red
+            ((5, 3, 0, 2), 0),     # below half, with successes: green
+            ((0, 0, 0, 0), 0),     # nothing pending
+        ]
+        for (attempted, succeeded, harness, request), expected in cases:
+            with self.subTest(attempted=attempted, succeeded=succeeded, harness=harness, request=request):
+                self.assertEqual(rule(attempted=attempted, succeeded=succeeded, harness_failed=harness,
+                                      request_failed=request), expected)
+
+    def test_a_rejected_result_among_successes_is_green_warned_and_recorded(self) -> None:
+        tests = DrainJudgeBatchTests()
+        tests._tmp = self._tmp
+        queue = [tests._judge("J-1"), tests._judge("J-2"), tests._judge("J-3"), None]
+        rows: list[tuple[str, dict]] = []
+        stdout = io.StringIO()
+        with patch.object(ci_executor_drain._engine, "_append_tools_governance",
+                          side_effect=lambda _root, kind, payload: rows.append((kind, payload))), \
+             contextlib.redirect_stdout(stdout):
+            rc, calls, output = tests._drain_batch(
+                queue, batch_size=1,
+                summaries_for={"J-1": tests._summary("J-1", "succeeded"), "J-2": tests._summary("J-2", "succeeded"),
+                               "J-3": tests._summary("J-3", "failed", failure_class="response_schema_rejected",
+                                                     detail="agent_result_rejected")},
+            )
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(calls["dispatch"]), 3)
+        self.assertIn("drained=2\n", output)
+        self.assertIn("drain_failed=1\n", output)
+        self.assertIn("drain_harness_failed=0\n", output)
+        self.assertIn("drain_request_failed=1\n", output)
+        self.assertIn("::warning title=request rejected by name::J-3 response_schema_rejected agent_result_rejected",
+                      stdout.getvalue())
+        payload = next(p for kind, p in rows if kind == "executor_drain_completed")
+        self.assertEqual((payload["failed"], payload["harness_failed"], payload["request_failed"]), (1, 0, 1))
+        self.assertEqual(payload["failure_counts"], {"response_schema_rejected": 1})
+
+    def test_a_contract_violation_as_the_only_outcome_is_red(self) -> None:
+        tests = DrainJudgeBatchTests()
+        tests._tmp = self._tmp
+        queue = [tests._judge("J-1"), None]
+        rc, _calls, output = tests._drain_batch(
+            queue, batch_size=1,
+            summaries_for={"J-1": tests._summary("J-1", "failed", failure_class="policy_violation",
+                                                 detail="judge_verdict_contract_violation")},
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("drain_request_failed=1\n", output)
+        self.assertIn("drain_harness_failed=0\n", output)

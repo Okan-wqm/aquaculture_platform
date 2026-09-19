@@ -507,3 +507,30 @@ dispatch_model` under `if dispatch_model:` with `agent_profile.model`; `run_with
   is the worktree and its `HEAD` is the anchor while the shared checkout's `HEAD` has moved; refused
   → shared checkout; unanswered → no child, lease released, request PENDING, exact governance
   sequence; no anchor → shared checkout as before.
+
+## ARIA-MEDIUM-177 — the drain's exit code reads harness health and agent quality as one colour
+
+- **Severity:** MEDIUM · **Owner:** claude · **Deadline:** 2026-10-03
+- **Evidence:** `ci_executor_drain.drain_pending` returned `0 if failed == 0 else 1`, and `failed`
+  counted every child summary whose outcome was `failed`, whatever its `failure_class`. The child's
+  closed vocabulary separates the host's conditions (`harness_unavailable`, `timeout`,
+  `auth_failed`, `credit_exhausted`, `process_exit`, the drain's own `child_without_summary`) from
+  the request's own (`policy_violation` — a contract the pre-submit gate refused;
+  `response_schema_rejected` — a result the kernel rejected and recorded as REJECTED on the
+  request's ledger). Run 35444645590 dispatched thirty, folded twenty-seven and was red for one
+  judge that cited a line range (`agent_evidence_ref_malformed`); the nightly signal an operator
+  reads as "the harness broke" carried an agent's own mistake, already recorded where it belongs.
+- **Rule:** an exit code reports whose failure it is. The harness's condition is red. A request's
+  rejected output is counted, detailed and warned by name, and reddens the run only when such
+  failures dominate it — every agent failing the same way is the contract's condition, and that
+  share is the floor of red, not the ceiling of green.
+- **Fix (this lane):** `drain_exit_code(attempted, succeeded, harness_failed, request_failed)` as
+  the one rule (1 on any harness failure; 1 when request failures reach `REQUEST_FAULT_RED_SHARE`
+  = 0.5 of the attempted or are the only outcome; 0 otherwise); both halves on the
+  `executor_drain_completed` row and in `GITHUB_OUTPUT` (`drain_harness_failed`,
+  `drain_request_failed`); a `::warning` annotation per request-class failure so the run page
+  names it without opening the log.
+- **Proof:** `test_executor_drain_mode.DrainExitCodeNamesWhoseFailureItIs` — the rule by table
+  (the live 30/27/1 case green; one harness failure red; half the attempted red; the only outcome
+  red), a rejected result among successes green with both halves recorded and the annotation
+  written, a contract violation as the only outcome red.

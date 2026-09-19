@@ -86,7 +86,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
     // Glass yüzeyde renk token'larını kullan (rakip utility olmaması için değiştir).
     const checkboxSurfaceStyle = isGlass
       ? 'text-[var(--surface-btn-bg)] border-[var(--surface-field-border)] focus:ring-[var(--surface-field-focus-ring)]'
-      : 'text-blue-600 border-gray-300 dark:border-gray-600 focus:ring-blue-500';
+      : 'text-primary-600 border-gray-300 dark:border-gray-600 focus:ring-primary-500';
 
     // Indeterminate durumu için ref callback
     const checkboxRef = React.useCallback(
@@ -120,7 +120,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
               rounded
               focus:ring-2 focus:ring-offset-0
               disabled:opacity-50 disabled:cursor-not-allowed
-              ${error ? 'border-red-500' : ''}
+              ${error ? 'border-error-500' : ''}
             `}
             {...props}
           />
@@ -148,7 +148,7 @@ export const Checkbox = forwardRef<HTMLInputElement, CheckboxProps>(
               </p>
             )}
             {error && (
-              <p className="text-sm text-red-600 mt-1" role="alert">
+              <p className="text-sm text-error-600 mt-1" role="alert">
                 {error}
               </p>
             )}
@@ -230,8 +230,8 @@ export const Switch = forwardRef<HTMLInputElement, SwitchProps>(
             relative inline-flex flex-shrink-0
             rounded-full cursor-pointer
             transition-colors duration-200 ease-in-out
-            focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
-            ${checked ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'}
+            focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:ring-offset-2
+            ${checked ? 'bg-primary-600' : 'bg-gray-200 dark:bg-gray-700'}
             ${disabled ? 'opacity-50 cursor-not-allowed' : ''}
           `}
         >
@@ -372,11 +372,11 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
                   onChange={() => onChange?.(option.value)}
                   className={`
                     ${checkboxSizeStyles[size]}
-                    text-blue-600
+                    text-primary-600
                     border-gray-300 dark:border-gray-600
-                    focus:ring-blue-500 focus:ring-2
+                    focus:ring-primary-500 focus:ring-2
                     disabled:opacity-50 disabled:cursor-not-allowed
-                    ${error ? 'border-red-500' : ''}
+                    ${error ? 'border-error-500' : ''}
                   `}
                 />
               </div>
@@ -400,7 +400,7 @@ export const RadioGroup: React.FC<RadioGroupProps> = ({
         })}
       </div>
       {error && (
-        <p className="mt-2 text-sm text-red-600" role="alert">
+        <p className="mt-2 text-sm text-error-600" role="alert">
           {error}
         </p>
       )}

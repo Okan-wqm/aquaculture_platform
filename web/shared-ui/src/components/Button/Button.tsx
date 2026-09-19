@@ -44,11 +44,11 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  */
 const variantStyles: Record<ButtonVariant, string> = {
   primary: `
-    bg-blue-600 text-white
-    hover:bg-blue-700
-    focus:ring-blue-500
-    active:bg-blue-800
-    disabled:bg-blue-300
+    bg-primary-600 text-white
+    hover:bg-primary-700
+    focus:ring-primary-500
+    active:bg-primary-800
+    disabled:bg-primary-300
   `,
   secondary: `
     bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200
@@ -59,25 +59,25 @@ const variantStyles: Record<ButtonVariant, string> = {
     border border-gray-300 dark:border-gray-600
   `,
   danger: `
-    bg-red-600 text-white
-    hover:bg-red-700
-    focus:ring-red-500
-    active:bg-red-800
-    disabled:bg-red-300
+    bg-error-600 text-white
+    hover:bg-error-700
+    focus:ring-error-500
+    active:bg-error-800
+    disabled:bg-error-300
   `,
   success: `
-    bg-green-600 text-white
-    hover:bg-green-700
-    focus:ring-green-500
-    active:bg-green-800
-    disabled:bg-green-300
+    bg-success-600 text-white
+    hover:bg-success-700
+    focus:ring-success-500
+    active:bg-success-800
+    disabled:bg-success-300
   `,
   warning: `
-    bg-yellow-600 text-white
-    hover:bg-yellow-700
-    focus:ring-yellow-600
-    active:bg-yellow-800
-    disabled:bg-yellow-300
+    bg-warning-600 text-white
+    hover:bg-warning-700
+    focus:ring-warning-600
+    active:bg-warning-800
+    disabled:bg-warning-300
   `,
   ghost: `
     bg-transparent text-gray-700 dark:text-gray-300
@@ -87,12 +87,12 @@ const variantStyles: Record<ButtonVariant, string> = {
     disabled:text-gray-500 dark:disabled:text-gray-400
   `,
   outline: `
-    bg-transparent text-blue-600
-    border border-blue-600
-    hover:bg-blue-50
-    focus:ring-blue-500
-    active:bg-blue-100
-    disabled:text-blue-300 disabled:border-blue-300
+    bg-transparent text-primary-600
+    border border-primary-600
+    hover:bg-primary-50
+    focus:ring-primary-500
+    active:bg-primary-100
+    disabled:text-primary-300 disabled:border-primary-300
   `,
 };
 

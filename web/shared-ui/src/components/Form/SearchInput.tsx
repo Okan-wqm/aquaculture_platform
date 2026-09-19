@@ -166,7 +166,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
         className={`
           block w-full rounded-lg border border-gray-300 dark:border-gray-600
           bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100
-          focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+          focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-primary-500
           disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed
           transition-colors duration-200
           ${sizeClasses[size]}

@@ -8,7 +8,7 @@
  * - Privacy: GDPR consent management (view/toggle/withdraw consents, history)
  */
 
-import { useAuthContext, Button, Input, Alert, Card, Modal, useToast, graphqlClient, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { useAuthContext, Button, Input, Alert, Card, Modal, useToast, graphqlClient, Spinner, PageHeader, Tabs, TabPanel } from '@aquaculture/shared-ui';
 import React, { useState, useCallback, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
@@ -1438,31 +1438,21 @@ const SettingsPage: React.FC = () => {
       />
 
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
-        <nav className="flex gap-1 -mb-px">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => handleTabChange(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <Tabs items={TABS} value={activeTab} onChange={handleTabChange} tabsId="settings" aria-label="Settings sections" className="mb-6" />
 
       {/* Tab Content */}
-      {activeTab === 'profile' && <ProfileTab showToast={toast} />}
-      {activeTab === 'security' && <SecurityTab showToast={toast} />}
-      {activeTab === 'preferences' && <PreferencesTab showToast={toast} />}
-      {activeTab === 'privacy' && <ConsentSettingsPage />}
+      <TabPanel tabsId="settings" value="profile" selected={activeTab}>
+        <ProfileTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="security" selected={activeTab}>
+        <SecurityTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="preferences" selected={activeTab}>
+        <PreferencesTab showToast={toast} />
+      </TabPanel>
+      <TabPanel tabsId="settings" value="privacy" selected={activeTab}>
+        <ConsentSettingsPage />
+      </TabPanel>
     </div>
   );
 };

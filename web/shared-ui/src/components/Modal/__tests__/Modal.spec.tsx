@@ -110,3 +110,32 @@ describe('Modal — stacking', () => {
     expect(document.body.style.overflow).toBe('');
   });
 });
+
+describe('Modal — focus return (FE-HIGH-087)', () => {
+  const Host: React.FC<{ open: boolean; mounted: boolean }> = ({ open, mounted }) => (
+    <>
+      <button type="button">opener</button>
+      {mounted && (
+        <Modal isOpen={open} onClose={() => {}} title="Düzenle">
+          <input aria-label="ad" />
+        </Modal>
+      )}
+    </>
+  );
+
+  it('returns focus to the opener when the dialog unmounts while open (a wrapper that early-returns null)', () => {
+    vi.useFakeTimers();
+    const { rerender } = render(<Host open={false} mounted={false} />);
+    const opener = screen.getByRole('button', { name: 'opener' });
+    opener.focus();
+    expect(document.activeElement).toBe(opener);
+
+    rerender(<Host open mounted />);
+    vi.runAllTimers();
+    expect(document.activeElement).not.toBe(opener);
+
+    rerender(<Host open={false} mounted={false} />);
+    expect(document.activeElement).toBe(opener);
+    vi.useRealTimers();
+  });
+});

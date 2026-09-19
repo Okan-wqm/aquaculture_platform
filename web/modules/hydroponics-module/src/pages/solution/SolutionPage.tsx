@@ -10,7 +10,7 @@ import DrainageCompositionTab from './tabs/DrainageCompositionTab';
 import PreviousDrainageTab from './tabs/PreviousDrainageTab';
 import CurrentNsFormulaTab from './tabs/CurrentNsFormulaTab';
 import ReadjustmentSettingsTab from './tabs/ReadjustmentSettingsTab';
-import { PageHeader } from '@aquaculture/shared-ui';
+import { PageHeader, Tabs } from '@aquaculture/shared-ui';
 
 // Always-visible tabs
 const BASE_TAB_COMPONENTS: Record<string, React.FC> = {
@@ -49,31 +49,19 @@ const SolutionPageInner: React.FC = () => {
         className="mb-6"
       />
 
-      {/* Tab Bar */}
-      <div className="border-b border-gray-200 dark:border-gray-700 mb-6">
-        <nav className="flex gap-0 -mb-px overflow-x-auto" role="tablist">
-          {tabs.map((tab) => {
-            const isActive = currentTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => navigate(`/hydroponics/solution/${tab.path}`)}
-                className={`
-                  whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors
-                  ${isActive
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
-                  }
-                `}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      {/* Tab Bar — each tab is a route; the strip navigates */}
+      <Tabs
+        items={tabs}
+        value={currentTab}
+        onChange={(id) => {
+          const target = tabs.find((tab) => tab.id === id);
+          if (target) navigate(`/hydroponics/solution/${target.path}`);
+        }}
+        tabsId="hydro-solution"
+        aria-label="Nutrient solution steps"
+        scrollable
+        className="mb-6"
+      />
 
       {/* Tab Content */}
       <Routes>

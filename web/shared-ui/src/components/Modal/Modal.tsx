@@ -41,6 +41,14 @@ export interface ModalProps {
    * içeriğininkileri kabuk açıkken de alır (FE-MEDIUM-072).
    */
   theme?: DialogTheme;
+  /**
+   * Id of an element inside the body that names the dialog when no `title`
+   * is given (a centred confirmation renders its own heading). A dialog with
+   * neither is unnamed to assistive technology.
+   */
+  labelledBy?: string;
+  /** Id of an element inside the body that describes the dialog when no `description` is given. */
+  describedBy?: string;
   /** Footer içeriği */
   footer?: React.ReactNode;
   /** Modal içeriği */
@@ -112,6 +120,8 @@ export const Modal: React.FC<ModalProps> = ({
   showCloseButton = true,
   closeLabel = 'Close',
   theme = 'auto',
+  labelledBy,
+  describedBy,
   footer,
   children,
   className = '',
@@ -143,8 +153,8 @@ export const Modal: React.FC<ModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto"
       role="dialog"
       aria-modal="true"
-      aria-labelledby={title ? titleId : undefined}
-      aria-describedby={description ? descriptionId : undefined}
+      aria-labelledby={title ? titleId : labelledBy}
+      aria-describedby={description ? descriptionId : describedBy}
       {...dialogThemeAttributes(theme)}
     >
       {/* Overlay */}
@@ -310,6 +320,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   // onay butonu disabled kalır. Modal her açıldığında sıfırlanır (yanlış
   // yazıp iptal eden bir kullanıcı ikinci açışta "hazır onaylı" bulmasın).
   const [typedConfirmation, setTypedConfirmation] = React.useState('');
+  const headingId = React.useId();
+  const messageId = React.useId();
+  const gateId = React.useId();
   React.useEffect(() => {
     if (isOpen) {
       setTypedConfirmation('');
@@ -322,15 +335,15 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   // BUG-011: confirmVariant is now properly typed — use it directly with fallback to variant prop
   const variant: 'danger' | 'warning' | 'info' = confirmVariant ?? variantProp;
   const iconColors = {
-    danger: 'text-red-600 bg-red-100 dark:text-red-400 dark:bg-red-900/40',
-    warning: 'text-yellow-600 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/40',
-    info: 'text-blue-600 bg-blue-100 dark:text-blue-400 dark:bg-blue-900/40',
+    danger: 'text-error-600 bg-error-100 dark:text-error-400 dark:bg-error-900/40',
+    warning: 'text-warning-600 bg-warning-100 dark:text-warning-400 dark:bg-warning-900/40',
+    info: 'text-info-600 bg-info-100 dark:text-info-400 dark:bg-info-900/40',
   };
 
   const buttonColors = {
-    danger: 'bg-red-600 hover:bg-red-700 focus:ring-red-500',
-    warning: 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500',
-    info: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
+    danger: 'bg-error-600 hover:bg-error-700 focus:ring-error-500',
+    warning: 'bg-warning-600 hover:bg-warning-700 focus:ring-warning-500',
+    info: 'bg-primary-600 hover:bg-primary-700 focus:ring-primary-500',
   };
 
   const icons = {
@@ -357,6 +370,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       onClose={onClose}
       size="sm"
       showCloseButton={false}
+      labelledBy={headingId}
+      describedBy={messageId}
     >
       <div className="text-center">
         {/* İkon */}
@@ -365,21 +380,21 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </div>
 
         {/* Başlık ve mesaj */}
-        <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+        <h3 id={headingId} className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
         {/*
           `message` ReactNode kabul ediyor — string ile tipografi
           `<p>` sarmalaması; ReactNode ile olduğu gibi render.
         */}
         {typeof message === 'string' ? (
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</p>
+          <p id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</p>
         ) : (
-          <div className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</div>
+          <div id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</div>
         )}
 
         {warning && (
           <div
             role="alert"
-            className="mt-4 rounded-lg border border-amber-100 bg-amber-50 p-3 text-left text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+            className="mt-4 rounded-lg border border-warning-100 bg-warning-50 p-3 text-left text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-900/30 dark:text-warning-300"
           >
             {warning}
           </div>
@@ -388,7 +403,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         {/* Yazı-ile-onay gate — yalnızca requireTypedConfirmation verilmişse */}
         {requireTypedConfirmation && (
           <div className="mt-4 text-left">
-            <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300">
+            <label htmlFor={gateId} className="block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300">
               {typedConfirmationLabel ? (
                 typedConfirmationLabel.split('{text}').map((part, idx, arr) => (
                   <React.Fragment key={idx}>
@@ -406,13 +421,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
               )}
             </label>
             <input
+              id={gateId}
               type="text"
               value={typedConfirmation}
               onChange={(e) => setTypedConfirmation(e.target.value)}
               disabled={isLoading}
               autoComplete="off"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-blue-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-              aria-label="Typed confirmation"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-primary-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             />
           </div>
         )}

@@ -26,12 +26,12 @@ const LoadingSkeleton: React.FC<{ height: number | string }> = ({ height }) => (
 // BUG-021: Remove hardcoded min-h-[200px] — use h-full so error state respects
 // the container height prop and doesn't overflow small charts
 const ErrorState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="flex items-center justify-center h-full w-full bg-red-50 rounded-lg">
+  <div className="flex items-center justify-center h-full w-full bg-error-50 rounded-lg">
     <div className="text-center">
-      <svg className="w-12 h-12 mx-auto text-red-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-12 h-12 mx-auto text-error-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <p className="text-sm text-red-600">{message}</p>
+      <p className="text-sm text-error-600">{message}</p>
     </div>
   </div>
 );

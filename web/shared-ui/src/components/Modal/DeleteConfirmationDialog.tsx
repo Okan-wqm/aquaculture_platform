@@ -204,7 +204,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
       {/* Loading state */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600"></div>
           <span className="ml-3 text-gray-600 dark:text-gray-400">Yükleniyor...</span>
         </div>
       )}
@@ -213,13 +213,13 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
       {!isLoading && preview && (
         <div className="space-y-4">
           {/* Entity being deleted */}
-          <div className="flex items-start p-4 bg-red-50 border border-red-200 rounded-lg">
-            <WarningIcon className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="flex items-start p-4 bg-error-50 border border-error-200 rounded-lg">
+            <WarningIcon className="w-6 h-6 text-error-600 flex-shrink-0 mt-0.5" />
             <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">
+              <h3 className="text-sm font-medium text-error-800">
                 {entityType} Silme Onayı
               </h3>
-              <p className="mt-1 text-sm text-red-700">
+              <p className="mt-1 text-sm text-error-700">
                 <strong>"{entityName}"</strong> {entityType.toLowerCase()}'ını silmek istediğinizden emin misiniz?
               </p>
             </div>
@@ -227,16 +227,16 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
 
           {/* Blockers */}
           {hasBlockers && (
-            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <div className="p-4 bg-warning-50 border border-warning-200 rounded-lg">
               <div className="flex items-center mb-2">
-                <BlockerIcon className="w-5 h-5 text-yellow-600" />
-                <h4 className="ml-2 text-sm font-medium text-yellow-800">
+                <BlockerIcon className="w-5 h-5 text-warning-600" />
+                <h4 className="ml-2 text-sm font-medium text-warning-800">
                   Silme Engelleyicileri
                 </h4>
               </div>
               <ul className="list-disc list-inside space-y-1">
                 {preview.blockers.map((blocker, index) => (
-                  <li key={index} className="text-sm text-yellow-700">
+                  <li key={index} className="text-sm text-warning-700">
                     {blocker}
                   </li>
                 ))}
@@ -273,7 +273,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                         <span className="ml-2 text-sm font-medium text-gray-700 dark:text-gray-300">
                           {group.label}
                         </span>
-                        <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                        <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-info-100 text-info-800">
                           {group.items.length}
                         </span>
                       </div>
@@ -284,7 +284,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                           <li
                             key={item.id}
                             className={`px-4 py-2 flex items-center justify-between ${
-                              item.hasBlocker ? 'bg-yellow-50 dark:bg-yellow-900/30' : ''
+                              item.hasBlocker ? 'bg-warning-50 dark:bg-warning-900/30' : ''
                             }`}
                           >
                             <div className="flex items-center min-w-0">
@@ -298,7 +298,7 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
                               )}
                             </div>
                             {item.hasBlocker && (
-                              <span className="ml-2 text-xs text-yellow-600 flex-shrink-0">
+                              <span className="ml-2 text-xs text-warning-600 flex-shrink-0">
                                 {item.blockerReason}
                               </span>
                             )}
@@ -319,8 +319,8 @@ export const DeleteConfirmationDialog: React.FC<DeleteConfirmationDialogProps> =
 
           {/* No affected items */}
           {totalAffected === 0 && !hasBlockers && (
-            <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-sm text-green-700">
+            <div className="p-4 bg-success-50 border border-success-200 rounded-lg">
+              <p className="text-sm text-success-700">
                 Bu {entityType.toLowerCase()} silindığında başka hiçbir öğe etkilenmeyecektir.
               </p>
             </div>

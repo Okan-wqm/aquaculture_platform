@@ -27,6 +27,7 @@ import { AutoRulesTab } from './components/AutoRulesTab';
 import { CalendarTab } from './components/CalendarTab';
 import { CompletedTab } from './components/CompletedTab';
 import { Spinner, PageHeader } from '@aquaculture/shared-ui';
+import { Calendar, CircleCheck, Clipboard, Clock, RefreshCw, Zap } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -48,56 +49,32 @@ const tabs: Tab[] = [
   {
     id: 'today',
     name: 'Bugün',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    icon: <Clock className="w-4 h-4" aria-hidden="true" />,
   },
   {
     id: 'all-tasks',
     name: 'Tüm Görevler',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-      </svg>
-    ),
+    icon: <Clipboard className="w-4 h-4" aria-hidden="true" />,
   },
   {
     id: 'recurring',
     name: 'Tekrarlayan',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-      </svg>
-    ),
+    icon: <RefreshCw className="w-4 h-4" aria-hidden="true" />,
   },
   {
     id: 'auto-rules',
     name: 'Oto. Kurallar',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-      </svg>
-    ),
+    icon: <Zap className="w-4 h-4" aria-hidden="true" />,
   },
   {
     id: 'calendar',
     name: 'Takvim',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
+    icon: <Calendar className="w-4 h-4" aria-hidden="true" />,
   },
   {
     id: 'completed',
     name: 'Tamamlanan',
-    icon: (
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    icon: <CircleCheck className="w-4 h-4" aria-hidden="true" />,
   },
 ];
 
@@ -126,75 +103,92 @@ const TasksPage: React.FC = () => {
     refetch,
   } = useTasks();
 
-  const {
-    templates,
-    toggleActive: toggleTemplateActive,
-  } = useRecurringTemplates(activeTab === 'recurring');
+  const { templates, toggleActive: toggleTemplateActive } = useRecurringTemplates(
+    activeTab === 'recurring',
+  );
 
-  const {
-    autoRules,
-    toggleActive: toggleRuleActive,
-  } = useAutoRules(activeTab === 'auto-rules');
+  const { autoRules, toggleActive: toggleRuleActive } = useAutoRules(activeTab === 'auto-rules');
 
   const handleTabChange = (tabId: TabId) => {
     setSearchParams({ tab: tabId });
   };
 
   // Task actions
-  const handleToggleComplete = useCallback(async (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId);
-    if (!task) return;
+  const handleToggleComplete = useCallback(
+    async (taskId: string) => {
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
 
-    if (task.status !== 'COMPLETED') {
-      await completeTaskMutation(taskId);
-    } else {
-      await updateTask({ id: taskId, status: 'PENDING' });
-    }
-  }, [tasks, completeTaskMutation, updateTask]);
+      if (task.status !== 'COMPLETED') {
+        await completeTaskMutation(taskId);
+      } else {
+        await updateTask({ id: taskId, status: 'PENDING' });
+      }
+    },
+    [tasks, completeTaskMutation, updateTask],
+  );
 
   // `isCompleted` is the absolute target state the user is moving the checkbox TO
   // (computed at the checkbox source in TaskDetailModal as `!item.isCompleted`).
   // The farm subgraph's setChecklistItem mutation takes this absolute target, so the
   // desktop click-to-flip UX is preserved without a server-side read-then-flip.
-  const handleToggleChecklist = useCallback(async (taskId: string, checklistId: string, isCompleted: boolean) => {
-    await toggleChecklistMutation({ taskId, itemId: checklistId, isCompleted });
-  }, [toggleChecklistMutation]);
+  const handleToggleChecklist = useCallback(
+    async (taskId: string, checklistId: string, isCompleted: boolean) => {
+      await toggleChecklistMutation({ taskId, itemId: checklistId, isCompleted });
+    },
+    [toggleChecklistMutation],
+  );
 
-  const handleAddNote = useCallback(async (taskId: string, noteText: string) => {
-    await addNoteMutation({ taskId, text: noteText });
-  }, [addNoteMutation]);
+  const handleAddNote = useCallback(
+    async (taskId: string, noteText: string) => {
+      await addNoteMutation({ taskId, text: noteText });
+    },
+    [addNoteMutation],
+  );
 
-  const handleCreateTask = useCallback(async (data: TaskFormData) => {
-    await createTask({
-      title: data.title,
-      description: data.description || undefined,
-      category: data.category,
-      priority: data.priority,
-      assignedTo: data.assignedTo || undefined,
-      assignedToName: data.assignedToName || undefined,
-      dueDate: data.dueDate,
-      dueTime: data.dueTime || undefined,
-      location: data.location || undefined,
-      estimatedMinutes: data.estimatedMinutes || undefined,
-      checklistItems: data.checklistItems.map(c => ({
-        text: c.text,
-        isCompleted: c.isCompleted,
-      })),
-      tags: data.tags,
-    });
-  }, [createTask]);
+  const handleCreateTask = useCallback(
+    async (data: TaskFormData) => {
+      await createTask({
+        title: data.title,
+        description: data.description || undefined,
+        category: data.category,
+        priority: data.priority,
+        assignedTo: data.assignedTo || undefined,
+        assignedToName: data.assignedToName || undefined,
+        dueDate: data.dueDate,
+        dueTime: data.dueTime || undefined,
+        location: data.location || undefined,
+        estimatedMinutes: data.estimatedMinutes || undefined,
+        checklistItems: data.checklistItems.map((c) => ({
+          text: c.text,
+          isCompleted: c.isCompleted,
+        })),
+        tags: data.tags,
+      });
+    },
+    [createTask],
+  );
 
-  const handleDeleteTask = useCallback(async (taskId: string) => {
-    await deleteTaskMutation(taskId);
-  }, [deleteTaskMutation]);
+  const handleDeleteTask = useCallback(
+    async (taskId: string) => {
+      await deleteTaskMutation(taskId);
+    },
+    [deleteTaskMutation],
+  );
 
-  const handleToggleTemplateActive = useCallback(async (templateId: string) => {
-    await toggleTemplateActive(templateId);
-  }, [toggleTemplateActive]);
+  const handleToggleTemplateActive = useCallback(
+    async (templateId: string) => {
+      await toggleTemplateActive(templateId);
+    },
+    [toggleTemplateActive],
+  );
 
-  const handleToggleRuleActive = useCallback((ruleId: string) => {
-    toggleRuleActive(ruleId);
-  }, [toggleRuleActive]);
+  const handleToggleRuleActive = useCallback(
+    (ruleId: string) => {
+      toggleRuleActive(ruleId);
+    },
+    [toggleRuleActive],
+  );
 
   // Render active tab
   const renderTab = () => {
@@ -234,19 +228,9 @@ const TasksPage: React.FC = () => {
           />
         );
       case 'recurring':
-        return (
-          <RecurringTab
-            templates={templates}
-            onToggleActive={handleToggleTemplateActive}
-          />
-        );
+        return <RecurringTab templates={templates} onToggleActive={handleToggleTemplateActive} />;
       case 'auto-rules':
-        return (
-          <AutoRulesTab
-            rules={autoRules}
-            onToggleActive={handleToggleRuleActive}
-          />
-        );
+        return <AutoRulesTab rules={autoRules} onToggleActive={handleToggleRuleActive} />;
       case 'calendar':
         return (
           <CalendarTab
@@ -278,9 +262,7 @@ const TasksPage: React.FC = () => {
           description="Günlük operasyonlar, tekrarlayan görevler ve otomatik kurallarla çiftlik yönetimi"
           leading={
             <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
+              <Clipboard className="w-6 h-6 text-blue-600" aria-hidden="true" />
             </div>
           }
           className="px-4 sm:px-6 py-6"
@@ -297,9 +279,10 @@ const TasksPage: React.FC = () => {
                 onClick={() => handleTabChange(tab.id)}
                 className={`
                   flex items-center gap-2 px-4 py-3 border-b-2 text-sm font-medium whitespace-nowrap transition-colors
-                  ${activeTab === tab.id
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
+                  ${
+                    activeTab === tab.id
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >
@@ -312,9 +295,7 @@ const TasksPage: React.FC = () => {
       </div>
 
       {/* Tab Content */}
-      <div className="px-4 sm:px-6 py-6">
-        {renderTab()}
-      </div>
+      <div className="px-4 sm:px-6 py-6">{renderTab()}</div>
     </div>
   );
 };

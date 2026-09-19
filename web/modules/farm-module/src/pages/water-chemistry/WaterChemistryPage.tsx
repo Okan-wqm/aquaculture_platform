@@ -5,8 +5,20 @@
  *
  * Ported from Python v1.py PyQt5 application.
  */
-import { buildDeffeyesData, computeWaterChemistryOutputs, useCanMutate, type WaterChemistryInputs, PageHeader, Button } from '@aquaculture/shared-ui';
-import { alkMgToMeq, calcDicOfAlk, calcForwardDosing, REAGENTS } from '@platform/aquaculture-engines';
+import {
+  buildDeffeyesData,
+  computeWaterChemistryOutputs,
+  useCanMutate,
+  type WaterChemistryInputs,
+  PageHeader,
+  Button,
+} from '@aquaculture/shared-ui';
+import {
+  alkMgToMeq,
+  calcDicOfAlk,
+  calcForwardDosing,
+  REAGENTS,
+} from '@platform/aquaculture-engines';
 import React, { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
@@ -35,6 +47,7 @@ import {
   collectWaterChemistryReportCharts,
   printWaterChemistryReport,
 } from './waterChemistryReportExport';
+import { Printer } from 'lucide-react';
 // ============================================================================
 // DEFAULT INPUT VALUES
 // ============================================================================
@@ -95,9 +108,10 @@ const OverviewContent: React.FC = () => {
 
   // On-demand forward dosing path — derived from the amounts Record
   const onDemandPath = useMemo(() => {
-    const activeInputs = REAGENTS
-      .filter(r => (onDemandAmounts[r.name] || 0) > 0)
-      .map(r => ({ reagentKey: r.name, amountGrams: onDemandAmounts[r.name] }));
+    const activeInputs = REAGENTS.filter((r) => (onDemandAmounts[r.name] || 0) > 0).map((r) => ({
+      reagentKey: r.name,
+      amountGrams: onDemandAmounts[r.name],
+    }));
     if (activeInputs.length === 0) return [];
     const currentDIC = calcDicOfAlk(alkMeq, inputs.pH, inputs.tempC, inputs.salinity);
     return calcForwardDosing(
@@ -119,30 +133,72 @@ const OverviewContent: React.FC = () => {
     const params = [
       ['Temperature', `${inputs.tempC} °C`, 'pH (Realtime)', `${inputs.pH} NBS`],
       ['Salinity', `${inputs.salinity} ppt`, 'Alkalinity', `${inputs.alkalinityMg} mg/L CaCO₃`],
-      ['Target pH', `${inputs.targetpH} NBS`, 'Target Alkalinity', `${inputs.targetAlkalinityMg} mg/L CaCO₃`],
+      [
+        'Target pH',
+        `${inputs.targetpH} NBS`,
+        'Target Alkalinity',
+        `${inputs.targetAlkalinityMg} mg/L CaCO₃`,
+      ],
       ['TAN', `${inputs.tan} mg/L`, 'NH₃-N Limit', `${inputs.unIonizedNH3} mg/L`],
       ['CO₂ Toxic', `${inputs.co2Toxic} mg/L`, 'H₂S Measured', `${inputs.h2sUgL} µg/L`],
-      ['H₂S Limit', `${inputs.h2sLimitUgL} µg/L`, 'Current H₂S', `${outputs.currentH2S.toFixed(1)} µg/L`],
+      [
+        'H₂S Limit',
+        `${inputs.h2sLimitUgL} µg/L`,
+        'Current H₂S',
+        `${outputs.currentH2S.toFixed(1)} µg/L`,
+      ],
       ['Ca²⁺', `${inputs.caMgL} mg/L`, 'Chart', 'ALK/DIC Deffeyes'],
       ['Fish Type', inputs.fishType, 'Fish Size', inputs.fishSize],
-      ['Volume', `${inputs.volume} m³`, 'Alk Range', `${inputs.alkMinMg} - ${inputs.alkMaxMg} mg/L`],
+      [
+        'Volume',
+        `${inputs.volume} m³`,
+        'Alk Range',
+        `${inputs.alkMinMg} - ${inputs.alkMaxMg} mg/L`,
+      ],
     ];
 
     const resultsRows = [
-      ['Toxic NH₃ pH Border', isNaN(outputs.toxicNH3pH) ? 'N/A' : outputs.toxicNH3pH.toFixed(3), 'Current NH₃-N', `${outputs.currentUIA.toFixed(4)} mg/L`],
-      ['Toxic CO₂ pH Border', isNaN(outputs.toxicCO2pH) ? 'N/A' : outputs.toxicCO2pH.toFixed(3), 'Current CO₂', `${outputs.currentCO2.toFixed(2)} mg/L`],
-      ['Toxic H₂S pH Border', isNaN(outputs.toxicH2SpH) ? 'N/A' : outputs.toxicH2SpH.toFixed(3), 'Total Sulfide', `${outputs.totalSulfide > 10000 ? '> 10000' : outputs.totalSulfide.toFixed(1)} µg/L`],
-      ['UIA Status', outputs.uiaStatusLevel.toUpperCase(), 'H₂S Status', outputs.h2sStatusLevel.toUpperCase()],
-      ['Current DIC', `${outputs.currentDIC.toFixed(3)} mmol/L`, 'Target DIC', `${outputs.targetDIC.toFixed(3)} mmol/L`],
+      [
+        'Toxic NH₃ pH Border',
+        isNaN(outputs.toxicNH3pH) ? 'N/A' : outputs.toxicNH3pH.toFixed(3),
+        'Current NH₃-N',
+        `${outputs.currentUIA.toFixed(4)} mg/L`,
+      ],
+      [
+        'Toxic CO₂ pH Border',
+        isNaN(outputs.toxicCO2pH) ? 'N/A' : outputs.toxicCO2pH.toFixed(3),
+        'Current CO₂',
+        `${outputs.currentCO2.toFixed(2)} mg/L`,
+      ],
+      [
+        'Toxic H₂S pH Border',
+        isNaN(outputs.toxicH2SpH) ? 'N/A' : outputs.toxicH2SpH.toFixed(3),
+        'Total Sulfide',
+        `${outputs.totalSulfide > 10000 ? '> 10000' : outputs.totalSulfide.toFixed(1)} µg/L`,
+      ],
+      [
+        'UIA Status',
+        outputs.uiaStatusLevel.toUpperCase(),
+        'H₂S Status',
+        outputs.h2sStatusLevel.toUpperCase(),
+      ],
+      [
+        'Current DIC',
+        `${outputs.currentDIC.toFixed(3)} mmol/L`,
+        'Target DIC',
+        `${outputs.targetDIC.toFixed(3)} mmol/L`,
+      ],
     ];
 
-    const result = printWaterChemistryReport(buildWaterChemistryReportHtml({
-      generatedAt: new Date(),
-      parameters: params,
-      results: resultsRows,
-      charts,
-      deffeyesChart,
-    }));
+    const result = printWaterChemistryReport(
+      buildWaterChemistryReportHtml({
+        generatedAt: new Date(),
+        parameters: params,
+        results: resultsRows,
+        charts,
+        deffeyesChart,
+      }),
+    );
     if (result === 'unavailable') {
       reportWaterChemistryDiagnostic('report-print-fallback', result);
     }
@@ -171,17 +227,14 @@ const OverviewContent: React.FC = () => {
 
       {/* Print button */}
       <div className="flex justify-end">
-        <Button variant="secondary" size="xs" onClick={handlePrintClick}><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-          </svg>
-          Print Report</Button>
+        <Button variant="secondary" size="xs" onClick={handlePrintClick}>
+          <Printer className="w-3.5 h-3.5" aria-hidden="true" />
+          Print Report
+        </Button>
       </div>
 
       {/* Dosing Simulator Results — appears between input and charts when active */}
-      <OnDemandPanel
-        steps={onDemandPath}
-        co2ToxicMgL={inputs.co2Toxic}
-      />
+      <OnDemandPanel steps={onDemandPath} co2ToxicMgL={inputs.co2Toxic} />
 
       {/* ROW 2: 3-Column Chart Layout - [UIA+H2S] | [Deffeyes] | [CO2+Calcite] */}
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.6fr_1fr] gap-4 items-stretch">
@@ -200,7 +253,7 @@ const OverviewContent: React.FC = () => {
               forceSafetyOverlays={forceReportSafetyOverlays}
             />
           </div>
-          </div>
+        </div>
 
         {/* Right Column: CO2 + Calcite stacked (shared SSoT charts) */}
         <div className="space-y-4 flex flex-col">
@@ -211,8 +264,6 @@ const OverviewContent: React.FC = () => {
 
       {/* ROW 3: Results - UIA Status | Calculated Values | Dosing Recipes */}
       <ResultsPanel outputs={outputs} />
-
-
     </div>
   );
 };
@@ -227,14 +278,19 @@ const WaterChemistryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const canBulk = useCanMutate('createBatchWaterQualityMeasurements');
-  const activeTab: TabId = (tabParam === 'record') ? 'record'
-    : (tabParam === 'bulk' && canBulk) ? 'bulk'
-    : (tabParam === 'history') ? 'history'
-    : (tabParam === 'parameters') ? 'parameters'
-    : 'calculator';
+  const activeTab: TabId =
+    tabParam === 'record'
+      ? 'record'
+      : tabParam === 'bulk' && canBulk
+        ? 'bulk'
+        : tabParam === 'history'
+          ? 'history'
+          : tabParam === 'parameters'
+            ? 'parameters'
+            : 'calculator';
 
   const handleTabChange = (tabId: TabId): void => {
-    setSearchParams(prev => {
+    setSearchParams((prev) => {
       prev.set('tab', tabId);
       return prev;
     });

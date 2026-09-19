@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useProtocols, useCategoryInfo, useCategoryStats } from '../../../hooks/useProtocols';
 import { ProtocolInfo, ProtocolCategory } from '../../../types/registration.types';
 import { Spinner, Input } from '@aquaculture/shared-ui';
+import { CircleCheck } from 'lucide-react';
 
 interface ProtocolSelectionStepProps {
   selectedProtocol: string | null;
@@ -74,7 +75,9 @@ function ProtocolCard({
       <div className="flex justify-between items-start">
         <div>
           <h4 className="font-medium text-gray-900 dark:text-gray-100">{protocol.displayName}</h4>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{protocol.description}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+            {protocol.description}
+          </p>
           <div className="flex flex-wrap gap-1 mt-2">
             <span className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
               {protocol.subcategory}
@@ -86,13 +89,7 @@ function ProtocolCard({
         </div>
         {isSelected && (
           <span className="text-blue-500">
-            <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <CircleCheck className="w-6 h-6" aria-hidden="true" />
           </span>
         )}
       </div>
@@ -105,10 +102,14 @@ function ProtocolCard({
           <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">Polling</span>
         )}
         {protocol.capabilities?.supportsSubscription && (
-          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded">Subscribe</span>
+          <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs rounded">
+            Subscribe
+          </span>
         )}
         {protocol.capabilities?.supportsEncryption && (
-          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">Encrypted</span>
+          <span className="px-2 py-0.5 bg-yellow-100 text-yellow-700 text-xs rounded">
+            Encrypted
+          </span>
         )}
       </div>
     </button>
@@ -137,7 +138,7 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
         (p) =>
           p.displayName.toLowerCase().includes(query) ||
           p.description.toLowerCase().includes(query) ||
-          p.code.toLowerCase().includes(query)
+          p.code.toLowerCase().includes(query),
       );
     }
 
@@ -165,12 +166,20 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
     <div className="space-y-6">
       {/* Search */}
       <div>
-        <Input fullWidth type="text" placeholder="Search protocols..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
+        <Input
+          fullWidth
+          type="text"
+          placeholder="Search protocols..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
       </div>
 
       {/* Category cards */}
       <div>
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Filter by Category</h3>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          Filter by Category
+        </h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {Object.entries(ProtocolCategory).map(([key, value]) => (
             <CategoryCard
@@ -194,7 +203,9 @@ export function ProtocolSelectionStep({ selectedProtocol, onSelect }: ProtocolSe
               ? `${categoryInfo[selectedCategory].title} Protocols`
               : 'All Protocols'}
           </h3>
-          <span className="text-sm text-gray-500 dark:text-gray-400">{filteredProtocols.length} protocols</span>
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            {filteredProtocols.length} protocols
+          </span>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto p-1">

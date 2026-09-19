@@ -6,7 +6,15 @@
  * delete confirmation, and template picker integration.
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, chartChrome, colors, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  chartChrome,
+  colors,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+} from '@aquaculture/shared-ui';
 import {
   useParameterConfigList,
   useCreateParameterConfig,
@@ -27,6 +35,7 @@ import { isBlockingError } from '../../../utils/list-view-state';
 import { TemplatePickerModal } from './TemplatePickerModal';
 import { ConfigFormModal, ConfigFormData, EMPTY_FORM } from './ConfigFormModal';
 import { EquipmentMappingPanel } from './EquipmentMappingPanel';
+import { LayoutTemplate, Link, Plus, TriangleAlert } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -47,14 +56,7 @@ const DeleteConfirmDialog: React.FC<{
   <Modal isOpen onClose={onCancel} size="sm" showCloseButton={false}>
     <div className="flex items-start">
       <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-        <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-          />
-        </svg>
+        <TriangleAlert className="h-6 w-6 text-red-600" aria-hidden="true" />
       </div>
       <div className="ml-4">
         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Delete Parameter</h3>
@@ -65,8 +67,12 @@ const DeleteConfirmDialog: React.FC<{
       </div>
     </div>
     <div className="mt-5 flex justify-end space-x-3">
-      <Button variant="secondary" type="button" onClick={onCancel}>Cancel</Button>
-      <Button variant="danger" type="button" disabled={isDeleting} onClick={onConfirm}>{isDeleting ? 'Deleting...' : 'Delete'}</Button>
+      <Button variant="secondary" type="button" onClick={onCancel}>
+        Cancel
+      </Button>
+      <Button variant="danger" type="button" disabled={isDeleting} onClick={onConfirm}>
+        {isDeleting ? 'Deleting...' : 'Delete'}
+      </Button>
     </div>
   </Modal>
 );
@@ -317,19 +323,7 @@ export const ParameterConfigManager: React.FC = () => {
             className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
             title="Map Equipment"
           >
-            <svg
-              className="w-3.5 h-3.5 mr-1"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-              />
-            </svg>
+            <Link className="w-3.5 h-3.5 mr-1" aria-hidden="true" />
             {equipmentCountMap.get(config.id) ?? 0}
           </button>
         </>
@@ -382,14 +376,21 @@ export const ParameterConfigManager: React.FC = () => {
       align: 'right',
       render: (_value, config) => (
         <>
-          <Button variant="ghost" onClick={() => {
+          <Button
+            variant="ghost"
+            onClick={() => {
               setEditingConfig(config);
               setModalMode('edit');
-            }}>Edit</Button>
-          <Button variant="ghost" onClick={() => setDeleteTarget(config)}>Delete</Button>
+            }}
+          >
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => setDeleteTarget(config)}>
+            Delete
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -427,27 +428,20 @@ export const ParameterConfigManager: React.FC = () => {
           </select>
         </div>
         <div className="flex items-center space-x-3">
-          <Button variant="secondary" onClick={() => setShowTemplatePicker(true)}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z"
-              />
-            </svg>
-            Apply Template</Button>
-          <Button variant="primary" onClick={() => {
+          <Button variant="secondary" onClick={() => setShowTemplatePicker(true)}>
+            <LayoutTemplate className="w-4 h-4 mr-2" aria-hidden="true" />
+            Apply Template
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
               setEditingConfig(null);
               setModalMode('create');
-            }}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            Add Parameter</Button>
+            }}
+          >
+            <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+            Add Parameter
+          </Button>
         </div>
       </div>
 

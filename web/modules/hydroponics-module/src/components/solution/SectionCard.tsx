@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 
 interface SectionCardProps {
   number: string;
@@ -7,7 +8,12 @@ interface SectionCardProps {
   defaultOpen?: boolean;
 }
 
-const SectionCard: React.FC<SectionCardProps> = ({ number, title, children, defaultOpen = true }) => {
+const SectionCard: React.FC<SectionCardProps> = ({
+  number,
+  title,
+  children,
+  defaultOpen = true,
+}) => {
   const [open, setOpen] = useState(defaultOpen);
 
   return (
@@ -23,14 +29,10 @@ const SectionCard: React.FC<SectionCardProps> = ({ number, title, children, defa
           </span>
           <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{title}</h3>
         </div>
-        <svg
+        <ChevronDown
           className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+          aria-hidden="true"
+        />
       </button>
       {open && <div className="px-4 py-4">{children}</div>}
     </div>

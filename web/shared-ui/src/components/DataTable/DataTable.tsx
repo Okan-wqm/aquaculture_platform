@@ -11,6 +11,20 @@ import { useI18n } from '../../i18n';
 
 import { Spinner } from '../Loading/Loading';
 import { EmptyState } from '../EmptyState/EmptyState';
+import {
+  ArrowUpDown,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  ChevronsLeft,
+  ChevronsRight,
+  Columns3,
+  Download,
+  Filter as FilterIcon,
+  RefreshCw,
+  Search as SearchIcon,
+} from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -161,20 +175,12 @@ export interface DataTableProps<T> {
 
 const SortIcon: React.FC<{ direction?: 'asc' | 'desc' }> = ({ direction }) => {
   if (!direction) {
-    return (
-      <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-      </svg>
-    );
+    return <ArrowUpDown className="w-4 h-4 text-gray-500 dark:text-gray-400" aria-hidden="true" />;
   }
   return direction === 'asc' ? (
-    <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-    </svg>
+    <ChevronUp className="w-4 h-4 text-primary-600 dark:text-primary-400" aria-hidden="true" />
   ) : (
-    <svg className="w-4 h-4 text-primary-600 dark:text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-    </svg>
+    <ChevronDown className="w-4 h-4 text-primary-600 dark:text-primary-400" aria-hidden="true" />
   );
 };
 
@@ -250,7 +256,8 @@ const TableBodyInner = <T,>({
   handleToggleExpand,
   renderExpandedRow,
 }: TableBodyProps<T>) => {
-  const colSpan = (selectable ? 1 : 0) + (expandable && expandToggle ? 1 : 0) + activeColumns.length;
+  const colSpan =
+    (selectable ? 1 : 0) + (expandable && expandToggle ? 1 : 0) + activeColumns.length;
 
   return (
     <tbody className="bg-white divide-y divide-gray-200 dark:bg-gray-900 dark:divide-gray-700">
@@ -283,7 +290,10 @@ const TableBodyInner = <T,>({
               >
                 {selectable && (
                   <td className="px-4 py-3 w-12" onClick={(e) => e.stopPropagation()}>
-                    <Checkbox checked={isSelected} onChange={(checked) => handleSelectRow(rowId, checked)} />
+                    <Checkbox
+                      checked={isSelected}
+                      onChange={(checked) => handleSelectRow(rowId, checked)}
+                    />
                   </td>
                 )}
                 {expandable && expandToggle && (
@@ -292,14 +302,10 @@ const TableBodyInner = <T,>({
                       onClick={() => handleToggleExpand(rowId)}
                       className="p-1 rounded hover:bg-gray-200 transition-colors dark:hover:bg-gray-700"
                     >
-                      <svg
+                      <ChevronRight
                         className={`w-4 h-4 text-gray-500 transition-transform dark:text-gray-400 ${isExpanded ? 'rotate-90' : ''}`}
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
+                        aria-hidden="true"
+                      />
                     </button>
                   </td>
                 )}
@@ -309,7 +315,9 @@ const TableBodyInner = <T,>({
                     <td
                       key={String(col.key)}
                       className={`${cellClasses} text-gray-700 dark:text-gray-200 ${
-                        col.sticky ? `sticky ${col.sticky === 'left' ? 'left-0' : 'right-0'} bg-white z-10 dark:bg-gray-900` : ''
+                        col.sticky
+                          ? `sticky ${col.sticky === 'left' ? 'left-0' : 'right-0'} bg-white z-10 dark:bg-gray-900`
+                          : ''
                       } ${col.className || ''}`}
                       style={{ textAlign: col.align }}
                     >
@@ -402,13 +410,13 @@ export function DataTable<T>({
   // BUG-008: Initialize visible columns based on current columns prop.
   // hidden===true means the column starts hidden; hidden===false or undefined means visible.
   const [visibleColumns, setVisibleColumns] = useState<Set<string>>(
-    () => new Set(columns.filter((c) => c.hidden !== true).map((c) => String(c.key)))
+    () => new Set(columns.filter((c) => c.hidden !== true).map((c) => String(c.key))),
   );
   const [ownExpandedRows, setOwnExpandedRows] = useState<Set<string>>(new Set());
   // Controlled when the page hands in the open ids; otherwise the table keeps its own set.
   const expandedRows = useMemo(
     () => (expandedRowIds ? new Set(expandedRowIds) : ownExpandedRows),
-    [expandedRowIds, ownExpandedRows]
+    [expandedRowIds, ownExpandedRows],
   );
   // PERF-010: These three menu state vars cause the full DataTable (including all rows)
   // to re-render when a menu opens/closes. To fix: extract ColumnMenu, ExportMenu, and
@@ -444,7 +452,7 @@ export function DataTable<T>({
       setSortConfig(newSort);
       onSort?.(newSort);
     },
-    [sortConfig, onSort]
+    [sortConfig, onSort],
   );
 
   // Handle selection
@@ -456,7 +464,7 @@ export function DataTable<T>({
         onSelectionChange?.([]);
       }
     },
-    [data, keyExtractor, onSelectionChange]
+    [data, keyExtractor, onSelectionChange],
   );
 
   const handleSelectRow = useCallback(
@@ -467,7 +475,7 @@ export function DataTable<T>({
         onSelectionChange?.(selectedRows.filter((r) => r !== id));
       }
     },
-    [selectedRows, onSelectionChange]
+    [selectedRows, onSelectionChange],
   );
 
   // Handle expansion
@@ -488,7 +496,7 @@ export function DataTable<T>({
         setOwnExpandedRows(toggled);
       }
     },
-    [expandedRowIds, onExpandedChange]
+    [expandedRowIds, onExpandedChange],
   );
 
   // Process data (client-side operations)
@@ -519,17 +527,17 @@ export function DataTable<T>({
   // Visible columns
   const activeColumns = useMemo(
     () => columns.filter((c) => visibleColumns.has(String(c.key))),
-    [columns, visibleColumns]
+    [columns, visibleColumns],
   );
 
   // PERF-014: Memoize derived selection state to avoid recomputing on every render
   const isAllSelected = useMemo(
     () => data.length > 0 && selectedRows.length === data.length,
-    [data.length, selectedRows.length]
+    [data.length, selectedRows.length],
   );
   const isSomeSelected = useMemo(
     () => selectedRows.length > 0 && selectedRows.length < data.length,
-    [data.length, selectedRows.length]
+    [data.length, selectedRows.length],
   );
 
   // Export handler
@@ -547,21 +555,26 @@ export function DataTable<T>({
         downloadCsv(
           exportFileName,
           exportColumns.map((c) => c.header),
-          processedData.map((row) => exportColumns.map((col) => (row as Record<string, unknown>)[String(col.key)])),
+          processedData.map((row) =>
+            exportColumns.map((col) => (row as Record<string, unknown>)[String(col.key)]),
+          ),
         );
       }
     },
-    [activeColumns, processedData, selectedRows, onExport, exportFileName]
+    [activeColumns, processedData, selectedRows, onExport, exportFileName],
   );
 
   // Styles
   // PERF-006: Memoize static table class string — only changes when border prop changes
   const tableClasses = useMemo(
     () =>
-      ['min-w-full divide-y divide-gray-200 dark:divide-gray-700', bordered && 'border border-gray-200 dark:border-gray-700']
+      [
+        'min-w-full divide-y divide-gray-200 dark:divide-gray-700',
+        bordered && 'border border-gray-200 dark:border-gray-700',
+      ]
         .filter(Boolean)
         .join(' '),
-    [bordered]
+    [bordered],
   );
 
   // PERF-006: Return a stable function so React reconciler can bail out on rows that haven't changed
@@ -569,13 +582,14 @@ export function DataTable<T>({
     (row: T, index: number) =>
       [
         striped && index % 2 === 1 && 'bg-gray-50 dark:bg-gray-800/60',
-        hoverable && 'hover:bg-primary-50 transition-colors duration-150 dark:hover:bg-primary-900/20',
+        hoverable &&
+          'hover:bg-primary-50 transition-colors duration-150 dark:hover:bg-primary-900/20',
         onRowClick && 'cursor-pointer',
         rowClassName?.(row, index),
       ]
         .filter(Boolean)
         .join(' '),
-    [striped, hoverable, onRowClick, rowClassName]
+    [striped, hoverable, onRowClick, rowClassName],
   );
 
   const cellClasses = compact ? 'px-3 py-2 text-sm' : 'px-4 py-3 text-sm';
@@ -592,227 +606,239 @@ export function DataTable<T>({
     (selectable && selectedRows.length > 0 && bulkActions.length > 0);
 
   return (
-    <div className={`bg-white dark:bg-gray-900 ${flush ? '' : 'rounded-lg shadow dark:shadow-none dark:ring-1 dark:ring-gray-700'} ${className}`}>
+    <div
+      className={`bg-white dark:bg-gray-900 ${flush ? '' : 'rounded-lg shadow dark:shadow-none dark:ring-1 dark:ring-gray-700'} ${className}`}
+    >
       {/* Header — only when there is something to put in it */}
       {hasToolbar && (
-      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          {/* Search */}
-          {searchable && (
-            <div className="relative flex-1 max-w-md">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <svg className="h-5 w-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              </div>
-              <input
-                type="text"
-                placeholder={searchPlaceholder}
-                value={internalSearch}
-                onChange={(e) => setInternalSearch(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
-              />
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Bulk Actions */}
-            {selectable && selectedRows.length > 0 && bulkActions.length > 0 && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-primary-50 rounded-lg dark:bg-primary-900/30">
-                <span className="text-sm text-primary-700 font-medium dark:text-primary-300">{selectedRows.length} selected</span>
-                {bulkActions.map((action) => (
-                  <button
-                    key={action.key}
-                    onClick={() => action.onClick(selectedRows)}
-                    className={`inline-flex items-center gap-1 px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                      action.variant === 'danger'
-                        ? 'text-error-700 hover:bg-error-100 dark:text-error-300 dark:hover:bg-error-900/40'
-                        : action.variant === 'secondary'
-                        ? 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
-                        : 'text-primary-700 hover:bg-primary-100 dark:text-primary-300 dark:hover:bg-primary-900/40'
-                    }`}
-                  >
-                    {action.icon}
-                    {action.label}
-                  </button>
-                ))}
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            {/* Search */}
+            {searchable && (
+              <div className="relative flex-1 max-w-md">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <SearchIcon
+                    className="h-5 w-5 text-gray-500 dark:text-gray-400"
+                    aria-hidden="true"
+                  />
+                </div>
+                <input
+                  type="text"
+                  placeholder={searchPlaceholder}
+                  value={internalSearch}
+                  onChange={(e) => setInternalSearch(e.target.value)}
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm placeholder-gray-400 focus:outline-hidden focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:placeholder-gray-500"
+                />
               </div>
             )}
 
-            {/* Filter Toggle */}
-            {filterable && (
-              <button
-                onClick={() => setShowFilterPanel(!showFilterPanel)}
-                className={`p-2 rounded-lg border transition-colors ${
-                  showFilterPanel || Object.keys(filters).length > 0
-                    ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300'
-                    : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
-                }`}
-                title={t('table.toggleFilters')}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                </svg>
-              </button>
-            )}
+            {/* Actions */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Bulk Actions */}
+              {selectable && selectedRows.length > 0 && bulkActions.length > 0 && (
+                <div className="flex items-center gap-2 px-3 py-1 bg-primary-50 rounded-lg dark:bg-primary-900/30">
+                  <span className="text-sm text-primary-700 font-medium dark:text-primary-300">
+                    {selectedRows.length} selected
+                  </span>
+                  {bulkActions.map((action) => (
+                    <button
+                      key={action.key}
+                      onClick={() => action.onClick(selectedRows)}
+                      className={`inline-flex items-center gap-1 px-3 py-1 text-sm font-medium rounded-md transition-colors ${
+                        action.variant === 'danger'
+                          ? 'text-error-700 hover:bg-error-100 dark:text-error-300 dark:hover:bg-error-900/40'
+                          : action.variant === 'secondary'
+                            ? 'text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700'
+                            : 'text-primary-700 hover:bg-primary-100 dark:text-primary-300 dark:hover:bg-primary-900/40'
+                      }`}
+                    >
+                      {action.icon}
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
-            {/* Column Visibility */}
-            {columnVisibilityToggle && (
-              <div className="relative">
+              {/* Filter Toggle */}
+              {filterable && (
                 <button
-                  onClick={() => setShowColumnMenu(!showColumnMenu)}
-                  className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                  title={t('table.toggleColumns')}
+                  onClick={() => setShowFilterPanel(!showFilterPanel)}
+                  className={`p-2 rounded-lg border transition-colors ${
+                    showFilterPanel || Object.keys(filters).length > 0
+                      ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800'
+                  }`}
+                  title={t('table.toggleFilters')}
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                  </svg>
-                </button>
-                {showColumnMenu && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50 dark:bg-gray-800 dark:border-gray-600">
-                    <div className="p-2">
-                      <div className="text-xs font-semibold text-gray-500 uppercase px-2 py-1 dark:text-gray-400">{t('table.columns')}</div>
-                      {columns.map((col) => (
-                        <label
-                          key={String(col.key)}
-                          className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer dark:hover:bg-gray-700"
-                        >
-                          <Checkbox
-                            checked={visibleColumns.has(String(col.key))}
-                            onChange={(checked) => {
-                              const newSet = new Set(visibleColumns);
-                              if (checked) {
-                                newSet.add(String(col.key));
-                              } else if (newSet.size > 1) {
-                                newSet.delete(String(col.key));
-                              }
-                              setVisibleColumns(newSet);
-                            }}
-                          />
-                          <span className="text-sm text-gray-700 dark:text-gray-200">{col.header}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Export */}
-            {exportable && (
-              <div className="relative">
-                <button
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                  className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 dark:hover:bg-gray-700"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  Export
-                </button>
-                {showExportMenu && (
-                  <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 z-50 dark:bg-gray-800 dark:border-gray-600">
-                    {exportFormats.map((format) => (
-                      <button
-                        key={format}
-                        onClick={() => handleExport(format)}
-                        className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg dark:text-gray-200 dark:hover:bg-gray-700"
-                      >
-                        Export as {format.toUpperCase()}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Refresh */}
-            {onRefresh && (
-              <button
-                onClick={onRefresh}
-                disabled={refreshing}
-                className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
-                title={t('common.refresh')}
-              >
-                <svg
-                  className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
-            )}
-
-            {/* Custom Header Actions */}
-            {headerActions}
-          </div>
-        </div>
-
-        {/* Filter Panel */}
-        {filterable && showFilterPanel && (
-          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-            <div className="flex flex-wrap gap-3">
-              {columns
-                .filter((col) => col.filterable)
-                .map((col) => (
-                  <div key={String(col.key)} className="flex-1 min-w-[200px] max-w-[300px]">
-                    <label className="block text-xs font-medium text-gray-500 mb-1 dark:text-gray-400">{col.header}</label>
-                    {col.filterType === 'select' ? (
-                      <select
-                        value={(filters[String(col.key)] as string) || ''}
-                        onChange={(e) =>
-                          onFilterChange?.({
-                            ...filters,
-                            [String(col.key)]: e.target.value || undefined,
-                          } as FilterConfig)
-                        }
-                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                      >
-                        <option value="">{t('common.all')}</option>
-                        {col.filterOptions?.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        type={col.filterType === 'date' ? 'date' : col.filterType === 'number' ? 'number' : 'text'}
-                        value={(filters[String(col.key)] as string) || ''}
-                        onChange={(e) =>
-                          onFilterChange?.({
-                            ...filters,
-                            [String(col.key)]: e.target.value || undefined,
-                          } as FilterConfig)
-                        }
-                        placeholder={`Filter ${col.header.toLowerCase()}...`}
-                        className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
-                      />
-                    )}
-                  </div>
-                ))}
-              {Object.keys(filters).length > 0 && (
-                <button
-                  onClick={() => onFilterChange?.({})}
-                  className="self-end px-3 py-2 text-sm text-error-600 hover:text-error-800 dark:text-error-400 dark:hover:text-error-300"
-                >
-                  Clear filters
+                  <FilterIcon className="w-5 h-5" aria-hidden="true" />
                 </button>
               )}
+
+              {/* Column Visibility */}
+              {columnVisibilityToggle && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowColumnMenu(!showColumnMenu)}
+                    className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                    title={t('table.toggleColumns')}
+                  >
+                    <Columns3 className="w-5 h-5" aria-hidden="true" />
+                  </button>
+                  {showColumnMenu && (
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50 dark:bg-gray-800 dark:border-gray-600">
+                      <div className="p-2">
+                        <div className="text-xs font-semibold text-gray-500 uppercase px-2 py-1 dark:text-gray-400">
+                          {t('table.columns')}
+                        </div>
+                        {columns.map((col) => (
+                          <label
+                            key={String(col.key)}
+                            className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer dark:hover:bg-gray-700"
+                          >
+                            <Checkbox
+                              checked={visibleColumns.has(String(col.key))}
+                              onChange={(checked) => {
+                                const newSet = new Set(visibleColumns);
+                                if (checked) {
+                                  newSet.add(String(col.key));
+                                } else if (newSet.size > 1) {
+                                  newSet.delete(String(col.key));
+                                }
+                                setVisibleColumns(newSet);
+                              }}
+                            />
+                            <span className="text-sm text-gray-700 dark:text-gray-200">
+                              {col.header}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Export */}
+              {exportable && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    className="inline-flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 dark:hover:bg-gray-700"
+                  >
+                    <Download className="w-4 h-4" aria-hidden="true" />
+                    Export
+                  </button>
+                  {showExportMenu && (
+                    <div className="absolute right-0 mt-2 w-40 bg-white rounded-lg shadow-lg border border-gray-200 z-50 dark:bg-gray-800 dark:border-gray-600">
+                      {exportFormats.map((format) => (
+                        <button
+                          key={format}
+                          onClick={() => handleExport(format)}
+                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-lg last:rounded-b-lg dark:text-gray-200 dark:hover:bg-gray-700"
+                        >
+                          Export as {format.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Refresh */}
+              {onRefresh && (
+                <button
+                  onClick={onRefresh}
+                  disabled={refreshing}
+                  className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors disabled:opacity-50 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
+                  title={t('common.refresh')}
+                >
+                  <RefreshCw
+                    className={`w-5 h-5 ${refreshing ? 'animate-spin' : ''}`}
+                    aria-hidden="true"
+                  />
+                </button>
+              )}
+
+              {/* Custom Header Actions */}
+              {headerActions}
             </div>
           </div>
-        )}
-      </div>
+
+          {/* Filter Panel */}
+          {filterable && showFilterPanel && (
+            <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex flex-wrap gap-3">
+                {columns
+                  .filter((col) => col.filterable)
+                  .map((col) => (
+                    <div key={String(col.key)} className="flex-1 min-w-[200px] max-w-[300px]">
+                      <label className="block text-xs font-medium text-gray-500 mb-1 dark:text-gray-400">
+                        {col.header}
+                      </label>
+                      {col.filterType === 'select' ? (
+                        <select
+                          value={(filters[String(col.key)] as string) || ''}
+                          onChange={(e) =>
+                            onFilterChange?.({
+                              ...filters,
+                              [String(col.key)]: e.target.value || undefined,
+                            } as FilterConfig)
+                          }
+                          className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                        >
+                          <option value="">{t('common.all')}</option>
+                          {col.filterOptions?.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type={
+                            col.filterType === 'date'
+                              ? 'date'
+                              : col.filterType === 'number'
+                                ? 'number'
+                                : 'text'
+                          }
+                          value={(filters[String(col.key)] as string) || ''}
+                          onChange={(e) =>
+                            onFilterChange?.({
+                              ...filters,
+                              [String(col.key)]: e.target.value || undefined,
+                            } as FilterConfig)
+                          }
+                          placeholder={`Filter ${col.header.toLowerCase()}...`}
+                          className="block w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
+                        />
+                      )}
+                    </div>
+                  ))}
+                {Object.keys(filters).length > 0 && (
+                  <button
+                    onClick={() => onFilterChange?.({})}
+                    className="self-end px-3 py-2 text-sm text-error-600 hover:text-error-800 dark:text-error-400 dark:hover:text-error-300"
+                  >
+                    Clear filters
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Table Container */}
-      <div className={`overflow-x-auto ${maxHeight ? 'overflow-y-auto' : ''}`} style={{ maxHeight }}>
+      <div
+        className={`overflow-x-auto ${maxHeight ? 'overflow-y-auto' : ''}`}
+        style={{ maxHeight }}
+      >
         <table className={tableClasses}>
           {/* Header */}
-          <thead className={`bg-gray-50 dark:bg-gray-800 ${stickyHeader ? 'sticky top-0 z-10' : ''}`}>
+          <thead
+            className={`bg-gray-50 dark:bg-gray-800 ${stickyHeader ? 'sticky top-0 z-10' : ''}`}
+          >
             <tr>
               {/* Selection Checkbox */}
               {selectable && (
@@ -834,7 +860,12 @@ export function DataTable<T>({
                   its own name; aria-sort on the <th> carries the state. */}
               {activeColumns.map((col) => {
                 const canSort = col.sortable !== false && sortable;
-                const alignClass = col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : '';
+                const alignClass =
+                  col.align === 'right'
+                    ? 'justify-end'
+                    : col.align === 'center'
+                      ? 'justify-center'
+                      : '';
                 const sorted = sortConfig?.key === String(col.key);
                 const headerContent = (
                   <>
@@ -852,7 +883,15 @@ export function DataTable<T>({
                       col.className || ''
                     }`}
                     style={{ width: col.width, minWidth: col.minWidth }}
-                    aria-sort={sorted ? (sortConfig.direction === 'asc' ? 'ascending' : 'descending') : canSort ? 'none' : undefined}
+                    aria-sort={
+                      sorted
+                        ? sortConfig.direction === 'asc'
+                          ? 'ascending'
+                          : 'descending'
+                        : canSort
+                          ? 'none'
+                          : undefined
+                    }
                   >
                     {canSort ? (
                       <button
@@ -919,7 +958,8 @@ export function DataTable<T>({
         <div className="px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 dark:border-gray-700">
           <div className="text-sm text-gray-600 dark:text-gray-300">
             Showing {Math.min((pagination.page - 1) * pagination.limit + 1, pagination.total)} to{' '}
-            {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} results
+            {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}{' '}
+            results
           </div>
 
           <div className="flex items-center gap-4">
@@ -950,9 +990,7 @@ export function DataTable<T>({
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                 title={t('table.firstPage')}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                </svg>
+                <ChevronsLeft className="w-4 h-4" aria-hidden="true" />
               </button>
               <button
                 onClick={() => onPageChange?.(pagination.page - 1)}
@@ -960,9 +998,7 @@ export function DataTable<T>({
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                 title={t('table.previousPage')}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
+                <ChevronLeft className="w-4 h-4" aria-hidden="true" />
               </button>
 
               <span className="px-3 py-1 text-sm text-gray-600 dark:text-gray-300">
@@ -975,9 +1011,7 @@ export function DataTable<T>({
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                 title={t('table.nextPage')}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
+                <ChevronRight className="w-4 h-4" aria-hidden="true" />
               </button>
               <button
                 onClick={() => onPageChange?.(pagination.totalPages)}
@@ -985,9 +1019,7 @@ export function DataTable<T>({
                 className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-800"
                 title={t('table.lastPage')}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
-                </svg>
+                <ChevronsRight className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -1000,7 +1032,10 @@ export function DataTable<T>({
         <div
           className="fixed inset-0 z-40"
           style={{ pointerEvents: 'auto', background: 'transparent' }}
-          onClick={() => { setShowColumnMenu(false); setShowExportMenu(false); }}
+          onClick={() => {
+            setShowColumnMenu(false);
+            setShowExportMenu(false);
+          }}
           aria-hidden="true"
         />
       )}

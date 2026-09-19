@@ -2,7 +2,17 @@
  * Storage Locations Tab - CRUD for warehouse/silo/cold room locations
  */
 import React, { useState } from 'react';
-import { FormField, Modal, useConfirm, useToast, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useConfirm,
+  useToast,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   useStorageLocationList,
   useCreateStorageLocation,
@@ -13,6 +23,7 @@ import {
   CreateStorageLocationInput,
 } from '../../../hooks/useStorageLocations';
 import { useSiteList } from '../../../hooks/useSites';
+import { Plus } from 'lucide-react';
 
 const typeColors: Record<string, string> = {
   WAREHOUSE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
@@ -112,7 +123,14 @@ export const StorageLocationsTab: React.FC = () => {
   const confirm = useConfirm();
   const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this location?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this location?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteLocationMutation.mutateAsync(id);
       } catch (err) {
@@ -163,16 +181,13 @@ export const StorageLocationsTab: React.FC = () => {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">{locations.length} locations</h3>
-        <Button variant="primary" onClick={openCreate}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-          Add Location</Button>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">
+          {locations.length} locations
+        </h3>
+        <Button variant="primary" onClick={openCreate}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Add Location
+        </Button>
       </div>
 
       {isLoading && (
@@ -184,7 +199,9 @@ export const StorageLocationsTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load locations.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -196,10 +213,15 @@ export const StorageLocationsTab: React.FC = () => {
                 ? Math.round((loc.usedCapacity / loc.capacity) * 100)
                 : 0;
             return (
-              <div key={loc.id} className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+              <div
+                key={loc.id}
+                className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5"
+              >
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{loc.name}</h4>
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                      {loc.name}
+                    </h4>
                     <span className="text-xs text-gray-500 dark:text-gray-400">{loc.code}</span>
                   </div>
                   <span
@@ -221,7 +243,9 @@ export const StorageLocationsTab: React.FC = () => {
                       style={{ width: `${Math.min(usagePercent, 100)}%` }}
                     />
                   </div>
-                  <div className="text-right text-xs text-gray-400 dark:text-gray-500 mt-0.5">{usagePercent}%</div>
+                  <div className="text-right text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                    {usagePercent}%
+                  </div>
                 </div>
                 {(loc.temperatureMin != null || loc.temperatureMax != null) && (
                   <div className="text-xs text-gray-500 dark:text-gray-400 mb-2">
@@ -230,10 +254,16 @@ export const StorageLocationsTab: React.FC = () => {
                       ` | Humidity: ${loc.humidityMin ?? '-'}% - ${loc.humidityMax ?? '-'}%`}
                   </div>
                 )}
-                {loc.description && <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{loc.description}</p>}
+                {loc.description && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">{loc.description}</p>
+                )}
                 <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-                  <Button variant="ghost" size="xs" onClick={() => openEdit(loc)}>Edit</Button>
-                  <Button variant="ghost" size="xs" onClick={() => handleDelete(loc.id)}>Delete</Button>
+                  <Button variant="ghost" size="xs" onClick={() => openEdit(loc)}>
+                    Edit
+                  </Button>
+                  <Button variant="ghost" size="xs" onClick={() => handleDelete(loc.id)}>
+                    Delete
+                  </Button>
                 </div>
               </div>
             );
@@ -257,21 +287,39 @@ export const StorageLocationsTab: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Name *
+                </label>
                 <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
-                <Input fullWidth type="text" required value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
+                  <Input
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.name}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                  />
                 </FormField>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Code *
+                </label>
                 <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
-                <Input fullWidth type="text" required value={formData.code} onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))} />
+                  <Input
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.code}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                  />
                 </FormField>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Type
+                </label>
                 <select
                   value={formData.type}
                   onChange={(e) =>
@@ -290,89 +338,161 @@ export const StorageLocationsTab: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site *</label>
-                <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
-                <select
-                  required
-                  value={formData.siteId}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Site *
+                </label>
+                <FormField
+                  error={formData.siteId ? undefined : fieldErrors.siteId}
+                  className="mb-0"
                 >
-                  <option value="">Select Site</option>
-                  {sites.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                  <select
+                    required
+                    value={formData.siteId}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select Site</option>
+                    {sites.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
                 </FormField>
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capacity</label>
-                <Input fullWidth type="number" min="0" value={formData.capacity} onChange={(e) =>
-          setFormData((prev) => ({
-           ...prev,
-           capacity: e.target.value ? Number(e.target.value) : '',
-          }))
-         } />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Capacity
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  min="0"
+                  value={formData.capacity}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      capacity: e.target.value ? Number(e.target.value) : '',
+                    }))
+                  }
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
-                <Select fullWidth options={[{ value: 'm³', label: 'm³' }, { value: 'kg', label: 'kg' }, { value: 'L', label: 'L' }, { value: 'tons', label: 'tons' }]} value={formData.capacityUnit} onChange={(e) =>
-          setFormData((prev) => ({ ...prev, capacityUnit: e.target.value }))
-         } />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Unit
+                </label>
+                <Select
+                  fullWidth
+                  options={[
+                    { value: 'm³', label: 'm³' },
+                    { value: 'kg', label: 'kg' },
+                    { value: 'L', label: 'L' },
+                    { value: 'tons', label: 'tons' },
+                  ]}
+                  value={formData.capacityUnit}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, capacityUnit: e.target.value }))
+                  }
+                />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Temp Min (°C)</label>
-                <Input fullWidth type="number" step="0.1" value={formData.temperatureMin} onChange={(e) =>
-          setFormData((prev) => ({
-           ...prev,
-           temperatureMin: e.target.value ? Number(e.target.value) : '',
-          }))
-         } />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Temp Min (°C)
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  value={formData.temperatureMin}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      temperatureMin: e.target.value ? Number(e.target.value) : '',
+                    }))
+                  }
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Temp Max (°C)</label>
-                <Input fullWidth type="number" step="0.1" value={formData.temperatureMax} onChange={(e) =>
-          setFormData((prev) => ({
-           ...prev,
-           temperatureMax: e.target.value ? Number(e.target.value) : '',
-          }))
-         } />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Temp Max (°C)
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  value={formData.temperatureMax}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      temperatureMax: e.target.value ? Number(e.target.value) : '',
+                    }))
+                  }
+                />
               </div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Humidity Min (%)</label>
-                <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.humidityMin} onChange={(e) =>
-          setFormData((prev) => ({
-           ...prev,
-           humidityMin: e.target.value ? Number(e.target.value) : '',
-          }))
-         } />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Humidity Min (%)
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.humidityMin}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      humidityMin: e.target.value ? Number(e.target.value) : '',
+                    }))
+                  }
+                />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Humidity Max (%)</label>
-                <Input fullWidth type="number" step="0.1" min="0" max="100" value={formData.humidityMax} onChange={(e) =>
-          setFormData((prev) => ({
-           ...prev,
-           humidityMax: e.target.value ? Number(e.target.value) : '',
-          }))
-         } />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Humidity Max (%)
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="100"
+                  value={formData.humidityMax}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      humidityMax: e.target.value ? Number(e.target.value) : '',
+                    }))
+                  }
+                />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-              <Textarea fullWidth rows={2} value={formData.description} onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))} />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Description
+              </label>
+              <Textarea
+                fullWidth
+                rows={2}
+                value={formData.description}
+                onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+              />
             </div>
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" type="submit">{editingId ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit">
+              {editingId ? 'Update' : 'Create'}
+            </Button>
           </div>
         </form>
       </Modal>

@@ -11,6 +11,7 @@ import React, { useState, useCallback } from 'react';
 import { Button } from '@aquaculture/shared-ui';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM, clampTransform } from '../../../types/scada-transform.types';
+import { ChevronDown } from 'lucide-react';
 
 interface TransformConfigProps {
   transform: SvgTransform;
@@ -19,15 +20,15 @@ interface TransformConfigProps {
 
 /** 3x3 origin grid positions mapping to [originX, originY] ratios */
 const ORIGIN_GRID: Array<{ label: string; x: number; y: number }> = [
-  { label: 'Top Left',     x: 0,   y: 0   },
-  { label: 'Top Center',   x: 0.5, y: 0   },
-  { label: 'Top Right',    x: 1,   y: 0   },
-  { label: 'Middle Left',  x: 0,   y: 0.5 },
-  { label: 'Center',       x: 0.5, y: 0.5 },
-  { label: 'Middle Right', x: 1,   y: 0.5 },
-  { label: 'Bottom Left',  x: 0,   y: 1   },
-  { label: 'Bottom Center',x: 0.5, y: 1   },
-  { label: 'Bottom Right', x: 1,   y: 1   },
+  { label: 'Top Left', x: 0, y: 0 },
+  { label: 'Top Center', x: 0.5, y: 0 },
+  { label: 'Top Right', x: 1, y: 0 },
+  { label: 'Middle Left', x: 0, y: 0.5 },
+  { label: 'Center', x: 0.5, y: 0.5 },
+  { label: 'Middle Right', x: 1, y: 0.5 },
+  { label: 'Bottom Left', x: 0, y: 1 },
+  { label: 'Bottom Center', x: 0.5, y: 1 },
+  { label: 'Bottom Right', x: 1, y: 1 },
 ];
 
 const INPUT_CLASS =
@@ -62,21 +63,28 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
-      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Transform settings"><span>Transform</span>
-        <svg
+      <Button
+        variant="ghost"
+        size="xs"
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-label="Transform settings"
+      >
+        <span>Transform</span>
+        <ChevronDown
           className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg></Button>
+          aria-hidden="true"
+        />
+      </Button>
 
       {open && (
         <div className="space-y-3 mt-2">
           {/* Rotation */}
           <div>
-            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Rotation (deg)</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              Rotation (deg)
+            </label>
             <div className="flex gap-1">
               <input
                 type="number"
@@ -96,7 +104,17 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                 className={INPUT_CLASS}
                 aria-label="Rotation degrees"
               />
-              <Button variant="secondary" size="xs" className="shrink-0" type="button" onClick={() => handleChange({ rotation: 0 })} title="Reset rotation" aria-label="Reset rotation">0</Button>
+              <Button
+                variant="secondary"
+                size="xs"
+                className="shrink-0"
+                type="button"
+                onClick={() => handleChange({ rotation: 0 })}
+                title="Reset rotation"
+                aria-label="Reset rotation"
+              >
+                0
+              </Button>
             </div>
           </div>
 
@@ -121,7 +139,9 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">X</label>
+                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                  X
+                </label>
                 <input
                   type="number"
                   min={0.1}
@@ -134,7 +154,9 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
                 />
               </div>
               <div>
-                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">Y</label>
+                <label className="block text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
+                  Y
+                </label>
                 <input
                   type="number"
                   min={0.1}
@@ -210,7 +232,16 @@ export const TransformConfig: React.FC<TransformConfigProps> = ({ transform, onC
           </div>
 
           {/* Reset all */}
-          <Button variant="secondary" size="xs" type="button" onClick={handleReset} aria-label="Reset all transforms" data-testid="transform-reset-all">Reset All Transforms</Button>
+          <Button
+            variant="secondary"
+            size="xs"
+            type="button"
+            onClick={handleReset}
+            aria-label="Reset all transforms"
+            data-testid="transform-reset-all"
+          >
+            Reset All Transforms
+          </Button>
         </div>
       )}
     </div>

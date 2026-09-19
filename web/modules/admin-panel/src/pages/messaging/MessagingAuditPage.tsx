@@ -9,11 +9,19 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import { messagingApi, type MessagingAuditEntry } from '../../services/adminApi';
 import type { ApiError } from '../../services/http-client';
 import { expectedTotalPages } from '@platform/pagination-contracts';
 import { saveBlob } from '../../services/blob-client';
+import { Clipboard } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -101,13 +109,10 @@ const MessagingAuditPage: React.FC = () => {
     void fetchAuditLog();
   }, [fetchAuditLog]);
 
-  const handleFilterChange = useCallback(
-    (field: keyof AuditFilters, value: string) => {
-      setFilters((prev) => ({ ...prev, [field]: value }));
-      setPage(1);
-    },
-    [],
-  );
+  const handleFilterChange = useCallback((field: keyof AuditFilters, value: string) => {
+    setFilters((prev) => ({ ...prev, [field]: value }));
+    setPage(1);
+  }, []);
 
   const handleResetFilters = useCallback(() => {
     setFilters(INITIAL_FILTERS);
@@ -117,7 +122,15 @@ const MessagingAuditPage: React.FC = () => {
   const handleExportCsv = useCallback(() => {
     if (entries.length === 0) return;
 
-    const headers = ['Timestamp', 'Tenant', 'User', 'Action', 'Details', 'Channel ID', 'Message ID'];
+    const headers = [
+      'Timestamp',
+      'Tenant',
+      'User',
+      'Action',
+      'Details',
+      'Channel ID',
+      'Message ID',
+    ];
     const rows = entries.map((e) => [
       e.timestamp,
       e.tenantName,
@@ -156,7 +169,9 @@ const MessagingAuditPage: React.FC = () => {
       render: (_value, entry) => (
         <>
           <p className="text-sm text-gray-700 dark:text-gray-300">{entry.userName}</p>
-          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">{entry.userId.slice(0, 8)}...</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">
+            {entry.userId.slice(0, 8)}...
+          </p>
         </>
       ),
     },
@@ -167,7 +182,8 @@ const MessagingAuditPage: React.FC = () => {
         <>
           <span
             className={`px-2 py-0.5 text-xs font-semibold rounded-full ${
-              ACTION_COLORS[entry.action] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+              ACTION_COLORS[entry.action] ??
+              'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
             {entry.action.replace(/_/g, ' ')}
@@ -179,7 +195,7 @@ const MessagingAuditPage: React.FC = () => {
       key: 'details',
       header: 'Details',
       render: (_value, entry) => entry.details,
-    }
+    },
   ];
 
   return (
@@ -190,7 +206,12 @@ const MessagingAuditPage: React.FC = () => {
         description="Audit trail of all messaging operations across tenants"
         actions={
           <div className="flex items-center gap-3">
-            <Button onClick={handleExportCsv} variant="secondary" size="sm" disabled={entries.length === 0}>
+            <Button
+              onClick={handleExportCsv}
+              variant="secondary"
+              size="sm"
+              disabled={entries.length === 0}
+            >
               Export CSV
             </Button>
             <Button
@@ -217,7 +238,9 @@ const MessagingAuditPage: React.FC = () => {
         <div className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tenant ID</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Tenant ID
+              </label>
               <input
                 type="text"
                 placeholder="Filter by tenant..."
@@ -227,7 +250,9 @@ const MessagingAuditPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">User ID</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                User ID
+              </label>
               <input
                 type="text"
                 placeholder="Filter by user..."
@@ -237,7 +262,9 @@ const MessagingAuditPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Action</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Action
+              </label>
               <select
                 value={filters.action}
                 onChange={(e) => handleFilterChange('action', e.target.value)}
@@ -251,7 +278,9 @@ const MessagingAuditPage: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Start Date</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                Start Date
+              </label>
               <input
                 type="date"
                 value={filters.startDate}
@@ -260,7 +289,9 @@ const MessagingAuditPage: React.FC = () => {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">End Date</label>
+              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                End Date
+              </label>
               <input
                 type="date"
                 value={filters.endDate}
@@ -286,9 +317,7 @@ const MessagingAuditPage: React.FC = () => {
           {entries.length === 0 && !loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
-                <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
+                <Clipboard className="w-12 h-12 text-gray-300 mx-auto mb-3" aria-hidden="true" />
                 <p className="text-sm text-gray-500 dark:text-gray-400">No audit entries found.</p>
                 <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                   Audit entries will appear once messaging activity begins.

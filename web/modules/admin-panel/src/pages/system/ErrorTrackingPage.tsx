@@ -15,6 +15,7 @@ import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
 import type { ErrorGroup, ErrorOccurrence } from '../../services/adminApi';
+import { Check, CircleCheck, EyeOff, FileText, RefreshCw, User as UserIcon } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -96,8 +97,7 @@ export const ErrorTrackingPage: React.FC = () => {
 
   const occurrencesQuery = useAdminQuery(
     [...errorsKey, 'occurrences', selectedErrorId],
-    ({ signal }) =>
-      systemSettingsApi.getErrorOccurrences(selectedErrorId ?? '', undefined, signal),
+    ({ signal }) => systemSettingsApi.getErrorOccurrences(selectedErrorId ?? '', undefined, signal),
     { enabled: selectedErrorId !== null },
   );
 
@@ -124,7 +124,9 @@ export const ErrorTrackingPage: React.FC = () => {
 
   const selectedError =
     errorGroups.find((group) => group.id === selectedErrorId) ??
-    (selectedErrorId === null ? null : (groupsQuery.data?.data ?? []).find((g) => g.id === selectedErrorId) ?? null);
+    (selectedErrorId === null
+      ? null
+      : ((groupsQuery.data?.data ?? []).find((g) => g.id === selectedErrorId) ?? null));
 
   // ==========================================================================
   // Writes — both slices, because both move (ADMIN-HIGH-121)
@@ -212,7 +214,9 @@ export const ErrorTrackingPage: React.FC = () => {
 
   const services = [...new Set(errorGroups.map((e) => e.service).filter(Boolean))];
 
-  const getSeverityBadge = (severity: string): 'default' | 'info' | 'success' | 'warning' | 'error' => {
+  const getSeverityBadge = (
+    severity: string,
+  ): 'default' | 'info' | 'success' | 'warning' | 'error' => {
     const variants: Record<string, 'default' | 'info' | 'success' | 'warning' | 'error'> = {
       debug: 'default',
       info: 'info',
@@ -282,9 +286,7 @@ export const ErrorTrackingPage: React.FC = () => {
         description="Monitor and manage application errors across all services"
         actions={
           <Button onClick={() => loadData()} variant="secondary">
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
+            <RefreshCw className="w-5 h-5 mr-2" aria-hidden="true" />
             Refresh
           </Button>
         }
@@ -298,11 +300,15 @@ export const ErrorTrackingPage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatCount(stats.totalErrors)}</div>
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {formatCount(stats.totalErrors)}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Errors</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-orange-600">{formatCount(stats.unresolvedErrors)}</div>
+          <div className="text-2xl font-bold text-orange-600">
+            {formatCount(stats.unresolvedErrors)}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Unresolved</div>
         </Card>
         <Card className="p-4">
@@ -363,7 +369,9 @@ export const ErrorTrackingPage: React.FC = () => {
           </div>
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Date</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Start Date
+              </label>
               <Input
                 type="date"
                 value={dateRange.start}
@@ -371,7 +379,9 @@ export const ErrorTrackingPage: React.FC = () => {
               />
             </div>
             <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Date</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                End Date
+              </label>
               <Input
                 type="date"
                 value={dateRange.end}
@@ -386,12 +396,18 @@ export const ErrorTrackingPage: React.FC = () => {
       <Card className="overflow-hidden">
         {errorGroups.length === 0 ? (
           <div className="p-12 text-center">
-            <svg className="mx-auto h-12 w-12 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No errors found</h3>
+            <FileText
+              className="mx-auto h-12 w-12 text-gray-500 dark:text-gray-400"
+              aria-hidden="true"
+            />
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+              No errors found
+            </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {searchTerm || filterStatus !== 'all' || filterSeverity !== 'all' || filterService !== 'all'
+              {searchTerm ||
+              filterStatus !== 'all' ||
+              filterSeverity !== 'all' ||
+              filterService !== 'all'
                 ? 'Try adjusting your filters'
                 : 'All systems are running smoothly'}
             </p>
@@ -440,9 +456,7 @@ export const ErrorTrackingPage: React.FC = () => {
                       <span>Last seen {formatRelativeTime(errorGroup.lastSeenAt)}</span>
                       {errorGroup.assignedTo && (
                         <span className="flex items-center gap-1">
-                          <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                          </svg>
+                          <UserIcon className="w-3 h-3" aria-hidden="true" />
                           {errorGroup.assignedTo}
                         </span>
                       )}
@@ -451,7 +465,9 @@ export const ErrorTrackingPage: React.FC = () => {
 
                   {/* Stats */}
                   <div className="ml-6 flex-shrink-0 text-right">
-                    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{errorGroup.occurrenceCount.toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                      {errorGroup.occurrenceCount.toLocaleString()}
+                    </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">occurrences</div>
                     <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
                       {errorGroup.affectedTenants?.length ?? 0} tenants
@@ -494,25 +510,19 @@ export const ErrorTrackingPage: React.FC = () => {
             <>
               {selectedError.status !== 'acknowledged' && (
                 <Button onClick={handleAcknowledge} variant="primary">
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
+                  <CircleCheck className="w-4 h-4 mr-2" aria-hidden="true" />
                   Acknowledge
                 </Button>
               )}
               {selectedError.status !== 'resolved' && (
                 <Button onClick={handleResolve} variant="success">
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+                  <Check className="w-4 h-4 mr-2" aria-hidden="true" />
                   Mark Resolved
                 </Button>
               )}
               {selectedError.status !== 'ignored' && (
                 <Button onClick={handleIgnore} variant="secondary">
-                  <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
-                  </svg>
+                  <EyeOff className="w-4 h-4 mr-2" aria-hidden="true" />
                   Ignore
                 </Button>
               )}
@@ -538,11 +548,15 @@ export const ErrorTrackingPage: React.FC = () => {
             </div>
             <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
               <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Service</div>
-              <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{selectedError.service || 'N/A'}</div>
+              <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                {selectedError.service || 'N/A'}
+              </div>
             </div>
             <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
               <div className="text-sm text-gray-500 dark:text-gray-400 mb-1">Fingerprint</div>
-              <div className="text-xs font-mono text-gray-900 dark:text-gray-100">{selectedError.fingerprint}</div>
+              <div className="text-xs font-mono text-gray-900 dark:text-gray-100">
+                {selectedError.fingerprint}
+              </div>
             </div>
           </div>
 
@@ -551,16 +565,22 @@ export const ErrorTrackingPage: React.FC = () => {
             <div className="flex justify-between text-sm">
               <div>
                 <span className="text-gray-600 dark:text-gray-400">First seen:</span>
-                <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{formatDate(selectedError.firstSeenAt)}</span>
+                <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">
+                  {formatDate(selectedError.firstSeenAt)}
+                </span>
               </div>
               <div>
                 <span className="text-gray-600 dark:text-gray-400">Last seen:</span>
-                <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{formatDate(selectedError.lastSeenAt)}</span>
+                <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">
+                  {formatDate(selectedError.lastSeenAt)}
+                </span>
               </div>
               {selectedError.assignedTo && (
                 <div>
                   <span className="text-gray-600 dark:text-gray-400">Assigned to:</span>
-                  <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">{selectedError.assignedTo}</span>
+                  <span className="ml-2 font-medium text-gray-900 dark:text-gray-100">
+                    {selectedError.assignedTo}
+                  </span>
                 </div>
               )}
             </div>
@@ -568,7 +588,9 @@ export const ErrorTrackingPage: React.FC = () => {
 
           {/* Stack Trace */}
           <div className="mb-6">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Recent Stack Trace</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+              Recent Stack Trace
+            </h3>
             {loadingOccurrences ? (
               <div className="bg-gray-900 text-gray-100 p-4 rounded-lg text-sm animate-pulse">
                 Loading stack trace...
@@ -587,7 +609,9 @@ export const ErrorTrackingPage: React.FC = () => {
           {/* Recent Occurrences */}
           {errorOccurrences.length > 0 && (
             <div className="mb-6">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Recent Occurrences</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                Recent Occurrences
+              </h3>
               <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y">
                 {errorOccurrences.slice(0, 5).map((occurrence) => (
                   <div key={occurrence.id} className="p-3 hover:bg-gray-50 dark:hover:bg-gray-800">
@@ -609,7 +633,6 @@ export const ErrorTrackingPage: React.FC = () => {
           )}
         </Modal>
       )}
-
     </div>
   );
 };

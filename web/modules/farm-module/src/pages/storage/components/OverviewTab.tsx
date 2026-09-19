@@ -3,12 +3,29 @@
  * and interactive pie/donut charts for category distribution and location fill rates.
  */
 import React, { useState, useMemo, useRef } from 'react';
-import { DonutChart, formatCurrency, parseMoney, DEFAULT_CURRENCY, useClickOutside, colors, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  DonutChart,
+  formatCurrency,
+  parseMoney,
+  DEFAULT_CURRENCY,
+  useClickOutside,
+  colors,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+} from '@aquaculture/shared-ui';
 import type { PieDataItem } from '@aquaculture/shared-ui';
-import { useStorageOverview, useStockMovements, useStorageInventory, StorageItemType } from '../../../hooks/useStorageInventory';
+import {
+  useStorageOverview,
+  useStockMovements,
+  useStorageInventory,
+  StorageItemType,
+} from '../../../hooks/useStorageInventory';
 import { useStorageLocationList } from '../../../hooks/useStorageLocations';
 import { usePendingDeliveries, PurchaseOrder } from '../../../hooks/usePurchaseOrders';
 import { ReceiveDeliveryModal } from './ReceiveDeliveryModal';
+import { ChevronDown, Clock, X } from 'lucide-react';
 
 const movementTypeBadge: Record<string, string> = {
   IN: 'bg-green-100 text-green-800',
@@ -19,15 +36,58 @@ const movementTypeBadge: Record<string, string> = {
   RETURN: 'bg-purple-100 text-purple-800',
 };
 
-const CATEGORY_CONFIG: Record<string, { label: string; color: string; bgColor: string; borderColor: string }> = {
-  FEED: { label: 'Feed', color: colors.warning[500], bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
-  feed: { label: 'Feed', color: colors.warning[500], bgColor: 'bg-amber-50', borderColor: 'border-amber-200' },
-  CHEMICAL: { label: 'Chemical', color: colors.info[500], bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
-  chemical: { label: 'Chemical', color: colors.info[500], bgColor: 'bg-blue-50', borderColor: 'border-blue-200' },
-  CONSUMABLE: { label: 'Consumable', color: colors.success[500], bgColor: 'bg-green-50', borderColor: 'border-green-200' },
-  consumable: { label: 'Consumable', color: colors.success[500], bgColor: 'bg-green-50', borderColor: 'border-green-200' },
-  HEALTHCARE: { label: 'Healthcare', color: colors.primary[700], bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
-  healthcare: { label: 'Healthcare', color: colors.primary[700], bgColor: 'bg-purple-50', borderColor: 'border-purple-200' },
+const CATEGORY_CONFIG: Record<
+  string,
+  { label: string; color: string; bgColor: string; borderColor: string }
+> = {
+  FEED: {
+    label: 'Feed',
+    color: colors.warning[500],
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-200',
+  },
+  feed: {
+    label: 'Feed',
+    color: colors.warning[500],
+    bgColor: 'bg-amber-50',
+    borderColor: 'border-amber-200',
+  },
+  CHEMICAL: {
+    label: 'Chemical',
+    color: colors.info[500],
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+  },
+  chemical: {
+    label: 'Chemical',
+    color: colors.info[500],
+    bgColor: 'bg-blue-50',
+    borderColor: 'border-blue-200',
+  },
+  CONSUMABLE: {
+    label: 'Consumable',
+    color: colors.success[500],
+    bgColor: 'bg-green-50',
+    borderColor: 'border-green-200',
+  },
+  consumable: {
+    label: 'Consumable',
+    color: colors.success[500],
+    bgColor: 'bg-green-50',
+    borderColor: 'border-green-200',
+  },
+  HEALTHCARE: {
+    label: 'Healthcare',
+    color: colors.primary[700],
+    bgColor: 'bg-purple-50',
+    borderColor: 'border-purple-200',
+  },
+  healthcare: {
+    label: 'Healthcare',
+    color: colors.primary[700],
+    bgColor: 'bg-purple-50',
+    borderColor: 'border-purple-200',
+  },
 };
 
 export const OverviewTab: React.FC = () => {
@@ -39,7 +99,7 @@ export const OverviewTab: React.FC = () => {
 
   // Category filter toggles
   const [visibleCategories, setVisibleCategories] = useState<Set<string>>(
-    new Set(['FEED', 'CHEMICAL', 'CONSUMABLE', 'HEALTHCARE'])
+    new Set(['FEED', 'CHEMICAL', 'CONSUMABLE', 'HEALTHCARE']),
   );
 
   // Storage location filter
@@ -64,7 +124,7 @@ export const OverviewTab: React.FC = () => {
 
   const { data: drillDownItems, isLoading: drillDownLoading } = useStorageInventory(
     undefined,
-    drillDownItemType
+    drillDownItemType,
   );
 
   const recentMovements = (movementsData?.items || []).slice(0, 5);
@@ -73,8 +133,8 @@ export const OverviewTab: React.FC = () => {
   const categoryChartData = useMemo((): PieDataItem[] => {
     const totals = overview?.categoryTotals || [];
     return totals
-      .filter(cat => visibleCategories.has(cat.category.toUpperCase()))
-      .map(cat => ({
+      .filter((cat) => visibleCategories.has(cat.category.toUpperCase()))
+      .map((cat) => ({
         label: CATEGORY_CONFIG[cat.category]?.label || cat.category,
         value: cat.totalQuantity,
         color: CATEGORY_CONFIG[cat.category]?.color || colors.gray[400],
@@ -85,8 +145,8 @@ export const OverviewTab: React.FC = () => {
   const categoryValueChartData = useMemo((): PieDataItem[] => {
     const totals = overview?.categoryTotals || [];
     return totals
-      .filter(cat => visibleCategories.has(cat.category.toUpperCase()))
-      .map(cat => ({
+      .filter((cat) => visibleCategories.has(cat.category.toUpperCase()))
+      .map((cat) => ({
         label: CATEGORY_CONFIG[cat.category]?.label || cat.category,
         value: parseMoney(cat.totalValueDecimal),
         color: CATEGORY_CONFIG[cat.category]?.color || colors.gray[400],
@@ -96,18 +156,24 @@ export const OverviewTab: React.FC = () => {
   // Location fill rate chart data (filtered by selected locations)
   const locationChartData = useMemo((): PieDataItem[] => {
     const rates = overview?.locationFillRates || [];
-    const filtered = selectedLocationIds.size > 0
-      ? rates.filter(loc => selectedLocationIds.has(loc.locationId))
-      : rates;
-    return filtered.map(loc => ({
+    const filtered =
+      selectedLocationIds.size > 0
+        ? rates.filter((loc) => selectedLocationIds.has(loc.locationId))
+        : rates;
+    return filtered.map((loc) => ({
       label: loc.locationName,
       value: loc.usedCapacity,
-      color: loc.fillPercentage > 90 ? colors.error[500] : loc.fillPercentage > 70 ? colors.warning[500] : colors.info[500],
+      color:
+        loc.fillPercentage > 90
+          ? colors.error[500]
+          : loc.fillPercentage > 70
+            ? colors.warning[500]
+            : colors.info[500],
     }));
   }, [overview?.locationFillRates, selectedLocationIds]);
 
   const toggleCategory = (cat: string) => {
-    setVisibleCategories(prev => {
+    setVisibleCategories((prev) => {
       const next = new Set(prev);
       if (next.has(cat)) {
         if (next.size > 1) next.delete(cat); // Keep at least one
@@ -119,7 +185,7 @@ export const OverviewTab: React.FC = () => {
   };
 
   const toggleLocation = (id: string) => {
-    setSelectedLocationIds(prev => {
+    setSelectedLocationIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -164,8 +230,9 @@ export const OverviewTab: React.FC = () => {
     {
       key: 'expiry',
       header: 'Expiry',
-      render: (_value, item) => item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('nb-NO') : '-',
-    }
+      render: (_value, item) =>
+        item.expiryDate ? new Date(item.expiryDate).toLocaleDateString('nb-NO') : '-',
+    },
   ];
 
   return (
@@ -173,23 +240,43 @@ export const OverviewTab: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
-          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Stock Value</div>
-          <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">{formatCurrency(parseMoney(overview?.totalStockValueDecimal), DEFAULT_CURRENCY)}</div>
-          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">{overview?.totalItems || 0} items</div>
+          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+            Total Stock Value
+          </div>
+          <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {formatCurrency(parseMoney(overview?.totalStockValueDecimal), DEFAULT_CURRENCY)}
+          </div>
+          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            {overview?.totalItems || 0} items
+          </div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
-          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Low Stock Alerts</div>
-          <div className="mt-1 text-2xl font-bold text-red-600">{overview?.lowStockAlertCount || 0}</div>
-          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">Items below minimum threshold</div>
+          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+            Low Stock Alerts
+          </div>
+          <div className="mt-1 text-2xl font-bold text-red-600">
+            {overview?.lowStockAlertCount || 0}
+          </div>
+          <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+            Items below minimum threshold
+          </div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
-          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Recent Movements</div>
-          <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">{overview?.recentMovementsCount || 0}</div>
+          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+            Recent Movements
+          </div>
+          <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {overview?.recentMovementsCount || 0}
+          </div>
           <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">Last 7 days</div>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
-          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Storage Locations</div>
-          <div className="mt-1 text-2xl font-bold text-blue-600">{overview?.locationFillRates?.length || 0}</div>
+          <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+            Storage Locations
+          </div>
+          <div className="mt-1 text-2xl font-bold text-blue-600">
+            {overview?.locationFillRates?.length || 0}
+          </div>
           <div className="mt-1 text-xs text-gray-400 dark:text-gray-500">Active locations</div>
         </div>
       </div>
@@ -200,21 +287,30 @@ export const OverviewTab: React.FC = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex-shrink-0 w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center">
-                <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <Clock className="w-5 h-5 text-amber-600" aria-hidden="true" />
               </div>
               <div>
                 <h4 className="text-sm font-semibold text-amber-800">
-                  {pendingDeliveries!.length} delivery {pendingDeliveries!.length === 1 ? 'is' : 'deliveries are'} expected today or overdue
+                  {pendingDeliveries!.length} delivery{' '}
+                  {pendingDeliveries!.length === 1 ? 'is' : 'deliveries are'} expected today or
+                  overdue
                 </h4>
                 <div className="mt-1 flex flex-wrap gap-2">
-                  {pendingDeliveries!.slice(0, 3).map(po => (
-                    <Button variant="secondary" size="xs" key={po.id} onClick={() => setReceiveTarget(po)}>{po.orderNumber} - {po.supplierName}
-                      <span className="text-amber-500">Mark Received</span></Button>
+                  {pendingDeliveries!.slice(0, 3).map((po) => (
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      key={po.id}
+                      onClick={() => setReceiveTarget(po)}
+                    >
+                      {po.orderNumber} - {po.supplierName}
+                      <span className="text-amber-500">Mark Received</span>
+                    </Button>
                   ))}
                   {pendingDeliveries!.length > 3 && (
-                    <span className="text-xs text-amber-600 py-1">+{pendingDeliveries!.length - 3} more</span>
+                    <span className="text-xs text-amber-600 py-1">
+                      +{pendingDeliveries!.length - 3} more
+                    </span>
                   )}
                 </div>
               </div>
@@ -228,12 +324,14 @@ export const OverviewTab: React.FC = () => {
         {/* Stock Distribution by Category - Donut Chart */}
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Stock Distribution by Category</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Stock Distribution by Category
+            </h3>
           </div>
 
           {/* Category filter checkboxes */}
           <div className="flex gap-3 mb-4">
-            {(['FEED', 'CHEMICAL', 'CONSUMABLE', 'HEALTHCARE'] as const).map(cat => (
+            {(['FEED', 'CHEMICAL', 'CONSUMABLE', 'HEALTHCARE'] as const).map((cat) => (
               <label
                 key={cat}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer border transition-all ${
@@ -250,7 +348,11 @@ export const OverviewTab: React.FC = () => {
                 />
                 <span
                   className="w-2.5 h-2.5 rounded-full"
-                  style={{ backgroundColor: visibleCategories.has(cat) ? CATEGORY_CONFIG[cat].color : colors.neutral[300] }}
+                  style={{
+                    backgroundColor: visibleCategories.has(cat)
+                      ? CATEGORY_CONFIG[cat].color
+                      : colors.neutral[300],
+                  }}
                 />
                 {CATEGORY_CONFIG[cat].label}
               </label>
@@ -279,13 +381,13 @@ export const OverviewTab: React.FC = () => {
           {categoryChartData.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2 justify-center">
               {(overview?.categoryTotals || [])
-                .filter(cat => visibleCategories.has(cat.category.toUpperCase()))
-                .map(cat => (
+                .filter((cat) => visibleCategories.has(cat.category.toUpperCase()))
+                .map((cat) => (
                   <button
                     key={cat.category}
-                    onClick={() => setDrillDownCategory(
-                      drillDownCategory === cat.category ? null : cat.category
-                    )}
+                    onClick={() =>
+                      setDrillDownCategory(drillDownCategory === cat.category ? null : cat.category)
+                    }
                     className={`text-xs px-3 py-1 rounded-full border transition-all ${
                       drillDownCategory === cat.category
                         ? 'bg-gray-900 text-white border-gray-900'
@@ -302,10 +404,12 @@ export const OverviewTab: React.FC = () => {
         {/* Stock Value by Category - Donut Chart */}
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Stock Value by Category</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Stock Value by Category
+            </h3>
           </div>
 
-          {categoryValueChartData.length > 0 && categoryValueChartData.some(d => d.value > 0) ? (
+          {categoryValueChartData.length > 0 && categoryValueChartData.some((d) => d.value > 0) ? (
             <div className="flex justify-center mt-9">
               <DonutChart
                 data={categoryValueChartData}
@@ -332,9 +436,9 @@ export const OverviewTab: React.FC = () => {
             <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {CATEGORY_CONFIG[drillDownCategory]?.label || drillDownCategory} Inventory Details
             </h3>
-            <Button variant="ghost" onClick={() => setDrillDownCategory(null)}><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg></Button>
+            <Button variant="ghost" onClick={() => setDrillDownCategory(null)}>
+              <X className="w-5 h-5" aria-hidden="true" />
+            </Button>
           </div>
           {drillDownLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -351,7 +455,7 @@ export const OverviewTab: React.FC = () => {
                 sortable={false}
                 stickyHeader={false}
               />
-</div>
+            </div>
           )}
         </div>
       )}
@@ -360,24 +464,42 @@ export const OverviewTab: React.FC = () => {
         {/* Low Stock Alerts */}
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Low Stock Alerts</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Low Stock Alerts
+            </h3>
           </div>
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {(overview?.lowStockAlerts || []).length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No low stock alerts</div>
+              <div className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                No low stock alerts
+              </div>
             ) : (
               overview?.lowStockAlerts.map((alert, idx) => (
-                <div key={`${alert.itemId}-${idx}`} className="px-5 py-3 flex items-center justify-between">
+                <div
+                  key={`${alert.itemId}-${idx}`}
+                  className="px-5 py-3 flex items-center justify-between"
+                >
                   <div>
-                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{alert.itemName}</div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {alert.itemName}
+                    </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">{alert.itemType}</div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm">
-                      <span className={alert.currentQuantity === 0 ? 'text-red-600 font-semibold' : 'text-yellow-600 font-medium'}>
+                      <span
+                        className={
+                          alert.currentQuantity === 0
+                            ? 'text-red-600 font-semibold'
+                            : 'text-yellow-600 font-medium'
+                        }
+                      >
                         {alert.currentQuantity}
                       </span>
-                      <span className="text-gray-400 dark:text-gray-500"> / {alert.minStock} {alert.unit}</span>
+                      <span className="text-gray-400 dark:text-gray-500">
+                        {' '}
+                        / {alert.minStock} {alert.unit}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -389,29 +511,45 @@ export const OverviewTab: React.FC = () => {
         {/* Recent Movements */}
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Recent Movements</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Recent Movements
+            </h3>
           </div>
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {recentMovements.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">No recent movements</div>
+              <div className="px-5 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                No recent movements
+              </div>
             ) : (
-              recentMovements.map(m => (
+              recentMovements.map((m) => (
                 <div key={m.id} className="px-5 py-3 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${movementTypeBadge[m.movementType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${movementTypeBadge[m.movementType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+                    >
                       {m.movementType}
                     </span>
                     <div>
-                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{m.itemName}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{m.performedBy}</div>
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {m.itemName}
+                      </div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">
+                        {m.performedBy}
+                      </div>
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
+                      {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}
+                      {m.quantity} {m.unit}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                      {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {new Date(m.performedAt).toLocaleDateString('nb-NO', {
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
                     </div>
                   </div>
                 </div>
@@ -425,22 +563,45 @@ export const OverviewTab: React.FC = () => {
       {(overview?.locationFillRates || []).length > 0 && (
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Location Fill Rates</h3>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+              Location Fill Rates
+            </h3>
 
             {/* Location filter dropdown */}
             {(locations?.items || []).length > 0 && (
               <div className="relative" ref={locationDropdownRef}>
-                <Button variant="secondary" size="xs" onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}>{selectedLocationIds.size > 0 ? `${selectedLocationIds.size} selected` : 'All locations'}
-                  <svg className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg></Button>
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  onClick={() => setLocationDropdownOpen(!locationDropdownOpen)}
+                >
+                  {selectedLocationIds.size > 0
+                    ? `${selectedLocationIds.size} selected`
+                    : 'All locations'}
+                  <ChevronDown
+                    className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500"
+                    aria-hidden="true"
+                  />
+                </Button>
                 {locationDropdownOpen && (
                   <div className="absolute right-0 top-full mt-1 z-20 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg py-1 min-w-[200px] max-h-60 overflow-y-auto">
                     {selectedLocationIds.size > 0 && (
-                      <Button variant="ghost" size="xs" onClick={() => { setSelectedLocationIds(new Set()); setLocationDropdownOpen(false); }}>Clear selection</Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => {
+                          setSelectedLocationIds(new Set());
+                          setLocationDropdownOpen(false);
+                        }}
+                      >
+                        Clear selection
+                      </Button>
                     )}
                     {(locations?.items || []).map((loc: any) => (
-                      <label key={loc.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer">
+                      <label
+                        key={loc.id}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
+                      >
                         <input
                           type="checkbox"
                           checked={selectedLocationIds.has(loc.id)}
@@ -474,11 +635,15 @@ export const OverviewTab: React.FC = () => {
             {/* Bar fill rates */}
             <div className="space-y-3">
               {(selectedLocationIds.size > 0
-                ? overview?.locationFillRates.filter(loc => selectedLocationIds.has(loc.locationId))
+                ? overview?.locationFillRates.filter((loc) =>
+                    selectedLocationIds.has(loc.locationId),
+                  )
                 : overview?.locationFillRates
-              )?.map(loc => (
+              )?.map((loc) => (
                 <div key={loc.locationId} className="flex items-center gap-4">
-                  <div className="w-32 text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{loc.locationName}</div>
+                  <div className="w-32 text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                    {loc.locationName}
+                  </div>
                   <div className="flex-1">
                     <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                       <div
@@ -490,14 +655,20 @@ export const OverviewTab: React.FC = () => {
                   <div className="w-20 text-right text-xs text-gray-500 dark:text-gray-400">
                     {loc.usedCapacity} / {loc.capacity || 0}
                   </div>
-                  <div className="w-10 text-right text-xs font-medium text-gray-700 dark:text-gray-300">{Math.round(loc.fillPercentage)}%</div>
+                  <div className="w-10 text-right text-xs font-medium text-gray-700 dark:text-gray-300">
+                    {Math.round(loc.fillPercentage)}%
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
       )}
-      <ReceiveDeliveryModal isOpen={!!receiveTarget} onClose={() => setReceiveTarget(null)} purchaseOrder={receiveTarget} />
+      <ReceiveDeliveryModal
+        isOpen={!!receiveTarget}
+        onClose={() => setReceiveTarget(null)}
+        purchaseOrder={receiveTarget}
+      />
     </div>
   );
 };

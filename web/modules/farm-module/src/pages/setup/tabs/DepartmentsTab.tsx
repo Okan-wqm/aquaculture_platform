@@ -3,7 +3,17 @@
  * Displays list of departments with CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import { Modal, DeleteConfirmationDialog, DeletePreviewData, AffectedItemGroup, useToast, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  DeleteConfirmationDialog,
+  DeletePreviewData,
+  AffectedItemGroup,
+  useToast,
+  Spinner,
+  Button,
+  Input,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   useDepartmentList,
   useCreateDepartment,
@@ -15,6 +25,7 @@ import {
 } from '../../../hooks/useDepartments';
 import { useSiteList } from '../../../hooks/useSites';
 import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Plus, Search as SearchIcon, Square, TriangleAlert } from 'lucide-react';
 
 const typeLabels: Record<string, string> = {
   HATCHERY: 'Hatchery',
@@ -276,9 +287,7 @@ export const DepartmentsTab: React.FC = () => {
           {dept.site?.name ? (
             <span className="text-gray-500 dark:text-gray-400">{dept.site.name}</span>
           ) : (
-            <span className="text-red-600 italic font-medium">
-              Not associated with any site
-            </span>
+            <span className="text-red-600 italic font-medium">Not associated with any site</span>
           )}
         </>
       ),
@@ -301,11 +310,12 @@ export const DepartmentsTab: React.FC = () => {
                       />
                     </div>
                   </div>
-                  <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">{loadPercentage}%</span>
+                  <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
+                    {loadPercentage}%
+                  </span>
                 </div>
                 <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
-                  {(dept.currentLoad || 0).toLocaleString()} /{' '}
-                  {dept.capacity.toLocaleString()}
+                  {(dept.currentLoad || 0).toLocaleString()} / {dept.capacity.toLocaleString()}
                 </div>
               </>
             ) : (
@@ -321,11 +331,15 @@ export const DepartmentsTab: React.FC = () => {
       align: 'right',
       render: (_value, dept) => (
         <>
-          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(dept)}>Edit</Button>
-          <Button variant="ghost" onClick={() => handleDelete(dept)}>Delete</Button>
+          <Button variant="ghost" className="mr-3" onClick={() => handleEdit(dept)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => handleDelete(dept)}>
+            Delete
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -341,19 +355,10 @@ export const DepartmentsTab: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            <svg
+            <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
           </div>
           <select
             value={selectedSite}
@@ -369,20 +374,18 @@ export const DepartmentsTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <Button variant="primary" onClick={() => {
+        <Button
+          variant="primary"
+          onClick={() => {
             setEditingId(null);
             setFormData(initialFormData);
             setFormErrors({});
             setIsModalOpen(true);
-          }}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-          Add Department</Button>
+          }}
+        >
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Add Department
+        </Button>
       </div>
 
       {/* Loading State */}
@@ -396,26 +399,16 @@ export const DepartmentsTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load departments. Please try again.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
       {/* Orphaned Departments Warning */}
       {orphanedCount > 0 && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center">
-          <svg
-            className="w-5 h-5 text-red-500 mr-2 flex-shrink-0"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
+          <TriangleAlert className="w-5 h-5 text-red-500 mr-2 flex-shrink-0" aria-hidden="true" />
           <span className="text-sm text-red-700">
             {orphanedCount} department(s) are not associated with any site
           </span>
@@ -438,20 +431,13 @@ export const DepartmentsTab: React.FC = () => {
           {/* Empty State */}
           {filteredDepartments.length === 0 && (
             <div className="text-center py-12">
-              <svg
+              <Square
                 className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6z"
-                />
-              </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No departments found</h3>
+                aria-hidden="true"
+              />
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No departments found
+              </h3>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Get started by creating a new department.
               </p>
@@ -470,7 +456,9 @@ export const DepartmentsTab: React.FC = () => {
         <form onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Name *
+              </label>
               <input
                 type="text"
                 required
@@ -485,7 +473,9 @@ export const DepartmentsTab: React.FC = () => {
               {formErrors.name && <p className="mt-1 text-sm text-red-600">{formErrors.name}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Code *
+              </label>
               <input
                 type="text"
                 required
@@ -500,7 +490,9 @@ export const DepartmentsTab: React.FC = () => {
               {formErrors.code && <p className="mt-1 text-sm text-red-600">{formErrors.code}</p>}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Type
+              </label>
               <select
                 value={formData.type}
                 onChange={(e) => setFormData((prev) => ({ ...prev, type: e.target.value }))}
@@ -514,7 +506,9 @@ export const DepartmentsTab: React.FC = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Site *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Site *
+              </label>
               <select
                 value={formData.siteId}
                 onChange={(e) => {
@@ -537,19 +531,49 @@ export const DepartmentsTab: React.FC = () => {
               )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Capacity</label>
-              <Input fullWidth type="number" min="0" value={formData.capacity} onChange={(e) =>
-         setFormData((prev) => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))
-        } />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Capacity
+              </label>
+              <Input
+                fullWidth
+                type="number"
+                min="0"
+                value={formData.capacity}
+                onChange={(e) =>
+                  setFormData((prev) => ({ ...prev, capacity: parseInt(e.target.value) || 0 }))
+                }
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-              <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={3} />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Notes
+              </label>
+              <Textarea
+                fullWidth
+                value={formData.notes}
+                onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                rows={3}
+              />
             </div>
           </div>
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit">{editingId ? 'Update' : 'Create'}</Button>
-            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              size="lg"
+              className="justify-center sm:ml-3 sm:w-auto sm:text-sm"
+              type="submit"
+            >
+              {editingId ? 'Update' : 'Create'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </Button>
           </div>
         </form>
       </Modal>

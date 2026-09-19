@@ -10,6 +10,7 @@ import { useI18n } from '../../i18n';
 import { createPortal } from 'react-dom';
 
 import { dialogThemeAttributes, useDialogBehavior, type DialogTheme } from './useDialogBehavior';
+import { Info, TriangleAlert, X } from 'lucide-react';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -145,7 +146,7 @@ export const Modal: React.FC<ModalProps> = ({
         onClose();
       }
     },
-    [closeOnOverlayClick, onClose]
+    [closeOnOverlayClick, onClose],
   );
 
   // Modal kapalıysa render etme
@@ -185,18 +186,12 @@ export const Modal: React.FC<ModalProps> = ({
           <div className="flex items-start justify-between p-4 border-b border-gray-200 dark:border-gray-700">
             <div>
               {title && (
-                <h2
-                  id={titleId}
-                  className="text-lg font-semibold text-gray-900 dark:text-gray-100"
-                >
+                <h2 id={titleId} className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {title}
                 </h2>
               )}
               {description && (
-                <p
-                  id={descriptionId}
-                  className="mt-1 text-sm text-gray-500 dark:text-gray-400"
-                >
+                <p id={descriptionId} className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                   {description}
                 </p>
               )}
@@ -208,9 +203,7 @@ export const Modal: React.FC<ModalProps> = ({
                 className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
                 aria-label={closeLabel}
               >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                <X className="w-5 h-5" aria-hidden="true" />
               </button>
             )}
           </div>
@@ -227,7 +220,7 @@ export const Modal: React.FC<ModalProps> = ({
         )}
       </div>
     </div>,
-    document.body
+    document.body,
   );
 };
 
@@ -337,8 +330,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     }
   }, [isOpen]);
   const typedGatePassed =
-    !requireTypedConfirmation ||
-    typedConfirmation.trim() === requireTypedConfirmation.trim();
+    !requireTypedConfirmation || typedConfirmation.trim() === requireTypedConfirmation.trim();
 
   // BUG-011: confirmVariant is now properly typed — use it directly with fallback to variant prop
   const variant: 'danger' | 'warning' | 'info' = confirmVariant ?? variantProp;
@@ -355,21 +347,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   };
 
   const icons = {
-    danger: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    ),
-    warning: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    ),
-    info: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    danger: <TriangleAlert className="w-6 h-6" aria-hidden="true" />,
+    warning: <TriangleAlert className="w-6 h-6" aria-hidden="true" />,
+    info: <Info className="w-6 h-6" aria-hidden="true" />,
   };
 
   return (
@@ -383,20 +363,28 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     >
       <div className="text-center">
         {/* İkon */}
-        <div className={`mx-auto w-12 h-12 flex items-center justify-center rounded-full ${iconColors[variant]}`}>
+        <div
+          className={`mx-auto w-12 h-12 flex items-center justify-center rounded-full ${iconColors[variant]}`}
+        >
           {icons[variant]}
         </div>
 
         {/* Başlık ve mesaj */}
-        <h3 id={headingId} className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
+        <h3 id={headingId} className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
+          {title}
+        </h3>
         {/*
           `message` ReactNode kabul ediyor — string ile tipografi
           `<p>` sarmalaması; ReactNode ile olduğu gibi render.
         */}
         {typeof message === 'string' ? (
-          <p id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</p>
+          <p id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {message}
+          </p>
         ) : (
-          <div id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</div>
+          <div id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {message}
+          </div>
         )}
 
         {warning && (
@@ -411,7 +399,10 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         {/* Yazı-ile-onay gate — yalnızca requireTypedConfirmation verilmişse */}
         {requireTypedConfirmation && (
           <div className="mt-4 text-left">
-            <label htmlFor={gateId} className="block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300">
+            <label
+              htmlFor={gateId}
+              className="block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300"
+            >
               {typedConfirmationLabel ? (
                 typedConfirmationLabel.split('{text}').map((part, idx, arr) => (
                   <React.Fragment key={idx}>

@@ -11,6 +11,7 @@
  * Graceful degradation: renders nothing when no batch is active or AI unavailable.
  */
 
+import { Activity, ArrowRight } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import { useBatchGrowthPrediction } from '@/hooks/useAiInsights';
@@ -43,17 +44,18 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
    * WHY: Growth delta percentage shows whether the batch is growing faster or slower
    * than current pace. A positive delta means acceleration (good); negative means deceleration.
    */
-  const growthDelta = prediction.currentAvgWeight > 0
-    ? ((prediction.predictedAvgWeight30d - prediction.currentAvgWeight) / prediction.currentAvgWeight * 100)
-    : 0;
+  const growthDelta =
+    prediction.currentAvgWeight > 0
+      ? ((prediction.predictedAvgWeight30d - prediction.currentAvgWeight) /
+          prediction.currentAvgWeight) *
+        100
+      : 0;
 
   return (
     <div className="mt-4">
       {/* WHY: Section header style matches TankRiskBadge and existing tank detail sections */}
       <div className="flex items-center gap-2 mb-3">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-500">
-          <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-        </svg>
+        <Activity className="text-purple-500" size={16} aria-hidden="true" />
         <h2 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
           30-Day Growth Prediction
         </h2>
@@ -72,25 +74,27 @@ export function GrowthPredictionCard({ batchId }: GrowthPredictionCardProps): Re
           </div>
           {/* WHY: Arrow indicator between current and predicted weight — visual growth direction */}
           <div className="flex items-center gap-1 px-3">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-400">
-              <path d="M5 12h14" />
-              <path d="m12 5 7 7-7 7" />
-            </svg>
+            <ArrowRight className="text-purple-400" size={24} aria-hidden="true" />
           </div>
           <div className="text-center">
-            <div className="text-xs text-gray-400 dark:text-gray-500 font-medium mb-1">Predicted (30d)</div>
+            <div className="text-xs text-gray-400 dark:text-gray-500 font-medium mb-1">
+              Predicted (30d)
+            </div>
             <div className="text-xl font-bold text-purple-600 dark:text-purple-400 tabular-nums">
               {prediction.predictedAvgWeight30d.toFixed(0)}
               <span className="text-xs text-gray-400 dark:text-gray-500 font-medium ml-0.5">g</span>
             </div>
           </div>
           {/* WHY: Growth delta percentage badge — green for positive growth, red for negative */}
-          <div className={`text-xs font-bold px-2 py-1 rounded-lg ${
-            growthDelta >= 0
-              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-          }`}>
-            {growthDelta >= 0 ? '+' : ''}{growthDelta.toFixed(0)}%
+          <div
+            className={`text-xs font-bold px-2 py-1 rounded-lg ${
+              growthDelta >= 0
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+            }`}
+          >
+            {growthDelta >= 0 ? '+' : ''}
+            {growthDelta.toFixed(0)}%
           </div>
         </div>
 

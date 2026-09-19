@@ -13,13 +13,20 @@
  */
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { DynamicMeasurementForm } from '@aquaculture/farm-shared';
-import { useAuth, useTenantScopedStorage, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import {
+  useAuth,
+  useTenantScopedStorage,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+} from '@aquaculture/shared-ui';
 import { useEquipmentParameterConfigs } from '../../../hooks/useEquipmentParameters';
 import { useSystemList } from '../../../hooks/useSystems';
 import { useEquipmentList } from '../../../hooks/useEquipment';
 import { useCreateWaterQuality, useWaterQualityList } from '../../../hooks/useWaterQuality';
 import type { Equipment } from '../../../hooks/useEquipment';
 import type { System } from '../../../hooks/useSystems';
+import { Clipboard, TriangleAlert } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
@@ -55,18 +62,14 @@ export const RecordTab: React.FC = () => {
   // Using { isActive: true } returns ALL active equipment regardless of status,
   // matching the EquipmentMappingPanel (parameters tab) behavior.
   const equipmentQuery = useEquipmentList(
-    selectedSystemId
-      ? { isActive: true, systemId: selectedSystemId }
-      : { isActive: true },
+    selectedSystemId ? { isActive: true, systemId: selectedSystemId } : { isActive: true },
   );
   const parameterConfigs = useEquipmentParameterConfigs(selectedEquipmentId);
   const createMutation = useCreateWaterQuality();
 
   // Recent entries for selected equipment
   const recentEntriesQuery = useWaterQualityList(
-    selectedEquipmentId
-      ? { tankId: selectedEquipmentId, limit: RECENT_ENTRIES_LIMIT }
-      : undefined,
+    selectedEquipmentId ? { tankId: selectedEquipmentId, limit: RECENT_ENTRIES_LIMIT } : undefined,
   );
 
   // ----- Derived data -----
@@ -168,9 +171,7 @@ export const RecordTab: React.FC = () => {
   );
 
   // ----- Render helpers -----
-  const selectedEquipmentName = filteredEquipment.find(
-    (eq) => eq.id === selectedEquipmentId,
-  )?.name;
+  const selectedEquipmentName = filteredEquipment.find((eq) => eq.id === selectedEquipmentId)?.name;
 
   const recentEntries = recentEntriesQuery.data?.items ?? [];
 
@@ -211,7 +212,7 @@ export const RecordTab: React.FC = () => {
       key: 'notes',
       header: 'Notes',
       render: (_value, entry) => entry.notes || '—',
-    }
+    },
   ];
 
   return (
@@ -259,8 +260,7 @@ export const RecordTab: React.FC = () => {
               <option value="">Select equipment...</option>
               {sortedEquipment.map((eq) => (
                 <option key={eq.id} value={eq.id}>
-                  {eq.name} ({eq.code})
-                  {eq.equipmentType ? ` — ${eq.equipmentType.name}` : ''}
+                  {eq.name} ({eq.code}){eq.equipmentType ? ` — ${eq.equipmentType.name}` : ''}
                 </option>
               ))}
             </select>
@@ -271,19 +271,10 @@ export const RecordTab: React.FC = () => {
       {/* Empty state: no equipment selected */}
       {!selectedEquipmentId && (
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
-          <svg
+          <Clipboard
             className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-            />
-          </svg>
+            aria-hidden="true"
+          />
           <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
             Select equipment to start recording
           </h3>
@@ -298,19 +289,7 @@ export const RecordTab: React.FC = () => {
         !parameterConfigs.isLoading &&
         (parameterConfigs.data?.length ?? 0) === 0 && (
           <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
-            <svg
-              className="mx-auto h-12 w-12 text-yellow-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={1.5}
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"
-              />
-            </svg>
+            <TriangleAlert className="mx-auto h-12 w-12 text-yellow-400" aria-hidden="true" />
             <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
               No parameters configured for this equipment
             </h3>
@@ -325,7 +304,9 @@ export const RecordTab: React.FC = () => {
       {selectedEquipmentId && parameterConfigs.isLoading && (
         <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
           <Spinner size="lg" block />
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading parameter configuration...</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Loading parameter configuration...
+          </p>
         </div>
       )}
 

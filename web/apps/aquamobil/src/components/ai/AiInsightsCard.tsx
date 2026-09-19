@@ -16,6 +16,7 @@
  */
 
 import { clsx } from 'clsx';
+import { Brain, MessageCircle } from 'lucide-react';
 import type { ReactElement } from 'react';
 
 import { useAiDashboardInsights } from '@/hooks/useAiInsights';
@@ -26,7 +27,11 @@ import { useAiDashboardInsights } from '@/hooks/useAiInsights';
  * field operators to triage without reading text labels.
  */
 const RISK_LEVEL_COLORS: Record<number, { ring: string; text: string; label: string }> = {
-  0: { ring: 'stroke-emerald-500', text: 'text-emerald-600 dark:text-emerald-400', label: 'Low Risk' },
+  0: {
+    ring: 'stroke-emerald-500',
+    text: 'text-emerald-600 dark:text-emerald-400',
+    label: 'Low Risk',
+  },
   1: { ring: 'stroke-amber-500', text: 'text-amber-600 dark:text-amber-400', label: 'Medium Risk' },
   2: { ring: 'stroke-red-500', text: 'text-red-600 dark:text-red-400', label: 'High Risk' },
   3: { ring: 'stroke-red-700', text: 'text-red-700 dark:text-red-300', label: 'Critical' },
@@ -62,14 +67,18 @@ function RiskGauge({ score }: { score: number }): ReactElement {
       <svg className="w-24 h-24 -rotate-90" viewBox="0 0 80 80">
         {/* WHY: Background ring shows the full circle track so the progress is visually contextualized */}
         <circle
-          cx="40" cy="40" r={radius}
+          cx="40"
+          cy="40"
+          r={radius}
           fill="none"
           strokeWidth="6"
           className="stroke-gray-200 dark:stroke-gray-700"
         />
         {/* WHY: Foreground ring — dasharray/dashoffset technique creates the animated progress arc */}
         <circle
-          cx="40" cy="40" r={radius}
+          cx="40"
+          cy="40"
+          r={radius}
           fill="none"
           strokeWidth="6"
           strokeLinecap="round"
@@ -80,9 +89,7 @@ function RiskGauge({ score }: { score: number }): ReactElement {
       </svg>
       {/* WHY: Centered score number inside the ring — the most prominent element on the card */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className={clsx('text-2xl font-bold tabular-nums', colors.text)}>
-          {score}
-        </span>
+        <span className={clsx('text-2xl font-bold tabular-nums', colors.text)}>{score}</span>
         <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">
           Risk
         </span>
@@ -97,10 +104,14 @@ function RiskGauge({ score }: { score: number }): ReactElement {
  */
 function getSeverityColor(severity: string): string {
   switch (severity.toLowerCase()) {
-    case 'critical': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
-    case 'high': return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
-    case 'medium': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
-    default: return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
+    case 'critical':
+      return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300';
+    case 'high':
+      return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300';
+    case 'medium':
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300';
+    default:
+      return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300';
   }
 }
 
@@ -136,16 +147,13 @@ export function AiInsightsCard(): ReactElement {
     return (
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
         <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3 flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/80">
-            <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22" />
-            <path d="M8 6a4 4 0 0 1 .68-2.23" />
-            <path d="M17 12.5c1.77.77 3 2.53 3 4.5a5 5 0 0 1-10 0c0-1.97 1.23-3.73 3-4.5" />
-            <path d="M7 17a5 5 0 0 1-3-4.5" />
-          </svg>
+          <Brain className="text-white/80" size={16} aria-hidden="true" />
           <h3 className="text-sm font-bold text-white">AI Insights</h3>
         </div>
         <div className="p-4 flex items-center justify-center">
-          <p className="text-sm text-gray-400 dark:text-gray-500 font-medium">AI insights currently unavailable</p>
+          <p className="text-sm text-gray-400 dark:text-gray-500 font-medium">
+            AI insights currently unavailable
+          </p>
         </div>
       </div>
     );
@@ -166,23 +174,20 @@ export function AiInsightsCard(): ReactElement {
           "AI prediction" vs. "live data". */}
       <div className="bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/80">
-            <path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22" />
-            <path d="M8 6a4 4 0 0 1 .68-2.23" />
-            <path d="M17 12.5c1.77.77 3 2.53 3 4.5a5 5 0 0 1-10 0c0-1.97 1.23-3.73 3-4.5" />
-            <path d="M7 17a5 5 0 0 1-3-4.5" />
-          </svg>
+          <Brain className="text-white/80" size={16} aria-hidden="true" />
           <h3 className="text-sm font-bold text-white">AI Insights</h3>
         </div>
         {/* WHY: Anomaly count badge in the header — red when anomalies exist, green when clear.
             Provides at-a-glance anomaly awareness without scrolling to the details section. */}
-        <span className={clsx(
-          'text-xs font-bold px-2.5 py-0.5 rounded-full',
-          anomalyCount > 0
-            ? 'bg-red-500/20 text-red-100'
-            : 'bg-emerald-500/20 text-emerald-100',
-        )}>
-          {anomalyCount > 0 ? `${anomalyCount} anomal${anomalyCount > 1 ? 'ies' : 'y'}` : 'All clear'}
+        <span
+          className={clsx(
+            'text-xs font-bold px-2.5 py-0.5 rounded-full',
+            anomalyCount > 0 ? 'bg-red-500/20 text-red-100' : 'bg-emerald-500/20 text-emerald-100',
+          )}
+        >
+          {anomalyCount > 0
+            ? `${anomalyCount} anomal${anomalyCount > 1 ? 'ies' : 'y'}`
+            : 'All clear'}
         </span>
       </div>
 
@@ -199,7 +204,8 @@ export function AiInsightsCard(): ReactElement {
                 {riskLabel}
               </span>
               <p className="text-[10px] text-gray-400 dark:text-gray-500 font-medium">
-                {insights.tankRisks.length} tank{insights.tankRisks.length !== 1 ? 's' : ''} monitored
+                {insights.tankRisks.length} tank{insights.tankRisks.length !== 1 ? 's' : ''}{' '}
+                monitored
               </p>
             </div>
 
@@ -223,7 +229,9 @@ export function AiInsightsCard(): ReactElement {
             {/* WHY: Tank risk count summary — tells the manager how many tanks need attention */}
             {insights.tankRisks.filter((t) => t.riskScore >= 50).length > 0 && (
               <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
-                {insights.tankRisks.filter((t) => t.riskScore >= 50).length} tank{insights.tankRisks.filter((t) => t.riskScore >= 50).length !== 1 ? 's' : ''} at elevated risk
+                {insights.tankRisks.filter((t) => t.riskScore >= 50).length} tank
+                {insights.tankRisks.filter((t) => t.riskScore >= 50).length !== 1 ? 's' : ''} at
+                elevated risk
               </p>
             )}
           </div>
@@ -235,9 +243,7 @@ export function AiInsightsCard(): ReactElement {
         {topFeeding && (
           <div className="mt-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-xl p-3">
             <div className="flex items-center gap-1.5 mb-1">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-purple-500">
-                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-              </svg>
+              <MessageCircle className="text-purple-500" size={12} aria-hidden="true" />
               <span className="text-[10px] font-bold text-purple-600 dark:text-purple-300 uppercase tracking-wider">
                 Feeding Tip
               </span>
@@ -246,7 +252,8 @@ export function AiInsightsCard(): ReactElement {
               {topFeeding.rationale}
             </p>
             <p className="text-[10px] text-purple-500 dark:text-purple-400 mt-1">
-              {topFeeding.recommendedAmount}kg {topFeeding.feedType} &middot; {topFeeding.feedingFrequency}x/day
+              {topFeeding.recommendedAmount}kg {topFeeding.feedType} &middot;{' '}
+              {topFeeding.feedingFrequency}x/day
             </p>
           </div>
         )}

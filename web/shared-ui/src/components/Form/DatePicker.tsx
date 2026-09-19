@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, X } from 'lucide-react';
 
 export interface DatePickerProps {
   value?: Date | null;
@@ -24,8 +25,18 @@ export interface DatePickerProps {
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December'
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
 ];
 
 export const DatePicker: React.FC<DatePickerProps> = ({
@@ -164,7 +175,11 @@ export const DatePicker: React.FC<DatePickerProps> = ({
           ${error ? 'border-error-500' : 'border-gray-300 dark:border-gray-600'}
         `}
       >
-        <span className={value ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'}>
+        <span
+          className={
+            value ? 'text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400'
+          }
+        >
           {value ? formatDate(value) : placeholder}
         </span>
         <div className="flex items-center gap-2">
@@ -173,14 +188,10 @@ export const DatePicker: React.FC<DatePickerProps> = ({
               onClick={handleClear}
               className="text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-4 h-4" aria-hidden="true" />
             </span>
           )}
-          <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
+          <CalendarIcon className="w-5 h-5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
         </div>
       </button>
 
@@ -194,9 +205,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
               onClick={handlePrevMonth}
               className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
+              <ChevronLeft className="w-5 h-5" aria-hidden="true" />
             </button>
             <span className="text-sm font-semibold">
               {MONTHS[viewDate.getMonth()]} {viewDate.getFullYear()}
@@ -206,9 +215,7 @@ export const DatePicker: React.FC<DatePickerProps> = ({
               onClick={handleNextMonth}
               className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-              </svg>
+              <ChevronRight className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
 
@@ -243,11 +250,12 @@ export const DatePicker: React.FC<DatePickerProps> = ({
                   disabled={isDisabled}
                   className={`
                     p-2 text-sm rounded-lg transition-colors
-                    ${isSelected
-                      ? 'bg-primary-600 text-white'
-                      : isTodayDate
-                      ? 'bg-primary-50 text-primary-600 font-medium'
-                      : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                    ${
+                      isSelected
+                        ? 'bg-primary-600 text-white'
+                        : isTodayDate
+                          ? 'bg-primary-50 text-primary-600 font-medium'
+                          : 'hover:bg-gray-100 dark:hover:bg-gray-700'
                     }
                     ${isDisabled ? 'text-gray-300 cursor-not-allowed' : 'cursor-pointer'}
                   `}

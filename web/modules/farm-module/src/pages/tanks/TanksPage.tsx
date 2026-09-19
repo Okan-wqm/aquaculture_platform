@@ -50,7 +50,24 @@ import {
   useCleanerFishBatches,
   useCleanerFishSpecies,
 } from '../../hooks/useCleanerFish';
-import { DataTable, type DataTableColumn, PageHeader, Button, Select } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  type DataTableColumn,
+  PageHeader,
+  Button,
+  Select,
+} from '@aquaculture/shared-ui';
+import {
+  ArrowLeftRight,
+  ArrowRight,
+  Droplet,
+  ListFilter,
+  Plus,
+  RefreshCw,
+  Scissors,
+  Search as SearchIcon,
+  TriangleAlert,
+} from 'lucide-react';
 
 // ============================================================================
 // STATUS COLORS
@@ -81,7 +98,6 @@ const categoryLabels: Record<string, string> = {
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
-
 
 /**
  * Format date for display
@@ -562,7 +578,9 @@ export const TanksPage: React.FC = () => {
       case 'name':
         return <div className="font-medium text-gray-900 dark:text-gray-100">{tank.name}</div>;
       case 'code':
-        return <span className="text-gray-600 dark:text-gray-400 font-mono text-sm">{tank.code}</span>;
+        return (
+          <span className="text-gray-600 dark:text-gray-400 font-mono text-sm">{tank.code}</span>
+        );
       case 'category':
         return (
           <span
@@ -581,7 +599,8 @@ export const TanksPage: React.FC = () => {
         return (
           <span
             className={`px-2 py-1 rounded-full text-xs font-medium ${
-              statusColors[tank.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+              statusColors[tank.status] ||
+              'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
             }`}
           >
             {tank.status}
@@ -755,7 +774,9 @@ export const TanksPage: React.FC = () => {
         case 'name':
           return <div className="font-medium text-gray-900 dark:text-gray-100">{tank.name}</div>;
         case 'code':
-          return <span className="text-gray-600 dark:text-gray-400 font-mono text-sm">{tank.code}</span>;
+          return (
+            <span className="text-gray-600 dark:text-gray-400 font-mono text-sm">{tank.code}</span>
+          );
         case 'category':
           return (
             <span
@@ -774,7 +795,8 @@ export const TanksPage: React.FC = () => {
           return (
             <span
               className={`px-2 py-1 rounded-full text-xs font-medium ${
-                statusColors[tank.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+                statusColors[tank.status] ||
+                'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
               }`}
             >
               {tank.status}
@@ -950,9 +972,16 @@ export const TanksPage: React.FC = () => {
     key: col.key,
     header: col.header,
     align: col.align,
-    render: (_value, tank) => <span className="whitespace-nowrap">{renderCell(tank, col.key)}</span>,
+    render: (_value, tank) => (
+      <span className="whitespace-nowrap">{renderCell(tank, col.key)}</span>
+    ),
   }));
-  type CleanerFishRow = { tank: TankRow; batchIdx: number; isFirstRow: boolean; batchCount: number };
+  type CleanerFishRow = {
+    tank: TankRow;
+    batchIdx: number;
+    isFirstRow: boolean;
+    batchCount: number;
+  };
   const cleanerFishRows: CleanerFishRow[] = filteredData.flatMap((tank) => {
     const batchCount = tank.cleanerFishDetails?.length || 0;
     return Array.from({ length: Math.max(1, batchCount) }, (_, batchIdx) => ({
@@ -962,21 +991,27 @@ export const TanksPage: React.FC = () => {
       batchCount,
     }));
   });
-  const cleanerFishTableColumns: DataTableColumn<CleanerFishRow>[] = activeCleanerFishColumns.map((col) => ({
-    key: col.key,
-    header: col.header,
-    align: col.align,
-    render: (_value, row) =>
-      isTankLevelColumn(col.key) ? (
-        row.isFirstRow ? (
-          <span className="whitespace-nowrap">{renderCleanerFishTankCell(row.tank, col.key)}</span>
-        ) : null
-      ) : (
-        <span className="whitespace-nowrap">
-          {row.batchCount === 0 ? '-' : renderCleanerFishBatchCell(row.tank, col.key, row.batchIdx)}
-        </span>
-      ),
-  }));
+  const cleanerFishTableColumns: DataTableColumn<CleanerFishRow>[] = activeCleanerFishColumns.map(
+    (col) => ({
+      key: col.key,
+      header: col.header,
+      align: col.align,
+      render: (_value, row) =>
+        isTankLevelColumn(col.key) ? (
+          row.isFirstRow ? (
+            <span className="whitespace-nowrap">
+              {renderCleanerFishTankCell(row.tank, col.key)}
+            </span>
+          ) : null
+        ) : (
+          <span className="whitespace-nowrap">
+            {row.batchCount === 0
+              ? '-'
+              : renderCleanerFishBatchCell(row.tank, col.key, row.batchIdx)}
+          </span>
+        ),
+    }),
+  );
 
   return (
     <div className="p-6">
@@ -1022,63 +1057,68 @@ export const TanksPage: React.FC = () => {
 
               <div className="h-6 w-px bg-gray-300" />
 
-              <Button variant="ghost" size="sm" onClick={handleMortalityClick} disabled={!selectedTankId} title="Record Mortality"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                  />
-                </svg></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleMortalityClick}
+                disabled={!selectedTankId}
+                title="Record Mortality"
+              >
+                <TriangleAlert className="w-5 h-5" aria-hidden="true" />
+              </Button>
 
-              <Button variant="ghost" size="sm" onClick={handleTransferClick} disabled={!selectedTankId} title="Transfer Fish"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-                  />
-                </svg></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleTransferClick}
+                disabled={!selectedTankId}
+                title="Transfer Fish"
+              >
+                <ArrowLeftRight className="w-5 h-5" aria-hidden="true" />
+              </Button>
 
-              <Button variant="ghost" size="sm" onClick={handleCullClick} disabled={!selectedTankId || !selectedTank?.batchNumber} title="Record Cull"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z"
-                  />
-                </svg></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCullClick}
+                disabled={!selectedTankId || !selectedTank?.batchNumber}
+                title="Record Cull"
+              >
+                <Scissors className="w-5 h-5" aria-hidden="true" />
+              </Button>
 
-              <Button variant="ghost" size="sm" onClick={handleGradingClick} disabled={!selectedTankId || !selectedTank?.batchNumber} title="Grade Fish"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M3 4h18M7 8h10M10 12h4m-6 4h8m-5 4h2"
-                  />
-                </svg></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleGradingClick}
+                disabled={!selectedTankId || !selectedTank?.batchNumber}
+                title="Grade Fish"
+              >
+                <ListFilter className="w-5 h-5" aria-hidden="true" />
+              </Button>
 
-              <Button variant="ghost" size="sm" onClick={handleWaterTempClick} disabled={!selectedTankId} title="Record Water Temperature">{/* Water-drop icon — records the manual water temperature the feed-rate uses */}
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 2.69l5.66 5.66a8 8 0 11-11.31 0z"
-                  />
-                </svg></Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleWaterTempClick}
+                disabled={!selectedTankId}
+                title="Record Water Temperature"
+              >
+                {/* Water-drop icon — records the manual water temperature the feed-rate uses */}
+                <Droplet className="w-5 h-5" aria-hidden="true" />
+              </Button>
 
               <div className="h-6 w-px bg-gray-300" />
 
-              <Button variant="primary" size="sm" onClick={() => setShowBatchModal(true)} title="New Batch"><svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                New Batch</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowBatchModal(true)}
+                title="New Batch"
+              >
+                <Plus className="w-4 h-4 mr-1" aria-hidden="true" />
+                New Batch
+              </Button>
             </div>
           </>
         }
@@ -1089,19 +1129,10 @@ export const TanksPage: React.FC = () => {
       <div className="flex flex-wrap gap-4 mb-6 items-center">
         {/* Search */}
         <div className="relative flex-1 min-w-[200px] max-w-md">
-          <svg
+          <SearchIcon
             className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
+            aria-hidden="true"
+          />
           <input
             type="text"
             placeholder="Search tanks..."
@@ -1112,13 +1143,44 @@ export const TanksPage: React.FC = () => {
         </div>
 
         {/* Category Filter */}
-        <Select options={[{ value: 'all', label: 'All Categories' }, { value: 'TANK', label: 'Tanks' }, { value: 'POND', label: 'Ponds' }, { value: 'CAGE', label: 'Cages' }]} value={filters.category} onChange={(e) => handleFilterChange('category', e.target.value)} />
+        <Select
+          options={[
+            { value: 'all', label: 'All Categories' },
+            { value: 'TANK', label: 'Tanks' },
+            { value: 'POND', label: 'Ponds' },
+            { value: 'CAGE', label: 'Cages' },
+          ]}
+          value={filters.category}
+          onChange={(e) => handleFilterChange('category', e.target.value)}
+        />
 
         {/* Status Filter */}
-        <Select options={[{ value: 'all', label: 'All Status' }, { value: 'ACTIVE', label: 'Active' }, { value: 'OPERATIONAL', label: 'Operational' }, { value: 'PREPARING', label: 'Preparing' }, { value: 'MAINTENANCE', label: 'Maintenance' }, { value: 'FALLOW', label: 'Fallow' }, { value: 'CLEANING', label: 'Cleaning' }, { value: 'HARVESTING', label: 'Harvesting' }, { value: 'QUARANTINE', label: 'Quarantine' }]} value={filters.status} onChange={(e) => handleFilterChange('status', e.target.value)} />
+        <Select
+          options={[
+            { value: 'all', label: 'All Status' },
+            { value: 'ACTIVE', label: 'Active' },
+            { value: 'OPERATIONAL', label: 'Operational' },
+            { value: 'PREPARING', label: 'Preparing' },
+            { value: 'MAINTENANCE', label: 'Maintenance' },
+            { value: 'FALLOW', label: 'Fallow' },
+            { value: 'CLEANING', label: 'Cleaning' },
+            { value: 'HARVESTING', label: 'Harvesting' },
+            { value: 'QUARANTINE', label: 'Quarantine' },
+          ]}
+          value={filters.status}
+          onChange={(e) => handleFilterChange('status', e.target.value)}
+        />
 
         {/* Has Batch Filter */}
-        <Select options={[{ value: 'all', label: 'All' }, { value: 'yes', label: 'With Batch' }, { value: 'no', label: 'Empty' }]} value={filters.hasBatch} onChange={(e) => handleFilterChange('hasBatch', e.target.value)} />
+        <Select
+          options={[
+            { value: 'all', label: 'All' },
+            { value: 'yes', label: 'With Batch' },
+            { value: 'no', label: 'Empty' },
+          ]}
+          value={filters.hasBatch}
+          onChange={(e) => handleFilterChange('hasBatch', e.target.value)}
+        />
 
         {/* Column Visibility Menu */}
         {activeTab === 'production' ? (
@@ -1142,14 +1204,9 @@ export const TanksPage: React.FC = () => {
         ) : null}
 
         {/* Refresh Button */}
-        <Button variant="ghost" onClick={() => refetch()} title="Refresh"><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg></Button>
+        <Button variant="ghost" onClick={() => refetch()} title="Refresh">
+          <RefreshCw className="w-5 h-5" aria-hidden="true" />
+        </Button>
       </div>
 
       {/* Tabs */}
@@ -1211,24 +1268,19 @@ export const TanksPage: React.FC = () => {
               </span>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="primary" size="sm" onClick={() => setShowCreateBatchModal(true)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                Create Batch</Button>
-              <Button variant="primary" size="sm" onClick={() => setShowDeployModal(true)} disabled={activeCfBatches.length === 0}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17 8l4 4m0 0l-4 4m4-4H3"
-                  />
-                </svg>
-                Deploy to Tank</Button>
+              <Button variant="primary" size="sm" onClick={() => setShowCreateBatchModal(true)}>
+                <Plus className="w-4 h-4" aria-hidden="true" />
+                Create Batch
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => setShowDeployModal(true)}
+                disabled={activeCfBatches.length === 0}
+              >
+                <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                Deploy to Tank
+              </Button>
             </div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -1236,7 +1288,9 @@ export const TanksPage: React.FC = () => {
               data={cleanerFishRows}
               columns={cleanerFishTableColumns}
               keyExtractor={(row) => `${row.tank.id}-${row.batchIdx}`}
-              rowClassName={(row) => (row.isFirstRow ? '' : 'border-t border-gray-100 dark:border-gray-700')}
+              rowClassName={(row) =>
+                row.isFirstRow ? '' : 'border-t border-gray-100 dark:border-gray-700'
+              }
               emptyMessage="No tanks or ponds found"
               searchable={false}
               sortable={false}

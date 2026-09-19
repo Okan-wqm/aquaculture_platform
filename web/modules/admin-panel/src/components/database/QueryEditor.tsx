@@ -10,8 +10,25 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Card, Button, Alert, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Alert,
+  Badge,
+  DataTable,
+  type DataTableColumn,
+} from '@aquaculture/shared-ui';
 import { getAccessToken } from '@aquaculture/shared-ui';
+import {
+  Check,
+  ChevronDown,
+  CirclePlay,
+  Clock,
+  Copy as CopyIcon,
+  Download,
+  Trash2,
+  TriangleAlert,
+} from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -71,7 +88,7 @@ async function fetchSchemas(): Promise<string[]> {
 // Fix: C13 -- backend ExecuteQueryDto expects { sql, params }, not { schema, query }
 async function executeQuery(
   _schema: string,
-  query: string
+  query: string,
 ): Promise<{ rows: Record<string, unknown>[]; rowCount: number; columns: string[] }> {
   const response = await fetch(`${API_BASE}/query`, {
     method: 'POST',
@@ -147,7 +164,7 @@ const saveQueryToHistory = (query: string, schema: string): void => {
 
     const updatedHistory = [newItem, ...history.filter((h) => h.query !== preview)].slice(
       0,
-      MAX_HISTORY_ITEMS
+      MAX_HISTORY_ITEMS,
     );
 
     localStorage.setItem(QUERY_HISTORY_KEY, JSON.stringify(updatedHistory));
@@ -160,7 +177,20 @@ const saveQueryToHistory = (query: string, schema: string): void => {
 const isSelectOnlyQuery = (query: string): boolean => {
   const normalized = query.trim().replace(/\s+/g, ' ').toLowerCase();
   // Reject any statement that starts with a DML/DDL keyword
-  const forbiddenPrefixes = ['insert', 'update', 'delete', 'drop', 'truncate', 'alter', 'create', 'grant', 'revoke', 'exec', 'execute', 'call'];
+  const forbiddenPrefixes = [
+    'insert',
+    'update',
+    'delete',
+    'drop',
+    'truncate',
+    'alter',
+    'create',
+    'grant',
+    'revoke',
+    'exec',
+    'execute',
+    'call',
+  ];
   return !forbiddenPrefixes.some((kw) => normalized.startsWith(kw));
 };
 
@@ -178,7 +208,7 @@ const exportToCSV = (columns: string[], rows: Record<string, unknown>[]): void =
 
   const header = columns.map(escapeCsvValue).join(',');
   const dataRows = rows.map((row) =>
-    columns.map((col) => escapeCsvValue(formatValue(row[col]))).join(',')
+    columns.map((col) => escapeCsvValue(formatValue(row[col]))).join(','),
   );
 
   const csvContent = [header, ...dataRows].join('\n');
@@ -196,7 +226,7 @@ const exportToCSV = (columns: string[], rows: Record<string, unknown>[]): void =
 
 const copyResultsToClipboard = async (
   columns: string[],
-  rows: Record<string, unknown>[]
+  rows: Record<string, unknown>[],
 ): Promise<boolean> => {
   try {
     const header = columns.join('\t');
@@ -219,7 +249,10 @@ interface LineNumbersProps {
 }
 
 const LineNumbers: React.FC<LineNumbersProps> = React.memo(({ lineCount, height }) => {
-  const lines = useMemo(() => Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1), [lineCount]);
+  const lines = useMemo(
+    () => Array.from({ length: Math.max(lineCount, 1) }, (_, i) => i + 1),
+    [lineCount],
+  );
 
   return (
     <div
@@ -260,7 +293,7 @@ const ResizeHandle: React.FC<ResizeHandleProps> = ({ onResize }) => {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
     },
-    [onResize]
+    [onResize],
   );
 
   return (
@@ -306,14 +339,7 @@ const QueryHistoryDropdown: React.FC<QueryHistoryDropdownProps> = ({
   if (history.length === 0) {
     return (
       <Button variant="outline" size="sm" disabled>
-        <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
+        <Clock className="w-4 h-4 mr-1" aria-hidden="true" />
         History
       </Button>
     );
@@ -322,23 +348,12 @@ const QueryHistoryDropdown: React.FC<QueryHistoryDropdownProps> = ({
   return (
     <div className="relative" ref={dropdownRef}>
       <Button variant="outline" size="sm" onClick={onToggle}>
-        <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
+        <Clock className="w-4 h-4 mr-1" aria-hidden="true" />
         History ({history.length})
-        <svg
+        <ChevronDown
           className={`w-4 h-4 ml-1 transition-transform ${isOpen ? 'rotate-180' : ''}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
+          aria-hidden="true"
+        />
       </Button>
 
       {isOpen && (
@@ -391,24 +406,26 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
   onCopyToClipboard,
   copySuccess,
 }) => {
-  const resultColumns: DataTableColumn<Record<string, unknown>>[] = result.columns.map((column) => ({
-    key: column,
-    header: column,
-    render: (value) => (
-      <span className="block max-w-xs truncate" title={formatValue(value)}>
-        {value === null ? (
-          <span className="text-gray-500 dark:text-gray-400 italic">NULL</span>
-        ) : typeof value === 'object' ? (
-          <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-            {formatValue(value).substring(0, 50)}
-            {formatValue(value).length > 50 ? '...' : ''}
-          </code>
-        ) : (
-          formatValue(value)
-        )}
-      </span>
-    ),
-  }));
+  const resultColumns: DataTableColumn<Record<string, unknown>>[] = result.columns.map(
+    (column) => ({
+      key: column,
+      header: column,
+      render: (value) => (
+        <span className="block max-w-xs truncate" title={formatValue(value)}>
+          {value === null ? (
+            <span className="text-gray-500 dark:text-gray-400 italic">NULL</span>
+          ) : typeof value === 'object' ? (
+            <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+              {formatValue(value).substring(0, 50)}
+              {formatValue(value).length > 50 ? '...' : ''}
+            </code>
+          ) : (
+            formatValue(value)
+          )}
+        </span>
+      ),
+    }),
+  );
 
   return (
     <Card className="mt-4 overflow-hidden">
@@ -424,34 +441,18 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
           <Button variant="outline" size="sm" onClick={onCopyToClipboard}>
             {copySuccess ? (
               <>
-                <svg className="w-4 h-4 mr-1 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
+                <Check className="w-4 h-4 mr-1 text-green-500" aria-hidden="true" />
                 Copied!
               </>
             ) : (
               <>
-                <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
-                  />
-                </svg>
+                <CopyIcon className="w-4 h-4 mr-1" aria-hidden="true" />
                 Copy
               </>
             )}
           </Button>
           <Button variant="outline" size="sm" onClick={onExportCSV}>
-            <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-              />
-            </svg>
+            <Download className="w-4 h-4 mr-1" aria-hidden="true" />
             Export CSV
           </Button>
         </div>
@@ -477,7 +478,10 @@ const ResultsTable: React.FC<ResultsTableProps> = ({
 // Main Component
 // ============================================================================
 
-export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'public', onQueryResult }) => {
+export const QueryEditor: React.FC<QueryEditorProps> = ({
+  defaultSchema = 'public',
+  onQueryResult,
+}) => {
   // State
   const [query, setQuery] = useState('');
   const [selectedSchema, setSelectedSchema] = useState(defaultSchema);
@@ -529,7 +533,9 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     }
 
     if (!isSelectOnlyQuery(trimmedQuery)) {
-      setError('Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other write operations are not permitted.');
+      setError(
+        'Only SELECT queries are allowed. INSERT, UPDATE, DELETE, DROP, and other write operations are not permitted.',
+      );
       return;
     }
 
@@ -592,7 +598,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
         handleExecute();
       }
     },
-    [query, handleExecute]
+    [query, handleExecute],
   );
 
   // Clear editor
@@ -623,7 +629,7 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
     };
     document.addEventListener('mouseup', handleMouseUp);
     return () => document.removeEventListener('mouseup', handleMouseUp);
-  }, []);  
+  }, []);
 
   // Handle history selection
   const handleHistorySelect = useCallback((selectedQuery: string) => {
@@ -654,17 +660,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
       {/* Safety Warning */}
       <Alert type="warning">
         <div className="flex items-center gap-2">
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-            />
-          </svg>
+          <TriangleAlert className="w-5 h-5 flex-shrink-0" aria-hidden="true" />
           <span>
-            <strong>Read-only mode:</strong> Only SELECT queries are allowed. Data modification queries
-            (INSERT, UPDATE, DELETE, DROP, etc.) will be rejected.
+            <strong>Read-only mode:</strong> Only SELECT queries are allowed. Data modification
+            queries (INSERT, UPDATE, DELETE, DROP, etc.) will be rejected.
           </span>
         </div>
       </Alert>
@@ -675,7 +674,10 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
         <div className="px-4 py-3 bg-gray-100 dark:bg-gray-800 border-b flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <label htmlFor="schema-select" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              <label
+                htmlFor="schema-select"
+                className="text-sm font-medium text-gray-700 dark:text-gray-300"
+              >
                 Schema:
               </label>
               <select
@@ -702,31 +704,11 @@ export const QueryEditor: React.FC<QueryEditorProps> = ({ defaultSchema = 'publi
 
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleClear} disabled={isExecuting}>
-              <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
+              <Trash2 className="w-4 h-4 mr-1" aria-hidden="true" />
               Clear
             </Button>
             <Button onClick={handleExecute} loading={isExecuting} disabled={!query.trim()}>
-              <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"
-                />
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
+              <CirclePlay className="w-4 h-4 mr-1" aria-hidden="true" />
               Execute
               <span className="ml-1 text-xs opacity-70">(Ctrl+Enter)</span>
             </Button>

@@ -8,6 +8,7 @@ import { Modal, Button, useToast, Input, Textarea } from '@aquaculture/shared-ui
 import { TankBatch } from '../types/batch.types';
 import { useTransferBatch, useAvailableTanks, AvailableTank } from '../../../hooks/useBatches';
 import { BatchScopeSelector } from './BatchScopeSelector';
+import { ArrowRight, TriangleAlert } from 'lucide-react';
 
 // Transfer reason options
 const TransferReasons = {
@@ -39,7 +40,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const [avgWeightG, setAvgWeightG] = useState<number>(tank.avgWeightG || 0);
   const [transferReason, setTransferReason] = useState<string>('DENSITY_MANAGEMENT');
   const [notes, setNotes] = useState<string>('');
-  const [transferredAt, setTransferredAt] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [transferredAt, setTransferredAt] = useState<string>(
+    new Date().toISOString().split('T')[0],
+  );
   const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>(tank.primaryBatchId);
 
   // Combined-tank scoping: on a tank holding several batches (B-1 + B-2) the
@@ -97,11 +100,13 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     };
 
     // Destination tank after transfer
-    const destAfter = selectedDestinationTank ? {
-      quantity: (selectedDestinationTank.currentCount || 0) + quantity,
-      biomass: (selectedDestinationTank.currentBiomass || 0) + calculatedBiomass,
-      willBeMixed: selectedDestinationTank.currentCount > 0,
-    } : null;
+    const destAfter = selectedDestinationTank
+      ? {
+          quantity: (selectedDestinationTank.currentCount || 0) + quantity,
+          biomass: (selectedDestinationTank.currentBiomass || 0) + calculatedBiomass,
+          willBeMixed: selectedDestinationTank.currentCount > 0,
+        }
+      : null;
 
     return { sourceAfter, destAfter };
   }, [availableQuantity, availableBiomassKg, quantity, calculatedBiomass, selectedDestinationTank]);
@@ -128,14 +133,25 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
     // Check destination capacity - WARNING only, not blocking
     if (selectedDestinationTank && calculatedBiomass > 0) {
-      const availableCapacity = selectedDestinationTank.maxBiomass - selectedDestinationTank.currentBiomass;
+      const availableCapacity =
+        selectedDestinationTank.maxBiomass - selectedDestinationTank.currentBiomass;
       if (calculatedBiomass > availableCapacity) {
-        warns.push(`Transfer biomass (${calculatedBiomass.toFixed(1)} kg) exceeds destination capacity (${availableCapacity.toFixed(1)} kg available). Tank will be over capacity.`);
+        warns.push(
+          `Transfer biomass (${calculatedBiomass.toFixed(1)} kg) exceeds destination capacity (${availableCapacity.toFixed(1)} kg available). Tank will be over capacity.`,
+        );
       }
     }
 
     return { errors: errs, warnings: warns };
-  }, [destinationTankId, quantity, availableQuantity, isCombined, notes, selectedDestinationTank, calculatedBiomass]);
+  }, [
+    destinationTankId,
+    quantity,
+    availableQuantity,
+    isCombined,
+    notes,
+    selectedDestinationTank,
+    calculatedBiomass,
+  ]);
 
   const isValid = errors.length === 0;
 
@@ -156,7 +172,11 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
     // Check if we have a batch
     if (!selectedBatchId) {
-      toast({ title: 'Validation Error', description: 'No batch assigned to this tank.', variant: 'error' });
+      toast({
+        title: 'Validation Error',
+        description: 'No batch assigned to this tank.',
+        variant: 'error',
+      });
       return;
     }
 
@@ -179,8 +199,15 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       // LOW-004: Log errors in all environments, not just DEV. Production transfer
       // failures were invisible beyond the toast. Sanitize before logging to prevent
       // internal error detail exposure via browser devtools in production.
-      console.error('[TransferModal] Transfer failed:', error instanceof Error ? error.message : 'Unknown error');
-      toast({ title: 'Error', description: 'Failed to transfer batch. Please try again.', variant: 'error' });
+      console.error(
+        '[TransferModal] Transfer failed:',
+        error instanceof Error ? error.message : 'Unknown error',
+      );
+      toast({
+        title: 'Error',
+        description: 'Failed to transfer batch. Please try again.',
+        variant: 'error',
+      });
     }
   };
 
@@ -234,7 +261,10 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         <div className="space-y-4">
           {/* Destination Tank Selection */}
           <div>
-            <label htmlFor="destinationTank" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="destinationTank"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Destination Tank <span className="text-blue-500">*</span>
             </label>
             {tanksLoading ? (
@@ -266,25 +296,30 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-medium">Destination Tank</p>
-                  <p className="font-medium text-gray-900 dark:text-gray-100">{selectedDestinationTank.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 uppercase font-medium">
+                    Destination Tank
+                  </p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">
+                    {selectedDestinationTank.name}
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     Current: {selectedDestinationTank.currentCount?.toLocaleString() || 0} fish
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {selectedDestinationTank.currentBiomass?.toFixed(1) || 0} kg / {selectedDestinationTank.maxBiomass} kg
+                    {selectedDestinationTank.currentBiomass?.toFixed(1) || 0} kg /{' '}
+                    {selectedDestinationTank.maxBiomass} kg
                   </p>
                 </div>
               </div>
               {/* Mixed batch warning */}
               {selectedDestinationTank.currentCount > 0 && (
                 <div className="mt-2 flex items-center gap-2 text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <span className="text-sm">This tank already has fish. Transfer will create a mixed batch.</span>
+                  <TriangleAlert className="w-4 h-4" aria-hidden="true" />
+                  <span className="text-sm">
+                    This tank already has fish. Transfer will create a mixed batch.
+                  </span>
                 </div>
               )}
             </div>
@@ -292,10 +327,22 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Quantity */}
           <div>
-            <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="quantity"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Transfer Quantity <span className="text-blue-500">*</span>
             </label>
-            <Input fullWidth type="number" id="quantity" min="1" max={availableQuantity} value={quantity || ''} onChange={(e) => setQuantity(parseInt(e.target.value) || 0)} placeholder="Enter number of fish to transfer" />
+            <Input
+              fullWidth
+              type="number"
+              id="quantity"
+              min="1"
+              max={availableQuantity}
+              value={quantity || ''}
+              onChange={(e) => setQuantity(parseInt(e.target.value) || 0)}
+              placeholder="Enter number of fish to transfer"
+            />
             {/* Quick select buttons — percentages of the SELECTED batch's stock */}
             <div className="mt-2 flex gap-2">
               <button
@@ -331,10 +378,20 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Average Weight */}
           <div>
-            <label htmlFor="avgWeight" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="avgWeight"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Average Weight (g)
             </label>
-            <Input fullWidth type="number" id="avgWeight" value={scopedAvgWeightG.toFixed(1)} readOnly disabled />
+            <Input
+              fullWidth
+              type="number"
+              id="avgWeight"
+              value={scopedAvgWeightG.toFixed(1)}
+              readOnly
+              disabled
+            />
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {isCombined ? 'Selected batch' : 'Source tank'} average — cannot be changed during
               transfer. Biomass is calculated automatically.
@@ -355,7 +412,10 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Transfer Reason */}
           <div>
-            <label htmlFor="reason" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="reason"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Transfer Reason <span className="text-blue-500">*</span>
             </label>
             <select
@@ -374,38 +434,66 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Date */}
           <div>
-            <label htmlFor="transferredAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="transferredAt"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Transfer Date
             </label>
-            <Input fullWidth type="date" id="transferredAt" value={transferredAt} max={new Date().toISOString().split('T')[0]} onChange={(e) => setTransferredAt(e.target.value)} />
+            <Input
+              fullWidth
+              type="date"
+              id="transferredAt"
+              value={transferredAt}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={(e) => setTransferredAt(e.target.value)}
+            />
           </div>
 
           {/* Notes */}
           <div>
-            <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label
+              htmlFor="notes"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
               Transfer Notes <span className="text-blue-500">*</span>
             </label>
-            <Textarea fullWidth id="notes" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Explain why the fish are being transferred..." />
+            <Textarea
+              fullWidth
+              id="notes"
+              rows={3}
+              maxLength={2000}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Explain why the fish are being transferred..."
+            />
           </div>
         </div>
 
         {/* Pre/Post Operation States */}
         {quantity > 0 && destinationTankId && (
           <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Tank Status After Transfer</h4>
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+              Tank Status After Transfer
+            </h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               {/* Source Tank */}
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">Source: {tank.tankName}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">
+                  Source: {tank.tankName}
+                </p>
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">Before</p>
                     <p className="text-sm font-medium">{availableQuantity.toLocaleString()} fish</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{availableBiomassKg.toFixed(1)} kg</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      {availableBiomassKg.toFixed(1)} kg
+                    </p>
                   </div>
-                  <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                  </svg>
+                  <ArrowRight
+                    className="w-4 h-4 text-gray-400 dark:text-gray-500"
+                    aria-hidden="true"
+                  />
                   <div className="text-right">
                     <p className="text-xs text-gray-500 dark:text-gray-400">After</p>
                     <p className="text-sm font-medium text-blue-600">
@@ -421,16 +509,23 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               {/* Destination Tank */}
               {postOperationStates.destAfter && selectedDestinationTank && (
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">Destination: {selectedDestinationTank.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 uppercase mb-2">
+                    Destination: {selectedDestinationTank.name}
+                  </p>
                   <div className="flex justify-between items-center">
                     <div>
                       <p className="text-xs text-gray-500 dark:text-gray-400">Before</p>
-                      <p className="text-sm font-medium">{(selectedDestinationTank.currentCount || 0).toLocaleString()} fish</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{(selectedDestinationTank.currentBiomass || 0).toFixed(1)} kg</p>
+                      <p className="text-sm font-medium">
+                        {(selectedDestinationTank.currentCount || 0).toLocaleString()} fish
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {(selectedDestinationTank.currentBiomass || 0).toFixed(1)} kg
+                      </p>
                     </div>
-                    <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                    </svg>
+                    <ArrowRight
+                      className="w-4 h-4 text-gray-400 dark:text-gray-500"
+                      aria-hidden="true"
+                    />
                     <div className="text-right">
                       <p className="text-xs text-gray-500 dark:text-gray-400">After</p>
                       <p className="text-sm font-medium text-green-600">
@@ -451,9 +546,10 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         {warnings.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
             <div className="flex items-start gap-2">
-              <svg className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
+              <TriangleAlert
+                className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5"
+                aria-hidden="true"
+              />
               <ul className="text-sm text-amber-700 space-y-1">
                 {warnings.map((warning, index) => (
                   <li key={index}>{warning}</li>
@@ -480,7 +576,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             <p className="text-sm font-medium text-red-800 mb-1">Please fix the following:</p>
             <ul className="list-disc list-inside space-y-1">
               {errors.map((error, index) => (
-                <li key={index} className="text-sm text-red-700">{error}</li>
+                <li key={index} className="text-sm text-red-700">
+                  {error}
+                </li>
               ))}
             </ul>
           </div>

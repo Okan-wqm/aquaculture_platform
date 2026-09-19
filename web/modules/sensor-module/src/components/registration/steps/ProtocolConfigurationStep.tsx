@@ -3,6 +3,7 @@ import { useProtocolDetails, useProtocolValidation } from '../../../hooks/usePro
 import { DynamicFormRenderer } from '../DynamicFormRenderer';
 import { JSONSchema, ValidationError } from '../../../types/registration.types';
 import { Spinner } from '@aquaculture/shared-ui';
+import { CircleAlert, CircleCheck, Info } from 'lucide-react';
 
 interface ProtocolConfigurationStepProps {
   protocolCode: string;
@@ -67,7 +68,9 @@ export function ProtocolConfigurationStep({
     return (
       <div className="flex items-center justify-center py-12">
         <Spinner size="lg" />
-        <span className="ml-3 text-gray-600 dark:text-gray-400">Loading protocol configuration...</span>
+        <span className="ml-3 text-gray-600 dark:text-gray-400">
+          Loading protocol configuration...
+        </span>
       </div>
     );
   }
@@ -88,9 +91,7 @@ export function ProtocolConfigurationStep({
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-start">
           <div className="flex-shrink-0">
-            <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <Info className="w-6 h-6 text-blue-600" aria-hidden="true" />
           </div>
           <div className="ml-3">
             <h3 className="text-lg font-medium text-blue-900">{protocol.name}</h3>
@@ -133,9 +134,7 @@ export function ProtocolConfigurationStep({
       {/* Validation status */}
       {showValidation && Object.keys(combinedErrors).length === 0 && (
         <div className="p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 flex items-center">
-          <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
+          <CircleCheck className="w-5 h-5 mr-2" aria-hidden="true" />
           Configuration is valid
         </div>
       )}
@@ -143,9 +142,7 @@ export function ProtocolConfigurationStep({
       {showValidation && Object.keys(combinedErrors).length > 0 && (
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
           <div className="flex items-center text-red-700 mb-2">
-            <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
+            <CircleAlert className="w-5 h-5 mr-2" aria-hidden="true" />
             <span className="font-medium">Please fix the following errors:</span>
           </div>
           <ul className="list-disc list-inside text-sm text-red-600">

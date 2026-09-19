@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { AlertTriangle, AlertCircle, Clock, RefreshCw, ChevronRight } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Check, ChevronRight, Clock, RefreshCw } from 'lucide-react';
 import { cn, Spinner, Button } from '@aquaculture/shared-ui';
 import { useExpiringCertifications, useExpiredCertifications } from '../../hooks';
 import { getCertificationUrgency, CERTIFICATION_CATEGORY_CONFIG } from '../../types';
@@ -58,17 +58,20 @@ export function CertificationExpiryAlert({
 }: CertificationExpiryAlertProps) {
   const { data: expiringCerts, isLoading: loadingExpiring } = useExpiringCertifications(
     daysUntilExpiry,
-    departmentId
+    departmentId,
   );
-  const { data: expiredCerts, isLoading: loadingExpired } = useExpiredCertifications(
-    departmentId
-  );
+  const { data: expiredCerts, isLoading: loadingExpired } = useExpiredCertifications(departmentId);
 
   const isLoading = loadingExpiring || loadingExpired;
 
   if (isLoading) {
     return (
-      <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
+      <div
+        className={cn(
+          'rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800',
+          className,
+        )}
+      >
         <div className="flex items-center justify-center py-8">
           <Spinner size="md" />
         </div>
@@ -85,8 +88,8 @@ export function CertificationExpiryAlert({
             c.daysSinceExpiry != null
               ? c.daysSinceExpiry
               : c.expiryDate
-              ? Math.floor((Date.now() - new Date(c.expiryDate).getTime()) / 86400000)
-              : 0;
+                ? Math.floor((Date.now() - new Date(c.expiryDate).getTime()) / 86400000)
+                : 0;
           return { ...c, daysUntilExpiry: -sinceExpiry };
         })
       : []),
@@ -97,12 +100,15 @@ export function CertificationExpiryAlert({
 
   if (allCerts.length === 0) {
     return (
-      <div className={cn('rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-900/20', className)}>
+      <div
+        className={cn(
+          'rounded-lg border border-green-200 bg-green-50 p-4 dark:border-green-800 dark:bg-green-900/20',
+          className,
+        )}
+      >
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100 dark:bg-green-900">
-            <svg className="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-            </svg>
+            <Check className="h-6 w-6 text-green-600" aria-hidden="true" />
           </div>
           <div>
             <h3 className="font-medium text-green-800 dark:text-green-200">All Clear</h3>
@@ -116,20 +122,29 @@ export function CertificationExpiryAlert({
   }
 
   return (
-    <div className={cn('rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800', className)}>
+    <div
+      className={cn(
+        'rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800',
+        className,
+      )}
+    >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
-          <h3 className="font-semibold text-gray-900 dark:text-white">
-            Certification Alerts
-          </h3>
+          <h3 className="font-semibold text-gray-900 dark:text-white">Certification Alerts</h3>
           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
             {totalCount}
           </span>
         </div>
         {onViewAll && totalCount > maxItems && (
-          <Button variant="ghost" rightIcon={<ChevronRight className="h-4 w-4" />} onClick={onViewAll}>View All</Button>
+          <Button
+            variant="ghost"
+            rightIcon={<ChevronRight className="h-4 w-4" />}
+            onClick={onViewAll}
+          >
+            View All
+          </Button>
         )}
       </div>
 
@@ -143,10 +158,7 @@ export function CertificationExpiryAlert({
             : null;
 
           return (
-            <div
-              key={cert.id}
-              className={cn('p-4', styles.bg)}
-            >
+            <div key={cert.id} className={cn('p-4', styles.bg)}>
               <div className="flex items-start gap-3">
                 {styles.icon}
 
@@ -188,7 +200,10 @@ export function CertificationExpiryAlert({
                       <span>
                         Expires in {cert.daysUntilExpiry} days
                         {cert.expiryDate && (
-                          <span className="text-gray-500 dark:text-gray-400"> ({new Date(cert.expiryDate).toLocaleDateString()})</span>
+                          <span className="text-gray-500 dark:text-gray-400">
+                            {' '}
+                            ({new Date(cert.expiryDate).toLocaleDateString()})
+                          </span>
                         )}
                       </span>
                     )}

@@ -21,6 +21,7 @@ import {
   inferChildSensorConfig,
   SensorType,
 } from '../../types/registration.types';
+import { Check } from 'lucide-react';
 
 interface SensorRegistrationWizardProps {
   isOpen: boolean;
@@ -56,7 +57,9 @@ export function SensorRegistrationWizard({
   const [protocolConfig, setProtocolConfig] = useState<Record<string, unknown>>({});
 
   // Connection test state
-  const [connectionTestResult, setConnectionTestResult] = useState<ConnectionTestResult | null>(null);
+  const [connectionTestResult, setConnectionTestResult] = useState<ConnectionTestResult | null>(
+    null,
+  );
 
   // Parent-Child state
   const [parentDeviceInfo, setParentDeviceInfo] = useState<Partial<ParentDeviceInfo>>({});
@@ -79,7 +82,8 @@ export function SensorRegistrationWizard({
         case 1: {
           // BUG-008: validate all required fields from the protocol schema, not just non-empty object
           // ProtocolDetails (which extends ProtocolInfo) holds the schema as `configurationSchema`
-          const required: string[] = (selectedProtocolInfo as ProtocolDetails | null)?.configurationSchema?.required || [];
+          const required: string[] =
+            (selectedProtocolInfo as ProtocolDetails | null)?.configurationSchema?.required || [];
           if (required.length === 0) {
             // No schema-required fields — accept any non-empty config
             return Object.keys(protocolConfig).length > 0;
@@ -95,9 +99,7 @@ export function SensorRegistrationWizard({
           // SENSOR-HIGH-024: enforce the Site + Department the step marks
           // required (*), so the location hierarchy is actually supplied.
           return (
-            !!parentDeviceInfo.name &&
-            !!parentDeviceInfo.siteId &&
-            !!parentDeviceInfo.departmentId
+            !!parentDeviceInfo.name && !!parentDeviceInfo.siteId && !!parentDeviceInfo.departmentId
           );
         case 4:
           return childSensors.filter((c) => c.selected).length > 0;
@@ -107,7 +109,7 @@ export function SensorRegistrationWizard({
           return false;
       }
     },
-    [selectedProtocol, protocolConfig, parentDeviceInfo, childSensors]
+    [selectedProtocol, protocolConfig, parentDeviceInfo, childSensors],
   );
 
   const canProceed = validateStep(currentStep);
@@ -241,22 +243,24 @@ export function SensorRegistrationWizard({
         equipmentId: parentDeviceInfo.equipmentId,
         location: parentDeviceInfo.location,
       },
-      children: selectedChildren.map((c): RegisterChildSensorInput => ({
-        name: c.name,
-        type: c.type,
-        // SENSOR-MEDIUM-071: carry the per-child custom type-definition so the
-        // backend bootstraps its default channels in the registration transaction.
-        typeDefinitionId: c.typeDefinitionId,
-        dataPath: c.dataPath,
-        unit: c.unit,
-        minValue: c.minValue,
-        maxValue: c.maxValue,
-        calibrationEnabled: c.calibrationEnabled,
-        calibrationMultiplier: c.calibrationMultiplier,
-        calibrationOffset: c.calibrationOffset,
-        alertThresholds: c.alertThresholds,
-        displaySettings: c.displaySettings,
-      })),
+      children: selectedChildren.map(
+        (c): RegisterChildSensorInput => ({
+          name: c.name,
+          type: c.type,
+          // SENSOR-MEDIUM-071: carry the per-child custom type-definition so the
+          // backend bootstraps its default channels in the registration transaction.
+          typeDefinitionId: c.typeDefinitionId,
+          dataPath: c.dataPath,
+          unit: c.unit,
+          minValue: c.minValue,
+          maxValue: c.maxValue,
+          calibrationEnabled: c.calibrationEnabled,
+          calibrationMultiplier: c.calibrationMultiplier,
+          calibrationOffset: c.calibrationOffset,
+          alertThresholds: c.alertThresholds,
+          displaySettings: c.displaySettings,
+        }),
+      ),
       skipConnectionTest: !connectionTestResult?.success,
     };
 
@@ -301,20 +305,26 @@ export function SensorRegistrationWizard({
       bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
       footer={
         <div className="flex w-full items-center justify-between">
-          <Button variant="secondary" onClick={currentStep === 0 ? handleClose : prevStep}>{currentStep === 0 ? 'Cancel' : 'Back'}</Button>
+          <Button variant="secondary" onClick={currentStep === 0 ? handleClose : prevStep}>
+            {currentStep === 0 ? 'Cancel' : 'Back'}
+          </Button>
 
           <div className="flex items-center space-x-3">
             {currentStep === STEPS.length - 1 ? (
-              <Button variant="primary" onClick={handleSubmit} disabled={isSubmitting}>{isSubmitting ? (
+              <Button variant="primary" onClick={handleSubmit} disabled={isSubmitting}>
+                {isSubmitting ? (
                   <span className="flex items-center">
                     <Spinner size="sm" color="white" className="-ml-1 mr-2" />
                     Registering...
                   </span>
                 ) : (
                   'Register Device & Sensors'
-                )}</Button>
+                )}
+              </Button>
             ) : (
-              <Button variant="primary" onClick={nextStep} disabled={!canProceed}>Next</Button>
+              <Button variant="primary" onClick={nextStep} disabled={!canProceed}>
+                Next
+              </Button>
             )}
           </div>
         </div>
@@ -337,18 +347,12 @@ export function SensorRegistrationWizard({
                     index < currentStep
                       ? 'bg-green-500 text-white'
                       : index === currentStep
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                   }`}
                 >
                   {index < currentStep ? (
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
+                    <Check className="w-5 h-5" aria-hidden="true" />
                   ) : (
                     index + 1
                   )}
@@ -407,10 +411,7 @@ export function SensorRegistrationWizard({
           />
         )}
         {currentStep === 3 && (
-          <ParentDeviceInfoStep
-            values={parentDeviceInfo}
-            onChange={handleParentInfoChange}
-          />
+          <ParentDeviceInfoStep values={parentDeviceInfo} onChange={handleParentInfoChange} />
         )}
         {currentStep === 4 && (
           <ChildSensorsStep

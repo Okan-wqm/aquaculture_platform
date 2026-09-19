@@ -6,10 +6,7 @@ import { VfdBasicInfoStep } from './steps/VfdBasicInfoStep';
 import { VfdProtocolConfigStep } from './steps/VfdProtocolConfigStep';
 import { VfdConnectionTestStep } from './steps/VfdConnectionTestStep';
 import { VfdReviewStep } from './steps/VfdReviewStep';
-import {
-  useVfdRegistration,
-  useVfdRegistrationWizard,
-} from '../../hooks/useVfdRegistration';
+import { useVfdRegistration, useVfdRegistrationWizard } from '../../hooks/useVfdRegistration';
 import {
   VfdBrandInfo,
   VfdProtocol,
@@ -17,6 +14,7 @@ import {
   RegisterVfdInput,
   VfdProtocolConfiguration,
 } from '../../types/vfd.types';
+import { Check, CircleX } from 'lucide-react';
 
 interface VfdRegistrationWizardProps {
   isOpen: boolean;
@@ -33,11 +31,7 @@ const STEPS = [
   { id: 'review', title: 'Onay', description: 'Gözden geçir ve kaydet' },
 ];
 
-export function VfdRegistrationWizard({
-  isOpen,
-  onClose,
-  onSuccess,
-}: VfdRegistrationWizardProps) {
+export function VfdRegistrationWizard({ isOpen, onClose, onSuccess }: VfdRegistrationWizardProps) {
   const wizard = useVfdRegistrationWizard();
   const { registerDevice, testConnection, loading: registering } = useVfdRegistration();
 
@@ -61,7 +55,7 @@ export function VfdRegistrationWizard({
           return false;
       }
     },
-    [wizard.selectedBrand, wizard.selectedProtocol, wizard.basicInfo, wizard.protocolConfig]
+    [wizard.selectedBrand, wizard.selectedProtocol, wizard.basicInfo, wizard.protocolConfig],
   );
 
   const canProceed = validateStep(wizard.currentStep);
@@ -162,7 +156,12 @@ export function VfdRegistrationWizard({
       bodyClassName="flex-1 min-h-0 flex flex-col overflow-hidden"
       footer={
         <div className="flex w-full items-center justify-between">
-          <Button variant="secondary" onClick={wizard.currentStep === 0 ? handleClose : wizard.prevStep}>{wizard.currentStep === 0 ? 'İptal' : 'Geri'}</Button>
+          <Button
+            variant="secondary"
+            onClick={wizard.currentStep === 0 ? handleClose : wizard.prevStep}
+          >
+            {wizard.currentStep === 0 ? 'İptal' : 'Geri'}
+          </Button>
 
           <div className="flex items-center space-x-3">
             {/* Skip button for optional steps */}
@@ -176,16 +175,24 @@ export function VfdRegistrationWizard({
             )}
 
             {wizard.currentStep === STEPS.length - 1 ? (
-              <Button variant="primary" onClick={handleSubmit} disabled={wizard.isSubmitting || registering}>{wizard.isSubmitting || registering ? (
+              <Button
+                variant="primary"
+                onClick={handleSubmit}
+                disabled={wizard.isSubmitting || registering}
+              >
+                {wizard.isSubmitting || registering ? (
                   <span className="flex items-center">
                     <Spinner size="sm" color="white" className="-ml-1 mr-2" />
                     Kaydediliyor...
                   </span>
                 ) : (
                   'VFD Kaydet'
-                )}</Button>
+                )}
+              </Button>
             ) : (
-              <Button variant="primary" onClick={wizard.nextStep} disabled={!canProceed}>İleri</Button>
+              <Button variant="primary" onClick={wizard.nextStep} disabled={!canProceed}>
+                İleri
+              </Button>
             )}
           </div>
         </div>
@@ -208,18 +215,12 @@ export function VfdRegistrationWizard({
                     index < wizard.currentStep
                       ? 'bg-green-500 text-white'
                       : index === wizard.currentStep
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
                   }`}
                 >
                   {index < wizard.currentStep ? (
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path
-                        fillRule="evenodd"
-                        d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
+                    <Check className="w-5 h-5" aria-hidden="true" />
                   ) : (
                     index + 1
                   )}
@@ -227,7 +228,9 @@ export function VfdRegistrationWizard({
                 <div className="ml-2 hidden lg:block">
                   <p
                     className={`text-sm font-medium ${
-                      index === wizard.currentStep ? 'text-blue-600' : 'text-gray-600 dark:text-gray-400'
+                      index === wizard.currentStep
+                        ? 'text-blue-600'
+                        : 'text-gray-600 dark:text-gray-400'
                     }`}
                   >
                     {step.title}
@@ -251,13 +254,7 @@ export function VfdRegistrationWizard({
         {/* Error message */}
         {wizard.error && (
           <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 flex items-center">
-            <svg className="w-5 h-5 mr-2 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <CircleX className="w-5 h-5 mr-2 flex-shrink-0" aria-hidden="true" />
             {wizard.error}
           </div>
         )}

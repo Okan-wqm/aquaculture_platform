@@ -27,6 +27,7 @@ import {
   angleToGradientCoords,
 } from '../../../types/scada-svg-properties.types';
 import { ColorAlphaInput } from './ColorAlphaInput';
+import { ChevronDown } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -86,13 +87,7 @@ const GradientPreview: React.FC<{
       >
         <defs>
           {gradient.type === 'linear' && (
-            <linearGradient
-              id={gradId}
-              x1={coords.x1}
-              y1={coords.y1}
-              x2={coords.x2}
-              y2={coords.y2}
-            >
+            <linearGradient id={gradId} x1={coords.x1} y1={coords.y1} x2={coords.x2} y2={coords.y2}>
               {gradient.stops.map((stop, i) => (
                 <stop
                   key={i}
@@ -156,11 +151,7 @@ const GradientPreview: React.FC<{
 /*  GradientEditor                                                      */
 /* ------------------------------------------------------------------ */
 
-export const GradientEditor: React.FC<GradientEditorProps> = ({
-  gradient,
-  onChange,
-  widgetId,
-}) => {
+export const GradientEditor: React.FC<GradientEditorProps> = ({ gradient, onChange, widgetId }) => {
   const [selectedStop, setSelectedStop] = useState(0);
   const [open, setOpen] = useState(gradient.type !== 'none');
   const uniqueId = useId();
@@ -184,9 +175,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   const handleStopColorChange = useCallback(
     (index: number, color: string, opacity: number) => {
-      const stops = gradient.stops.map((s, i) =>
-        i === index ? { ...s, color, opacity } : s,
-      );
+      const stops = gradient.stops.map((s, i) => (i === index ? { ...s, color, opacity } : s));
       onChange({ ...gradient, stops });
     },
     [gradient, onChange],
@@ -247,15 +236,20 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
 
   return (
     <div className="border-t border-gray-100 dark:border-gray-700 pt-2">
-      <Button variant="ghost" size="xs" type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-label="Gradient settings"><span>Gradient</span>
-        <svg
+      <Button
+        variant="ghost"
+        size="xs"
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-label="Gradient settings"
+      >
+        <span>Gradient</span>
+        <ChevronDown
           className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg></Button>
+          aria-hidden="true"
+        />
+      </Button>
 
       {open && (
         <div className="space-y-3 mt-2">
@@ -292,7 +286,9 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
               {/* Angle control -- only for linear */}
               {gradient.type === 'linear' && (
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Angle</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                    Angle
+                  </label>
                   <div className="flex items-center gap-2">
                     <input
                       type="number"
@@ -316,7 +312,9 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                         }}
                       />
                     </div>
-                    <span className="text-xs text-gray-400 dark:text-gray-500">{gradient.angle}&deg;</span>
+                    <span className="text-xs text-gray-400 dark:text-gray-500">
+                      {gradient.angle}&deg;
+                    </span>
                   </div>
                 </div>
               )}
@@ -337,7 +335,16 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                       Stop {safeSelected + 1}
                     </span>
                     {gradient.stops.length > MIN_STOPS && (
-                      <Button variant="ghost" size="xs" type="button" onClick={() => handleRemoveStop(safeSelected)} aria-label="Remove selected stop" data-testid="remove-stop">Remove</Button>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        type="button"
+                        onClick={() => handleRemoveStop(safeSelected)}
+                        aria-label="Remove selected stop"
+                        data-testid="remove-stop"
+                      >
+                        Remove
+                      </Button>
                     )}
                   </div>
 
@@ -345,9 +352,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                   <ColorAlphaInput
                     color={currentStop.color}
                     alpha={currentStop.opacity}
-                    onChange={(color, alpha) =>
-                      handleStopColorChange(safeSelected, color, alpha)
-                    }
+                    onChange={(color, alpha) => handleStopColorChange(safeSelected, color, alpha)}
                     label="Color"
                   />
 
@@ -362,9 +367,7 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
                       max={1}
                       step={0.01}
                       value={currentStop.offset}
-                      onChange={(e) =>
-                        handleStopOffsetChange(safeSelected, Number(e.target.value))
-                      }
+                      onChange={(e) => handleStopOffsetChange(safeSelected, Number(e.target.value))}
                       className="w-full"
                       aria-label="Stop position"
                     />
@@ -373,7 +376,16 @@ export const GradientEditor: React.FC<GradientEditorProps> = ({
               )}
 
               {/* Add stop button */}
-              <Button variant="secondary" size="xs" type="button" onClick={handleAddStop} aria-label="Add gradient stop" data-testid="add-stop">+ Add Stop</Button>
+              <Button
+                variant="secondary"
+                size="xs"
+                type="button"
+                onClick={handleAddStop}
+                aria-label="Add gradient stop"
+                data-testid="add-stop"
+              >
+                + Add Stop
+              </Button>
             </>
           )}
         </div>

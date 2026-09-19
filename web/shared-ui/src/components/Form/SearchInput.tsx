@@ -6,6 +6,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 
 import { useI18n } from '../../i18n';
+import { Search as SearchIcon, X } from 'lucide-react';
 
 export interface SearchInputProps {
   value?: string;
@@ -37,7 +38,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
   const { t } = useI18n();
   const placeholder = placeholderProp ?? t('table.searchPlaceholder');
   const [internalValue, setInternalValue] = useState(controlledValue || '');
-  const debounceRef = useRef<(ReturnType<typeof setTimeout>) | undefined>(undefined);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
   // BUG-010: Store onSearch in a ref so pending debounce timeouts always call the
   // latest version of the callback, even if the prop changes between schedule and fire.
@@ -70,7 +71,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
         }, debounceMs);
       }
     },
-    [onChange, debounceMs]
+    [onChange, debounceMs],
   );
 
   const handleClear = useCallback(() => {
@@ -93,7 +94,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
         handleClear();
       }
     },
-    [internalValue, handleClear]
+    [internalValue, handleClear],
   );
 
   useEffect(() => {
@@ -141,19 +142,10 @@ export const SearchInput: React.FC<SearchInputProps> = ({
             />
           </svg>
         ) : (
-          <svg
+          <SearchIcon
             className={`${iconSizeClasses[size]} text-gray-500 dark:text-gray-400`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-            />
-          </svg>
+            aria-hidden="true"
+          />
         )}
       </div>
 
@@ -185,9 +177,7 @@ export const SearchInput: React.FC<SearchInputProps> = ({
           onClick={handleClear}
           className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
         >
-          <svg className={iconSizeClasses[size]} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <X className={iconSizeClasses[size]} aria-hidden="true" />
         </button>
       )}
     </div>

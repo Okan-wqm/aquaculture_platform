@@ -7,6 +7,7 @@
 import React from 'react';
 import { Modal, Button } from '@aquaculture/shared-ui';
 import { TankWithBatch } from '../types';
+import { ArrowLeftRight, Box, Fish as FishIcon, Scissors, TriangleAlert } from 'lucide-react';
 
 export type OperationType = 'mortality' | 'transfer' | 'cull';
 
@@ -25,21 +26,9 @@ const operationLabels: Record<OperationType, string> = {
 };
 
 const operationIcons: Record<OperationType, React.ReactNode> = {
-  mortality: (
-    <svg className="w-6 h-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-    </svg>
-  ),
-  transfer: (
-    <svg className="w-6 h-6 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-    </svg>
-  ),
-  cull: (
-    <svg className="w-6 h-6 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.121 14.121L19 19m-7-7l7-7m-7 7l-2.879 2.879M12 12L9.121 9.121m0 5.758a3 3 0 10-4.243 4.243 3 3 0 004.243-4.243zm0-5.758a3 3 0 10-4.243-4.243 3 3 0 004.243 4.243z" />
-    </svg>
-  ),
+  mortality: <TriangleAlert className="w-6 h-6 text-red-500" aria-hidden="true" />,
+  transfer: <ArrowLeftRight className="w-6 h-6 text-blue-500" aria-hidden="true" />,
+  cull: <Scissors className="w-6 h-6 text-orange-500" aria-hidden="true" />,
 };
 
 export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
@@ -62,22 +51,20 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
       title={`Select Fish Type for ${operationLabels[operation].charAt(0).toUpperCase() + operationLabels[operation].slice(1)}`}
     >
       <div className="p-4">
-        <div className="flex justify-center mb-4">
-          {operationIcons[operation]}
-        </div>
+        <div className="flex justify-center mb-4">{operationIcons[operation]}</div>
 
         <p className="text-gray-600 dark:text-gray-400 mb-6 text-center">
-          <span className="font-medium">{tank.name}</span> has both production fish and cleaner fish.
+          <span className="font-medium">{tank.name}</span> has both production fish and cleaner
+          fish.
           <br />
           Which would you like to record {operationLabels[operation]} for?
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {hasProduction && (
-            <Button variant="secondary" onClick={() => onSelect('production')}><div className="flex items-center gap-2 mb-2">
-                <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                </svg>
+            <Button variant="secondary" onClick={() => onSelect('production')}>
+              <div className="flex items-center gap-2 mb-2">
+                <Box className="w-5 h-5 text-blue-600" aria-hidden="true" />
                 <span className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600">
                   Production Fish
                 </span>
@@ -86,15 +73,14 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
                 <div>{tank.pieces?.toLocaleString() || 0} fish</div>
                 <div>{tank.biomass?.toFixed(1) || 0} kg biomass</div>
                 <div className="text-xs">Batch: {tank.batchNumber}</div>
-              </div></Button>
+              </div>
+            </Button>
           )}
 
           {showCleanerOption && (
-            <Button variant="secondary" onClick={() => onSelect('cleaner')}><div className="flex items-center gap-2 mb-2">
-                <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12c0 4-4 6-8 6s-8-2-8-6 4-6 8-6 8 2 8 6z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 12l4-2v4l-4-2zM6 12a2 2 0 100-4 2 2 0 000 4z" />
-                </svg>
+            <Button variant="secondary" onClick={() => onSelect('cleaner')}>
+              <div className="flex items-center gap-2 mb-2">
+                <FishIcon className="w-5 h-5 text-green-600" aria-hidden="true" />
                 <span className="text-lg font-semibold text-gray-900 dark:text-gray-100 group-hover:text-green-600">
                   Cleaner Fish
                 </span>
@@ -104,10 +90,12 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
                 <div>{tank.cleanerFishBiomassKg?.toFixed(2) || 0} kg biomass</div>
                 {tank.cleanerFishDetails && tank.cleanerFishDetails.length > 0 && (
                   <div className="text-xs">
-                    {tank.cleanerFishDetails.length} batch{tank.cleanerFishDetails.length > 1 ? 'es' : ''}
+                    {tank.cleanerFishDetails.length} batch
+                    {tank.cleanerFishDetails.length > 1 ? 'es' : ''}
                   </div>
                 )}
-              </div></Button>
+              </div>
+            </Button>
           )}
         </div>
 
@@ -118,7 +106,9 @@ export const FishTypeSelector: React.FC<FishTypeSelectorProps> = ({
         )}
 
         <div className="mt-6 flex justify-end">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
         </div>
       </div>
     </Modal>

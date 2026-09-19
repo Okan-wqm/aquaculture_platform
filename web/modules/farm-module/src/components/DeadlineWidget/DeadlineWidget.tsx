@@ -7,6 +7,7 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { Button } from '@aquaculture/shared-ui';
+import { Check, CircleAlert, Clock } from 'lucide-react';
 
 // ============================================================================
 // Type Definitions
@@ -169,7 +170,7 @@ export function sortDeadlines(deadlines: UpcomingDeadline[]): UpcomingDeadline[]
  */
 export function filterDeadlines(
   deadlines: UpcomingDeadline[],
-  urgencyFilter?: DeadlineUrgency[]
+  urgencyFilter?: DeadlineUrgency[],
 ): UpcomingDeadline[] {
   if (!urgencyFilter?.length) return deadlines;
 
@@ -182,9 +183,7 @@ export function filterDeadlines(
 /**
  * Count deadlines by urgency
  */
-export function countByUrgency(
-  deadlines: UpcomingDeadline[]
-): Record<DeadlineUrgency, number> {
+export function countByUrgency(deadlines: UpcomingDeadline[]): Record<DeadlineUrgency, number> {
   const counts: Record<DeadlineUrgency, number> = {
     overdue: 0,
     today: 0,
@@ -231,14 +230,7 @@ export const DeadlineIcon: React.FC<DeadlineIconProps> = ({ urgency, className =
       `}
       data-testid={`deadline-icon-${urgency}`}
     >
-      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      </svg>
+      <Clock className="w-4 h-4" aria-hidden="true" />
     </div>
   );
 };
@@ -284,7 +276,9 @@ export const DeadlineItemCard: React.FC<DeadlineItemCardProps> = ({
             <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
               {reportConfig.icon} {deadline.reportName}
             </p>
-            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${config.bgColor} ${config.textColor}`}>
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded-full ${config.bgColor} ${config.textColor}`}
+            >
               {config.label}
             </span>
           </div>
@@ -297,8 +291,8 @@ export const DeadlineItemCard: React.FC<DeadlineItemCardProps> = ({
                 {deadline.weekNumber
                   ? `Week ${deadline.weekNumber}, ${deadline.year}`
                   : deadline.month
-                  ? `${new Date(deadline.year, deadline.month - 1).toLocaleDateString('en-GB', { month: 'short' })} ${deadline.year}`
-                  : deadline.year}
+                    ? `${new Date(deadline.year, deadline.month - 1).toLocaleDateString('en-GB', { month: 'short' })} ${deadline.year}`
+                    : deadline.year}
               </span>
               <span className={`text-xs font-medium ${config.textColor}`}>
                 {formatDaysRemaining(deadline.daysRemaining)}
@@ -367,24 +361,10 @@ interface EmptyStateProps {
   message?: string;
 }
 
-export const EmptyState: React.FC<EmptyStateProps> = ({
-  message = 'No upcoming deadlines',
-}) => (
+export const EmptyState: React.FC<EmptyStateProps> = ({ message = 'No upcoming deadlines' }) => (
   <div className="p-8 text-center" data-testid="empty-state">
     <div className="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-3">
-      <svg
-        className="w-6 h-6 text-green-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M5 13l4 4L19 7"
-        />
-      </svg>
+      <Check className="w-6 h-6 text-green-600" aria-hidden="true" />
     </div>
     <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
@@ -416,23 +396,13 @@ interface ErrorStateProps {
 export const ErrorState: React.FC<ErrorStateProps> = ({ message, onRetry }) => (
   <div className="p-8 text-center" data-testid="error-state">
     <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-3">
-      <svg
-        className="w-6 h-6 text-red-600"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth={2}
-          d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-        />
-      </svg>
+      <CircleAlert className="w-6 h-6 text-red-600" aria-hidden="true" />
     </div>
     <p className="text-sm text-red-600 mb-2">{message}</p>
     {onRetry && (
-      <Button variant="ghost" onClick={onRetry}>Retry</Button>
+      <Button variant="ghost" onClick={onRetry}>
+        Retry
+      </Button>
     )}
   </div>
 );
@@ -482,7 +452,9 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Report Deadlines</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Report Deadlines
+          </h3>
           <div className="flex items-center space-x-2">
             {overdueCount > 0 && (
               <span
@@ -554,11 +526,12 @@ export const DeadlineWidget: React.FC<DeadlineWidgetProps> = ({
         <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
           <div className="flex items-center justify-between">
             <span className="text-xs text-gray-500 dark:text-gray-400">
-              Total: {totalPending} pending ({overdueCount} overdue, {thisWeekCount} this
-              week)
+              Total: {totalPending} pending ({overdueCount} overdue, {thisWeekCount} this week)
             </span>
             {onViewAll && (
-              <Button variant="ghost" onClick={onViewAll} data-testid="view-all-btn">View All Reports</Button>
+              <Button variant="ghost" onClick={onViewAll} data-testid="view-all-btn">
+                View All Reports
+              </Button>
             )}
           </div>
         </div>

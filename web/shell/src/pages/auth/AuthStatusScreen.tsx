@@ -6,6 +6,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Check, X } from 'lucide-react';
 
 export interface AuthStatusScreenProps {
   variant: 'success' | 'error';
@@ -15,17 +16,9 @@ export interface AuthStatusScreenProps {
   showBackToLogin?: boolean;
 }
 
-const CheckIcon: React.FC = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-  </svg>
-);
+const CheckIcon: React.FC = () => <Check className="w-6 h-6" aria-hidden="true" />;
 
-const XIcon: React.FC = () => (
-  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-  </svg>
-);
+const XIcon: React.FC = () => <X className="w-6 h-6" aria-hidden="true" />;
 
 export const AuthStatusScreen: React.FC<AuthStatusScreenProps> = ({
   variant,

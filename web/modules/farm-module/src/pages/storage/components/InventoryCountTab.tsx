@@ -17,6 +17,7 @@ import {
 } from '../../../hooks/useInventoryCounts';
 import { StartInventoryCountModal } from './StartInventoryCountModal';
 import { InventoryCountDetailModal } from './InventoryCountDetailModal';
+import { Plus } from 'lucide-react';
 
 /** Badge colors per status — consistent with other tabs in the storage module */
 const statusColors: Record<string, string> = {
@@ -59,10 +60,16 @@ export const InventoryCountTab: React.FC = () => {
    * - APPROVED: anyone can view the finalized record
    */
   const getActionButton = (ic: InventoryCount) => {
-    if (ic.status === InventoryCountStatus.PLANNED || ic.status === InventoryCountStatus.IN_PROGRESS) {
+    if (
+      ic.status === InventoryCountStatus.PLANNED ||
+      ic.status === InventoryCountStatus.IN_PROGRESS
+    ) {
       return (
         <button
-          onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCountId(ic.id);
+          }}
           className="text-xs px-2 py-1 bg-blue-50 text-blue-700 rounded hover:bg-blue-100"
         >
           Count
@@ -74,7 +81,10 @@ export const InventoryCountTab: React.FC = () => {
       const isOwnCount = user?.id === ic.performedBy;
       return (
         <button
-          onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setSelectedCountId(ic.id);
+          }}
           className={`text-xs px-2 py-1 rounded ${
             isOwnCount
               ? 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
@@ -88,7 +98,10 @@ export const InventoryCountTab: React.FC = () => {
     /* APPROVED — read-only view */
     return (
       <button
-        onClick={(e) => { e.stopPropagation(); setSelectedCountId(ic.id); }}
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedCountId(ic.id);
+        }}
         className="text-xs px-2 py-1 bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
       >
         View
@@ -112,11 +125,7 @@ export const InventoryCountTab: React.FC = () => {
       key: 'date',
       header: 'Date',
       render: (_value, ic) => (
-        <>
-          {ic.startedAt
-            ? new Date(ic.startedAt).toLocaleDateString('nb-NO')
-            : '-'}
-        </>
+        <>{ic.startedAt ? new Date(ic.startedAt).toLocaleDateString('nb-NO') : '-'}</>
       ),
     },
     {
@@ -129,7 +138,8 @@ export const InventoryCountTab: React.FC = () => {
       header: 'Total Variance',
       render: (_value, ic) => (
         <span className={ic.totalVariance !== 0 ? 'text-red-600 font-medium' : 'text-green-600'}>
-          {ic.totalVariance > 0 ? '+' : ''}{ic.totalVariance}
+          {ic.totalVariance > 0 ? '+' : ''}
+          {ic.totalVariance}
         </span>
       ),
     },
@@ -143,9 +153,12 @@ export const InventoryCountTab: React.FC = () => {
       header: 'Status',
       render: (_value, ic) => (
         <>
-          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-            statusColors[ic.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
-          }`}>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              statusColors[ic.status] ||
+              'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+            }`}
+          >
             {ic.status.replace('_', ' ')}
           </span>
         </>
@@ -156,7 +169,7 @@ export const InventoryCountTab: React.FC = () => {
       header: 'Actions',
       align: 'right',
       render: (_value, ic) => getActionButton(ic),
-    }
+    },
   ];
 
   return (
@@ -166,19 +179,21 @@ export const InventoryCountTab: React.FC = () => {
         <div className="flex gap-3">
           <select
             value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
+            onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
           >
             <option value="">All Status</option>
-            {STATUS_OPTIONS.map(s => (
-              <option key={s} value={s}>{s.replace('_', ' ')}</option>
+            {STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>
+                {s.replace('_', ' ')}
+              </option>
             ))}
           </select>
         </div>
-        <Button variant="primary" onClick={() => setIsStartModalOpen(true)}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Start Count</Button>
+        <Button variant="primary" onClick={() => setIsStartModalOpen(true)}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Start Count
+        </Button>
       </div>
 
       {/* Loading spinner */}
@@ -192,7 +207,9 @@ export const InventoryCountTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load inventory counts.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 

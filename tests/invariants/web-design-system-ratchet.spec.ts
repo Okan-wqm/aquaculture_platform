@@ -42,6 +42,9 @@
  * band AquaMobil's PageHeader owns (tone, back arrow, icon, actions) —
  * written by hand in a dozen spellings across 169 pages in the survey.
  *
+ * An icon-shaped `<svg>` (FE-MEDIUM-082) is a hand-pasted glyph — a 16, 20 or
+ * 24 unit viewBox — beside the lucide-react set every package renders from:
+ * 733 of them in the survey against lucide in 308 files.
  * A light-only surface (FE-MEDIUM-072) is a class string that paints
  * `bg-white`, `bg-gray-50` or `bg-gray-100` with no `dark:` sibling: under the
  * shell's dark theme the element keeps its light colour. theme.css keys
@@ -138,6 +141,14 @@ function hardcodedText(source: string): number {
 const CLASS_ATTRIBUTE = /className=(?:"([^"]*)"|\{`([^`]*)`\})/g;
 const FIXED_GRID = /(?<![\w:-])grid-cols-(?:[2-6]|8|9|1[01])(?![\w-])/;
 const RESPONSIVE_GRID = /\b(?:sm|md|lg|xl|2xl):grid-cols-/;
+/**
+ * An icon-shaped `<svg>` written in the file — a 16 / 20 / 24 unit viewBox,
+ * the shape of a hand-pasted Heroicons or lucide glyph (FE-MEDIUM-082) —
+ * beside the lucide-react set every package renders from. Counted per
+ * package, shared-ui included; a custom glyph (a SCADA equipment symbol)
+ * belongs in one shared icon module, not inline.
+ */
+const INLINE_ICON_SVG = /<svg\b[^>]*\bviewBox="0 0 (?:16 16|20 20|24 24)"/g;
 function fixedGrids(source: string): number {
   let count = 0;
   for (const match of source.matchAll(CLASS_ATTRIBUTE)) {
@@ -300,6 +311,7 @@ interface Allowlist {
   rawButton: { entries: PackageCeiling[] };
   rawField: { entries: PackageCeiling[] };
   fixedGrid: { entries: PackageCeiling[] };
+  inlineIconSvg: { entries: PackageCeiling[] };
   hardcodedText: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
   rawPageTitle: { entries: PackageCeiling[] };
@@ -531,6 +543,31 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071/072): web design-sys
       }
     }
     for (const entry of doc.fixedGrid.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets icon-shaped <svg> written in the file per package, shared-ui included (FE-MEDIUM-082)', () => {
+    const actual = countByPackage(
+      [...files, ...sourceFiles(['web/shared-ui/src'])].filter((file) => file.endsWith('.tsx')),
+      INLINE_ICON_SVG,
+    );
+    const ceilings = new Map(doc.inlineIconSvg.entries.map((entry) => [entry.package, entry]));
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} inline icon svgs, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} icon-shaped <svg> written in the file, ceiling ${entry.ceiling}. Render the icon from lucide-react (a custom glyph from one shared icon module) and lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.inlineIconSvg.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

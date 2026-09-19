@@ -9,7 +9,15 @@
  * prescription requirement) ride in the chemical's `usageProtocol`.
  */
 import React, { useState } from 'react';
-import { FormField, Modal, useToast, DataTable, type DataTableColumn, Button, Input } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+  Button,
+  Input,
+} from '@aquaculture/shared-ui';
 
 import {
   useChemicalList,
@@ -25,6 +33,7 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList } from '../../../hooks/useSites';
+import { Plus, Search as SearchIcon } from 'lucide-react';
 
 // ============================================================================
 // CONSTANTS
@@ -93,7 +102,15 @@ const UNIT_OPTIONS = [
   { value: 'pcs', label: 'Pieces' },
 ];
 
-const FORMULATION_OPTIONS = ['Liquid', 'Powder', 'Premix', 'Tablet', 'Injectable', 'Gel', 'Emulsion'];
+const FORMULATION_OPTIONS = [
+  'Liquid',
+  'Powder',
+  'Premix',
+  'Tablet',
+  'Injectable',
+  'Gel',
+  'Emulsion',
+];
 
 const STORAGE_OPTIONS = [
   'Room temperature',
@@ -315,10 +332,18 @@ export const FishHealthChemicalsTab: React.FC = () => {
     setIsDeleting(true);
     try {
       await deleteChemical.mutateAsync(deleteTarget.id);
-      toast({ title: 'Substance removed', description: `${deleteTarget.name} was deleted.`, variant: 'success' });
+      toast({
+        title: 'Substance removed',
+        description: `${deleteTarget.name} was deleted.`,
+        variant: 'success',
+      });
       setDeleteTarget(null);
     } catch {
-      toast({ title: 'Error', description: 'Failed to delete the substance. Please try again.', variant: 'error' });
+      toast({
+        title: 'Error',
+        description: 'Failed to delete the substance. Please try again.',
+        variant: 'error',
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -397,11 +422,15 @@ export const FishHealthChemicalsTab: React.FC = () => {
       align: 'right',
       render: (_value, item) => (
         <>
-          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>Edit</Button>
-          <Button variant="ghost" onClick={() => setDeleteTarget(item)}>Delete</Button>
+          <Button variant="ghost" className="mr-3" onClick={() => openEdit(item)}>
+            Edit
+          </Button>
+          <Button variant="ghost" onClick={() => setDeleteTarget(item)}>
+            Delete
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -417,19 +446,10 @@ export const FishHealthChemicalsTab: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            <svg
+            <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
           </div>
           <select
             value={selectedCategory}
@@ -444,10 +464,10 @@ export const FishHealthChemicalsTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <Button variant="primary" onClick={openCreate}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Add Therapeutic Substance</Button>
+        <Button variant="primary" onClick={openCreate}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Add Therapeutic Substance
+        </Button>
       </div>
 
       {/* Table */}
@@ -462,7 +482,11 @@ export const FishHealthChemicalsTab: React.FC = () => {
           stickyHeader={false}
         />
 
-        {isLoading && <div className="text-center py-12 text-sm text-gray-500 dark:text-gray-400">Loading therapeutic substances…</div>}
+        {isLoading && (
+          <div className="text-center py-12 text-sm text-gray-500 dark:text-gray-400">
+            Loading therapeutic substances…
+          </div>
+        )}
 
         {error && !isLoading && (
           <div className="text-center py-12 text-sm text-red-600">
@@ -472,7 +496,9 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
         {!isLoading && !error && filtered.length === 0 && (
           <div className="text-center py-12">
-            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No therapeutic substances found</h3>
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+              No therapeutic substances found
+            </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Add therapeutic substances to manage treatments and protocols.
             </p>
@@ -492,40 +518,60 @@ export const FishHealthChemicalsTab: React.FC = () => {
             <div className="space-y-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Name *
+                  </label>
                   <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
-                  <Input fullWidth type="text" required value={formData.name} onChange={(e) => updateField('name', e.target.value)} />
+                    <Input
+                      fullWidth
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => updateField('name', e.target.value)}
+                    />
                   </FormField>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Code *
+                  </label>
                   <FormField error={formData.code ? undefined : fieldErrors.code} className="mb-0">
-                  <Input fullWidth type="text" required value={formData.code} onChange={(e) => updateField('code', e.target.value)} />
+                    <Input
+                      fullWidth
+                      type="text"
+                      required
+                      value={formData.code}
+                      onChange={(e) => updateField('code', e.target.value)}
+                    />
                   </FormField>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Category *
+                  </label>
                   <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
-                  <select
-                    required
-                    value={formData.type}
-                    onChange={(e) => updateField('type', e.target.value as ChemicalType)}
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select</option>
-                    {THERAPEUTIC_CATEGORIES.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
+                    <select
+                      required
+                      value={formData.type}
+                      onChange={(e) => updateField('type', e.target.value as ChemicalType)}
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select</option>
+                      {THERAPEUTIC_CATEGORIES.map((c) => (
+                        <option key={c.value} value={c.value}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
                   </FormField>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Unit</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Unit
+                  </label>
                   <select
                     value={formData.unit}
                     onChange={(e) => updateField('unit', e.target.value)}
@@ -548,25 +594,30 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   {editing ? (
                     <Input fullWidth type="text" disabled value={getSiteName(formData.siteId)} />
                   ) : (
-                    <FormField error={formData.siteId ? undefined : fieldErrors.siteId} className="mb-0">
-                    <select
-                      required
-                      value={formData.siteId}
-                      onChange={(e) => updateField('siteId', e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                    <FormField
+                      error={formData.siteId ? undefined : fieldErrors.siteId}
+                      className="mb-0"
                     >
-                      <option value="">Select site</option>
-                      {sites.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
+                      <select
+                        required
+                        value={formData.siteId}
+                        onChange={(e) => updateField('siteId', e.target.value)}
+                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Select site</option>
+                        {sites.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
                     </FormField>
                   )}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Supplier
+                  </label>
                   <select
                     value={formData.supplierId}
                     onChange={(e) => updateField('supplierId', e.target.value)}
@@ -584,19 +635,38 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
               {/* Composition */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Composition</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Composition
+                </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Active Ingredient</label>
-                    <Input fullWidth type="text" value={formData.activeIngredient} onChange={(e) => updateField('activeIngredient', e.target.value)} />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Active Ingredient
+                    </label>
+                    <Input
+                      fullWidth
+                      type="text"
+                      value={formData.activeIngredient}
+                      onChange={(e) => updateField('activeIngredient', e.target.value)}
+                    />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Concentration</label>
-                    <Input fullWidth type="text" value={formData.concentration} onChange={(e) => updateField('concentration', e.target.value)} placeholder="e.g., 10%, 50mg/L" />
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Concentration
+                    </label>
+                    <Input
+                      fullWidth
+                      type="text"
+                      value={formData.concentration}
+                      onChange={(e) => updateField('concentration', e.target.value)}
+                      placeholder="e.g., 10%, 50mg/L"
+                    />
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Formulation</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Formulation
+                  </label>
                   <select
                     value={formData.formulation}
                     onChange={(e) => updateField('formulation', e.target.value)}
@@ -614,15 +684,23 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
               {/* Regulation */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Regulation</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Regulation
+                </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Withdrawal Period (days)
                     </label>
-                    <Input fullWidth type="number" min="0" value={formData.withdrawalPeriodDays} onChange={(e) =>
-            updateField('withdrawalPeriodDays', parseInt(e.target.value, 10) || 0)
-           } />
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={formData.withdrawalPeriodDays}
+                      onChange={(e) =>
+                        updateField('withdrawalPeriodDays', parseInt(e.target.value, 10) || 0)
+                      }
+                    />
                   </div>
                   <div className="flex items-end pb-1">
                     <label className="flex items-center gap-2">
@@ -632,7 +710,9 @@ export const FishHealthChemicalsTab: React.FC = () => {
                         onChange={(e) => updateField('prescriptionRequired', e.target.checked)}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
                       />
-                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Prescription Required</span>
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Prescription Required
+                      </span>
                     </label>
                   </div>
                 </div>
@@ -640,16 +720,28 @@ export const FishHealthChemicalsTab: React.FC = () => {
 
               {/* Target conditions */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Target Conditions</h4>
-                <Input fullWidth type="text" value={formData.targetConditionsText} onChange={(e) => updateField('targetConditionsText', e.target.value)} placeholder="Comma separated, e.g.: Sea lice, Furunculosis" />
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Target Conditions
+                </h4>
+                <Input
+                  fullWidth
+                  type="text"
+                  value={formData.targetConditionsText}
+                  onChange={(e) => updateField('targetConditionsText', e.target.value)}
+                  placeholder="Comma separated, e.g.: Sea lice, Furunculosis"
+                />
               </div>
 
               {/* Storage & status */}
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Storage &amp; Status</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Storage &amp; Status
+                </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Storage Requirements</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Storage Requirements
+                    </label>
                     <select
                       value={formData.storageRequirements}
                       onChange={(e) => updateField('storageRequirements', e.target.value)}
@@ -665,7 +757,9 @@ export const FishHealthChemicalsTab: React.FC = () => {
                   </div>
                   {editing && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        Status
+                      </label>
                       <select
                         value={formData.status}
                         onChange={(e) => updateField('status', e.target.value as ChemicalStatus)}
@@ -685,21 +779,39 @@ export const FishHealthChemicalsTab: React.FC = () => {
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
-            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button variant="primary" type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : editing ? 'Update' : 'Create'}</Button>
+            <Button variant="secondary" type="button" onClick={() => setIsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" type="submit" disabled={isSaving}>
+              {isSaving ? 'Saving…' : editing ? 'Update' : 'Create'}
+            </Button>
           </div>
         </form>
       </Modal>
 
       {/* Delete confirmation modal (replaces browser confirm) */}
-      <Modal isOpen={!!deleteTarget} onClose={() => setDeleteTarget(null)} title="Delete Therapeutic Substance" size="sm">
+      <Modal
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Therapeutic Substance"
+        size="sm"
+      >
         <p className="text-sm text-gray-700 dark:text-gray-300">
-          Are you sure you want to delete <span className="font-medium">{deleteTarget?.name}</span>? This
-          removes the substance from the Chemical master.
+          Are you sure you want to delete <span className="font-medium">{deleteTarget?.name}</span>?
+          This removes the substance from the Chemical master.
         </p>
         <div className="mt-6 flex justify-end gap-3">
-          <Button variant="secondary" type="button" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-          <Button variant="danger" type="button" onClick={() => void confirmDelete()} disabled={isDeleting}>{isDeleting ? 'Deleting…' : 'Delete'}</Button>
+          <Button variant="secondary" type="button" onClick={() => setDeleteTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            type="button"
+            onClick={() => void confirmDelete()}
+            disabled={isDeleting}
+          >
+            {isDeleting ? 'Deleting…' : 'Delete'}
+          </Button>
         </div>
       </Modal>
     </div>

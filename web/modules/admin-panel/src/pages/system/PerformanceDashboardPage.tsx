@@ -6,7 +6,15 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, DataTable, LineChart, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  LineChart,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -16,6 +24,7 @@ import type {
   InfrastructureMetrics,
   PerformanceApplicationMetrics,
 } from '../../services/types';
+import { CircleAlert, Cpu, RefreshCw, Server, TriangleAlert, Zap } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -182,11 +191,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         infrastructureQuery.dataUpdatedAt,
         databaseQuery.dataUpdatedAt,
       ),
-    [
-      dashboardQuery.dataUpdatedAt,
-      infrastructureQuery.dataUpdatedAt,
-      databaseQuery.dataUpdatedAt,
-    ],
+    [dashboardQuery.dataUpdatedAt, infrastructureQuery.dataUpdatedAt, databaseQuery.dataUpdatedAt],
   );
 
   const isFetching =
@@ -202,7 +207,10 @@ export const PerformanceDashboardPage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  const getServiceStatus = (service: { avgResponseTime?: number; errorRate?: number }): ServiceHealth['status'] => {
+  const getServiceStatus = (service: {
+    avgResponseTime?: number;
+    errorRate?: number;
+  }): ServiceHealth['status'] => {
     if ((service.errorRate ?? 0) > 1 || (service.avgResponseTime ?? 0) > 500) return 'critical';
     if ((service.errorRate ?? 0) > 0.5 || (service.avgResponseTime ?? 0) > 300) return 'warning';
     return 'healthy';
@@ -268,8 +276,8 @@ export const PerformanceDashboardPage: React.FC = () => {
                 status === 'healthy'
                   ? 'bg-green-500'
                   : status === 'warning'
-                  ? 'bg-yellow-500'
-                  : 'bg-red-500'
+                    ? 'bg-yellow-500'
+                    : 'bg-red-500'
               }`}
             />
             <span className="font-medium text-gray-900 dark:text-gray-100">{service.service}</span>
@@ -328,9 +336,11 @@ export const PerformanceDashboardPage: React.FC = () => {
       header: 'Requests',
       align: 'right',
       render: (_value, service) => (
-        <span className="text-gray-900 dark:text-gray-100">{service.requestCount.toLocaleString()}</span>
+        <span className="text-gray-900 dark:text-gray-100">
+          {service.requestCount.toLocaleString()}
+        </span>
       ),
-    }
+    },
   ];
 
   return (
@@ -363,19 +373,10 @@ export const PerformanceDashboardPage: React.FC = () => {
               ))}
             </select>
             <Button onClick={loadData} variant="secondary" disabled={isFetching}>
-              <svg
+              <RefreshCw
                 className={`w-5 h-5 ${isFetching ? 'animate-spin' : ''}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                />
-              </svg>
+                aria-hidden="true"
+              />
             </Button>
           </div>
         }
@@ -396,13 +397,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         <Card className="border-l-4 border-yellow-400 bg-yellow-50">
           <div className="p-4">
             <h3 className="font-semibold text-yellow-800 mb-2 flex items-center gap-2">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <TriangleAlert className="w-5 h-5" aria-hidden="true" />
               Active Performance Alerts
             </h3>
             <div className="space-y-2">
@@ -430,15 +425,10 @@ export const PerformanceDashboardPage: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
-            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Response Time</div>
-            <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M13 10V3L4 14h7v7l9-11h-7z"
-              />
-            </svg>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Response Time
+            </div>
+            <Zap className="w-5 h-5 text-blue-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(application?.avgResponseTime, {
@@ -454,14 +444,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">CPU Usage</div>
-            <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
-              />
-            </svg>
+            <Cpu className="w-5 h-5 text-purple-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(infrastructure?.cpuUsage, {
@@ -477,14 +460,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Memory Usage</div>
-            <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"
-              />
-            </svg>
+            <Server className="w-5 h-5 text-green-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(infrastructure?.memoryUsage, {
@@ -500,14 +476,7 @@ export const PerformanceDashboardPage: React.FC = () => {
         <Card className="p-6">
           <div className="flex items-center justify-between mb-2">
             <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Error Rate</div>
-            <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
+            <CircleAlert className="w-5 h-5 text-red-500" aria-hidden="true" />
           </div>
           <div
             className={`text-3xl font-bold ${getHealthColor(application?.errorRate, {
@@ -525,8 +494,12 @@ export const PerformanceDashboardPage: React.FC = () => {
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Overall System Health</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Tum metriklere dayali genel saglik skoru</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Overall System Health
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Tum metriklere dayali genel saglik skoru
+            </p>
           </div>
           <div className="flex items-center gap-3">
             {/* The `?? 100` that used to sit here made a platform with no
@@ -597,11 +570,15 @@ export const PerformanceDashboardPage: React.FC = () => {
 
       {/* Infrastructure Metrics */}
       <Card className="p-6">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-6">Infrastructure Metrics</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-6">
+          Infrastructure Metrics
+        </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div>
             <div className="flex justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">CPU Usage</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                CPU Usage
+              </span>
               <span
                 className={`text-sm font-bold ${getHealthColor(infrastructure?.cpuUsage, {
                   warning: 70,
@@ -624,7 +601,9 @@ export const PerformanceDashboardPage: React.FC = () => {
 
           <div>
             <div className="flex justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Memory Usage</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Memory Usage
+              </span>
               <span
                 className={`text-sm font-bold ${getHealthColor(infrastructure?.memoryUsage, {
                   warning: 70,
@@ -647,7 +626,9 @@ export const PerformanceDashboardPage: React.FC = () => {
 
           <div>
             <div className="flex justify-between mb-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Disk Usage</span>
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Disk Usage
+              </span>
               <span
                 className={`text-sm font-bold ${getHealthColor(infrastructure?.diskUsage, {
                   warning: 70,
@@ -695,7 +676,9 @@ export const PerformanceDashboardPage: React.FC = () => {
       {/* Performance Trends — real charts from the fetched dashboard.trends series */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Performance Trends</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Performance Trends
+          </h2>
           <span className="text-sm text-gray-500 dark:text-gray-400">{range.label}</span>
         </div>
         {!trends || trends.responseTime.length === 0 ? (
@@ -705,30 +688,42 @@ export const PerformanceDashboardPage: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div>
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Response Time (ms)</h3>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Response Time (ms)
+              </h3>
               <LineChart
                 labels={trends.responseTime.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Response time', data: trends.responseTime.map((point) => point.value) }]}
+                datasets={[
+                  { label: 'Response time', data: trends.responseTime.map((point) => point.value) },
+                ]}
                 height={180}
                 className="w-full"
                 showLegend={false}
               />
             </div>
             <div>
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Throughput (req/min)</h3>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Throughput (req/min)
+              </h3>
               <LineChart
                 labels={trends.throughput.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Throughput', data: trends.throughput.map((point) => point.value) }]}
+                datasets={[
+                  { label: 'Throughput', data: trends.throughput.map((point) => point.value) },
+                ]}
                 height={180}
                 className="w-full"
                 showLegend={false}
               />
             </div>
             <div>
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Error Rate (%)</h3>
+              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Error Rate (%)
+              </h3>
               <LineChart
                 labels={trends.errorRate.map((point) => formatTrendLabel(point.timestamp))}
-                datasets={[{ label: 'Error rate', data: trends.errorRate.map((point) => point.value) }]}
+                datasets={[
+                  { label: 'Error rate', data: trends.errorRate.map((point) => point.value) },
+                ]}
                 height={180}
                 className="w-full"
                 showLegend={false}
@@ -741,8 +736,12 @@ export const PerformanceDashboardPage: React.FC = () => {
       {/* Service Health Status Table */}
       <Card className="overflow-hidden">
         <div className="p-6 border-b">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Service Health Status</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Real-time servis saglik durumlari ve performans metrikleri</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Service Health Status
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            Real-time servis saglik durumlari ve performans metrikleri
+          </p>
         </div>
         <DataTable<ServiceBreakdownRow>
           data={serviceBreakdown}
@@ -755,7 +754,6 @@ export const PerformanceDashboardPage: React.FC = () => {
           className="shadow-none rounded-none"
         />
       </Card>
-
     </div>
   );
 };

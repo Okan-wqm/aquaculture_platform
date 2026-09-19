@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import { AppError, ErrorCode, parseError, RecoveryAction } from '../../utils/error-types';
+import { CircleX, Lock, RefreshCw, TriangleAlert, VolumeX } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -38,56 +39,23 @@ export interface ApiErrorProps {
 // ============================================================================
 
 const ErrorIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
-  <svg className={className} fill="currentColor" viewBox="0 0 20 20">
-    <path
-      fillRule="evenodd"
-      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-      clipRule="evenodd"
-    />
-  </svg>
+  <CircleX className={className} aria-hidden="true" />
 );
 
 const WarningIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
-  <svg className={className} fill="currentColor" viewBox="0 0 20 20">
-    <path
-      fillRule="evenodd"
-      d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-      clipRule="evenodd"
-    />
-  </svg>
+  <TriangleAlert className={className} aria-hidden="true" />
 );
 
 const NetworkIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414"
-    />
-  </svg>
+  <VolumeX className={className} aria-hidden="true" />
 );
 
 const LockIcon: React.FC<{ className?: string }> = ({ className = 'w-5 h-5' }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-    />
-  </svg>
+  <Lock className={className} aria-hidden="true" />
 );
 
 const RefreshIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' }) => (
-  <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={2}
-      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-    />
-  </svg>
+  <RefreshCw className={className} aria-hidden="true" />
 );
 
 // ============================================================================
@@ -131,7 +99,7 @@ function getErrorColors(code: ErrorCode): { bg: string; border: string; text: st
 function getActionButton(
   recoveryAction: RecoveryAction,
   onRetry?: () => void,
-  onLogin?: () => void
+  onLogin?: () => void,
 ): React.ReactNode {
   switch (recoveryAction) {
     case 'retry':
@@ -226,7 +194,7 @@ export const ApiError: React.FC<ApiErrorProps> = ({
                     details: appError.details,
                   },
                   null,
-                  2
+                  2,
                 )}
               </pre>
             </details>

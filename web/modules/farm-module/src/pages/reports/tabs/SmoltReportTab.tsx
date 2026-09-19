@@ -25,6 +25,7 @@ import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { toBackendReportMonth } from '../utils/reportPeriod';
 import { useTanksList } from '../../../hooks/useTanks';
 import type { Tank } from '../../../hooks/useTanks';
+import { Database, Download, Plus, X } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -197,16 +198,27 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
   <div className="space-y-4">
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Site
+        </label>
         <Input fullWidth type="text" value={siteName} disabled />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Period</label>
-        <Input fullWidth type="text" value={getMonthLabel(formData.month, formData.year)} disabled />
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Report Period
+        </label>
+        <Input
+          fullWidth
+          type="text"
+          value={getMonthLabel(formData.month, formData.year)}
+          disabled
+        />
       </div>
     </div>
     <div>
-      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Facility Type</label>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+        Facility Type
+      </label>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           type="button"
@@ -218,7 +230,9 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
           }`}
         >
           <div className="font-medium text-gray-900 dark:text-gray-100">Land Based</div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">RAS or flow-through systems</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            RAS or flow-through systems
+          </div>
         </button>
         <button
           type="button"
@@ -346,18 +360,13 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
               onClick={loadFromSystem}
               className="px-3 py-1.5 text-sm text-green-700 bg-green-50 border border-green-300 rounded-md hover:bg-green-100 flex items-center gap-1"
             >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
+              <Download className="w-4 h-4" aria-hidden="true" />
               Load from System
             </button>
           )}
-          <Button variant="secondary" size="sm" type="button" onClick={addUnit}>+ Add Unit</Button>
+          <Button variant="secondary" size="sm" type="button" onClick={addUnit}>
+            + Add Unit
+          </Button>
         </div>
       </div>
 
@@ -373,19 +382,7 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
 
       {formData.fishCounts.byUnit.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <svg
-            className="w-12 h-12 mx-auto text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"
-            />
-          </svg>
+          <Database className="w-12 h-12 mx-auto text-gray-300" aria-hidden="true" />
           <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No units added</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             {prefillUnits && prefillUnits.length > 0
@@ -401,21 +398,23 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
             const isFromSystem = !!matchedTank;
 
             return (
-              <div key={unit.unitId} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <div
+                key={unit.unitId}
+                className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+              >
                 <div className="flex items-start justify-between mb-3">
-                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Unit #{index + 1}</span>
-                  <Button variant="ghost" type="button" onClick={() => removeUnit(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M6 18L18 6M6 6l12 12"
-                      />
-                    </svg></Button>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Unit #{index + 1}
+                  </span>
+                  <Button variant="ghost" type="button" onClick={() => removeUnit(index)}>
+                    <X className="w-4 h-4" aria-hidden="true" />
+                  </Button>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Unit Name / Tank</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Unit Name / Tank
+                    </label>
                     {tanks.length > 0 ? (
                       <select
                         value={isFromSystem ? unit.unitId : '__manual__'}
@@ -453,19 +452,42 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                         ))}
                       </select>
                     ) : (
-                      <Input fullWidth type="text" value={unit.unitName} onChange={(e) => updateUnit(index, { unitName: e.target.value })} placeholder="Tank A1" />
+                      <Input
+                        fullWidth
+                        type="text"
+                        value={unit.unitName}
+                        onChange={(e) => updateUnit(index, { unitName: e.target.value })}
+                        placeholder="Tank A1"
+                      />
                     )}
                     {!isFromSystem && tanks.length > 0 && (
-                      <Input fullWidth type="text" value={unit.unitName} onChange={(e) => updateUnit(index, { unitName: e.target.value })} placeholder="Enter unit name" />
+                      <Input
+                        fullWidth
+                        type="text"
+                        value={unit.unitName}
+                        onChange={(e) => updateUnit(index, { unitName: e.target.value })}
+                        placeholder="Enter unit name"
+                      />
                     )}
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Type</label>
-                    <Select fullWidth options={[{ value: 'tank', label: 'Tank' }, { value: 'raceway', label: 'Raceway' }, { value: 'pond', label: 'Pond' }]} value={unit.unitType} onChange={(e) =>
-            updateUnit(index, {
-             unitType: e.target.value as 'tank' | 'raceway' | 'pond',
-            })
-           } />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Type
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'tank', label: 'Tank' },
+                        { value: 'raceway', label: 'Raceway' },
+                        { value: 'pond', label: 'Pond' },
+                      ]}
+                      value={unit.unitType}
+                      onChange={(e) =>
+                        updateUnit(index, {
+                          unitType: e.target.value as 'tank' | 'raceway' | 'pond',
+                        })
+                      }
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
@@ -486,22 +508,52 @@ const FishCountsStep: React.FC<FishCountsStepProps> = ({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Stage</label>
-                    <Select fullWidth options={[{ value: 'fry', label: 'Fry' }, { value: 'parr', label: 'Parr' }, { value: 'smolt', label: 'Smolt' }]} value={unit.stage} onChange={(e) =>
-            updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })
-           } />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Stage
+                    </label>
+                    <Select
+                      fullWidth
+                      options={[
+                        { value: 'fry', label: 'Fry' },
+                        { value: 'parr', label: 'Parr' },
+                        { value: 'smolt', label: 'Smolt' },
+                      ]}
+                      value={unit.stage}
+                      onChange={(e) =>
+                        updateUnit(index, { stage: e.target.value as 'fry' | 'parr' | 'smolt' })
+                      }
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fish Count</label>
-                    <Input fullWidth type="number" min="0" value={unit.quantity || ''} onChange={(e) =>
-            updateUnit(index, { quantity: parseInt(e.target.value) || 0 })
-           } placeholder="0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Fish Count
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={unit.quantity || ''}
+                      onChange={(e) =>
+                        updateUnit(index, { quantity: parseInt(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
-                    <Input fullWidth type="number" min="0" step="0.1" value={unit.avgWeightG || ''} onChange={(e) =>
-            updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })
-           } placeholder="0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Avg Weight (g)
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={unit.avgWeightG || ''}
+                      onChange={(e) =>
+                        updateUnit(index, { avgWeightG: parseFloat(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                 </div>
               </div>
@@ -592,7 +644,9 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Mortality and Transfers by Unit</h4>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          Mortality and Transfers by Unit
+        </h4>
         <p className="text-xs text-gray-500 dark:text-gray-400">
           Mattilsynet requires separate counts for euthanized (avlivet) and natural deaths
           (selvdod), plus external transfers
@@ -625,7 +679,9 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
 
       {formData.mortalityRates.byUnit.length === 0 ? (
         <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
-          <p className="text-sm text-gray-500 dark:text-gray-400">Add fish counts first to record mortality by unit</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Add fish counts first to record mortality by unit
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -633,7 +689,10 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
             const ext = mort as SmoltMortalityUnitExtended;
             const unitData = formData.fishCounts.byUnit[index];
             return (
-              <div key={mort.unitId} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <div
+                key={mort.unitId}
+                className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
+              >
                 <div className="flex items-center justify-between mb-3">
                   <div>
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -656,30 +715,57 @@ const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange }) => 
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Euthanized (avlivet)</label>
-                    <Input fullWidth type="number" min="0" value={ext.euthanized || ''} onChange={(e) =>
-            updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })
-           } placeholder="0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Euthanized (avlivet)
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={ext.euthanized || ''}
+                      onChange={(e) =>
+                        updateMortality(index, { euthanized: parseInt(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                       Natural Deaths (selvdod)
                     </label>
-                    <Input fullWidth type="number" min="0" value={ext.naturalDeaths || ''} onChange={(e) =>
-            updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })
-           } placeholder="0" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={ext.naturalDeaths || ''}
+                      onChange={(e) =>
+                        updateMortality(index, { naturalDeaths: parseInt(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Total Dead</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Total Dead
+                    </label>
                     <div className="w-full px-2 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-gray-700 dark:text-gray-300 font-medium">
                       {formatNumber(mort.count)}
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">External Transfers</label>
-                    <Input fullWidth type="number" min="0" value={ext.externalTransfers || ''} onChange={(e) =>
-            updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })
-           } placeholder="0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      External Transfers
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      min="0"
+                      value={ext.externalTransfers || ''}
+                      onChange={(e) =>
+                        updateMortality(index, { externalTransfers: parseInt(e.target.value) || 0 })
+                      }
+                      placeholder="0"
+                    />
                   </div>
                 </div>
               </div>
@@ -786,11 +872,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       {/* Stage Breakdown */}
       {stageTotals.length > 0 && (
         <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Fish by Stage</h5>
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
+            Fish by Stage
+          </h5>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {stageTotals.map((s) => (
               <div key={s.stage} className="text-center p-2 bg-gray-50 dark:bg-gray-800 rounded">
-                <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatNumber(s.quantity)}</div>
+                <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                  {formatNumber(s.quantity)}
+                </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">{s.stage}</div>
               </div>
             ))}
@@ -1009,7 +1099,9 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Smolt Reports</h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400">Monthly settefisk reports - Due 7th of each month</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Monthly settefisk reports - Due 7th of each month
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <SiteLocalitySelector
@@ -1018,15 +1110,10 @@ export const SmoltReportTab: React.FC<SmoltReportTabProps> = ({ siteId }) => {
             onChange={setSelectedSiteId}
             show={showSelector}
           />
-          <Button variant="primary" onClick={() => handleOpenWizard()}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 4v16m8-8H4"
-              />
-            </svg>
-            New Report</Button>
+          <Button variant="primary" onClick={() => handleOpenWizard()}>
+            <Plus className="w-4 h-4" aria-hidden="true" />
+            New Report
+          </Button>
         </div>
       </div>
 

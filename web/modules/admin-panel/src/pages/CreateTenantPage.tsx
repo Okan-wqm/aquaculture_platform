@@ -9,7 +9,17 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Input, Select, Alert, RadioGroup, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  Input,
+  Select,
+  Alert,
+  RadioGroup,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import {
   tenantsApi,
   modulesApi,
@@ -29,6 +39,7 @@ import {
   type QuoteRequest,
 } from '../services/adminApi';
 import { formatDecimalAmount as formatMoney } from '../utils/money';
+import { Check } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -239,18 +250,7 @@ const StepIndicator: React.FC<{
                     : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
               }`}
             >
-              {index < currentStep ? (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M5 13l4 4L19 7"
-                  />
-                </svg>
-              ) : (
-                index + 1
-              )}
+              {index < currentStep ? <Check className="w-5 h-5" aria-hidden="true" /> : index + 1}
             </div>
             <div className="mt-2 text-center">
               <p
@@ -258,7 +258,9 @@ const StepIndicator: React.FC<{
               >
                 {step.label}
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">{step.description}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 hidden sm:block">
+                {step.description}
+              </p>
             </div>
           </div>
           {index < steps.length - 1 && (
@@ -310,21 +312,7 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
                 : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
             }`}
           >
-            {config.enabled && (
-              <svg
-                className="w-4 h-4 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={3}
-                  d="M5 13l4 4L19 7"
-                />
-              </svg>
-            )}
+            {config.enabled && <Check className="w-4 h-4 text-white" aria-hidden="true" />}
           </button>
           <div>
             <h4 className="font-semibold text-gray-900 dark:text-gray-100">{config.moduleName}</h4>
@@ -348,7 +336,9 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
             if (isBasePrice(metric.metricType)) {
               return (
                 <div key={metric.metricType} className="flex items-center justify-between py-1">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">{getMetricLabel(metric.metricType)}</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">
+                    {getMetricLabel(metric.metricType)}
+                  </span>
                   <span className="text-sm font-semibold text-indigo-600">
                     ${formatMoney(metric.price)}/mo
                   </span>
@@ -373,7 +363,9 @@ const ModuleConfigCard: React.FC<ModuleConfigCardProps> = ({
                       <span className="text-xs text-green-600 ml-1">({includedQty} included)</span>
                     )}
                   </label>
-                  <span className="text-xs text-gray-500 dark:text-gray-400">${unitPrice.toFixed(2)}/unit</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    ${unitPrice.toFixed(2)}/unit
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <input
@@ -886,8 +878,12 @@ const CreateTenantPage: React.FC = () => {
         <Card className="p-8">
           <div className="flex items-start justify-between gap-4 mb-6">
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Tenant Provisioning</h2>
-              <p className="text-gray-600 dark:text-gray-400 mt-1">{formData.name} is being provisioned.</p>
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                Tenant Provisioning
+              </h2>
+              <p className="text-gray-600 dark:text-gray-400 mt-1">
+                {formData.name} is being provisioned.
+              </p>
             </div>
             <Badge variant={isFailed ? 'error' : 'warning'}>{provisioningOperation.status}</Badge>
           </div>
@@ -901,7 +897,9 @@ const CreateTenantPage: React.FC = () => {
           <div className="space-y-3 mb-6">
             <div className="flex justify-between text-sm">
               <span className="text-gray-500 dark:text-gray-400">Status URL</span>
-              <span className="font-mono text-gray-700 dark:text-gray-300">{provisioningOperation.statusUrl}</span>
+              <span className="font-mono text-gray-700 dark:text-gray-300">
+                {provisioningOperation.statusUrl}
+              </span>
             </div>
           </div>
 
@@ -946,19 +944,7 @@ const CreateTenantPage: React.FC = () => {
       <div className="max-w-2xl mx-auto">
         <Card className="p-8 text-center">
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg
-              className="w-8 h-8 text-green-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M5 13l4 4L19 7"
-              />
-            </svg>
+            <Check className="w-8 h-8 text-green-600" aria-hidden="true" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
             Tenant Provisioned Successfully!
@@ -973,7 +959,9 @@ const CreateTenantPage: React.FC = () => {
                 ${quotedMonthlyTotal === null ? '—' : formatMoney(quotedMonthlyTotal)}
                 <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/mo</span>
               </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{enabledModules.length} modules active</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {enabledModules.length} modules active
+              </p>
             </div>
           )}
           {formData.primaryContact.email && (
@@ -1127,7 +1115,9 @@ const CreateTenantPage: React.FC = () => {
               />
 
               <div className="border-t pt-4 mt-4">
-                <h4 className="text-md font-medium text-gray-700 dark:text-gray-300 mb-3">Billing Information</h4>
+                <h4 className="text-md font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Billing Information
+                </h4>
                 <Input
                   label="Billing Email"
                   type="email"
@@ -1213,7 +1203,9 @@ const CreateTenantPage: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Basic Info Summary */}
                 <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">Company Information</h4>
+                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    Company Information
+                  </h4>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <dt className="text-gray-500 dark:text-gray-400">Ad:</dt>
@@ -1248,7 +1240,9 @@ const CreateTenantPage: React.FC = () => {
 
                 {/* Contact Summary */}
                 <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">Admin Information</h4>
+                  <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">
+                    Admin Information
+                  </h4>
                   <dl className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <dt className="text-gray-500 dark:text-gray-400">Ad:</dt>
@@ -1270,13 +1264,18 @@ const CreateTenantPage: React.FC = () => {
 
               {/* Modules Summary */}
               <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">Selected Modules</h4>
+                <h4 className="font-medium text-gray-700 dark:text-gray-300 mb-3">
+                  Selected Modules
+                </h4>
                 <div className="space-y-3">
                   {enabledModules.map((config) => {
                     const pricing = modulePricings.find((p) => p.moduleId === config.moduleId);
                     const hasQuantities = Object.values(config.quantities).some((v) => v > 0);
                     return (
-                      <div key={config.moduleId} className="p-3 bg-white dark:bg-gray-900 rounded border">
+                      <div
+                        key={config.moduleId}
+                        className="p-3 bg-white dark:bg-gray-900 rounded border"
+                      >
                         <div className="flex items-center justify-between">
                           <span className="font-medium">{config.moduleName}</span>
                           <Badge variant="success" size="sm">
@@ -1355,7 +1354,9 @@ const CreateTenantPage: React.FC = () => {
                         key={config.moduleId}
                         className="flex items-center justify-between text-sm"
                       >
-                        <span className="text-gray-600 dark:text-gray-400 truncate">{config.moduleName}</span>
+                        <span className="text-gray-600 dark:text-gray-400 truncate">
+                          {config.moduleName}
+                        </span>
                         <Badge variant="info" size="sm">
                           Active
                         </Badge>
@@ -1389,7 +1390,9 @@ const CreateTenantPage: React.FC = () => {
                       </p>
                     )}
                     <div className="flex justify-between items-baseline pt-3 border-t border-indigo-200 mt-3">
-                      <span className="font-semibold text-gray-900 dark:text-gray-100">Monthly Total</span>
+                      <span className="font-semibold text-gray-900 dark:text-gray-100">
+                        Monthly Total
+                      </span>
                       <div className="text-right">
                         <span className="text-2xl font-bold text-indigo-600">
                           ${quotedMonthlyTotal === null ? '—' : formatMoney(quotedMonthlyTotal)}
@@ -1399,7 +1402,9 @@ const CreateTenantPage: React.FC = () => {
                     </div>
                   </div>
 
-                  <p className="text-xs text-gray-500 dark:text-gray-400 pt-2">* Prices are shown excluding taxes</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 pt-2">
+                    * Prices are shown excluding taxes
+                  </p>
                 </div>
               )}
             </Card>

@@ -9,6 +9,7 @@ import { Button } from '@aquaculture/shared-ui';
 import { useTankCleanerFish } from '../../../hooks/useCleanerFish';
 import { isBlockingError } from '../../../utils/list-view-state';
 import { SourceTypeLabels } from '../types';
+import { Inbox } from 'lucide-react';
 
 interface TankCleanerFishCardProps {
   tankId: string;
@@ -134,7 +135,9 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
             <div key={detail.batchId} className="px-4 py-3">
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">{detail.speciesName}</h4>
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {detail.speciesName}
+                  </h4>
                   <p className="text-xs text-gray-500 dark:text-gray-400">{detail.batchNumber}</p>
                 </div>
                 <div className="text-right">
@@ -148,9 +151,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
               </div>
 
               <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-2">
-                <span>
-                  Deployed: {formatDate(detail.deployedAt)}
-                </span>
+                <span>Deployed: {formatDate(detail.deployedAt)}</span>
                 <span
                   className={`px-2 py-0.5 rounded-full ${
                     detail.sourceType === 'farmed'
@@ -197,22 +198,8 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
       {/* Empty State */}
       {!hasCleanerFish && (
         <div className="px-4 py-8 text-center">
-          <svg
-            className="mx-auto h-8 w-8 text-gray-300"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-            />
-          </svg>
-          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            No cleaner fish deployed
-          </p>
+          <Inbox className="mx-auto h-8 w-8 text-gray-300" aria-hidden="true" />
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No cleaner fish deployed</p>
           <p className="text-xs text-gray-400 dark:text-gray-500">
             Deploy cleaner fish from the Batches tab
           </p>

@@ -14,7 +14,30 @@ import {
   CreateSupplierInput,
 } from '../../../hooks/useSuppliers';
 import SupplierApprovedSitesSection from '../components/SupplierApprovedSitesSection';
-import { FormField, Modal, useConfirm, useToast, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import {
+  FormField,
+  Modal,
+  useConfirm,
+  useToast,
+  Spinner,
+  Button,
+  Input,
+  Textarea,
+} from '@aquaculture/shared-ui';
+import {
+  Box,
+  ChevronDown,
+  Download,
+  Globe,
+  Mail,
+  MapPin,
+  Phone as PhoneIcon,
+  Plus,
+  Search as SearchIcon,
+  Star as StarIcon,
+  User,
+  X,
+} from 'lucide-react';
 
 // Keys must be UPPERCASE to match GraphQL enum values
 const typeColors: Record<string, string> = {
@@ -103,14 +126,10 @@ const CollapsibleSection: React.FC<{
       className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
     >
       <span className="font-medium text-gray-700 dark:text-gray-300">{title}</span>
-      <svg
+      <ChevronDown
         className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-      </svg>
+        aria-hidden="true"
+      />
     </button>
     {isOpen && <div className="p-4 border-t border-gray-200 dark:border-gray-700">{children}</div>}
   </div>
@@ -125,18 +144,32 @@ const StarRating: React.FC<{
   return (
     <div className="flex items-center gap-1">
       {[1, 2, 3, 4, 5].map((star) => (
-        <Button variant="ghost" key={star} type="button" onClick={() => onChange(star)} onMouseEnter={() => setHover(star)} onMouseLeave={() => setHover(0)}><svg
+        <Button
+          variant="ghost"
+          key={star}
+          type="button"
+          onClick={() => onChange(star)}
+          onMouseEnter={() => setHover(star)}
+          onMouseLeave={() => setHover(0)}
+        >
+          <StarIcon
             className={`w-6 h-6 ${
               (hover || value || 0) >= star ? 'text-yellow-400' : 'text-gray-300'
             }`}
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-          </svg></Button>
+            aria-hidden="true"
+          />
+        </Button>
       ))}
       {value !== '' && (
-        <Button variant="ghost" size="xs" className="ml-2" type="button" onClick={() => onChange(0)}>Clear</Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          className="ml-2"
+          type="button"
+          onClick={() => onChange(0)}
+        >
+          Clear
+        </Button>
       )}
     </div>
   );
@@ -292,7 +325,14 @@ export const SuppliersTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this supplier?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this supplier?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteSupplierMutation.mutateAsync(id);
       } catch (err) {
@@ -330,19 +370,10 @@ export const SuppliersTab: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            <svg
+            <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
           </div>
           <select
             value={selectedType}
@@ -369,15 +400,10 @@ export const SuppliersTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <Button variant="primary" onClick={openAddModal}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-          Add Supplier</Button>
+        <Button variant="primary" onClick={openAddModal}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Add Supplier
+        </Button>
       </div>
 
       {/* Loading State */}
@@ -391,7 +417,9 @@ export const SuppliersTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load suppliers. Please try again.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -406,7 +434,9 @@ export const SuppliersTab: React.FC = () => {
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{supplier.name}</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                      {supplier.name}
+                    </h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">{supplier.code}</p>
                   </div>
                   <div className="flex flex-col gap-1 items-end">
@@ -427,19 +457,10 @@ export const SuppliersTab: React.FC = () => {
                   {/* Location */}
                   {(supplier.city || supplier.country || supplier.address?.street) && (
                     <div className="flex items-start text-sm text-gray-600 dark:text-gray-400">
-                      <svg
+                      <MapPin
                         className="w-4 h-4 mr-2 mt-0.5 text-gray-400 dark:text-gray-500 flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                        />
-                      </svg>
+                        aria-hidden="true"
+                      />
                       <span>
                         {[
                           supplier.address?.street,
@@ -455,19 +476,10 @@ export const SuppliersTab: React.FC = () => {
                   {/* Contact Person */}
                   {supplier.contactPerson && (
                     <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                      <svg
+                      <User
                         className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
-                        />
-                      </svg>
+                        aria-hidden="true"
+                      />
                       {supplier.contactPerson}
                     </div>
                   )}
@@ -475,19 +487,10 @@ export const SuppliersTab: React.FC = () => {
                   {/* Email */}
                   {supplier.email && (
                     <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                      <svg
+                      <Mail
                         className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                        />
-                      </svg>
+                        aria-hidden="true"
+                      />
                       {supplier.email}
                     </div>
                   )}
@@ -495,19 +498,10 @@ export const SuppliersTab: React.FC = () => {
                   {/* Phone */}
                   {supplier.phone && (
                     <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                      <svg
+                      <PhoneIcon
                         className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
-                        />
-                      </svg>
+                        aria-hidden="true"
+                      />
                       {supplier.phone}
                     </div>
                   )}
@@ -515,19 +509,10 @@ export const SuppliersTab: React.FC = () => {
                   {/* Website */}
                   {supplier.website && (
                     <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
-                      <svg
+                      <Globe
                         className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-                        />
-                      </svg>
+                        aria-hidden="true"
+                      />
                       <a
                         href={supplier.website}
                         target="_blank"
@@ -542,22 +527,16 @@ export const SuppliersTab: React.FC = () => {
                   {/* Products */}
                   {supplier.products && supplier.products.length > 0 && (
                     <div className="flex items-start text-sm text-gray-600 dark:text-gray-400">
-                      <svg
+                      <Box
                         className="w-4 h-4 mr-2 mt-0.5 text-gray-400 dark:text-gray-500 flex-shrink-0"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                        />
-                      </svg>
+                        aria-hidden="true"
+                      />
                       <div className="flex flex-wrap gap-1">
                         {supplier.products.slice(0, 3).map((product, idx) => (
-                          <span key={idx} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs">
+                          <span
+                            key={idx}
+                            className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 rounded text-xs"
+                          >
                             {product}
                           </span>
                         ))}
@@ -575,16 +554,16 @@ export const SuppliersTab: React.FC = () => {
                     <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <div className="flex items-center">
                         {[1, 2, 3, 4, 5].map((star) => (
-                          <svg
+                          <StarIcon
                             key={star}
                             className={`w-4 h-4 ${star <= (supplier.rating || 0) ? 'text-yellow-400' : 'text-gray-300'}`}
                             fill="currentColor"
-                            viewBox="0 0 20 20"
-                          >
-                            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                          </svg>
+                            aria-hidden="true"
+                          />
                         ))}
-                        <span className="ml-1 text-gray-500 dark:text-gray-400">({supplier.rating})</span>
+                        <span className="ml-1 text-gray-500 dark:text-gray-400">
+                          ({supplier.rating})
+                        </span>
                       </div>
                     </div>
                   )}
@@ -596,8 +575,12 @@ export const SuppliersTab: React.FC = () => {
                   {supplier.paymentTerms ? `Payment: ${supplier.paymentTerms}` : ''}
                 </span>
                 <div className="flex space-x-2">
-                  <Button variant="ghost" onClick={() => handleEdit(supplier)}>Edit</Button>
-                  <Button variant="ghost" onClick={() => handleDelete(supplier.id)}>Delete</Button>
+                  <Button variant="ghost" onClick={() => handleEdit(supplier)}>
+                    Edit
+                  </Button>
+                  <Button variant="ghost" onClick={() => handleDelete(supplier.id)}>
+                    Delete
+                  </Button>
                 </div>
               </div>
             </div>
@@ -608,21 +591,16 @@ export const SuppliersTab: React.FC = () => {
       {/* Empty State */}
       {!isLoading && !error && filteredSuppliers.length === 0 && (
         <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
-          <svg
+          <Download
             className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
-            />
-          </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No suppliers found</h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Add your first supplier to get started.</p>
+            aria-hidden="true"
+          />
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+            No suppliers found
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Add your first supplier to get started.
+          </p>
         </div>
       )}
 
@@ -643,39 +621,58 @@ export const SuppliersTab: React.FC = () => {
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier Name *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Supplier Name *
+                  </label>
                   <FormField error={formData.name ? undefined : fieldErrors.name} className="mb-0">
-                  <Input fullWidth type="text" required value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
+                    <Input
+                      fullWidth
+                      type="text"
+                      required
+                      value={formData.name}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+                    />
                   </FormField>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code</label>
-                  <Input fullWidth type="text" value={formData.code} onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Code
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.code}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Type *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Type *
+                  </label>
                   <FormField error={formData.type ? undefined : fieldErrors.type} className="mb-0">
-                  <select
-                    required
-                    value={formData.type}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, type: e.target.value as SupplierType }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">Select Type</option>
-                    {Object.entries(typeLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
+                    <select
+                      required
+                      value={formData.type}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, type: e.target.value as SupplierType }))
+                      }
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Select Type</option>
+                      {Object.entries(typeLabels).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
                   </FormField>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Status
+                  </label>
                   <select
                     value={formData.status}
                     onChange={(e) =>
@@ -701,24 +698,53 @@ export const SuppliersTab: React.FC = () => {
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Contact Person</label>
-                  <Input fullWidth type="text" value={formData.contactPerson} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, contactPerson: e.target.value }))
-          } />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Contact Person
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.contactPerson}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, contactPerson: e.target.value }))
+                    }
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Email</label>
-                  <Input fullWidth type="email" value={formData.email} onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Email
+                  </label>
+                  <Input
+                    fullWidth
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Phone</label>
-                  <Input fullWidth type="tel" value={formData.phone} onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Phone
+                  </label>
+                  <Input
+                    fullWidth
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Website</label>
-                  <Input fullWidth type="url" value={formData.website} onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))} placeholder="https://..." />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Website
+                  </label>
+                  <Input
+                    fullWidth
+                    type="url"
+                    value={formData.website}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
+                    placeholder="https://..."
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -730,17 +756,39 @@ export const SuppliersTab: React.FC = () => {
               onToggle={() => toggleSection('address')}
             >
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Street Address</label>
-                <Input fullWidth type="text" value={formData.street} onChange={(e) => setFormData((prev) => ({ ...prev, street: e.target.value }))} placeholder="Street, Building, No." />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Street Address
+                </label>
+                <Input
+                  fullWidth
+                  type="text"
+                  value={formData.street}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, street: e.target.value }))}
+                  placeholder="Street, Building, No."
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">City</label>
-                  <Input fullWidth type="text" value={formData.city} onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    City
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.city}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, city: e.target.value }))}
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Country</label>
-                  <Input fullWidth type="text" value={formData.country} onChange={(e) => setFormData((prev) => ({ ...prev, country: e.target.value }))} />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Country
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.country}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, country: e.target.value }))}
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -761,19 +809,13 @@ export const SuppliersTab: React.FC = () => {
                         className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 p-2 rounded-md"
                       >
                         <span className="flex-1 text-sm">{product}</span>
-                        <Button variant="ghost" type="button" onClick={() => handleRemoveProduct(index)}><svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M6 18L18 6M6 6l12 12"
-                            />
-                          </svg></Button>
+                        <Button
+                          variant="ghost"
+                          type="button"
+                          onClick={() => handleRemoveProduct(index)}
+                        >
+                          <X className="w-4 h-4" aria-hidden="true" />
+                        </Button>
                       </div>
                     ))}
                   </div>
@@ -781,12 +823,18 @@ export const SuppliersTab: React.FC = () => {
 
                 {/* Add Product Input */}
                 <div className="flex gap-2">
-                  <Input type="text" value={newProduct} onChange={(e) => setNewProduct(e.target.value)} onKeyPress={(e) => {
-           if (e.key === 'Enter') {
-            e.preventDefault();
-            handleAddProduct();
-           }
-          }} placeholder="Enter product name..." />
+                  <Input
+                    type="text"
+                    value={newProduct}
+                    onChange={(e) => setNewProduct(e.target.value)}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddProduct();
+                      }
+                    }}
+                    placeholder="Enter product name..."
+                  />
                   <button
                     type="button"
                     onClick={handleAddProduct}
@@ -824,8 +872,16 @@ export const SuppliersTab: React.FC = () => {
               onToggle={() => toggleSection('notes')}
             >
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-                <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={4} placeholder="Additional notes about the supplier..." />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Notes
+                </label>
+                <Textarea
+                  fullWidth
+                  value={formData.notes}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                  rows={4}
+                  placeholder="Additional notes about the supplier..."
+                />
               </div>
             </CollapsibleSection>
 
@@ -849,11 +905,27 @@ export const SuppliersTab: React.FC = () => {
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit" disabled={createSupplier.isPending || updateSupplier.isPending}>{(createSupplier.isPending || updateSupplier.isPending) && (
+            <Button
+              variant="primary"
+              size="lg"
+              className="justify-center sm:ml-3 sm:w-auto sm:text-sm"
+              type="submit"
+              disabled={createSupplier.isPending || updateSupplier.isPending}
+            >
+              {(createSupplier.isPending || updateSupplier.isPending) && (
                 <Spinner size="sm" color="white" className="-ml-1 mr-2" />
               )}
-              {editingId ? 'Update' : 'Create'}</Button>
-            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+              {editingId ? 'Update' : 'Create'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </Button>
           </div>
         </form>
       </Modal>

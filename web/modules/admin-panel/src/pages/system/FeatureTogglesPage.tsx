@@ -6,12 +6,24 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, DataTable, Input, Select, Modal, useConfirm, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Input,
+  Select,
+  Modal,
+  useConfirm,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
 import type { FeatureToggle, FeatureToggleScope } from '../../services/adminApi';
+import { Plus } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -190,7 +202,16 @@ export const FeatureTogglesPage: React.FC = () => {
   };
 
   const handleDelete = async (toggle: FeatureToggle): Promise<void> => {
-    if (!(await confirm({ title: `Delete toggle "${toggle.name}"?`, message: 'Code paths reading this flag fall back to their default.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) return;
+    if (
+      !(await confirm({
+        title: `Delete toggle "${toggle.name}"?`,
+        message: 'Code paths reading this flag fall back to their default.',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      }))
+    )
+      return;
     try {
       await deleteToggle.mutateAsync(toggle.id);
     } catch {
@@ -276,7 +297,9 @@ export const FeatureTogglesPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <span className="font-medium text-gray-900 dark:text-gray-100">{toggle.name}</span>
             {toggle.isExperimental && (
-              <Badge variant="warning" size="sm">Experimental</Badge>
+              <Badge variant="warning" size="sm">
+                Experimental
+              </Badge>
             )}
           </div>
           <span className="text-sm font-mono text-gray-500 dark:text-gray-400">{toggle.key}</span>
@@ -292,7 +315,9 @@ export const FeatureTogglesPage: React.FC = () => {
       key: 'scope',
       header: 'Scope',
       render: (_value, toggle) => (
-        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getScopeBadge(toggle.scope)}`}>
+        <span
+          className={`px-2 py-1 text-xs font-medium rounded-full ${getScopeBadge(toggle.scope)}`}
+        >
           {toggle.scope}
         </span>
       ),
@@ -301,9 +326,7 @@ export const FeatureTogglesPage: React.FC = () => {
       key: 'status',
       header: 'Status',
       render: (_value, toggle) => (
-        <Badge variant={getStatusBadge(toggle.status)}>
-          {toggle.status.replace('_', ' ')}
-        </Badge>
+        <Badge variant={getStatusBadge(toggle.status)}>{toggle.status.replace('_', ' ')}</Badge>
       ),
     },
     {
@@ -318,7 +341,9 @@ export const FeatureTogglesPage: React.FC = () => {
                 style={{ width: `${toggle.rolloutPercentage}%` }}
               />
             </div>
-            <span className="text-sm text-gray-600 dark:text-gray-400">{toggle.rolloutPercentage}%</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              {toggle.rolloutPercentage}%
+            </span>
           </div>
         ) : (
           <span className="text-sm text-gray-500 dark:text-gray-400">-</span>
@@ -327,7 +352,9 @@ export const FeatureTogglesPage: React.FC = () => {
     {
       key: 'category',
       header: 'Category',
-      render: (_value, toggle) => <span className="text-sm text-gray-600 dark:text-gray-400">{toggle.category || '-'}</span>,
+      render: (_value, toggle) => (
+        <span className="text-sm text-gray-600 dark:text-gray-400">{toggle.category || '-'}</span>
+      ),
     },
     {
       key: 'actions',
@@ -373,9 +400,7 @@ export const FeatureTogglesPage: React.FC = () => {
         description="Manage feature flags and rollouts across the platform"
         actions={
           <Button onClick={() => setShowCreateModal(true)}>
-            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
+            <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
             Create Toggle
           </Button>
         }
@@ -400,7 +425,9 @@ export const FeatureTogglesPage: React.FC = () => {
           <div className="text-sm text-gray-500 dark:text-gray-400">Enabled</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">{stats.disabled}</div>
+          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+            {stats.disabled}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Disabled</div>
         </Card>
         <Card className="p-4">
@@ -545,7 +572,12 @@ export const FeatureTogglesPage: React.FC = () => {
                   // `scope`, so an editable control here would offer a
                   // change the API discards (ADMIN-HIGH-113).
                   disabled={showEditModal}
-                  onChange={(e) => setFormData({ ...formData, scope: e.target.value as FeatureToggleForm['scope'] })}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      scope: e.target.value as FeatureToggleForm['scope'],
+                    })
+                  }
                   options={[
                     { value: 'global', label: 'Global' },
                     { value: 'tenant', label: 'Tenant' },
@@ -580,7 +612,9 @@ export const FeatureTogglesPage: React.FC = () => {
                   min="0"
                   max="100"
                   value={formData.rolloutPercentage}
-                  onChange={(e) => setFormData({ ...formData, rolloutPercentage: parseInt(e.target.value) })}
+                  onChange={(e) =>
+                    setFormData({ ...formData, rolloutPercentage: parseInt(e.target.value) })
+                  }
                   className="flex-1"
                 />
                 <span className="w-12 text-center font-medium">{formData.rolloutPercentage}%</span>
@@ -601,7 +635,6 @@ export const FeatureTogglesPage: React.FC = () => {
           </div>
         </Modal>
       )}
-
     </div>
   );
 };

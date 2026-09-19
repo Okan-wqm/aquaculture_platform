@@ -7,6 +7,7 @@ import {
   ChildSensorConfig,
   ParentDeviceInfo,
 } from '../../../types/registration.types';
+import { TriangleAlert } from 'lucide-react';
 
 interface ReviewStepProps {
   protocol: ProtocolInfo | null;
@@ -50,7 +51,9 @@ function Section({
     <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
       <div className="flex justify-between items-center bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b">
         <h3 className="font-medium text-gray-900 dark:text-gray-100">{title}</h3>
-        <Button variant="ghost" onClick={() => onEdit(stepIndex)}>Edit</Button>
+        <Button variant="ghost" onClick={() => onEdit(stepIndex)}>
+          Edit
+        </Button>
       </div>
       <div className="p-4">{children}</div>
     </div>
@@ -83,8 +86,10 @@ export function ReviewStep({
         <h3 className="text-lg font-medium text-blue-900">Review Your Registration</h3>
         <p className="text-sm text-blue-700 mt-1">
           You are about to register <strong>1 parent device</strong> with{' '}
-          <strong>{selectedChildSensors.length} child sensor{selectedChildSensors.length !== 1 ? 's' : ''}</strong>.
-          Please review all information before completing the registration.
+          <strong>
+            {selectedChildSensors.length} child sensor{selectedChildSensors.length !== 1 ? 's' : ''}
+          </strong>
+          . Please review all information before completing the registration.
         </p>
       </div>
 
@@ -93,7 +98,9 @@ export function ReviewStep({
         {protocol ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">{protocol.displayName}</span>
+              <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                {protocol.displayName}
+              </span>
               <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded">
                 {protocol.category}
               </span>
@@ -155,7 +162,9 @@ export function ReviewStep({
               )}
             </div>
             {connectionTestResult.latencyMs !== undefined && (
-              <p className="text-sm text-gray-600 dark:text-gray-400">Latency: {connectionTestResult.latencyMs} ms</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Latency: {connectionTestResult.latencyMs} ms
+              </p>
             )}
             {connectionTestResult.error && (
               <p className="text-sm text-red-600">Error: {connectionTestResult.error}</p>
@@ -189,7 +198,9 @@ export function ReviewStep({
         </div>
         {(basicInfo.farmId || basicInfo.pondId || basicInfo.tankId) && (
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Assignment</h4>
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Assignment
+            </h4>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {basicInfo.farmId && (
                 <div>
@@ -219,7 +230,8 @@ export function ReviewStep({
         {selectedChildSensors.length > 0 ? (
           <div className="space-y-2">
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-              {selectedChildSensors.length} sensor{selectedChildSensors.length !== 1 ? 's' : ''} will be registered
+              {selectedChildSensors.length} sensor{selectedChildSensors.length !== 1 ? 's' : ''}{' '}
+              will be registered
             </p>
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {selectedChildSensors.map((sensor, index) => (
@@ -230,7 +242,9 @@ export function ReviewStep({
                         {index + 1}
                       </span>
                       <div>
-                        <span className="font-medium text-gray-900 dark:text-gray-100">{sensor.name}</span>
+                        <span className="font-medium text-gray-900 dark:text-gray-100">
+                          {sensor.name}
+                        </span>
                         <div className="flex items-center mt-0.5 space-x-2">
                           <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-400">
                             {sensor.dataPath}
@@ -258,12 +272,14 @@ export function ReviewStep({
                     )}
                     {sensor.alertThresholds?.warning && (
                       <span className="px-1.5 py-0.5 bg-yellow-50 text-yellow-700 text-xs rounded">
-                        Warning: {sensor.alertThresholds.warning.low ?? '-'} - {sensor.alertThresholds.warning.high ?? '-'}
+                        Warning: {sensor.alertThresholds.warning.low ?? '-'} -{' '}
+                        {sensor.alertThresholds.warning.high ?? '-'}
                       </span>
                     )}
                     {sensor.alertThresholds?.critical && (
                       <span className="px-1.5 py-0.5 bg-red-50 text-red-700 text-xs rounded">
-                        Critical: {sensor.alertThresholds.critical.low ?? '-'} - {sensor.alertThresholds.critical.high ?? '-'}
+                        Critical: {sensor.alertThresholds.critical.low ?? '-'} -{' '}
+                        {sensor.alertThresholds.critical.high ?? '-'}
                       </span>
                     )}
                     {sensor.displaySettings?.showOnDashboard && (
@@ -308,7 +324,9 @@ export function ReviewStep({
             <div className="text-xs text-gray-500 dark:text-gray-400">Child Sensors</div>
           </div>
           <div className="bg-white dark:bg-gray-900 rounded-lg p-3">
-            <div className="text-2xl font-bold text-purple-600">{1 + selectedChildSensors.length}</div>
+            <div className="text-2xl font-bold text-purple-600">
+              {1 + selectedChildSensors.length}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Total Records</div>
           </div>
         </div>
@@ -318,22 +336,12 @@ export function ReviewStep({
       {connectionTestResult && !connectionTestResult.success && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <div className="flex items-start">
-            <svg
-              className="w-5 h-5 text-yellow-600 mt-0.5"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <TriangleAlert className="w-5 h-5 text-yellow-600 mt-0.5" aria-hidden="true" />
             <div className="ml-3">
               <h4 className="text-sm font-medium text-yellow-800">Warning</h4>
               <p className="text-sm text-yellow-700 mt-1">
-                The connection test failed. The device and sensors will be registered with a "Test Failed" status
-                and won't start collecting data until the connection is established.
+                The connection test failed. The device and sensors will be registered with a "Test
+                Failed" status and won't start collecting data until the connection is established.
               </p>
             </div>
           </div>

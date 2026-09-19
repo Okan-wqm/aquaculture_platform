@@ -13,6 +13,7 @@ import type { StockMovement } from '../../../hooks/useStorageInventory';
 import { RecordStockMovementModal } from './RecordStockMovementModal';
 import { TransferStockModal } from './TransferStockModal';
 import { DataTable, type DataTableColumn, Spinner, Button, Input } from '@aquaculture/shared-ui';
+import { Search as SearchIcon } from 'lucide-react';
 
 const typeBadge: Record<string, string> = {
   IN: 'bg-green-100 text-green-800',
@@ -62,16 +63,17 @@ export const StockMovementsTab: React.FC = () => {
   } = useLotTrace(lotTraceMode ? lotTraceNumber : null);
 
   const movements = movementsData?.items || [];
-  const filtered = movements.filter(m => {
-    return m.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (m.performedBy || '').toLowerCase().includes(searchTerm.toLowerCase());
+  const filtered = movements.filter((m) => {
+    return (
+      m.itemName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (m.performedBy || '').toLowerCase().includes(searchTerm.toLowerCase())
+    );
   });
 
   /* Determine which dataset to render: lot trace results when trace mode
      is active with results, otherwise the standard filtered movement list. */
-  const displayMovements: StockMovement[] = lotTraceMode && lotTraceData
-    ? lotTraceData
-    : filtered as StockMovement[];
+  const displayMovements: StockMovement[] =
+    lotTraceMode && lotTraceData ? lotTraceData : (filtered as StockMovement[]);
 
   type MRow = (typeof displayMovements)[number];
   const mRowColumns: DataTableColumn<MRow>[] = [
@@ -82,7 +84,10 @@ export const StockMovementsTab: React.FC = () => {
         <>
           {new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })}
           <div className="text-xs text-gray-400 dark:text-gray-500">
-            {new Date(m.performedAt).toLocaleTimeString('nb-NO', { hour: '2-digit', minute: '2-digit' })}
+            {new Date(m.performedAt).toLocaleTimeString('nb-NO', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
           </div>
         </>
       ),
@@ -91,7 +96,9 @@ export const StockMovementsTab: React.FC = () => {
       key: 'type',
       header: 'Type',
       render: (_value, m) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
+        <span
+          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${typeBadge[m.movementType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+        >
           {m.movementType}
         </span>
       ),
@@ -115,8 +122,15 @@ export const StockMovementsTab: React.FC = () => {
       key: 'quantity',
       header: 'Quantity',
       render: (_value, m) => (
-        <span className={m.movementType === 'OUT' || m.movementType === 'WASTE' ? 'text-red-600' : 'text-green-600'}>
-          {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}{m.quantity} {m.unit}
+        <span
+          className={
+            m.movementType === 'OUT' || m.movementType === 'WASTE'
+              ? 'text-red-600'
+              : 'text-green-600'
+          }
+        >
+          {m.movementType === 'OUT' || m.movementType === 'WASTE' ? '-' : '+'}
+          {m.quantity} {m.unit}
         </span>
       ),
     },
@@ -126,12 +140,19 @@ export const StockMovementsTab: React.FC = () => {
       render: (_value, m) => (
         <>
           {m.fromLocationName && m.toLocationName ? (
-            <>{m.fromLocationName} <span className="text-gray-400 dark:text-gray-500">&rarr;</span> {m.toLocationName}</>
+            <>
+              {m.fromLocationName} <span className="text-gray-400 dark:text-gray-500">&rarr;</span>{' '}
+              {m.toLocationName}
+            </>
           ) : m.fromLocationName ? (
             m.fromLocationName
           ) : m.toLocationName ? (
-            <><span className="text-gray-400 dark:text-gray-500">&rarr;</span> {m.toLocationName}</>
-          ) : '-'}
+            <>
+              <span className="text-gray-400 dark:text-gray-500">&rarr;</span> {m.toLocationName}
+            </>
+          ) : (
+            '-'
+          )}
         </>
       ),
     },
@@ -144,29 +165,51 @@ export const StockMovementsTab: React.FC = () => {
       key: 'reference',
       header: 'Reference',
       render: (_value, m) => m.reference || m.reason || '-',
-    }
+    },
   ];
 
   return (
     <div>
       <div className="flex flex-col sm:flex-row gap-4 mb-6">
         <div className="relative flex-1 max-w-md">
-          <input type="text" placeholder="Search movements..." value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-          <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          <input
+            type="text"
+            placeholder="Search movements..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <SearchIcon
+            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
+            aria-hidden="true"
+          />
         </div>
         {/* Date range filter for audit queries ("show me all movements in January")
             and troubleshooting ("what happened last week?"). The backend already
             supports fromDate/toDate — this is purely a frontend wiring task. */}
-        <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} aria-label="Filter movements from date" />
-        <Input type="date" value={toDate} onChange={e => setToDate(e.target.value)} aria-label="Filter movements to date" />
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+        <Input
+          type="date"
+          value={fromDate}
+          onChange={(e) => setFromDate(e.target.value)}
+          aria-label="Filter movements from date"
+        />
+        <Input
+          type="date"
+          value={toDate}
+          onChange={(e) => setToDate(e.target.value)}
+          aria-label="Filter movements to date"
+        />
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        >
           <option value="all">All Types</option>
-          {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          {TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
         </select>
 
         {/* Action buttons for recording new stock movements and transfers.
@@ -192,8 +235,12 @@ export const StockMovementsTab: React.FC = () => {
           >
             {lotTraceMode ? '\u2715 Exit Lot Trace' : 'Lot Trace'}
           </button>
-          <Button variant="primary" onClick={() => setShowMovementModal(true)}>Record Movement</Button>
-          <Button variant="primary" onClick={() => setShowTransferModal(true)}>Transfer Stock</Button>
+          <Button variant="primary" onClick={() => setShowMovementModal(true)}>
+            Record Movement
+          </Button>
+          <Button variant="primary" onClick={() => setShowTransferModal(true)}>
+            Transfer Stock
+          </Button>
         </div>
       </div>
 
@@ -206,7 +253,13 @@ export const StockMovementsTab: React.FC = () => {
           <label className="block text-sm font-medium text-purple-800 mb-1">
             Lot Number (EU 178/2002 Traceability)
           </label>
-          <Input fullWidth type="text" value={lotTraceNumber} onChange={e => setLotTraceNumber(e.target.value)} placeholder="Enter lot number to trace..." />
+          <Input
+            fullWidth
+            type="text"
+            value={lotTraceNumber}
+            onChange={(e) => setLotTraceNumber(e.target.value)}
+            placeholder="Enter lot number to trace..."
+          />
           {lotTraceNumber.length > 0 && lotTraceNumber.length < 2 && (
             <p className="mt-1 text-xs text-purple-600">
               Type at least 2 characters to begin tracing.
@@ -218,7 +271,11 @@ export const StockMovementsTab: React.FC = () => {
       {/* Loading state — accounts for both standard and lot trace queries */}
       {(isLoading || isLotTraceLoading) && (
         <div className="flex items-center justify-center py-12">
-          <Spinner size="lg" color="inherit" className={lotTraceMode ? 'text-purple-500' : 'text-primary-500'} />
+          <Spinner
+            size="lg"
+            color="inherit"
+            className={lotTraceMode ? 'text-purple-500' : 'text-primary-500'}
+          />
         </div>
       )}
 
@@ -228,7 +285,9 @@ export const StockMovementsTab: React.FC = () => {
           <p className="text-red-600">
             {lotTraceMode ? 'Failed to trace lot movements.' : 'Failed to load movements.'}
           </p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -257,17 +316,21 @@ export const StockMovementsTab: React.FC = () => {
                   const location = m.toLocationName || m.fromLocationName || 'Unknown';
                   return (
                     <React.Fragment key={m.id}>
-                      {idx > 0 && (
-                        <span className="text-purple-400">&rarr;</span>
-                      )}
+                      {idx > 0 && <span className="text-purple-400">&rarr;</span>}
                       <span
                         className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
-                          typeBadge[m.movementType] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+                          typeBadge[m.movementType] ||
+                          'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                         }`}
                       >
                         {label} @ {location}
                         <span className="ml-1 text-gray-500 dark:text-gray-400">
-                          ({new Date(m.performedAt).toLocaleDateString('nb-NO', { month: 'short', day: 'numeric' })})
+                          (
+                          {new Date(m.performedAt).toLocaleDateString('nb-NO', {
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                          )
                         </span>
                       </span>
                     </React.Fragment>
@@ -275,14 +338,17 @@ export const StockMovementsTab: React.FC = () => {
                 })}
               </div>
               <p className="mt-2 text-xs text-purple-600">
-                {lotTraceData.length} movement{lotTraceData.length !== 1 ? 's' : ''} found for this lot.
+                {lotTraceData.length} movement{lotTraceData.length !== 1 ? 's' : ''} found for this
+                lot.
               </p>
             </div>
           )}
 
-          <div className={`bg-white dark:bg-gray-900 rounded-lg shadow-sm border overflow-hidden ${
-            lotTraceMode ? 'border-purple-200' : 'border-gray-200 dark:border-gray-700'
-          }`}>
+          <div
+            className={`bg-white dark:bg-gray-900 rounded-lg shadow-sm border overflow-hidden ${
+              lotTraceMode ? 'border-purple-200' : 'border-gray-200 dark:border-gray-700'
+            }`}
+          >
             <DataTable<MRow>
               data={displayMovements}
               columns={mRowColumns}
@@ -310,11 +376,17 @@ export const StockMovementsTab: React.FC = () => {
           reflects the newly recorded operation without a full page reload. */}
       <RecordStockMovementModal
         isOpen={showMovementModal}
-        onClose={() => { setShowMovementModal(false); refetch(); }}
+        onClose={() => {
+          setShowMovementModal(false);
+          refetch();
+        }}
       />
       <TransferStockModal
         isOpen={showTransferModal}
-        onClose={() => { setShowTransferModal(false); refetch(); }}
+        onClose={() => {
+          setShowTransferModal(false);
+          refetch();
+        }}
       />
     </div>
   );

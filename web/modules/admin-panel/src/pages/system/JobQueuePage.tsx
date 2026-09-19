@@ -6,12 +6,23 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, DataTable, Input, Select, useConfirm, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Badge,
+  DataTable,
+  Input,
+  Select,
+  useConfirm,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
 import type { BackgroundJob, JobQueue, JobStatus } from '../../services/adminApi';
+import { RefreshCw } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -95,10 +106,9 @@ export const JobQueuePage: React.FC = () => {
   // refetched.
   // ==========================================================================
 
-  const retryJob = useAdminMutation<BackgroundJob, string>(
-    (id) => systemSettingsApi.retryJob(id),
-    { invalidateKeys: [dashboardKey] },
-  );
+  const retryJob = useAdminMutation<BackgroundJob, string>((id) => systemSettingsApi.retryJob(id), {
+    invalidateKeys: [dashboardKey],
+  });
 
   const cancelJob = useAdminMutation<BackgroundJob, string>(
     (id) => systemSettingsApi.cancelJob(id),
@@ -137,7 +147,15 @@ export const JobQueuePage: React.FC = () => {
   };
 
   const handleCancelJob = async (job: BackgroundJob): Promise<void> => {
-    if (!(await confirm({ title: `Cancel job "${job.name}"?`, confirmText: 'Cancel job', cancelText: 'Keep', variant: 'danger' }))) return;
+    if (
+      !(await confirm({
+        title: `Cancel job "${job.name}"?`,
+        confirmText: 'Cancel job',
+        cancelText: 'Keep',
+        variant: 'danger',
+      }))
+    )
+      return;
     try {
       await cancelJob.mutateAsync(job.id);
     } catch {
@@ -148,7 +166,15 @@ export const JobQueuePage: React.FC = () => {
   const handleRetryAllFailed = async (): Promise<void> => {
     const failedJobs = safeJobs.filter((job) => job.status === 'failed');
     if (failedJobs.length === 0) return;
-    if (!(await confirm({ title: `Retry all ${failedJobs.length} failed jobs?`, confirmText: 'Retry all', cancelText: 'Cancel', variant: 'warning' }))) return;
+    if (
+      !(await confirm({
+        title: `Retry all ${failedJobs.length} failed jobs?`,
+        confirmText: 'Retry all',
+        cancelText: 'Cancel',
+        variant: 'warning',
+      }))
+    )
+      return;
 
     for (const job of failedJobs) {
       await handleRetryJob(job);
@@ -175,7 +201,9 @@ export const JobQueuePage: React.FC = () => {
   // Helpers
   // ============================================================================
 
-  const getStatusBadge = (status: JobStatus): 'success' | 'default' | 'info' | 'warning' | 'error' => {
+  const getStatusBadge = (
+    status: JobStatus,
+  ): 'success' | 'default' | 'info' | 'warning' | 'error' => {
     const variants: Record<JobStatus, 'success' | 'default' | 'info' | 'warning' | 'error'> = {
       pending: 'default',
       scheduled: 'info',
@@ -250,9 +278,7 @@ export const JobQueuePage: React.FC = () => {
     {
       key: 'type',
       header: 'Type',
-      render: (_value, job) => (
-        <Badge variant="info">{job.jobType}</Badge>
-      ),
+      render: (_value, job) => <Badge variant="info">{job.jobType}</Badge>,
     },
     {
       key: 'schedule',
@@ -275,12 +301,8 @@ export const JobQueuePage: React.FC = () => {
     {
       key: 'status',
       header: 'Status',
-      render: (_value, job) => (
-        <Badge variant={getStatusBadge(job.status)}>
-          {job.status}
-        </Badge>
-      ),
-    }
+      render: (_value, job) => <Badge variant={getStatusBadge(job.status)}>{job.status}</Badge>,
+    },
   ];
 
   const backgroundJobColumns: DataTableColumn<BackgroundJob>[] = [
@@ -309,11 +331,7 @@ export const JobQueuePage: React.FC = () => {
     {
       key: 'status',
       header: 'Status',
-      render: (_value, job) => (
-        <Badge variant={getStatusBadge(job.status)}>
-          {job.status}
-        </Badge>
-      ),
+      render: (_value, job) => <Badge variant={getStatusBadge(job.status)}>{job.status}</Badge>,
     },
     {
       key: 'progress',
@@ -340,7 +358,9 @@ export const JobQueuePage: React.FC = () => {
               )}
             </div>
           ) : job.durationMs ? (
-            <span className="text-sm text-gray-600 dark:text-gray-400">{formatDuration(job.durationMs)}</span>
+            <span className="text-sm text-gray-600 dark:text-gray-400">
+              {formatDuration(job.durationMs)}
+            </span>
           ) : (
             <span className="text-sm text-gray-500 dark:text-gray-400">-</span>
           )}
@@ -352,11 +372,7 @@ export const JobQueuePage: React.FC = () => {
       header: 'Priority',
       render: (_value, job) => {
         const priority = getPriorityLabel(job.priority);
-        return (
-          <span className={`text-sm font-medium ${priority.color}`}>
-            {priority.label}
-          </span>
-        );
+        return <span className={`text-sm font-medium ${priority.color}`}>{priority.label}</span>;
       },
     },
     {
@@ -364,11 +380,11 @@ export const JobQueuePage: React.FC = () => {
       header: 'Started / Completed',
       render: (_value, job) => (
         <div className="text-sm text-gray-600 dark:text-gray-400">
-          {job.startedAt && (
-            <div>{formatDateTime(job.startedAt)}</div>
-          )}
+          {job.startedAt && <div>{formatDateTime(job.startedAt)}</div>}
           {job.completedAt && (
-            <div className="text-gray-500 dark:text-gray-400">{formatDateTime(job.completedAt)}</div>
+            <div className="text-gray-500 dark:text-gray-400">
+              {formatDateTime(job.completedAt)}
+            </div>
           )}
           {!job.startedAt && !job.completedAt && (
             <span className="text-gray-500 dark:text-gray-400">-</span>
@@ -400,7 +416,7 @@ export const JobQueuePage: React.FC = () => {
           )}
         </div>
       ),
-    }
+    },
   ];
 
   return (
@@ -411,14 +427,8 @@ export const JobQueuePage: React.FC = () => {
         description="Monitor and manage background jobs across all queues"
         actions={
           <div className="flex gap-3">
-            <Button
-              variant="secondary"
-              onClick={loadDashboard}
-              className="flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
+            <Button variant="secondary" onClick={loadDashboard} className="flex items-center gap-2">
+              <RefreshCw className="w-4 h-4" aria-hidden="true" />
               Refresh
             </Button>
           </div>
@@ -433,7 +443,9 @@ export const JobQueuePage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard.totalJobs}</div>
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {dashboard.totalJobs}
+          </div>
           <div className="text-sm text-gray-500 dark:text-gray-400">Total Jobs</div>
         </Card>
         <Card className="p-4">
@@ -535,7 +547,9 @@ export const JobQueuePage: React.FC = () => {
             <Card key={queue.name} className="p-6">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{queue.name}</h3>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                    {queue.name}
+                  </h3>
                   <div className="flex items-center gap-2 mt-1">
                     {queue.isPaused ? (
                       <Badge variant="warning">Paused</Badge>
@@ -604,7 +618,9 @@ export const JobQueuePage: React.FC = () => {
         <Card className="overflow-hidden">
           <div className="p-6 border-b border-gray-200 dark:border-gray-700">
             <div className="flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Scheduled & Recurring Jobs</h2>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Scheduled & Recurring Jobs
+              </h2>
             </div>
           </div>
           <DataTable<BackgroundJob>
@@ -618,7 +634,6 @@ export const JobQueuePage: React.FC = () => {
           />
         </Card>
       )}
-
     </div>
   );
 };

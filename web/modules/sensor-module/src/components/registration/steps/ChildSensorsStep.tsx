@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@aquaculture/shared-ui';
 import { ChildSensorConfig, SensorType } from '../../../types/registration.types';
+import { Check, ChevronRight, Info as InfoIcon, TriangleAlert } from 'lucide-react';
 
 interface ChildSensorsStepProps {
   childSensors: ChildSensorConfig[];
@@ -46,7 +47,7 @@ export function ChildSensorsStep({
 
   const handleToggleSelect = (dataPath: string) => {
     const updated = childSensors.map((sensor) =>
-      sensor.dataPath === dataPath ? { ...sensor, selected: !sensor.selected } : sensor
+      sensor.dataPath === dataPath ? { ...sensor, selected: !sensor.selected } : sensor,
     );
     onChange(updated);
   };
@@ -75,8 +76,9 @@ export function ChildSensorsStep({
         <h3 className="text-lg font-medium text-blue-900">Configure Individual Sensors</h3>
         {childSensors.length > 0 ? (
           <p className="text-sm text-blue-700 mt-1">
-            The connection test found {childSensors.length} data value{childSensors.length !== 1 ? 's' : ''}.
-            Select which values to register as separate sensors and configure each one.
+            The connection test found {childSensors.length} data value
+            {childSensors.length !== 1 ? 's' : ''}. Select which values to register as separate
+            sensors and configure each one.
           </p>
         ) : (
           <p className="text-sm text-blue-700 mt-1">
@@ -99,14 +101,20 @@ export function ChildSensorsStep({
             <div className="text-xs text-gray-500 dark:text-gray-400">Configured</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">{childSensors.length}</div>
+            <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
+              {childSensors.length}
+            </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">Total Found</div>
           </div>
         </div>
         <div className="flex items-center space-x-4">
-          <Button variant="primary" size="sm" onClick={onAddSensor}>+ Add Parameter</Button>
+          <Button variant="primary" size="sm" onClick={onAddSensor}>
+            + Add Parameter
+          </Button>
           {childSensors.length > 0 && (
-            <Button variant="ghost" onClick={handleSelectAll}>{childSensors.every((s) => s.selected) ? 'Deselect All' : 'Select All'}</Button>
+            <Button variant="ghost" onClick={handleSelectAll}>
+              {childSensors.every((s) => s.selected) ? 'Deselect All' : 'Select All'}
+            </Button>
           )}
         </div>
       </div>
@@ -146,7 +154,8 @@ export function ChildSensorsStep({
                           {sensor.dataPath}
                         </code>
                         <span className="text-xs text-gray-500 dark:text-gray-400">
-                          Sample: <span className="font-mono">{formatSampleValue(sensor.sampleValue)}</span>
+                          Sample:{' '}
+                          <span className="font-mono">{formatSampleValue(sensor.sampleValue)}</span>
                           {sensor.unit && ` ${sensor.unit}`}
                         </span>
                       </div>
@@ -158,31 +167,23 @@ export function ChildSensorsStep({
                         <>
                           {sensor.isConfigured ? (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                <path
-                                  fillRule="evenodd"
-                                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
+                              <Check className="w-3 h-3 mr-1" aria-hidden="true" />
                               Configured
                             </span>
                           ) : (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                              <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                                <path
-                                  fillRule="evenodd"
-                                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                                  clipRule="evenodd"
-                                />
-                              </svg>
+                              <TriangleAlert className="w-3 h-3 mr-1" aria-hidden="true" />
                               Needs Config
                             </span>
                           )}
-                          <Button variant="secondary" size="sm" onClick={() => onEditSensor(sensor)}>{sensor.isConfigured ? 'Edit' : 'Configure'}
-                            <svg className="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg></Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => onEditSensor(sensor)}
+                          >
+                            {sensor.isConfigured ? 'Edit' : 'Configure'}
+                            <ChevronRight className="w-4 h-4 ml-1" aria-hidden="true" />
+                          </Button>
                         </>
                       )}
                     </div>
@@ -206,12 +207,14 @@ export function ChildSensorsStep({
                       )}
                       {sensor.alertThresholds?.warning && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-yellow-50 text-yellow-700">
-                          Warning: {sensor.alertThresholds.warning.low ?? '-'} - {sensor.alertThresholds.warning.high ?? '-'}
+                          Warning: {sensor.alertThresholds.warning.low ?? '-'} -{' '}
+                          {sensor.alertThresholds.warning.high ?? '-'}
                         </span>
                       )}
                       {sensor.alertThresholds?.critical && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-red-50 text-red-700">
-                          Critical: {sensor.alertThresholds.critical.low ?? '-'} - {sensor.alertThresholds.critical.high ?? '-'}
+                          Critical: {sensor.alertThresholds.critical.low ?? '-'} -{' '}
+                          {sensor.alertThresholds.critical.high ?? '-'}
                         </span>
                       )}
                       {sensor.displaySettings?.showOnDashboard && (
@@ -232,22 +235,12 @@ export function ChildSensorsStep({
       {selectedCount === 0 && (
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <div className="flex items-start">
-            <svg
-              className="w-5 h-5 text-yellow-600 mt-0.5"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <TriangleAlert className="w-5 h-5 text-yellow-600 mt-0.5" aria-hidden="true" />
             <div className="ml-3">
               <h4 className="text-sm font-medium text-yellow-800">No sensors selected</h4>
               <p className="text-sm text-yellow-700 mt-1">
-                Please select at least one sensor to register. Each selected value will be
-                created as a separate sensor record.
+                Please select at least one sensor to register. Each selected value will be created
+                as a separate sensor record.
               </p>
             </div>
           </div>
@@ -258,20 +251,11 @@ export function ChildSensorsStep({
       {selectedCount > 0 && configuredCount < selectedCount && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start">
-            <svg
-              className="w-5 h-5 text-blue-600 mt-0.5"
-              fill="currentColor"
-              viewBox="0 0 20 20"
-            >
-              <path
-                fillRule="evenodd"
-                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
-                clipRule="evenodd"
-              />
-            </svg>
+            <InfoIcon className="w-5 h-5 text-blue-600 mt-0.5" aria-hidden="true" />
             <div className="ml-3">
               <h4 className="text-sm font-medium text-blue-800">
-                {selectedCount - configuredCount} sensor{selectedCount - configuredCount !== 1 ? 's' : ''} not configured
+                {selectedCount - configuredCount} sensor
+                {selectedCount - configuredCount !== 1 ? 's' : ''} not configured
               </h4>
               <p className="text-sm text-blue-700 mt-1">
                 Unconfigured sensors will use default settings. Click "Configure" to set up

@@ -12,6 +12,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal, useAuthContext } from '@aquaculture/shared-ui';
 import useConsent, { CONSENT_TYPE_LABELS, type ConsentType } from '../hooks/useConsent';
+import { ShieldCheck } from 'lucide-react';
 
 /**
  * GDPR Article 7: the gate has no dismissal path — no close control, no
@@ -48,7 +49,9 @@ const ConsentBanner: React.FC = () => {
     }
   });
   const [expanded, setExpanded] = useState(false);
-  const [localConsents, setLocalConsents] = useState<Record<ConsentType, boolean>>({} as Record<ConsentType, boolean>);
+  const [localConsents, setLocalConsents] = useState<Record<ConsentType, boolean>>(
+    {} as Record<ConsentType, boolean>,
+  );
 
   /**
    * GDPR compliance: When the server reports that consent is outdated
@@ -115,9 +118,7 @@ const ConsentBanner: React.FC = () => {
     ];
 
     try {
-      await recordBulkConsent(
-        allConsentTypes.map((ct) => ({ consentType: ct, granted: true })),
-      );
+      await recordBulkConsent(allConsentTypes.map((ct) => ({ consentType: ct, granted: true })));
     } catch {
       // Don't block the user if consent recording fails
     }
@@ -203,23 +204,9 @@ const ConsentBanner: React.FC = () => {
       title={
         <span className="flex items-center gap-3">
           <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100">
-          <svg
-            className="h-5 w-5 text-blue-600"
-            fill="none"
-            viewBox="0 0 24 24"
-            strokeWidth={1.5}
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
-            />
-          </svg>
+            <ShieldCheck className="h-5 w-5 text-blue-600" strokeWidth={1.5} aria-hidden="true" />
           </span>
-          {isOutdated
-            ? 'Your Privacy Preferences Need Updating'
-            : 'Privacy Preferences'}
+          {isOutdated ? 'Your Privacy Preferences Need Updating' : 'Privacy Preferences'}
         </span>
       }
       description={
@@ -307,7 +294,7 @@ const ConsentBanner: React.FC = () => {
                     className={`
                       pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white dark:bg-gray-900 shadow ring-0
                       transition duration-200 ease-in-out
-                      ${(isEssential || isGranted) ? 'translate-x-4' : 'translate-x-0'}
+                      ${isEssential || isGranted ? 'translate-x-4' : 'translate-x-0'}
                     `}
                   />
                 </button>
@@ -324,7 +311,9 @@ const ConsentBanner: React.FC = () => {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{info.description}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                    {info.description}
+                  </p>
                 </div>
               </div>
             );

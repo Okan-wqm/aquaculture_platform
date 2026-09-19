@@ -6,6 +6,7 @@ import {
   FREQUENCY_CONFIG,
 } from '../types/task.types';
 import { DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
+import { Search } from 'lucide-react';
 
 interface RecurringTabProps {
   templates: RecurringTemplate[];
@@ -15,8 +16,8 @@ interface RecurringTabProps {
 export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleActive }) => {
   const [search, setSearch] = useState('');
 
-  const filtered = templates.filter(t =>
-    !search || t.title.toLowerCase().includes(search.toLowerCase())
+  const filtered = templates.filter(
+    (t) => !search || t.title.toLowerCase().includes(search.toLowerCase()),
   );
 
   type TmplRow = (typeof filtered)[number];
@@ -27,9 +28,17 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       render: (_value, tmpl) => (
         <div>
           <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{tmpl.title}</p>
-          <p className="text-xs text-gray-500 dark:text-gray-400">{tmpl.description ? (tmpl.description.length > 60 ? `${tmpl.description.substring(0, 60)}...` : tmpl.description) : ''}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {tmpl.description
+              ? tmpl.description.length > 60
+                ? `${tmpl.description.substring(0, 60)}...`
+                : tmpl.description
+              : ''}
+          </p>
           {tmpl.checklistItems.length > 0 && (
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{tmpl.checklistItems.length} kontrol maddesi</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+              {tmpl.checklistItems.length} kontrol maddesi
+            </p>
           )}
         </div>
       ),
@@ -40,7 +49,9 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       render: (_value, tmpl) => {
         const cat = CATEGORY_CONFIG[tmpl.category];
         return (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}>
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cat.bg} ${cat.color}`}
+          >
             {cat.label}
           </span>
         );
@@ -53,11 +64,15 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
         const freq = FREQUENCY_CONFIG[tmpl.frequency];
         return (
           <div>
-            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${freq.bg} ${freq.color}`}>
+            <span
+              className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${freq.bg} ${freq.color}`}
+            >
               {freq.label}
             </span>
             {tmpl.frequencyDetail && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{tmpl.frequencyDetail}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {tmpl.frequencyDetail}
+              </p>
             )}
           </div>
         );
@@ -69,7 +84,9 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       render: (_value, tmpl) => {
         const pri = PRIORITY_CONFIG[tmpl.priority];
         return (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${pri.bg} ${pri.color}`}>
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${pri.bg} ${pri.color}`}
+          >
             {pri.label}
           </span>
         );
@@ -85,7 +102,15 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       header: 'Son Oluşturma',
       render: (_value, tmpl) => (
         <>
-          {tmpl.lastGenerated ? new Date(tmpl.lastGenerated).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+          {tmpl.lastGenerated
+            ? new Date(tmpl.lastGenerated).toLocaleDateString('tr-TR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '-'}
         </>
       ),
     },
@@ -94,7 +119,15 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
       header: 'Sonraki',
       render: (_value, tmpl) => (
         <>
-          {tmpl.nextGeneration ? new Date(tmpl.nextGeneration).toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+          {tmpl.nextGeneration
+            ? new Date(tmpl.nextGeneration).toLocaleDateString('tr-TR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })
+            : '-'}
         </>
       ),
     },
@@ -117,7 +150,7 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
           </button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -132,9 +165,10 @@ export const RecurringTab: React.FC<RecurringTabProps> = ({ templates, onToggleA
             placeholder="Şablon ara..."
             className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
           />
-          <svg className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
+          <Search
+            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
+            aria-hidden="true"
+          />
         </div>
         <Button variant="primary">+ Yeni Şablon</Button>
       </div>

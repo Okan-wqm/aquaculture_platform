@@ -4,7 +4,20 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Button, Input, Select, Badge, Table, Modal, ConfirmModal, Alert, formatDate, Spinner, PageHeader } from '@aquaculture/shared-ui';
+import {
+  Card,
+  Button,
+  Input,
+  Select,
+  Badge,
+  Table,
+  Modal,
+  ConfirmModal,
+  Alert,
+  formatDate,
+  Spinner,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import {
   usersApi,
@@ -22,6 +35,7 @@ import { expectedTotalPages } from '@platform/pagination-contracts';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
 import { isPlatformRole, type PlatformRole } from '../services/types/users';
+import { Mail, Plus, Search as SearchIcon, Trash2 } from 'lucide-react';
 
 const PAGE_SIZE = 20;
 const TENANT_OPTION_LIMIT = 100;
@@ -207,7 +221,7 @@ const UserManagementPage: React.FC = () => {
     async ({ id }) => {
       const result = await usersApi.forceLogout(id);
       if (!result.success) {
-        throw new Error('The server did not end this user\'s sessions.');
+        throw new Error("The server did not end this user's sessions.");
       }
       return result;
     },
@@ -439,16 +453,28 @@ const UserManagementPage: React.FC = () => {
       align: 'right',
       render: (user) => (
         <div className="flex items-center justify-end space-x-1">
-          <Button variant="ghost" size="sm" onClick={() => { setSelectedUser(user); setIsDetailModalOpen(true); }}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectedUser(user);
+              setIsDetailModalOpen(true);
+            }}
+          >
             Details
           </Button>
           <Button variant="ghost" size="sm" onClick={() => openEditModal(user)}>
             Edit
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => { setSelectedUser(user); setDeleteModalOpen(true); }}>
-            <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setSelectedUser(user);
+              setDeleteModalOpen(true);
+            }}
+          >
+            <Trash2 className="w-4 h-4 text-red-500" aria-hidden="true" />
           </Button>
         </div>
       ),
@@ -463,33 +489,29 @@ const UserManagementPage: React.FC = () => {
               two disagree by design. */}
       <PageHeader
         title="User Management"
-        description={<>{matchingUsers.toLocaleString()} user{matchingUsers === 1 ? '' : 's'} match</>}
+        description={
+          <>
+            {matchingUsers.toLocaleString()} user{matchingUsers === 1 ? '' : 's'} match
+          </>
+        }
         actions={
           <div className="mt-4 sm:mt-0 flex space-x-2">
             <Button variant="outline" onClick={reload} disabled={usersQuery.isFetching}>
               Refresh
             </Button>
             <Button variant="outline" onClick={openInviteModal}>
-              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
+              <Mail className="w-4 h-4 mr-2" aria-hidden="true" />
               Send Invite
             </Button>
             <Button onClick={() => openEditModal(null)}>
-              <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
+              <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
               New User
             </Button>
           </div>
         }
       />
 
-      <QueryFailureNotice
-        errors={queryErrors}
-        hasContent={users.length > 0}
-        onRetry={reload}
-      />
+      <QueryFailureNotice errors={queryErrors} hasContent={users.length > 0} onRetry={reload} />
 
       {successMessage && (
         <Alert type="success" dismissible onDismiss={() => setSuccessMessage(null)}>
@@ -534,17 +556,24 @@ const UserManagementPage: React.FC = () => {
             <Input
               placeholder="Search by name or email..."
               value={searchTerm}
-              onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setPage(1);
+              }}
               leftIcon={
-                <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+                <SearchIcon
+                  className="w-5 h-5 text-gray-500 dark:text-gray-400"
+                  aria-hidden="true"
+                />
               }
             />
           </div>
           <Select
             value={roleFilter}
-            onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setRoleFilter(e.target.value);
+              setPage(1);
+            }}
             options={[
               { value: '', label: 'All Roles' },
               { value: 'SUPER_ADMIN', label: 'Super Admin' },
@@ -555,7 +584,10 @@ const UserManagementPage: React.FC = () => {
           />
           <Select
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setStatusFilter(e.target.value);
+              setPage(1);
+            }}
             options={[
               { value: '', label: 'All Statuses' },
               { value: 'active', label: 'Active' },
@@ -564,7 +596,10 @@ const UserManagementPage: React.FC = () => {
           />
           <Select
             value={tenantFilter}
-            onChange={(e) => { setTenantFilter(e.target.value); setPage(1); }}
+            onChange={(e) => {
+              setTenantFilter(e.target.value);
+              setPage(1);
+            }}
             options={[
               { value: '', label: 'All Tenants' },
               ...tenants.map((t) => ({ value: t.id, label: t.name })),
@@ -695,7 +730,9 @@ const UserManagementPage: React.FC = () => {
                 onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
                 className="rounded border-gray-300 dark:border-gray-600"
               />
-              <label htmlFor="isActive" className="text-sm text-gray-700 dark:text-gray-300">Active</label>
+              <label htmlFor="isActive" className="text-sm text-gray-700 dark:text-gray-300">
+                Active
+              </label>
             </div>
           )}
 
@@ -722,7 +759,9 @@ const UserManagementPage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Full Name</p>
-                <p className="font-medium">{selectedUser.firstName} {selectedUser.lastName}</p>
+                <p className="font-medium">
+                  {selectedUser.firstName} {selectedUser.lastName}
+                </p>
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">E-posta</p>
@@ -730,7 +769,9 @@ const UserManagementPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Role</p>
-                <Badge variant={getRoleVariant(selectedUser.role)}>{getRoleLabel(selectedUser.role)}</Badge>
+                <Badge variant={getRoleVariant(selectedUser.role)}>
+                  {getRoleLabel(selectedUser.role)}
+                </Badge>
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Status</p>
@@ -752,23 +793,17 @@ const UserManagementPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">Created</p>
-                <p className="font-medium">{formatDate(new Date(selectedUser.createdAt), 'long')}</p>
+                <p className="font-medium">
+                  {formatDate(new Date(selectedUser.createdAt), 'long')}
+                </p>
               </div>
             </div>
 
             <div className="flex justify-end space-x-2 pt-4 border-t">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleToggleStatus(selectedUser)}
-              >
+              <Button variant="outline" size="sm" onClick={() => handleToggleStatus(selectedUser)}>
                 {selectedUser.isActive ? 'Deactivate' : 'Activate'}
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleForceLogout(selectedUser)}
-              >
+              <Button variant="outline" size="sm" onClick={() => handleForceLogout(selectedUser)}>
                 Force Logout
               </Button>
               <Button variant="outline" onClick={() => setIsDetailModalOpen(false)}>
@@ -815,9 +850,7 @@ const UserManagementPage: React.FC = () => {
           {userLimitCheck && (
             <div
               className={`p-3 rounded-lg text-sm ${
-                userLimitCheck.canCreate
-                  ? 'bg-green-50 text-green-700'
-                  : 'bg-red-50 text-red-700'
+                userLimitCheck.canCreate ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'
               }`}
             >
               <div className="flex items-center justify-between">
@@ -847,9 +880,7 @@ const UserManagementPage: React.FC = () => {
             label="E-posta *"
             type="email"
             value={inviteFormData.email}
-            onChange={(e) =>
-              setInviteFormData({ ...inviteFormData, email: e.target.value })
-            }
+            onChange={(e) => setInviteFormData({ ...inviteFormData, email: e.target.value })}
             placeholder="example@company.com"
             required
           />
@@ -858,16 +889,12 @@ const UserManagementPage: React.FC = () => {
             <Input
               label="First Name"
               value={inviteFormData.firstName}
-              onChange={(e) =>
-                setInviteFormData({ ...inviteFormData, firstName: e.target.value })
-              }
+              onChange={(e) => setInviteFormData({ ...inviteFormData, firstName: e.target.value })}
             />
             <Input
               label="Last Name"
               value={inviteFormData.lastName}
-              onChange={(e) =>
-                setInviteFormData({ ...inviteFormData, lastName: e.target.value })
-              }
+              onChange={(e) => setInviteFormData({ ...inviteFormData, lastName: e.target.value })}
             />
           </div>
 
@@ -908,16 +935,14 @@ const UserManagementPage: React.FC = () => {
               className="w-full border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               rows={3}
               value={inviteFormData.message}
-              onChange={(e) =>
-                setInviteFormData({ ...inviteFormData, message: e.target.value })
-              }
+              onChange={(e) => setInviteFormData({ ...inviteFormData, message: e.target.value })}
               placeholder="Invitation message..."
             />
           </div>
 
           <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
-            <strong>Note:</strong> An email will be sent to the invited user.
-            The user will create their password by clicking the invite link.
+            <strong>Note:</strong> An email will be sent to the invited user. The user will create
+            their password by clicking the invite link.
           </div>
 
           <div className="flex justify-end space-x-3 pt-4">

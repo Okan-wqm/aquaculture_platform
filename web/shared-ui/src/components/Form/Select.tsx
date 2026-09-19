@@ -6,6 +6,7 @@
 
 import { forwardRef, SelectHTMLAttributes, useId } from 'react';
 import type { Size } from '../../types';
+import { ChevronDown } from 'lucide-react';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -95,7 +96,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
       id: providedId,
       ...props
     },
-    ref
+    ref,
   ) => {
     const generatedId = useId();
     const selectId = providedId || generatedId;
@@ -104,12 +105,15 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
     const safeOptions = options || [];
 
     // Seçenekleri grupla
-    const groupedOptions = safeOptions.reduce((acc, option) => {
-      const group = option.group || '__ungrouped__';
-      if (!acc[group]) acc[group] = [];
-      acc[group].push(option);
-      return acc;
-    }, {} as Record<string, SelectOption[]>);
+    const groupedOptions = safeOptions.reduce(
+      (acc, option) => {
+        const group = option.group || '__ungrouped__';
+        if (!acc[group]) acc[group] = [];
+        acc[group].push(option);
+        return acc;
+      },
+      {} as Record<string, SelectOption[]>,
+    );
 
     const hasGroups = Object.keys(groupedOptions).some((key) => key !== '__ungrouped__');
 
@@ -166,62 +170,36 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             )}
 
             {/* Seçenekler */}
-            {hasGroups ? (
-              // Gruplu seçenekler
-              Object.entries(groupedOptions).map(([groupName, groupOptions]) =>
-                groupName === '__ungrouped__' ? (
-                  groupOptions.map((option) => (
-                    <option
-                      key={option.value}
-                      value={option.value}
-                      disabled={option.disabled}
-                    >
-                      {option.label}
-                    </option>
-                  ))
-                ) : (
-                  <optgroup key={groupName} label={groupName}>
-                    {groupOptions.map((option) => (
-                      <option
-                        key={option.value}
-                        value={option.value}
-                        disabled={option.disabled}
-                      >
+            {hasGroups
+              ? // Gruplu seçenekler
+                Object.entries(groupedOptions).map(([groupName, groupOptions]) =>
+                  groupName === '__ungrouped__' ? (
+                    groupOptions.map((option) => (
+                      <option key={option.value} value={option.value} disabled={option.disabled}>
                         {option.label}
                       </option>
-                    ))}
-                  </optgroup>
+                    ))
+                  ) : (
+                    <optgroup key={groupName} label={groupName}>
+                      {groupOptions.map((option) => (
+                        <option key={option.value} value={option.value} disabled={option.disabled}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ),
                 )
-              )
-            ) : (
-              // Gruplu olmayan seçenekler
-              safeOptions.map((option) => (
-                <option
-                  key={option.value}
-                  value={option.value}
-                  disabled={option.disabled}
-                >
-                  {option.label}
-                </option>
-              ))
-            )}
+              : // Gruplu olmayan seçenekler
+                safeOptions.map((option) => (
+                  <option key={option.value} value={option.value} disabled={option.disabled}>
+                    {option.label}
+                  </option>
+                ))}
           </select>
 
           {/* Dropdown ikonu */}
           <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-            <svg
-              className="w-5 h-5 text-gray-500 dark:text-gray-400"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M19 9l-7 7-7-7"
-              />
-            </svg>
+            <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" aria-hidden="true" />
           </div>
         </div>
 
@@ -240,7 +218,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 Select.displayName = 'Select';

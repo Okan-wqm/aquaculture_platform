@@ -7,25 +7,20 @@
 
 import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
-import { BRAND, getAccessToken, tokenLifecycle, useAuthContext, useI18n, Spinner } from '@aquaculture/shared-ui';
+import {
+  BRAND,
+  getAccessToken,
+  tokenLifecycle,
+  useAuthContext,
+  useI18n,
+  Spinner,
+} from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
+import { Lock } from 'lucide-react';
 
 const CURRENT_YEAR = new Date().getFullYear();
 
-const SecureLockIcon: React.FC = () => (
-  <svg
-    viewBox="0 0 24 24"
-    width="12"
-    height="12"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    aria-hidden="true"
-  >
-    <rect x="5" y="11" width="14" height="9" rx="1.5" />
-    <path d="M8 11V8a4 4 0 018 0v3" />
-  </svg>
-);
+const SecureLockIcon: React.FC = () => <Lock aria-hidden="true" size={12} />;
 
 // ============================================================================
 // Layout Component
@@ -82,10 +77,7 @@ const AuthChrome: React.FC = () => {
           <div className="industrial-auth-card-glow" />
 
           <div className="industrial-auth-card-header">
-            <div
-              className="industrial-auth-security-chip"
-              aria-label={t('auth.authorizedAccess')}
-            >
+            <div className="industrial-auth-security-chip" aria-label={t('auth.authorizedAccess')}>
               <span className="industrial-auth-security-dot" />
               access
             </div>

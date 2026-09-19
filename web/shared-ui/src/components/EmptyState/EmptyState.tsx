@@ -14,6 +14,7 @@ import React from 'react';
 import { useI18n } from '../../i18n';
 
 import { Button } from '../Button';
+import { CircleAlert, Inbox } from 'lucide-react';
 
 export interface EmptyStateAction {
   label: string;
@@ -35,16 +36,7 @@ export interface EmptyStateProps {
   className?: string;
 }
 
-const DefaultIcon: React.FC = () => (
-  <svg className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-    />
-  </svg>
-);
+const DefaultIcon: React.FC = () => <Inbox className="h-12 w-12" aria-hidden="true" />;
 
 export const EmptyState: React.FC<EmptyStateProps> = ({
   title,
@@ -58,12 +50,22 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
 }) => (
   <div
     className={`flex flex-col items-center text-center ${size === 'sm' ? 'gap-2 py-8' : 'gap-3 py-12'} ${
-      variant === 'card' ? 'rounded-lg border border-gray-200 bg-white px-6 dark:border-gray-700 dark:bg-gray-900' : ''
+      variant === 'card'
+        ? 'rounded-lg border border-gray-200 bg-white px-6 dark:border-gray-700 dark:bg-gray-900'
+        : ''
     } ${className}`}
   >
-    <div className="text-gray-400 dark:text-gray-500 [&>svg]:h-12 [&>svg]:w-12">{icon ?? <DefaultIcon />}</div>
-    <h3 className={`font-medium text-gray-900 dark:text-gray-100 ${size === 'sm' ? 'text-sm' : 'text-base'}`}>{title}</h3>
-    {description && <p className="max-w-md text-sm text-gray-500 dark:text-gray-400">{description}</p>}
+    <div className="text-gray-400 dark:text-gray-500 [&>svg]:h-12 [&>svg]:w-12">
+      {icon ?? <DefaultIcon />}
+    </div>
+    <h3
+      className={`font-medium text-gray-900 dark:text-gray-100 ${size === 'sm' ? 'text-sm' : 'text-base'}`}
+    >
+      {title}
+    </h3>
+    {description && (
+      <p className="max-w-md text-sm text-gray-500 dark:text-gray-400">{description}</p>
+    )}
     {(action || secondaryAction) && (
       <div className="mt-2 flex items-center gap-3">
         {action && (
@@ -93,16 +95,7 @@ export interface ErrorStateProps {
   className?: string;
 }
 
-const ErrorIcon: React.FC = () => (
-  <svg className="h-12 w-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-    <path
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      strokeWidth={1.5}
-      d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
-    />
-  </svg>
-);
+const ErrorIcon: React.FC = () => <CircleAlert className="h-12 w-12" aria-hidden="true" />;
 
 /** A surface that could not load. Announced as an alert; offers one retry. */
 export const ErrorState: React.FC<ErrorStateProps> = ({
@@ -118,24 +111,32 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
   const title = titleProp ?? t('common.somethingWentWrong');
   const retryLabel = retryLabelProp ?? t('common.retry');
   return (
-  <div
-    role="alert"
-    className={`flex flex-col items-center text-center ${size === 'sm' ? 'gap-2 py-8' : 'gap-3 py-12'} ${
-      variant === 'card' ? 'rounded-lg border border-error-200 bg-error-50 px-6 dark:border-error-800 dark:bg-error-900/20' : ''
-    } ${className}`}
-  >
-    <div className="text-error-500 dark:text-error-400">
-      <ErrorIcon />
-    </div>
-    <h3 className={`font-medium text-error-800 dark:text-error-200 ${size === 'sm' ? 'text-sm' : 'text-base'}`}>{title}</h3>
-    {description && <p className="max-w-md text-sm text-error-700 dark:text-error-300">{description}</p>}
-    {onRetry && (
-      <div className="mt-2">
-        <Button variant="secondary" size="sm" onClick={onRetry}>
-          {retryLabel}
-        </Button>
+    <div
+      role="alert"
+      className={`flex flex-col items-center text-center ${size === 'sm' ? 'gap-2 py-8' : 'gap-3 py-12'} ${
+        variant === 'card'
+          ? 'rounded-lg border border-error-200 bg-error-50 px-6 dark:border-error-800 dark:bg-error-900/20'
+          : ''
+      } ${className}`}
+    >
+      <div className="text-error-500 dark:text-error-400">
+        <ErrorIcon />
       </div>
-    )}
-  </div>
+      <h3
+        className={`font-medium text-error-800 dark:text-error-200 ${size === 'sm' ? 'text-sm' : 'text-base'}`}
+      >
+        {title}
+      </h3>
+      {description && (
+        <p className="max-w-md text-sm text-error-700 dark:text-error-300">{description}</p>
+      )}
+      {onRetry && (
+        <div className="mt-2">
+          <Button variant="secondary" size="sm" onClick={onRetry}>
+            {retryLabel}
+          </Button>
+        </div>
+      )}
+    </div>
   );
 };

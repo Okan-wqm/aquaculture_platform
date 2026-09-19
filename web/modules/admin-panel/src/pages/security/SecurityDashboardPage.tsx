@@ -5,7 +5,14 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, chartChrome, colors, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
+import {
+  DataTable,
+  Modal,
+  chartChrome,
+  colors,
+  type DataTableColumn,
+  PageHeader,
+} from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -18,26 +25,22 @@ import type {
   SecurityEventStatus,
 } from '../../services/types/security';
 
-// Inline SVG icon components to match module pattern (replaces lucide-react dependency, PERF-011)
-const Icon: React.FC<{ path: string; className?: string }> = ({ path, className = 'w-5 h-5' }) => (
-  <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={path} />
-  </svg>
-);
-const Shield = (p: { className?: string }): React.ReactElement => <Icon path="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" {...p} />;
-const AlertTriangle = (p: { className?: string }): React.ReactElement => <Icon path="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" {...p} />;
-const Activity = (p: { className?: string }): React.ReactElement => <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" {...p} />;
-const RefreshCw = (p: { className?: string }): React.ReactElement => <Icon path="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" {...p} />;
-const Eye = (p: { className?: string }): React.ReactElement => <Icon path="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" {...p} />;
-const Play = (p: { className?: string }): React.ReactElement => <Icon path="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Pause = (p: { className?: string }): React.ReactElement => <Icon path="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Globe = (p: { className?: string }): React.ReactElement => <Icon path="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064" {...p} />;
-const AlertCircle = (p: { className?: string }): React.ReactElement => <Icon path="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const CheckCircle2 = (p: { className?: string }): React.ReactElement => <Icon path="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const XCircle = (p: { className?: string }): React.ReactElement => <Icon path="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" {...p} />;
-const Zap = (p: { className?: string }): React.ReactElement => <Icon path="M13 10V3L4 14h7v7l9-11h-7z" {...p} />;
-const Target = (p: { className?: string }): React.ReactElement => <Icon path="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" {...p} />;
-const Users = (p: { className?: string }): React.ReactElement => <Icon path="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" {...p} />;
+import {
+  Activity,
+  ChartColumn as Target,
+  CircleAlert as AlertCircle,
+  CircleCheck as CheckCircle2,
+  CirclePause as Pause,
+  CirclePlay as Play,
+  CircleX as XCircle,
+  Eye,
+  Globe,
+  RefreshCw,
+  Shield,
+  TriangleAlert as AlertTriangle,
+  Users,
+  Zap,
+} from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -167,13 +170,16 @@ async function fetchDashboardData(signal?: AbortSignal): Promise<DashboardData> 
   return mapDashboardData(dashboard, health);
 }
 
-async function fetchSecurityEvents(params: {
-  page?: number;
-  limit?: number;
-  severity?: string;
-  status?: string;
-  searchQuery?: string;
-}, signal?: AbortSignal): Promise<{ data: SecurityEvent[]; total: number }> {
+async function fetchSecurityEvents(
+  params: {
+    page?: number;
+    limit?: number;
+    severity?: string;
+    status?: string;
+    searchQuery?: string;
+  },
+  signal?: AbortSignal,
+): Promise<{ data: SecurityEvent[]; total: number }> {
   const apiParams: Record<string, unknown> = {};
   if (params.page) apiParams.page = params.page;
   if (params.limit) apiParams.limit = params.limit;
@@ -411,7 +417,10 @@ const formatDateTime = (dateString: string): string => {
 };
 
 // Health Score Gauge Component
-const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({ score, status }) => {
+const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'critical' }> = ({
+  score,
+  status,
+}) => {
   const getColor = (): string => {
     if (status === 'healthy') return colors.success[500];
     if (status === 'warning') return colors.warning[500];
@@ -425,14 +434,7 @@ const HealthGauge: React.FC<{ score: number; status: 'healthy' | 'warning' | 'cr
   return (
     <div className="relative w-32 h-32">
       <svg className="w-32 h-32 transform -rotate-90">
-        <circle
-          cx="64"
-          cy="64"
-          r="45"
-          stroke={chartChrome.grid}
-          strokeWidth="10"
-          fill="none"
-        />
+        <circle cx="64" cy="64" r="45" stroke={chartChrome.grid} strokeWidth="10" fill="none" />
         <circle
           cx="64"
           cy="64"
@@ -488,18 +490,24 @@ const EventDetailModal: React.FC<{
         </div>
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Timestamp</span>
-          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDateTime(event.timestamp)}</p>
+          <p className="text-sm text-gray-900 dark:text-gray-100">
+            {formatDateTime(event.timestamp)}
+          </p>
         </div>
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Severity</span>
-          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(event.severity)}`}>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(event.severity)}`}
+          >
             {getSeverityIcon(event.severity)}
             {event.severity}
           </span>
         </div>
         <div>
           <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</span>
-          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}>
+          <span
+            className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(event.status)}`}
+          >
             {event.status}
           </span>
         </div>
@@ -513,7 +521,9 @@ const EventDetailModal: React.FC<{
 
       {/* Source Info */}
       <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Source Information</h3>
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          Source Information
+        </h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Source</span>
@@ -521,16 +531,22 @@ const EventDetailModal: React.FC<{
           </div>
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Source IP</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{event.sourceIp || 'N/A'}</p>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+              {event.sourceIp || 'N/A'}
+            </p>
           </div>
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Target Resource</span>
-            <p className="text-sm text-gray-900 dark:text-gray-100">{event.targetResource || 'N/A'}</p>
+            <p className="text-sm text-gray-900 dark:text-gray-100">
+              {event.targetResource || 'N/A'}
+            </p>
           </div>
           <div>
             <span className="text-xs text-gray-500 dark:text-gray-400">Location</span>
             <p className="text-sm text-gray-900 dark:text-gray-100">
-              {event.geoLocation ? `${event.geoLocation.city}, ${event.geoLocation.country}` : 'N/A'}
+              {event.geoLocation
+                ? `${event.geoLocation.city}, ${event.geoLocation.country}`
+                : 'N/A'}
             </p>
           </div>
         </div>
@@ -539,7 +555,9 @@ const EventDetailModal: React.FC<{
       {/* User Info */}
       {event.userId && (
         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">User Information</h3>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            User Information
+          </h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
@@ -547,28 +565,38 @@ const EventDetailModal: React.FC<{
             </div>
             <div>
               <span className="text-xs text-gray-500 dark:text-gray-400">Tenant</span>
-              <p className="text-sm text-gray-900 dark:text-gray-100">{event.tenantName || 'N/A'}</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100">
+                {event.tenantName || 'N/A'}
+              </p>
             </div>
           </div>
         </div>
       )}
 
       {/* Details */}
-      {event.details && typeof event.details === 'object' && Object.keys(event.details).length > 0 && (
-        <div>
-          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Additional Details</span>
-          <pre className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto mt-1">
-            {JSON.stringify(
-              // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
-              Object.fromEntries(
-                Object.entries(event.details).filter(([, v]) =>
-                  v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'
-                )
-              )
-            )}
-          </pre>
-        </div>
-      )}
+      {event.details &&
+        typeof event.details === 'object' &&
+        Object.keys(event.details).length > 0 && (
+          <div>
+            <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Additional Details
+            </span>
+            <pre className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto mt-1">
+              {JSON.stringify(
+                // Whitelist primitive-valued keys only to guard against attacker-controlled nested objects (SEC-008)
+                Object.fromEntries(
+                  Object.entries(event.details).filter(
+                    ([, v]) =>
+                      v === null ||
+                      typeof v === 'string' ||
+                      typeof v === 'number' ||
+                      typeof v === 'boolean',
+                  ),
+                ),
+              )}
+            </pre>
+          </div>
+        )}
     </Modal>
   );
 };
@@ -690,7 +718,9 @@ export const SecurityDashboardPage: React.FC = () => {
       key: 'indicator',
       header: 'Indicator',
       render: (_value, threat) => (
-        <span className="text-sm font-mono text-gray-600 dark:text-gray-400">{threat.indicator ?? '-'}</span>
+        <span className="text-sm font-mono text-gray-600 dark:text-gray-400">
+          {threat.indicator ?? '-'}
+        </span>
       ),
     },
     {
@@ -706,13 +736,18 @@ export const SecurityDashboardPage: React.FC = () => {
           <div className="w-16 h-2 bg-gray-200 dark:bg-gray-700 rounded-full">
             <div
               className={`h-2 rounded-full ${
-                (threat.confidence ?? 0) >= 80 ? 'bg-green-500' :
-                (threat.confidence ?? 0) >= 50 ? 'bg-yellow-500' : 'bg-red-500'
+                (threat.confidence ?? 0) >= 80
+                  ? 'bg-green-500'
+                  : (threat.confidence ?? 0) >= 50
+                    ? 'bg-yellow-500'
+                    : 'bg-red-500'
               }`}
               style={{ width: `${threat.confidence ?? 0}%` }}
             />
           </div>
-          <span className="text-sm text-gray-600 dark:text-gray-400">{threat.confidence ?? 0}%</span>
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {threat.confidence ?? 0}%
+          </span>
         </div>
       ),
     },
@@ -720,7 +755,9 @@ export const SecurityDashboardPage: React.FC = () => {
       key: 'severity',
       header: 'Severity',
       render: (_value, threat) => (
-        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(threat.severity ?? 'medium')}`}>
+        <span
+          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(threat.severity ?? 'medium')}`}
+        >
           {threat.severity ?? 'Unknown'}
         </span>
       ),
@@ -733,21 +770,25 @@ export const SecurityDashboardPage: React.FC = () => {
     {
       key: 'lastSeen',
       header: 'Last Seen',
-      render: (_value, threat) => threat.lastSeen ? formatTimeAgo(threat.lastSeen) : 'Never',
+      render: (_value, threat) => (threat.lastSeen ? formatTimeAgo(threat.lastSeen) : 'Never'),
     },
     {
       key: 'status',
       header: 'Status',
       render: (_value, threat) => (
         <>
-          <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
-            (threat.isActive ?? false) ? 'bg-red-100 text-red-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
-          }`}>
+          <span
+            className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${
+              (threat.isActive ?? false)
+                ? 'bg-red-100 text-red-800'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+            }`}
+          >
             {(threat.isActive ?? false) ? 'Active' : 'Inactive'}
           </span>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -792,7 +833,9 @@ export const SecurityDashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Health Score Card */}
           <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Security Health Score</h3>
+            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+              Security Health Score
+            </h3>
             <div className="flex items-center justify-center">
               <HealthGauge score={dashboard.healthScore} status={dashboard.healthStatus} />
             </div>
@@ -800,11 +843,17 @@ export const SecurityDashboardPage: React.FC = () => {
               {(dashboard?.metrics ?? []).slice(0, 3).map((metric, idx) => (
                 <div key={idx} className="flex items-center justify-between text-sm">
                   <span className="text-gray-500 dark:text-gray-400">{metric.name}</span>
-                  <span className={`font-medium ${
-                    metric.status === 'healthy' ? 'text-green-600' :
-                    metric.status === 'warning' ? 'text-yellow-600' : 'text-red-600'
-                  }`}>
-                    {metric.value}{metric.unit}
+                  <span
+                    className={`font-medium ${
+                      metric.status === 'healthy'
+                        ? 'text-green-600'
+                        : metric.status === 'warning'
+                          ? 'text-yellow-600'
+                          : 'text-red-600'
+                    }`}
+                  >
+                    {metric.value}
+                    {metric.unit}
                   </span>
                 </div>
               ))}
@@ -820,7 +869,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Events (24h)</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.totalEvents24h ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {dashboard?.stats?.totalEvents24h ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -831,7 +882,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Critical (24h)</p>
-                  <p className="text-2xl font-bold text-red-600">{dashboard?.stats?.criticalEvents24h ?? 0}</p>
+                  <p className="text-2xl font-bold text-red-600">
+                    {dashboard?.stats?.criticalEvents24h ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -842,7 +895,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Open Incidents</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.openIncidents ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {dashboard?.stats?.openIncidents ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -853,7 +908,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Blocked (24h)</p>
-                  <p className="text-2xl font-bold text-green-600">{dashboard?.stats?.blockedAttacks24h ?? 0}</p>
+                  <p className="text-2xl font-bold text-green-600">
+                    {dashboard?.stats?.blockedAttacks24h ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -864,7 +921,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Active Threats</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.activeThreatIndicators ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {dashboard?.stats?.activeThreatIndicators ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -875,7 +934,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Unique IPs</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.uniqueSourceIps ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {dashboard?.stats?.uniqueSourceIps ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -886,7 +947,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Affected Tenants</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.affectedTenants ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {dashboard?.stats?.affectedTenants ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -897,7 +960,9 @@ export const SecurityDashboardPage: React.FC = () => {
                 </div>
                 <div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Resolved</p>
-                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{dashboard?.stats?.resolvedIncidents ?? 0}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                    {dashboard?.stats?.resolvedIncidents ?? 0}
+                  </p>
                 </div>
               </div>
             </div>
@@ -911,7 +976,9 @@ export const SecurityDashboardPage: React.FC = () => {
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Security Events</h3>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                Recent Security Events
+              </h3>
               <select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
@@ -927,7 +994,9 @@ export const SecurityDashboardPage: React.FC = () => {
           </div>
           <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-96 overflow-y-auto">
             {events.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No security events found</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                No security events found
+              </div>
             ) : (
               events.slice(0, 10).map((event) => (
                 <div
@@ -949,15 +1018,23 @@ export const SecurityDashboardPage: React.FC = () => {
                         <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                           {event.eventType}
                         </p>
-                        <span className="text-xs text-gray-500 dark:text-gray-400">{formatTimeAgo(event.timestamp)}</span>
+                        <span className="text-xs text-gray-500 dark:text-gray-400">
+                          {formatTimeAgo(event.timestamp)}
+                        </span>
                       </div>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{event.description}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 truncate">
+                        {event.description}
+                      </p>
                       <div className="mt-1 flex items-center gap-2">
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${getSeverityColor(event.severity)}`}>
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${getSeverityColor(event.severity)}`}
+                        >
                           {event.severity}
                         </span>
                         {event.sourceIp && (
-                          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{event.sourceIp}</span>
+                          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
+                            {event.sourceIp}
+                          </span>
                         )}
                       </div>
                     </div>
@@ -972,27 +1049,39 @@ export const SecurityDashboardPage: React.FC = () => {
         {/* Active Incidents */}
         <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Active Incidents</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Active Incidents
+            </h3>
           </div>
           <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-96 overflow-y-auto">
             {incidents.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 dark:text-gray-400">No active incidents</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                No active incidents
+              </div>
             ) : (
               incidents.slice(0, 5).map((incident) => (
                 <div key={incident.id} className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(incident.severity ?? 'medium')}`}>
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(incident.severity ?? 'medium')}`}
+                        >
                           {getSeverityIcon(incident.severity ?? 'medium')}
                           {incident.severity ?? 'Unknown'}
                         </span>
-                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(incident.status ?? 'open')}`}>
+                        <span
+                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(incident.status ?? 'open')}`}
+                        >
                           {(incident.status ?? 'open').replace('_', ' ')}
                         </span>
                       </div>
-                      <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-2">{incident.title ?? 'Untitled Incident'}</h4>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{incident.description ?? ''}</p>
+                      <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mt-2">
+                        {incident.title ?? 'Untitled Incident'}
+                      </h4>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
+                        {incident.description ?? ''}
+                      </p>
                       <div className="mt-2 flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
                         <span>Category: {incident.category ?? 'Unknown'}</span>
                         <span>{incident.affectedUsers ?? 0} users affected</span>
@@ -1017,7 +1106,9 @@ export const SecurityDashboardPage: React.FC = () => {
       {/* Threat Intelligence */}
       <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
         <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Threat Intelligence</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Threat Intelligence
+          </h3>
         </div>
         <DataTable<ThreatIndicator>
           data={threatIndicators.slice(0, 10)}
@@ -1033,10 +1124,7 @@ export const SecurityDashboardPage: React.FC = () => {
 
       {/* Event Detail Modal */}
       {selectedEvent && (
-        <EventDetailModal
-          event={selectedEvent}
-          onClose={() => setSelectedEvent(null)}
-        />
+        <EventDetailModal event={selectedEvent} onClose={() => setSelectedEvent(null)} />
       )}
     </div>
   );

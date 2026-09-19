@@ -15,6 +15,7 @@ import { REGULATORY_CONTACTS } from '../utils/thresholds';
 import { EscapeReportModal } from '../components/modals';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 import { ProvenanceBadge } from '../components/common';
+import { CircleAlert, Plus } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -77,7 +78,9 @@ export const EscapeAssembledReview: React.FC<{
 
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">Assembled from the recorded incident</h3>
+      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+        Assembled from the recorded incident
+      </h3>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
         These escape facts come from the escape_incident record — read-only here; corrections go to
         Fish Health.
@@ -91,7 +94,9 @@ export const EscapeAssembledReview: React.FC<{
                 <span>{row.label}</span>
                 {m && <ProvenanceBadge meta={m} />}
               </dt>
-              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">{row.value}</dd>
+              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+                {row.value}
+              </dd>
             </div>
           );
         })}
@@ -108,13 +113,7 @@ const EscapeInfoPanel: React.FC<{ onCreateReport: () => void }> = ({ onCreateRep
   <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
     <div className="flex">
       <div className="flex-shrink-0">
-        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-            clipRule="evenodd"
-          />
-        </svg>
+        <CircleAlert className="h-5 w-5 text-red-400" aria-hidden="true" />
       </div>
       <div className="ml-3 flex-1">
         <h3 className="text-sm font-medium text-red-800">Escape Reporting Requirements</h3>
@@ -218,10 +217,10 @@ export const EscapeReportTab: React.FC<EscapeReportTabProps> = ({ siteId }) => {
             Immediate reporting required for fish escapes to {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
           </p>
         </div>
-        <Button variant="danger" type="button" onClick={handleCreateReport}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Report Escape</Button>
+        <Button variant="danger" type="button" onClick={handleCreateReport}>
+          <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+          Report Escape
+        </Button>
       </div>
 
       {/* Escape Info */}

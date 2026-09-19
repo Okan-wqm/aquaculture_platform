@@ -8,6 +8,7 @@ import React, { useCallback, useMemo } from 'react';
 
 import { useI18n } from '../../i18n';
 import type { TableColumn } from '../../types';
+import { ArrowUpDown, ChevronDown, ChevronUp, Inbox } from 'lucide-react';
 
 // ============================================================================
 // Tip Tanımlamaları
@@ -75,7 +76,7 @@ export interface TableProps<T extends object = Record<string, unknown>> {
 function getRowKey<T extends object>(
   row: T,
   rowKey: keyof T | ((row: T) => string) | string,
-  index: number
+  index: number,
 ): string {
   if (typeof rowKey === 'function') {
     return rowKey(row);
@@ -90,10 +91,7 @@ function getRowKey<T extends object>(
 // Loading Skeleton
 // ============================================================================
 
-const TableSkeleton: React.FC<{ columns: number; rows?: number }> = ({
-  columns,
-  rows = 5,
-}) => (
+const TableSkeleton: React.FC<{ columns: number; rows?: number }> = ({ columns, rows = 5 }) => (
   <tbody className="animate-pulse">
     {Array.from({ length: rows }).map((_, rowIndex) => (
       <tr key={rowIndex}>
@@ -111,27 +109,12 @@ const TableSkeleton: React.FC<{ columns: number; rows?: number }> = ({
 // Empty State
 // ============================================================================
 
-const EmptyState: React.FC<{ columns: number; message: string }> = ({
-  columns,
-  message,
-}) => (
+const EmptyState: React.FC<{ columns: number; message: string }> = ({ columns, message }) => (
   <tbody>
     <tr>
       <td colSpan={columns} className="px-4 py-12 text-center">
         <div className="flex flex-col items-center">
-          <svg
-            className="w-12 h-12 text-gray-300 mb-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={1.5}
-              d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
-            />
-          </svg>
+          <Inbox className="w-12 h-12 text-gray-300 mb-4" aria-hidden="true" />
           <p className="text-gray-500 dark:text-gray-400">{message}</p>
         </div>
       </td>
@@ -146,26 +129,19 @@ const EmptyState: React.FC<{ columns: number; message: string }> = ({
 const SortIndicator: React.FC<{ active: boolean; direction?: 'asc' | 'desc' }> = ({
   active,
   direction,
-}) => (
-  <span className="ml-2 inline-flex">
-    <svg
-      className={`w-4 h-4 transition-colors ${
-        active ? 'text-primary-600' : 'text-gray-500 dark:text-gray-400'
-      }`}
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      {direction === 'asc' ? (
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
-      ) : direction === 'desc' ? (
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-      ) : (
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
-      )}
-    </svg>
-  </span>
-);
+}) => {
+  const Icon = direction === 'asc' ? ChevronUp : direction === 'desc' ? ChevronDown : ArrowUpDown;
+  return (
+    <span className="ml-2 inline-flex">
+      <Icon
+        className={`w-4 h-4 transition-colors ${
+          active ? 'text-primary-600' : 'text-gray-500 dark:text-gray-400'
+        }`}
+        aria-hidden="true"
+      />
+    </span>
+  );
+};
 
 // ============================================================================
 // Pagination Bileşeni
@@ -183,13 +159,7 @@ interface PaginationProps {
   };
 }
 
-const Pagination: React.FC<PaginationProps> = ({
-  current,
-  pageSize,
-  total,
-  onChange,
-  labels,
-}) => {
+const Pagination: React.FC<PaginationProps> = ({ current, pageSize, total, onChange, labels }) => {
   const { t } = useI18n();
   const totalPages = Math.ceil(total / pageSize);
   const startItem = (current - 1) * pageSize + 1;
@@ -248,7 +218,7 @@ const Pagination: React.FC<PaginationProps> = ({
             >
               {page}
             </button>
-          )
+          ),
         )}
         <button
           onClick={() => onChange(current + 1, pageSize)}
@@ -317,14 +287,13 @@ export function Table<T extends object = Record<string, unknown>>({
   const emptyMessage = emptyMessageProp ?? t('table.noData');
   // BUG-008: Handle all three cases of rowKey: function extractor (from keyExtractor or rowKey function overload),
   // string field name, or default 'id'. Previously the rowKey function overload was silently ignored.
-  const resolvedRowKey: string | ((row: T) => string) =
-    keyExtractor
-      ? keyExtractor
-      : typeof rowKey === 'function'
+  const resolvedRowKey: string | ((row: T) => string) = keyExtractor
+    ? keyExtractor
+    : typeof rowKey === 'function'
       ? rowKey
       : typeof rowKey === 'string'
-      ? rowKey
-      : 'id';
+        ? rowKey
+        : 'id';
   // Tümünü seç durumu
   const allSelected = data.length > 0 && selectedRows.length === data.length;
   const someSelected = selectedRows.length > 0 && selectedRows.length < data.length;
@@ -352,7 +321,7 @@ export function Table<T extends object = Record<string, unknown>>({
         onSelectionChange([...selectedRows, key]);
       }
     },
-    [onSelectionChange, selectedRows]
+    [onSelectionChange, selectedRows],
   );
 
   // Sıralama değişimi
@@ -360,11 +329,10 @@ export function Table<T extends object = Record<string, unknown>>({
     (field: string) => {
       if (!sorting?.onChange) return;
 
-      const newOrder =
-        sorting.field === field && sorting.order === 'asc' ? 'desc' : 'asc';
+      const newOrder = sorting.field === field && sorting.order === 'asc' ? 'desc' : 'asc';
       sorting.onChange(field, newOrder);
     },
-    [sorting]
+    [sorting],
   );
 
   // Kolon sayısı (seçim kolonu dahil)
@@ -408,18 +376,26 @@ export function Table<T extends object = Record<string, unknown>>({
                   onClick={() => column.sortable && handleSort(String(column.key))}
                   aria-sort={
                     sorting?.field === String(column.key)
-                      ? sorting.order === 'asc' ? 'ascending' : 'descending'
+                      ? sorting.order === 'asc'
+                        ? 'ascending'
+                        : 'descending'
                       : undefined
                   }
-                  aria-label={column.sortable ? `Sort by ${column.header || column.label}` : undefined}
+                  aria-label={
+                    column.sortable ? `Sort by ${column.header || column.label}` : undefined
+                  }
                 >
-                  <div className={`flex items-center ${column.align === 'center' ? 'justify-center' : column.align === 'right' ? 'justify-end' : ''}`}>
+                  <div
+                    className={`flex items-center ${column.align === 'center' ? 'justify-center' : column.align === 'right' ? 'justify-end' : ''}`}
+                  >
                     {column.header || column.label}
                     {/* BUG-014: Use String(column.key) for comparison to handle symbol/keyof T keys */}
                     {column.sortable && (
                       <SortIndicator
                         active={sorting?.field === String(column.key)}
-                        direction={sorting?.field === String(column.key) ? sorting.order : undefined}
+                        direction={
+                          sorting?.field === String(column.key) ? sorting.order : undefined
+                        }
                       />
                     )}
                   </div>

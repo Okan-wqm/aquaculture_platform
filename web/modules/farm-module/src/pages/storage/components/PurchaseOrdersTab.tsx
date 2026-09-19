@@ -1,7 +1,14 @@
 /**
  * Purchase Orders Tab - Real GraphQL-backed PO list with filters and modals
  */
-import { parseMoney, useConfirm, DataTable, type DataTableColumn, Spinner, Button } from '@aquaculture/shared-ui';
+import {
+  parseMoney,
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+} from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import {
   usePurchaseOrders,
@@ -15,6 +22,7 @@ import {
 } from '../../../hooks/usePurchaseOrders';
 import { CreatePurchaseOrderModal } from './CreatePurchaseOrderModal';
 import { ReceiveDeliveryModal } from './ReceiveDeliveryModal';
+import { Plus } from 'lucide-react';
 
 const statusColors: Record<string, string> = {
   DRAFT: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
@@ -60,8 +68,8 @@ export const PurchaseOrdersTab: React.FC = () => {
   const [receiveTarget, setReceiveTarget] = useState<PurchaseOrder | null>(null);
 
   const { data, isLoading, error, refetch } = usePurchaseOrders({
-    status: statusFilter ? statusFilter as PurchaseOrderStatus : undefined,
-    category: categoryFilter ? categoryFilter as PurchaseOrderCategory : undefined,
+    status: statusFilter ? (statusFilter as PurchaseOrderStatus) : undefined,
+    category: categoryFilter ? (categoryFilter as PurchaseOrderCategory) : undefined,
   });
 
   const updateStatus = useUpdatePurchaseOrderStatus();
@@ -102,7 +110,15 @@ export const PurchaseOrdersTab: React.FC = () => {
 
   const confirm = useConfirm();
   const handleCancel = async (po: PurchaseOrder) => {
-    if (!(await confirm({ title: `Cancel PO ${po.orderNumber}?`, confirmText: 'Cancel order', cancelText: 'Keep', variant: 'danger' }))) return;
+    if (
+      !(await confirm({
+        title: `Cancel PO ${po.orderNumber}?`,
+        confirmText: 'Cancel order',
+        cancelText: 'Keep',
+        variant: 'danger',
+      }))
+    )
+      return;
     try {
       await cancelPO.mutateAsync(po.id);
     } catch (err) {
@@ -121,7 +137,9 @@ export const PurchaseOrdersTab: React.FC = () => {
       key: 'category',
       header: 'Category',
       render: (_value, po) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[po.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
+        <span
+          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[po.category] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+        >
           {po.category}
         </span>
       ),
@@ -138,30 +156,46 @@ export const PurchaseOrdersTab: React.FC = () => {
         <>
           {po.items.length > 0 ? (
             <div>
-              {po.items.slice(0, 2).map(item => (
-                <div key={item.id} className="text-xs">{item.itemName} ({item.quantity} {item.unit})</div>
+              {po.items.slice(0, 2).map((item) => (
+                <div key={item.id} className="text-xs">
+                  {item.itemName} ({item.quantity} {item.unit})
+                </div>
               ))}
-              {po.items.length > 2 && <div className="text-xs text-gray-400 dark:text-gray-500">+{po.items.length - 2} more</div>}
+              {po.items.length > 2 && (
+                <div className="text-xs text-gray-400 dark:text-gray-500">
+                  +{po.items.length - 2} more
+                </div>
+              )}
             </div>
-          ) : <span className="text-gray-400 dark:text-gray-500">No items</span>}
+          ) : (
+            <span className="text-gray-400 dark:text-gray-500">No items</span>
+          )}
         </>
       ),
     },
     {
       key: 'total',
       header: 'Total',
-      render: (_value, po) => po.totalAmountDecimal != null ? formatCurrency(parseMoney(po.totalAmountDecimal), po.currency) : '-',
+      render: (_value, po) =>
+        po.totalAmountDecimal != null
+          ? formatCurrency(parseMoney(po.totalAmountDecimal), po.currency)
+          : '-',
     },
     {
       key: 'expected',
       header: 'Expected',
-      render: (_value, po) => po.expectedDeliveryDate ? new Date(po.expectedDeliveryDate).toLocaleDateString('nb-NO') : '-',
+      render: (_value, po) =>
+        po.expectedDeliveryDate
+          ? new Date(po.expectedDeliveryDate).toLocaleDateString('nb-NO')
+          : '-',
     },
     {
       key: 'status',
       header: 'Status',
       render: (_value, po) => (
-        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}>
+        <span
+          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[po.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+        >
           {po.status.replace('_', ' ')}
         </span>
       ),
@@ -173,12 +207,18 @@ export const PurchaseOrdersTab: React.FC = () => {
         <>
           {po.approvedByName || po.approvedBy ? (
             <div>
-              <div className="text-xs text-gray-700 dark:text-gray-300">{po.approvedByName || po.approvedBy}</div>
+              <div className="text-xs text-gray-700 dark:text-gray-300">
+                {po.approvedByName || po.approvedBy}
+              </div>
               {po.approvedAt && (
-                <div className="text-xs text-gray-400 dark:text-gray-500">{new Date(po.approvedAt).toLocaleDateString('nb-NO')}</div>
+                <div className="text-xs text-gray-400 dark:text-gray-500">
+                  {new Date(po.approvedAt).toLocaleDateString('nb-NO')}
+                </div>
               )}
             </div>
-          ) : <span className="text-gray-400 dark:text-gray-500">-</span>}
+          ) : (
+            <span className="text-gray-400 dark:text-gray-500">-</span>
+          )}
         </>
       ),
     },
@@ -188,59 +228,83 @@ export const PurchaseOrdersTab: React.FC = () => {
       render: (_value, po) => (
         <div className="flex gap-2">
           {po.status === 'DRAFT' && (
-            <button onClick={() => handleSubmit(po)}
-              className="text-xs px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100">
+            <button
+              onClick={() => handleSubmit(po)}
+              className="text-xs px-2 py-1 bg-yellow-50 text-yellow-700 rounded hover:bg-yellow-100"
+            >
               Submit for Approval
             </button>
           )}
           {po.status === 'SUBMITTED' && (
-            <button onClick={() => handleApprove(po)}
-              className="text-xs px-2 py-1 bg-teal-50 text-teal-700 rounded hover:bg-teal-100">
+            <button
+              onClick={() => handleApprove(po)}
+              className="text-xs px-2 py-1 bg-teal-50 text-teal-700 rounded hover:bg-teal-100"
+            >
               Approve
             </button>
           )}
           {po.status === 'APPROVED' && (
-            <button onClick={() => handleMarkOrdered(po)}
-              className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100">
+            <button
+              onClick={() => handleMarkOrdered(po)}
+              className="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100"
+            >
               Mark Ordered
             </button>
           )}
           {(po.status === 'ORDERED' || po.status === 'PARTIALLY_RECEIVED') && (
-            <button onClick={() => setReceiveTarget(po)}
-              className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100">
+            <button
+              onClick={() => setReceiveTarget(po)}
+              className="text-xs px-2 py-1 bg-green-50 text-green-700 rounded hover:bg-green-100"
+            >
               Receive
             </button>
           )}
           {po.status !== 'RECEIVED' && po.status !== 'CANCELLED' && (
-            <button onClick={() => handleCancel(po)}
-              className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100">
+            <button
+              onClick={() => handleCancel(po)}
+              className="text-xs px-2 py-1 bg-red-50 text-red-700 rounded hover:bg-red-100"
+            >
               Cancel
             </button>
           )}
         </div>
       ),
-    }
+    },
   ];
 
   return (
     <div>
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <div className="flex gap-3">
-          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+          >
             <option value="">All Status</option>
-            {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s.replace('_', ' ')}
+              </option>
+            ))}
           </select>
-          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm">
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+          >
             <option value="">All Categories</option>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
           </select>
         </div>
-        <Button variant="primary" onClick={() => setIsCreateOpen(true)}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          New Purchase Order</Button>
+        <Button variant="primary" onClick={() => setIsCreateOpen(true)}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          New Purchase Order
+        </Button>
       </div>
 
       {isLoading && (
@@ -252,7 +316,9 @@ export const PurchaseOrdersTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load purchase orders.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -268,13 +334,19 @@ export const PurchaseOrdersTab: React.FC = () => {
             stickyHeader={false}
           />
           {orders.length === 0 && (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">No purchase orders found.</div>
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400 text-sm">
+              No purchase orders found.
+            </div>
           )}
         </div>
       )}
 
       <CreatePurchaseOrderModal isOpen={isCreateOpen} onClose={() => setIsCreateOpen(false)} />
-      <ReceiveDeliveryModal isOpen={!!receiveTarget} onClose={() => setReceiveTarget(null)} purchaseOrder={receiveTarget} />
+      <ReceiveDeliveryModal
+        isOpen={!!receiveTarget}
+        onClose={() => setReceiveTarget(null)}
+        purchaseOrder={receiveTarget}
+      />
     </div>
   );
 };

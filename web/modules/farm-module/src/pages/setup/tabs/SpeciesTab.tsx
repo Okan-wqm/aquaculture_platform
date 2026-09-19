@@ -26,6 +26,18 @@ import {
 import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useFeedList } from '../../../hooks/useFeeds';
 import { Modal, useConfirm, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import {
+  Box,
+  ChartColumn,
+  ChevronDown,
+  CircleX,
+  Monitor,
+  Plus,
+  Search as SearchIcon,
+  Sun,
+  SwatchBook,
+  X,
+} from 'lucide-react';
 
 // Predefined species tags
 const PREDEFINED_TAGS = [
@@ -123,14 +135,10 @@ const CollapsibleSection: React.FC<{
       className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
     >
       <span className="font-medium text-gray-700 dark:text-gray-300">{title}</span>
-      <svg
+      <ChevronDown
         className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-      </svg>
+        aria-hidden="true"
+      />
     </button>
     {isOpen && <div className="p-4 border-t border-gray-200 dark:border-gray-700">{children}</div>}
   </div>
@@ -341,7 +349,14 @@ export const SpeciesTab: React.FC = () => {
 
   const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (await confirm({ title: 'Delete this species?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
+    if (
+      await confirm({
+        title: 'Delete this species?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       setDeleteError(null);
       try {
         await deleteSpeciesMutation.mutateAsync(id);
@@ -417,19 +432,10 @@ export const SpeciesTab: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
-            <svg
+            <SearchIcon
               className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
+              aria-hidden="true"
+            />
           </div>
           <select
             value={selectedCategory}
@@ -468,15 +474,10 @@ export const SpeciesTab: React.FC = () => {
             ))}
           </select>
         </div>
-        <Button variant="primary" onClick={openAddModal}><svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-            />
-          </svg>
-          Add Species</Button>
+        <Button variant="primary" onClick={openAddModal}>
+          <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
+          Add Species
+        </Button>
       </div>
 
       {/* Loading State */}
@@ -490,7 +491,9 @@ export const SpeciesTab: React.FC = () => {
       {error && (
         <div className="text-center py-12 bg-red-50 rounded-lg border border-red-200">
           <p className="text-red-600">Failed to load species. Please try again.</p>
-          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" className="mt-2" onClick={() => refetch()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -515,10 +518,16 @@ export const SpeciesTab: React.FC = () => {
               <div className="p-6">
                 <div className="flex items-start justify-between mb-4">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{species.commonName}</h3>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">{species.scientificName}</p>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                      {species.commonName}
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                      {species.scientificName}
+                    </p>
                     {species.localName && (
-                      <p className="text-sm text-gray-400 dark:text-gray-500">({species.localName})</p>
+                      <p className="text-sm text-gray-400 dark:text-gray-500">
+                        ({species.localName})
+                      </p>
                     )}
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                       Code: {species.code}
@@ -571,19 +580,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.temperature && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-orange-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                          />
-                        </svg>
+                        <ChartColumn className="w-4 h-4 mr-2 text-orange-500" aria-hidden="true" />
                         <span>
                           Temp: {species.optimalConditions.temperature.min}-
                           {species.optimalConditions.temperature.max}°C
@@ -593,19 +590,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.ph && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-purple-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"
-                          />
-                        </svg>
+                        <SwatchBook className="w-4 h-4 mr-2 text-purple-500" aria-hidden="true" />
                         <span>
                           pH: {species.optimalConditions.ph.min}-{species.optimalConditions.ph.max}
                         </span>
@@ -614,38 +599,14 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.dissolvedOxygen && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-blue-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
-                          />
-                        </svg>
+                        <Box className="w-4 h-4 mr-2 text-blue-500" aria-hidden="true" />
                         <span>O2: min {species.optimalConditions.dissolvedOxygen.min} mg/L</span>
                       </div>
                     )}
 
                     {species.optimalConditions.co2 && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-green-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                          />
-                        </svg>
+                        <Monitor className="w-4 h-4 mr-2 text-green-500" aria-hidden="true" />
                         <span>
                           CO2: {species.optimalConditions.co2.min}-
                           {species.optimalConditions.co2.max} mg/L
@@ -655,19 +616,7 @@ export const SpeciesTab: React.FC = () => {
 
                     {species.optimalConditions.lightRegime && (
                       <div className="flex items-center">
-                        <svg
-                          className="w-4 h-4 mr-2 text-yellow-500"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"
-                          />
-                        </svg>
+                        <Sun className="w-4 h-4 mr-2 text-yellow-500" aria-hidden="true" />
                         <span>
                           Light: {species.optimalConditions.lightRegime.lightHours}h / Dark:{' '}
                           {species.optimalConditions.lightRegime.darkHours}h
@@ -679,7 +628,9 @@ export const SpeciesTab: React.FC = () => {
 
                 {/* Description */}
                 {species.description && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-3 line-clamp-2">{species.description}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-3 line-clamp-2">
+                    {species.description}
+                  </p>
                 )}
               </div>
 
@@ -690,8 +641,12 @@ export const SpeciesTab: React.FC = () => {
                     : species.family || species.genus || ''}
                 </span>
                 <div className="flex space-x-2">
-                  <Button variant="ghost" onClick={() => handleEdit(species)}>Edit</Button>
-                  <Button variant="ghost" onClick={() => handleDelete(species.id)}>Delete</Button>
+                  <Button variant="ghost" onClick={() => handleEdit(species)}>
+                    Edit
+                  </Button>
+                  <Button variant="ghost" onClick={() => handleDelete(species.id)}>
+                    Delete
+                  </Button>
                 </div>
               </div>
             </div>
@@ -704,26 +659,12 @@ export const SpeciesTab: React.FC = () => {
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
           <div className="flex items-center justify-between">
             <div className="flex">
-              <svg
-                className="h-5 w-5 text-red-400 mr-2 flex-shrink-0"
-                viewBox="0 0 20 20"
-                fill="currentColor"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                  clipRule="evenodd"
-                />
-              </svg>
+              <CircleX className="h-5 w-5 text-red-400 mr-2 flex-shrink-0" aria-hidden="true" />
               <p className="text-sm text-red-700">{deleteError}</p>
             </div>
-            <Button variant="ghost" type="button" onClick={() => setDeleteError(null)}><svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path
-                  fillRule="evenodd"
-                  d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                  clipRule="evenodd"
-                />
-              </svg></Button>
+            <Button variant="ghost" type="button" onClick={() => setDeleteError(null)}>
+              <X className="h-4 w-4" aria-hidden="true" />
+            </Button>
           </div>
         </div>
       )}
@@ -731,21 +672,13 @@ export const SpeciesTab: React.FC = () => {
       {/* Empty State */}
       {!isLoading && !error && filteredSpecies.length === 0 && (
         <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
-          <svg
-            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5"
-            />
-          </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No species found</h3>
-          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Add your first species to get started.</p>
+          <Box className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" aria-hidden="true" />
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+            No species found
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+            Add your first species to get started.
+          </p>
         </div>
       )}
 
@@ -761,17 +694,7 @@ export const SpeciesTab: React.FC = () => {
             {formError && (
               <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
                 <div className="flex">
-                  <svg
-                    className="h-5 w-5 text-red-400 mr-2 flex-shrink-0"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fillRule="evenodd"
-                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
+                  <CircleX className="h-5 w-5 text-red-400 mr-2 flex-shrink-0" aria-hidden="true" />
                   <p className="text-sm text-red-700">{formError}</p>
                 </div>
               </div>
@@ -785,53 +708,103 @@ export const SpeciesTab: React.FC = () => {
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Common Name *</label>
-                  <Input fullWidth type="text" required value={formData.commonName} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, commonName: e.target.value }))
-          } placeholder="e.g., European Seabass" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Common Name *
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.commonName}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, commonName: e.target.value }))
+                    }
+                    placeholder="e.g., European Seabass"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Scientific Name *
                   </label>
-                  <Input fullWidth type="text" required value={formData.scientificName} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, scientificName: e.target.value }))
-          } placeholder="e.g., Dicentrarchus labrax" />
+                  <Input
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.scientificName}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, scientificName: e.target.value }))
+                    }
+                    placeholder="e.g., Dicentrarchus labrax"
+                  />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Code *</label>
-                  <Input className="uppercase" fullWidth type="text" required value={formData.code} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
-          } placeholder="e.g., SEABASS" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Code *
+                  </label>
+                  <Input
+                    className="uppercase"
+                    fullWidth
+                    type="text"
+                    required
+                    value={formData.code}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))
+                    }
+                    placeholder="e.g., SEABASS"
+                  />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Official Code (artskode)
                   </label>
-                  <Input className="uppercase" fullWidth type="text" value={formData.officialCode} onChange={(e) =>
-           setFormData((prev) => ({
-            ...prev,
-            officialCode: e.target.value.toUpperCase(),
-           }))
-          } placeholder="e.g., SAL (FAO 3-alpha / USB-BER-GRO-BNB)" maxLength={16} />
+                  <Input
+                    className="uppercase"
+                    fullWidth
+                    type="text"
+                    value={formData.officialCode}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        officialCode: e.target.value.toUpperCase(),
+                      }))
+                    }
+                    placeholder="e.g., SAL (FAO 3-alpha / USB-BER-GRO-BNB)"
+                    maxLength={16}
+                  />
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Required for Norwegian regulatory reports — submissions fail closed without it.
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Local Name</label>
-                  <Input fullWidth type="text" value={formData.localName} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, localName: e.target.value }))
-          } placeholder="e.g., Levrek" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Local Name
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.localName}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, localName: e.target.value }))
+                    }
+                    placeholder="e.g., Levrek"
+                  />
                 </div>
               </div>
               <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
-                <Textarea fullWidth value={formData.description} onChange={(e) =>
-          setFormData((prev) => ({ ...prev, description: e.target.value }))
-         } rows={2} placeholder="Brief description of the species..." />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Description
+                </label>
+                <Textarea
+                  fullWidth
+                  value={formData.description}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, description: e.target.value }))
+                  }
+                  rows={2}
+                  placeholder="Brief description of the species..."
+                />
               </div>
             </CollapsibleSection>
 
@@ -866,9 +839,15 @@ export const SpeciesTab: React.FC = () => {
 
                 {/* Custom Tag Input */}
                 <div className="flex gap-2">
-                  <Input type="text" value={formData.customTag} onChange={(e) =>
-           setFormData((prev) => ({ ...prev, customTag: e.target.value }))
-          } onKeyDown={handleCustomTagKeyDown} placeholder="Add custom tag..." />
+                  <Input
+                    type="text"
+                    value={formData.customTag}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, customTag: e.target.value }))
+                    }
+                    onKeyDown={handleCustomTagKeyDown}
+                    placeholder="Add custom tag..."
+                  />
                   <button
                     type="button"
                     onClick={handleAddCustomTag}
@@ -892,7 +871,14 @@ export const SpeciesTab: React.FC = () => {
                             className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-green-100 text-green-700"
                           >
                             {tag}
-                            <Button variant="ghost" className="ml-2" type="button" onClick={() => handleTagToggle(tag)}>×</Button>
+                            <Button
+                              variant="ghost"
+                              className="ml-2"
+                              type="button"
+                              onClick={() => handleTagToggle(tag)}
+                            >
+                              ×
+                            </Button>
                           </span>
                         ))}
                     </div>
@@ -915,7 +901,9 @@ export const SpeciesTab: React.FC = () => {
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Category *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Category *
+                  </label>
                   <select
                     required
                     value={formData.category}
@@ -936,7 +924,9 @@ export const SpeciesTab: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Water Type *</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Water Type *
+                  </label>
                   <select
                     required
                     value={formData.waterType}
@@ -959,12 +949,28 @@ export const SpeciesTab: React.FC = () => {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Family</label>
-                  <Input fullWidth type="text" value={formData.family} onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))} placeholder="e.g., Moronidae" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Family
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.family}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, family: e.target.value }))}
+                    placeholder="e.g., Moronidae"
+                  />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Genus</label>
-                  <Input fullWidth type="text" value={formData.genus} onChange={(e) => setFormData((prev) => ({ ...prev, genus: e.target.value }))} placeholder="e.g., Dicentrarchus" />
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Genus
+                  </label>
+                  <Input
+                    fullWidth
+                    type="text"
+                    value={formData.genus}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, genus: e.target.value }))}
+                    placeholder="e.g., Dicentrarchus"
+                  />
                 </div>
               </div>
             </CollapsibleSection>
@@ -976,7 +982,9 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('supplier')}
             >
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Supplier</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Supplier
+                </label>
                 <select
                   value={formData.supplierId}
                   onChange={(e) => setFormData((prev) => ({ ...prev, supplierId: e.target.value }))}
@@ -1009,55 +1017,98 @@ export const SpeciesTab: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <Input fullWidth type="number" step="0.1" value={formData.tempMin} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             tempMin: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="18" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={formData.tempMin}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          tempMin: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="18"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <Input fullWidth type="number" step="0.1" value={formData.tempMax} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             tempMax: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="28" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={formData.tempMax}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          tempMax: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="28"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Optimal</label>
-                    <Input fullWidth type="number" step="0.1" value={formData.tempOptimal} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             tempOptimal: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="24" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Optimal
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      value={formData.tempOptimal}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          tempOptimal: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="24"
+                    />
                   </div>
                 </div>
               </div>
 
               {/* pH */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">pH</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  pH
+                </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <Input fullWidth type="number" step="0.1" min="0" max="14" value={formData.phMin} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             phMin: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="7.0" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="14"
+                      value={formData.phMin}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          phMin: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="7.0"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <Input fullWidth type="number" step="0.1" min="0" max="14" value={formData.phMax} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             phMax: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="8.5" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="14"
+                      value={formData.phMax}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          phMax: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="8.5"
+                    />
                   </div>
                 </div>
               </div>
@@ -1070,21 +1121,39 @@ export const SpeciesTab: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <Input fullWidth type="number" step="0.1" min="0" value={formData.oxygenMin} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             oxygenMin: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="5.0" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={formData.oxygenMin}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          oxygenMin: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="5.0"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Optimal</label>
-                    <Input fullWidth type="number" step="0.1" min="0" value={formData.oxygenOptimal} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             oxygenOptimal: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="7.0" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Optimal
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={formData.oxygenOptimal}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          oxygenOptimal: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="7.0"
+                    />
                   </div>
                 </div>
               </div>
@@ -1096,38 +1165,66 @@ export const SpeciesTab: React.FC = () => {
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Max Tolerable</label>
-                    <Input fullWidth type="number" step="0.01" min="0" value={formData.ammoniaMax} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             ammoniaMax: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="0.02" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Max Tolerable
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.ammoniaMax}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          ammoniaMax: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="0.02"
+                    />
                   </div>
                 </div>
               </div>
 
               {/* CO2 */}
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">CO2 (mg/L)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  CO2 (mg/L)
+                </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Min</label>
-                    <Input fullWidth type="number" step="0.1" min="0" value={formData.co2Min} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             co2Min: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="0" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={formData.co2Min}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          co2Min: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="0"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 dark:text-gray-400">Max</label>
-                    <Input fullWidth type="number" step="0.1" min="0" value={formData.co2Max} onChange={(e) =>
-            setFormData((prev) => ({
-             ...prev,
-             co2Max: e.target.value === '' ? '' : Number(e.target.value),
-            }))
-           } placeholder="20" />
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={formData.co2Max}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          co2Max: e.target.value === '' ? '' : Number(e.target.value),
+                        }))
+                      }
+                      placeholder="20"
+                    />
                   </div>
                 </div>
               </div>
@@ -1139,23 +1236,47 @@ export const SpeciesTab: React.FC = () => {
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Light Hours</label>
-                    <Input fullWidth type="number" step="0.5" min="0" max="24" value={formData.lightHours} onChange={(e) => {
-            const light = e.target.value === '' ? '' : Number(e.target.value);
-            const dark = light !== '' ? 24 - light : '';
-            setFormData((prev) => ({ ...prev, lightHours: light, darkHours: dark }));
-           }} placeholder="14" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Light Hours
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max="24"
+                      value={formData.lightHours}
+                      onChange={(e) => {
+                        const light = e.target.value === '' ? '' : Number(e.target.value);
+                        const dark = light !== '' ? 24 - light : '';
+                        setFormData((prev) => ({ ...prev, lightHours: light, darkHours: dark }));
+                      }}
+                      placeholder="14"
+                    />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 dark:text-gray-400">Dark Hours</label>
-                    <Input fullWidth type="number" step="0.5" min="0" max="24" value={formData.darkHours} onChange={(e) => {
-            const dark = e.target.value === '' ? '' : Number(e.target.value);
-            const light = dark !== '' ? 24 - dark : '';
-            setFormData((prev) => ({ ...prev, darkHours: dark, lightHours: light }));
-           }} placeholder="10" />
+                    <label className="block text-xs text-gray-500 dark:text-gray-400">
+                      Dark Hours
+                    </label>
+                    <Input
+                      fullWidth
+                      type="number"
+                      step="0.5"
+                      min="0"
+                      max="24"
+                      value={formData.darkHours}
+                      onChange={(e) => {
+                        const dark = e.target.value === '' ? '' : Number(e.target.value);
+                        const light = dark !== '' ? 24 - dark : '';
+                        setFormData((prev) => ({ ...prev, darkHours: dark, lightHours: light }));
+                      }}
+                      placeholder="10"
+                    />
                   </div>
                 </div>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Light + Dark hours should equal 24</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Light + Dark hours should equal 24
+                </p>
               </div>
             </CollapsibleSection>
 
@@ -1187,8 +1308,12 @@ export const SpeciesTab: React.FC = () => {
                             onChange={() => handleFeedToggle(feed.id)}
                             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
                           />
-                          <span className="ml-3 text-sm text-gray-700 dark:text-gray-300">{feed.name}</span>
-                          <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">({feed.code})</span>
+                          <span className="ml-3 text-sm text-gray-700 dark:text-gray-300">
+                            {feed.name}
+                          </span>
+                          <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">
+                            ({feed.code})
+                          </span>
                         </label>
                       ))}
                     </div>
@@ -1210,7 +1335,9 @@ export const SpeciesTab: React.FC = () => {
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Status
+                  </label>
                   <select
                     value={formData.status}
                     onChange={(e) =>
@@ -1227,18 +1354,42 @@ export const SpeciesTab: React.FC = () => {
                 </div>
               </div>
               <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Notes</label>
-                <Textarea fullWidth value={formData.notes} onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))} rows={3} placeholder="Additional notes about this species..." />
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Notes
+                </label>
+                <Textarea
+                  fullWidth
+                  value={formData.notes}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
+                  rows={3}
+                  placeholder="Additional notes about this species..."
+                />
               </div>
             </CollapsibleSection>
           </div>
 
           <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
-            <Button variant="primary" size="lg" className="justify-center sm:ml-3 sm:w-auto sm:text-sm" type="submit" disabled={createSpecies.isPending || updateSpecies.isPending}>{(createSpecies.isPending || updateSpecies.isPending) && (
+            <Button
+              variant="primary"
+              size="lg"
+              className="justify-center sm:ml-3 sm:w-auto sm:text-sm"
+              type="submit"
+              disabled={createSpecies.isPending || updateSpecies.isPending}
+            >
+              {(createSpecies.isPending || updateSpecies.isPending) && (
                 <Spinner size="sm" color="white" className="-ml-1 mr-2" />
               )}
-              {editingId ? 'Update' : 'Create'}</Button>
-            <Button variant="secondary" size="lg" className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
+              {editingId ? 'Update' : 'Create'}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              className="mt-3 justify-center sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+            >
+              Cancel
+            </Button>
           </div>
         </form>
       </Modal>

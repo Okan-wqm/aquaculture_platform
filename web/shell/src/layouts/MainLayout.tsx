@@ -19,8 +19,10 @@ import {
   useAuthContext,
   useAuth,
   useI18n,
-  useTenantContext, SkipToContent } from '@aquaculture/shared-ui';
-import { Sparkles } from 'lucide-react';
+  useTenantContext,
+  SkipToContent,
+} from '@aquaculture/shared-ui';
+import { Menu, Sparkles } from 'lucide-react';
 import AiAssistantDrawer from '../components/ai/AiAssistantDrawer';
 import { useQueryClient } from '@tanstack/react-query';
 import React, { useState, useCallback, useMemo } from 'react';
@@ -47,7 +49,10 @@ type NavigationDefinition = Omit<NavigationItem, 'label' | 'children'> & {
   children?: NavigationDefinition[];
 } & ({ labelKey: MessageKey; label?: never } | { label: string; labelKey?: never });
 
-function localizeNavigation(items: NavigationDefinition[], t: I18nContextValue['t']): NavigationItem[] {
+function localizeNavigation(
+  items: NavigationDefinition[],
+  t: I18nContextValue['t'],
+): NavigationItem[] {
   return items.map((item) => ({
     id: item.id,
     icon: item.icon,
@@ -120,7 +125,11 @@ const superAdminNavigation: NavigationDefinition[] = [
     children: [
       { id: 'support-tickets', labelKey: 'nav.tickets', path: '/admin/support/tickets' },
       { id: 'support-messaging', labelKey: 'nav.messaging', path: '/admin/support/messaging' },
-      { id: 'support-announcements', labelKey: 'nav.announcements', path: '/admin/support/announcements' },
+      {
+        id: 'support-announcements',
+        labelKey: 'nav.announcements',
+        path: '/admin/support/announcements',
+      },
       { id: 'support-onboarding', labelKey: 'nav.onboarding', path: '/admin/support/onboarding' },
     ],
   },
@@ -290,16 +299,40 @@ const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
       { id: 'sites-setup', labelKey: 'nav.setup', path: '/sites/setup' },
       { id: 'sites-tanks', labelKey: 'nav.tanksPonds', path: '/sites/tanks' },
       { id: 'sites-feeding', labelKey: 'nav.feeding', path: '/sites/feeding' },
-      { id: 'sites-feeding-records', labelKey: 'nav.feedRecordsInventory', path: '/sites/feeding/records' },
-      { id: 'sites-water-chemistry', labelKey: 'nav.waterChemistry', path: '/sites/water-chemistry' },
+      {
+        id: 'sites-feeding-records',
+        labelKey: 'nav.feedRecordsInventory',
+        path: '/sites/feeding/records',
+      },
+      {
+        id: 'sites-water-chemistry',
+        labelKey: 'nav.waterChemistry',
+        path: '/sites/water-chemistry',
+      },
       { id: 'sites-storage', labelKey: 'nav.storageStock', path: '/sites/storage' },
       { id: 'sites-tasks', labelKey: 'nav.tasks', path: '/sites/tasks' },
-{ id: 'sites-health', labelKey: 'nav.healthEvents', path: '/sites/health', icon: 'activity' },
-      { id: 'sites-maintenance', labelKey: 'nav.maintenance', path: '/sites/maintenance', icon: 'settings' },
+      { id: 'sites-health', labelKey: 'nav.healthEvents', path: '/sites/health', icon: 'activity' },
+      {
+        id: 'sites-maintenance',
+        labelKey: 'nav.maintenance',
+        path: '/sites/maintenance',
+        icon: 'settings',
+      },
       { id: 'sites-harvest', labelKey: 'nav.harvest', path: '/sites/harvest' },
       { id: 'sites-reports', labelKey: 'nav.reports', path: '/sites/reports' },
-      { id: 'sites-finance', labelKey: 'nav.finance', path: '/sites/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
-      { id: 'sites-analytics', labelKey: 'nav.analytics', path: '/sites/analytics', icon: 'analytics' },
+      {
+        id: 'sites-finance',
+        labelKey: 'nav.finance',
+        path: '/sites/finance',
+        icon: 'analytics',
+        requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'],
+      },
+      {
+        id: 'sites-analytics',
+        labelKey: 'nav.analytics',
+        path: '/sites/analytics',
+        icon: 'analytics',
+      },
     ],
   },
   sensor: {
@@ -311,14 +344,43 @@ const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
       { id: 'sensor-devices', labelKey: 'nav.devices', path: '/sensor/devices' },
       { id: 'sensor-readings', labelKey: 'nav.readings', path: '/sensor/readings' },
       { id: 'sensor-alerts', labelKey: 'nav.alerts', path: '/sensor/alerts' },
-      { id: 'sensor-water-chemistry', labelKey: 'nav.waterChemistry', path: '/sensor/water-chemistry' },
-      { id: 'sensor-automation', labelKey: 'nav.automation', path: '/sensor/automation', icon: 'cpu' },
+      {
+        id: 'sensor-water-chemistry',
+        labelKey: 'nav.waterChemistry',
+        path: '/sensor/water-chemistry',
+      },
+      {
+        id: 'sensor-automation',
+        labelKey: 'nav.automation',
+        path: '/sensor/automation',
+        icon: 'cpu',
+      },
       { id: 'sensor-plc', labelKey: 'nav.plcControl', path: '/sensor/plc', icon: 'server' },
-      { id: 'sensor-plc-connections', labelKey: 'nav.plcConnections', path: '/sensor/plc/connections', icon: 'wifi' },
-      { id: 'sensor-plc-feeding', labelKey: 'nav.feedingParams', path: '/sensor/plc/feeding', icon: 'bar-chart' },
-      { id: 'sensor-plc-alarms', labelKey: 'nav.plcAlarms', path: '/sensor/plc/alarms', icon: 'bell' },
+      {
+        id: 'sensor-plc-connections',
+        labelKey: 'nav.plcConnections',
+        path: '/sensor/plc/connections',
+        icon: 'wifi',
+      },
+      {
+        id: 'sensor-plc-feeding',
+        labelKey: 'nav.feedingParams',
+        path: '/sensor/plc/feeding',
+        icon: 'bar-chart',
+      },
+      {
+        id: 'sensor-plc-alarms',
+        labelKey: 'nav.plcAlarms',
+        path: '/sensor/plc/alarms',
+        icon: 'bell',
+      },
       { id: 'sensor-processes', labelKey: 'nav.processEditor', path: '/sensor/processes' },
-      { id: 'sensor-scada', labelKey: 'nav.scadaPackages', path: '/sensor/scada-packages', icon: 'monitor' },
+      {
+        id: 'sensor-scada',
+        labelKey: 'nav.scadaPackages',
+        path: '/sensor/scada-packages',
+        icon: 'monitor',
+      },
     ],
   },
   hr: {
@@ -335,7 +397,13 @@ const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
       { id: 'hr-leaves', labelKey: 'nav.leaves', path: '/hr/leaves', icon: 'calendar-off' },
       { id: 'hr-training', labelKey: 'nav.training', path: '/hr/training', icon: 'graduation-cap' },
       { id: 'hr-payroll', labelKey: 'nav.payroll', path: '/hr/payroll' },
-      { id: 'hr-finance', labelKey: 'nav.finance', path: '/hr/finance', icon: 'analytics', requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'] },
+      {
+        id: 'hr-finance',
+        labelKey: 'nav.finance',
+        path: '/hr/finance',
+        icon: 'analytics',
+        requiredRoles: ['SUPER_ADMIN', 'TENANT_ADMIN', 'MODULE_MANAGER'],
+      },
     ],
   },
   hydroponics: {
@@ -344,11 +412,27 @@ const MODULE_NAV_CONFIG: Record<string, NavigationDefinition> = {
     icon: 'sprout',
     children: [
       { id: 'hydroponics-setup', labelKey: 'nav.setup', path: '/hydroponics/setup' },
-      { id: 'hydroponics-general', labelKey: 'nav.generalOptions', path: '/hydroponics/solution/general_options' },
-      { id: 'hydroponics-water', labelKey: 'nav.waterAnalysis', path: '/hydroponics/solution/water_analysis' },
-      { id: 'hydroponics-user', labelKey: 'nav.userOptions', path: '/hydroponics/solution/user_options' },
+      {
+        id: 'hydroponics-general',
+        labelKey: 'nav.generalOptions',
+        path: '/hydroponics/solution/general_options',
+      },
+      {
+        id: 'hydroponics-water',
+        labelKey: 'nav.waterAnalysis',
+        path: '/hydroponics/solution/water_analysis',
+      },
+      {
+        id: 'hydroponics-user',
+        labelKey: 'nav.userOptions',
+        path: '/hydroponics/solution/user_options',
+      },
       { id: 'hydroponics-result', labelKey: 'nav.result', path: '/hydroponics/solution/result' },
-      { id: 'hydroponics-pid-sim', labelKey: 'nav.pidSimulator', path: '/hydroponics/pid-simulator' },
+      {
+        id: 'hydroponics-pid-sim',
+        labelKey: 'nav.pidSimulator',
+        path: '/hydroponics/pid-simulator',
+      },
     ],
   },
   // 'process' module removed: no corresponding route exists in App.tsx
@@ -465,7 +549,10 @@ const MainLayout: React.FC = () => {
       const cap = DELEGATABLE_TENANT_NAV[item.id];
       return cap !== undefined && hasPermission(cap);
     });
-    return localizeNavigation([...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems], t);
+    return localizeNavigation(
+      [...moduleUserBaseNavigation, ...delegatedTenantItems, ...moduleNavigationItems],
+      t,
+    );
   }, [userRole, moduleNavigationItems, hasPermission, t]);
 
   /**
@@ -515,7 +602,7 @@ const MainLayout: React.FC = () => {
    * Sidebar toggle handler
    */
   const handleSidebarToggle = useCallback(() => {
-    setSidebarCollapsed(prev => !prev);
+    setSidebarCollapsed((prev) => !prev);
   }, []);
 
   /**
@@ -525,7 +612,7 @@ const MainLayout: React.FC = () => {
     (path: string) => {
       navigate(path);
     },
-    [navigate]
+    [navigate],
   );
 
   /**
@@ -553,16 +640,19 @@ const MainLayout: React.FC = () => {
   /**
    * User menu items — memoized to avoid recreating on every render
    */
-  const userMenuItems = useMemo(() => [
-    {
-      label: t('header.myProfile'),
-      onClick: () => navigate('/settings/profile'),
-    },
-    {
-      label: t('header.settings'),
-      onClick: () => navigate('/settings'),
-    },
-  ], [navigate, t]);
+  const userMenuItems = useMemo(
+    () => [
+      {
+        label: t('header.myProfile'),
+        onClick: () => navigate('/settings/profile'),
+      },
+      {
+        label: t('header.settings'),
+        onClick: () => navigate('/settings'),
+      },
+    ],
+    [navigate, t],
+  );
 
   /**
    * Search handler — stable reference to avoid Header re-renders.
@@ -600,32 +690,36 @@ const MainLayout: React.FC = () => {
   /**
    * Logo element — memoized to avoid Sidebar re-renders
    */
-  const logoElement = useMemo(() => (
-    <div className="flex items-center">
-      <span className={`text-xl font-bold ${logoColorClass}`}>{logoText}</span>
-    </div>
-  ), [logoColorClass, logoText]);
+  const logoElement = useMemo(
+    () => (
+      <div className="flex items-center">
+        <span className={`text-xl font-bold ${logoColorClass}`}>{logoText}</span>
+      </div>
+    ),
+    [logoColorClass, logoText],
+  );
 
   /**
    * Hamburger — phone widths only. It opens the Sidebar's overlay (the column
    * is off-canvas below md); the column's own toggle handles collapsing on
    * desktop. Memoized to avoid Header re-renders.
    */
-  const leftContent = useMemo(() => (
-    <Button
-      variant="ghost"
-      iconOnly
-      onClick={() => setMobileNavOpen(true)}
-      aria-label={t('header.openNavigation')}
-      aria-expanded={mobileNavOpen}
-      aria-controls={SIDEBAR_ID}
-      className="md:hidden text-gray-500 dark:text-gray-400"
-    >
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-      </svg>
-    </Button>
-  ), [mobileNavOpen, t]);
+  const leftContent = useMemo(
+    () => (
+      <Button
+        variant="ghost"
+        iconOnly
+        onClick={() => setMobileNavOpen(true)}
+        aria-label={t('header.openNavigation')}
+        aria-expanded={mobileNavOpen}
+        aria-controls={SIDEBAR_ID}
+        className="md:hidden text-gray-500 dark:text-gray-400"
+      >
+        <Menu className="w-6 h-6" aria-hidden="true" />
+      </Button>
+    ),
+    [mobileNavOpen, t],
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex">
@@ -664,7 +758,11 @@ const MainLayout: React.FC = () => {
         <ActAsTenantBanner />
 
         {/* Page Content */}
-        <main id="main-content" tabIndex={-1} className="flex-1 p-4 md:p-6 overflow-auto focus:outline-hidden">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex-1 p-4 md:p-6 overflow-auto focus:outline-hidden"
+        >
           <Outlet />
         </main>
       </div>

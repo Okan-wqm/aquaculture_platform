@@ -1,5 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Select, NumberInput, DataTable, type DataTableColumn, Button } from '@aquaculture/shared-ui';
+import {
+  Select,
+  NumberInput,
+  DataTable,
+  type DataTableColumn,
+  Button,
+} from '@aquaculture/shared-ui';
 import { Modal } from '@aquaculture/shared-ui';
 // PERF-HYD-002: Consume the shared profiles context rather than instantiating a
 // separate useNutrientProfiles() hook, which would create a duplicate localStorage
@@ -12,6 +18,7 @@ import {
   STAGE_OPTIONS,
   SEASON_OPTIONS,
 } from '../../types/solution.types';
+import { Plus } from 'lucide-react';
 
 // BUG-HYD-018: Derive the stage filter options from the union of all SPECIES_STAGES
 // values rather than the legacy STAGE_OPTIONS (which includes 'fruiting3' that appears
@@ -38,8 +45,8 @@ const EMPTY_PROFILE: Omit<NutrientProfile, 'id'> = {
   ph: 5.5,
   kRatio: 0.44,
   caRatio: 0.36,
-  mgRatio: 0.20,
-  nkRatio: 1.30,
+  mgRatio: 0.2,
+  nkRatio: 1.3,
   nh4Ratio: 0.04,
   p: 1.25,
   cl: 0.5,
@@ -141,23 +148,31 @@ const NutrientProfileManager: React.FC = () => {
       align: 'right',
       render: (_value, p) => (
         <>
-          <Button variant="ghost" size="xs" className="mr-3" onClick={() => openEdit(p)}>Edit</Button>
-          <Button variant="ghost" size="xs" onClick={() => deleteProfile(p.id)}>Delete</Button>
+          <Button variant="ghost" size="xs" className="mr-3" onClick={() => openEdit(p)}>
+            Edit
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => deleteProfile(p.id)}>
+            Delete
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
     <div className="space-y-4">
       {/* Actions */}
       <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="primary" onClick={openAdd}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Add Profile</Button>
-        <Button variant="secondary" onClick={() => void importDefaults()}>Import Default Data</Button>
-        <span className="text-xs text-gray-500 dark:text-gray-400">{profiles.length} profile(s) total</span>
+        <Button variant="primary" onClick={openAdd}>
+          <Plus className="w-4 h-4" aria-hidden="true" />
+          Add Profile
+        </Button>
+        <Button variant="secondary" onClick={() => void importDefaults()}>
+          Import Default Data
+        </Button>
+        <span className="text-xs text-gray-500 dark:text-gray-400">
+          {profiles.length} profile(s) total
+        </span>
       </div>
 
       {/* Filters */}
@@ -190,7 +205,9 @@ const NutrientProfileManager: React.FC = () => {
           data={filteredProfiles}
           columns={pRowColumns}
           keyExtractor={(p) => p.id}
-          emptyMessage={'No profiles found. Click "Add Profile" or "Import Default Data" to get started.'}
+          emptyMessage={
+            'No profiles found. Click "Add Profile" or "Import Default Data" to get started.'
+          }
           searchable={false}
           sortable={false}
           stickyHeader={false}
@@ -235,50 +252,170 @@ const NutrientProfileManager: React.FC = () => {
 
           {/* Main Parameters */}
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">Main Parameters</h4>
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">
+              Main Parameters
+            </h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <NumberInput label="EC (mS/cm)" value={form.ec} onChange={(e) => updateForm('ec', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="pH" value={form.ph} onChange={(e) => updateForm('ph', parseFloat(e.target.value) || 0)} step={0.1} min={0} max={14} />
-              <NumberInput label="K Ratio" value={form.kRatio} onChange={(e) => updateForm('kRatio', parseFloat(e.target.value) || 0)} step={0.01} min={0} max={1} />
-              <NumberInput label="Ca Ratio" value={form.caRatio} onChange={(e) => updateForm('caRatio', parseFloat(e.target.value) || 0)} step={0.01} min={0} max={1} />
-              <NumberInput label="Mg Ratio" value={form.mgRatio} onChange={(e) => updateForm('mgRatio', parseFloat(e.target.value) || 0)} step={0.01} min={0} max={1} />
-              <NumberInput label="N/K Ratio" value={form.nkRatio} onChange={(e) => updateForm('nkRatio', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="NH4 Ratio" value={form.nh4Ratio} onChange={(e) => updateForm('nh4Ratio', parseFloat(e.target.value) || 0)} step={0.01} min={0} max={1} />
+              <NumberInput
+                label="EC (mS/cm)"
+                value={form.ec}
+                onChange={(e) => updateForm('ec', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="pH"
+                value={form.ph}
+                onChange={(e) => updateForm('ph', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+                max={14}
+              />
+              <NumberInput
+                label="K Ratio"
+                value={form.kRatio}
+                onChange={(e) => updateForm('kRatio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+                max={1}
+              />
+              <NumberInput
+                label="Ca Ratio"
+                value={form.caRatio}
+                onChange={(e) => updateForm('caRatio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+                max={1}
+              />
+              <NumberInput
+                label="Mg Ratio"
+                value={form.mgRatio}
+                onChange={(e) => updateForm('mgRatio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+                max={1}
+              />
+              <NumberInput
+                label="N/K Ratio"
+                value={form.nkRatio}
+                onChange={(e) => updateForm('nkRatio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="NH4 Ratio"
+                value={form.nh4Ratio}
+                onChange={(e) => updateForm('nh4Ratio', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+                max={1}
+              />
             </div>
           </div>
 
           {/* Macro / Other */}
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">Macro (mmol/L)</h4>
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">
+              Macro (mmol/L)
+            </h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <NumberInput label="P" value={form.p} onChange={(e) => updateForm('p', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="Cl" value={form.cl} onChange={(e) => updateForm('cl', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="Si" value={form.si} onChange={(e) => updateForm('si', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="Min SO4" value={form.minSO4} onChange={(e) => updateForm('minSO4', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
+              <NumberInput
+                label="P"
+                value={form.p}
+                onChange={(e) => updateForm('p', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="Cl"
+                value={form.cl}
+                onChange={(e) => updateForm('cl', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="Si"
+                value={form.si}
+                onChange={(e) => updateForm('si', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="Min SO4"
+                value={form.minSO4}
+                onChange={(e) => updateForm('minSO4', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
             </div>
           </div>
 
           {/* Micro */}
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">Micro (umol/L)</h4>
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3">
+              Micro (umol/L)
+            </h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <NumberInput label="Fe" value={form.fe} onChange={(e) => updateForm('fe', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="Mn" value={form.mn} onChange={(e) => updateForm('mn', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="Zn" value={form.zn} onChange={(e) => updateForm('zn', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="Cu" value={form.cu} onChange={(e) => updateForm('cu', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
-              <NumberInput label="B" value={form.b} onChange={(e) => updateForm('b', parseFloat(e.target.value) || 0)} step={0.1} min={0} />
-              <NumberInput label="Mo" value={form.mo} onChange={(e) => updateForm('mo', parseFloat(e.target.value) || 0)} step={0.01} min={0} />
+              <NumberInput
+                label="Fe"
+                value={form.fe}
+                onChange={(e) => updateForm('fe', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="Mn"
+                value={form.mn}
+                onChange={(e) => updateForm('mn', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="Zn"
+                value={form.zn}
+                onChange={(e) => updateForm('zn', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="Cu"
+                value={form.cu}
+                onChange={(e) => updateForm('cu', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
+              <NumberInput
+                label="B"
+                value={form.b}
+                onChange={(e) => updateForm('b', parseFloat(e.target.value) || 0)}
+                step={0.1}
+                min={0}
+              />
+              <NumberInput
+                label="Mo"
+                value={form.mo}
+                onChange={(e) => updateForm('mo', parseFloat(e.target.value) || 0)}
+                step={0.01}
+                min={0}
+              />
             </div>
           </div>
 
           {/* Save / Cancel */}
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <Button variant="secondary" onClick={() => {
+            <Button
+              variant="secondary"
+              onClick={() => {
                 setIsModalOpen(false);
                 setEditingId(null);
                 setForm({ ...EMPTY_PROFILE });
-              }}>Cancel</Button>
-            <Button variant="primary" onClick={handleSave}>{editingId ? 'Update Profile' : 'Create Profile'}</Button>
+              }}
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" onClick={handleSave}>
+              {editingId ? 'Update Profile' : 'Create Profile'}
+            </Button>
           </div>
         </div>
       </Modal>

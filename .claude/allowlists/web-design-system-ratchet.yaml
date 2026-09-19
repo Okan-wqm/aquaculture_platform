@@ -27,6 +27,8 @@
 #                 mutation declares its outcome through useFeedbackMutation.
 #   rawButton   — raw <button> elements per package, primitives excluded.
 #   rawField    — raw <input> / <select> / <textarea> per package, primitives excluded.
+#   inlineIconSvg — icon-shaped <svg> (16 / 20 / 24 unit viewBox) written in
+#                 the file beside lucide-react, per package, shared-ui included.
 #   fixedGrid   — class attributes fixing grid-cols-N (2–6, 8–11) with no
 #                 breakpoint variant, per package (web/apps excluded: phone-first
 #                 by construction). A week (7) and a layout grid (12) are not
@@ -255,10 +257,30 @@ rawField:
       reason: raw input, select and textarea elements re-deriving label binding, error display and focus ring beside shared-ui Input / Select / Textarea / Checkbox (AquaMobil Field); render each through the primitive and lower this ceiling
 fixedGrid:
   entries: []
+inlineIconSvg:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 1
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-MEDIUM-082
+      reason: icon-shaped svg written in the file beside the lucide-react set; render the icon from lucide-react (a custom glyph from one shared icon module) and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 26
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-MEDIUM-082
+      reason: icon-shaped svg written in the file beside the lucide-react set; render the icon from lucide-react (a custom glyph from one shared icon module) and lower this ceiling
+    - package: web/shared-ui
+      ceiling: 3
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-MEDIUM-082
+      reason: icon-shaped svg written in the file beside the lucide-react set; render the icon from lucide-react (a custom glyph from one shared icon module) and lower this ceiling
 hardcodedText:
   entries:
     - package: web/apps/aquamobil
-      ceiling: 619
+      ceiling: 617
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -294,7 +316,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/modules/sensor-module
-      ceiling: 3340
+      ceiling: 3338
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089
@@ -312,7 +334,7 @@ hardcodedText:
       findingId: FE-HIGH-089
       reason: user-visible strings written in the file, so the language follows the file rather than the user; add a message key to the locale maps, render it through useI18n().t and lower this ceiling
     - package: web/shell
-      ceiling: 155
+      ceiling: 154
       owner: okan
       expiry: 2027-06-30
       findingId: FE-HIGH-089

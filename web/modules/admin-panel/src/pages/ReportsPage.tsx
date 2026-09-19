@@ -13,6 +13,16 @@ import { reportsApi, type ReportExecution as ApiReportExecution } from '../servi
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components';
 import { saveBlob } from '../services/blob-client';
+import {
+  Building2,
+  ChartColumn,
+  CreditCard,
+  DollarSign,
+  FileText,
+  LayoutGrid,
+  Sparkles,
+  TrendingUp,
+} from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -101,18 +111,88 @@ const formatColumnHeader = (raw: string): string => {
   // This runs before regex splitting which cannot detect word boundaries
   // in all-caps strings.
   const KNOWN_WORDS = [
-    'created', 'updated', 'deleted', 'storage', 'revenue', 'amount',
-    'count', 'total', 'active', 'status', 'tenant', 'module', 'plan',
-    'distribution', 'monthly', 'annual', 'daily', 'weekly', 'churn',
-    'growth', 'rate', 'date', 'time', 'name', 'type', 'used', 'free',
-    'paid', 'pending', 'overdue', 'refund', 'net', 'gross', 'avg',
-    'average', 'max', 'min', 'percent', 'ratio', 'price', 'cost',
-    'user', 'email', 'phone', 'address', 'region', 'country', 'city',
-    'subscription', 'invoice', 'payment', 'billing', 'period', 'start',
-    'end', 'last', 'first', 'login', 'session', 'duration', 'feature',
-    'adoption', 'usage', 'byte', 'bytes', 'connections', 'jobs',
-    'queued', 'error', 'uptime', 'response', 'calls', 'today', 'month',
-    'week', 'year', 'day', 'at', 'by', 'per', 'this', 'new',
+    'created',
+    'updated',
+    'deleted',
+    'storage',
+    'revenue',
+    'amount',
+    'count',
+    'total',
+    'active',
+    'status',
+    'tenant',
+    'module',
+    'plan',
+    'distribution',
+    'monthly',
+    'annual',
+    'daily',
+    'weekly',
+    'churn',
+    'growth',
+    'rate',
+    'date',
+    'time',
+    'name',
+    'type',
+    'used',
+    'free',
+    'paid',
+    'pending',
+    'overdue',
+    'refund',
+    'net',
+    'gross',
+    'avg',
+    'average',
+    'max',
+    'min',
+    'percent',
+    'ratio',
+    'price',
+    'cost',
+    'user',
+    'email',
+    'phone',
+    'address',
+    'region',
+    'country',
+    'city',
+    'subscription',
+    'invoice',
+    'payment',
+    'billing',
+    'period',
+    'start',
+    'end',
+    'last',
+    'first',
+    'login',
+    'session',
+    'duration',
+    'feature',
+    'adoption',
+    'usage',
+    'byte',
+    'bytes',
+    'connections',
+    'jobs',
+    'queued',
+    'error',
+    'uptime',
+    'response',
+    'calls',
+    'today',
+    'month',
+    'week',
+    'year',
+    'day',
+    'at',
+    'by',
+    'per',
+    'this',
+    'new',
   ];
 
   let processed = raw;
@@ -145,17 +225,19 @@ const formatColumnHeader = (raw: string): string => {
   }
 
   const words = processed
-    .replace(/([a-z])([A-Z])/g, '$1 $2')         // camelCase boundary
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')   // ACRONYM followed by Word
-    .replace(/_/g, ' ')                            // snake_case separator
+    .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase boundary
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2') // ACRONYM followed by Word
+    .replace(/_/g, ' ') // snake_case separator
     .split(/\s+/)
     .filter(Boolean);
 
-  return words.map(w => {
-    const lower = w.toLowerCase();
-    if (ABBREVIATIONS.has(lower)) return w.toUpperCase();
-    return lower.charAt(0).toUpperCase() + lower.slice(1);
-  }).join(' ');
+  return words
+    .map((w) => {
+      const lower = w.toLowerCase();
+      if (ABBREVIATIONS.has(lower)) return w.toUpperCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
 };
 
 /**
@@ -172,7 +254,7 @@ const renderReportValue = (value: unknown): string => {
     return String(value);
   }
   if (Array.isArray(value)) {
-    return value.map(v => renderReportValue(v)).join(', ');
+    return value.map((v) => renderReportValue(v)).join(', ');
   }
   if (typeof value === 'object') {
     return Object.entries(value as Record<string, unknown>)
@@ -194,77 +276,49 @@ const reportDefinitions: ReportPickerCard[] = [
     name: 'Tenant Overview',
     description: 'Status, plans, and metrics for all tenants',
     category: 'Tenant',
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-      </svg>
-    ),
+    icon: <Building2 className="w-6 h-6" aria-hidden="true" />,
   },
   {
     type: 'tenant_churn',
     name: 'Churn Analizi',
-    description: 'Iptal eden tenant\'lar ve nedenleri',
+    description: "Iptal eden tenant'lar ve nedenleri",
     category: 'Tenant',
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
-      </svg>
-    ),
+    icon: <TrendingUp className="w-6 h-6" aria-hidden="true" />,
   },
   {
     type: 'financial_revenue',
     name: 'Gelir Raporu',
     description: 'Gunluk gelir, abonelik ve iadeler',
     category: 'Financial',
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    icon: <DollarSign className="w-6 h-6" aria-hidden="true" />,
   },
   {
     type: 'financial_payments',
     name: 'Odeme Raporu',
     description: 'Fatura ve odeme durumlari',
     category: 'Financial',
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-      </svg>
-    ),
+    icon: <CreditCard className="w-6 h-6" aria-hidden="true" />,
   },
   {
     type: 'usage_modules',
     name: 'Modul Kullanimi',
     description: 'Her modulun kullanim istatistikleri',
     category: 'Usage',
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-      </svg>
-    ),
+    icon: <LayoutGrid className="w-6 h-6" aria-hidden="true" />,
   },
   {
     type: 'usage_features',
     name: 'Feature Adoption',
     description: 'Ozellik benimseme oranlari',
     category: 'Usage',
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
+    icon: <ChartColumn className="w-6 h-6" aria-hidden="true" />,
   },
   {
     type: 'system_performance',
     name: 'Sistem Performansi',
     description: 'API performansi, uptime ve hata oranlari',
     category: 'System',
-    icon: (
-      <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
+    icon: <ChartColumn className="w-6 h-6" aria-hidden="true" />,
   },
 ];
 
@@ -294,7 +348,9 @@ const ReportCard: React.FC<ReportCardProps> = ({ report, onGenerate }) => {
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
             <h3 className="font-semibold text-gray-900 dark:text-gray-100">{report.name}</h3>
-            <span className={`px-2 py-0.5 rounded text-xs font-medium ${categoryColors[report.category]}`}>
+            <span
+              className={`px-2 py-0.5 rounded text-xs font-medium ${categoryColors[report.category]}`}
+            >
               {report.category}
             </span>
           </div>
@@ -331,7 +387,11 @@ const ReportHistoryItem: React.FC<ReportHistoryItemProps> = ({ report, onDownloa
         <div className="flex items-center gap-2">
           <span className="font-medium text-gray-900 dark:text-gray-100">{report.title}</span>
           <Badge variant={statusColors[report.status] as 'success' | 'warning' | 'error'}>
-            {report.status === 'pending' ? 'Generating' : report.status === 'ready' ? 'Ready' : 'Failed'}
+            {report.status === 'pending'
+              ? 'Generating'
+              : report.status === 'ready'
+                ? 'Ready'
+                : 'Failed'}
           </Badge>
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400">
@@ -371,9 +431,10 @@ const ReportsPage: React.FC = () => {
 
   const categories = ['all', 'Tenant', 'Financial', 'Usage', 'System'];
 
-  const filteredReports = activeCategory === 'all'
-    ? reportDefinitions
-    : reportDefinitions.filter(r => r.category === activeCategory);
+  const filteredReports =
+    activeCategory === 'all'
+      ? reportDefinitions
+      : reportDefinitions.filter((r) => r.category === activeCategory);
 
   const handleOpenGenerateModal = (type: ReportType): void => {
     setSelectedReportType(type);
@@ -413,7 +474,13 @@ const ReportsPage: React.FC = () => {
 
   const runReport = useAdminMutation<
     ApiReportExecution,
-    { reportType: ReportType; reportName: string; format: ReportFormat; startDate: string; endDate: string }
+    {
+      reportType: ReportType;
+      reportName: string;
+      format: ReportFormat;
+      startDate: string;
+      endDate: string;
+    }
   >((input) => reportsApi.executeReport(input), {
     invalidateKeys: [adminKeys.reports.all()],
   });
@@ -494,10 +561,7 @@ const ReportsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <PageHeader
-        title="Reports"
-        description="Generate and download detailed reports"
-      />
+      <PageHeader title="Reports" description="Generate and download detailed reports" />
 
       {/* A failed history read, a refused execution, or a download the server
           would not produce — each named, with a retry. */}
@@ -509,7 +573,7 @@ const ReportsPage: React.FC = () => {
 
       {/* Category Tabs */}
       <div className="flex flex-wrap gap-2">
-        {categories.map(cat => (
+        {categories.map((cat) => (
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
@@ -526,12 +590,8 @@ const ReportsPage: React.FC = () => {
 
       {/* Report Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredReports.map(report => (
-          <ReportCard
-            key={report.type}
-            report={report}
-            onGenerate={handleOpenGenerateModal}
-          />
+        {filteredReports.map((report) => (
+          <ReportCard key={report.type} report={report} onGenerate={handleOpenGenerateModal} />
         ))}
       </div>
 
@@ -539,7 +599,7 @@ const ReportsPage: React.FC = () => {
       {generatedReports.length > 0 && (
         <Card title="Recently Generated Reports">
           <div className="divide-y">
-            {generatedReports.map(report => (
+            {generatedReports.map((report) => (
               <ReportHistoryItem
                 key={report.id}
                 report={report}
@@ -562,9 +622,10 @@ const ReportsPage: React.FC = () => {
             }}
             className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
           >
-            <svg className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+            <FileText
+              className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"
+              aria-hidden="true"
+            />
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Tenant CSV</p>
           </button>
           <button
@@ -573,9 +634,10 @@ const ReportsPage: React.FC = () => {
             }}
             className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-green-400 hover:bg-green-50 transition-colors text-center"
           >
-            <svg className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
+            <DollarSign
+              className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"
+              aria-hidden="true"
+            />
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Revenue CSV</p>
           </button>
           <button
@@ -584,9 +646,10 @@ const ReportsPage: React.FC = () => {
             }}
             className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition-colors text-center"
           >
-            <svg className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
+            <ChartColumn
+              className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"
+              aria-hidden="true"
+            />
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Usage CSV</p>
           </button>
           <button
@@ -595,9 +658,10 @@ const ReportsPage: React.FC = () => {
             }}
             className="p-4 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-lg hover:border-orange-400 hover:bg-orange-50 transition-colors text-center"
           >
-            <svg className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-            </svg>
+            <Sparkles
+              className="w-8 h-8 mx-auto text-gray-500 dark:text-gray-400 mb-2"
+              aria-hidden="true"
+            />
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Performance CSV</p>
           </button>
         </div>
@@ -622,16 +686,19 @@ const ReportsPage: React.FC = () => {
                 Report Type
               </p>
               <p className="text-gray-900 dark:text-gray-100 font-medium">
-                {reportDefinitions.find(r => r.type === selectedReportType)?.name}
+                {reportDefinitions.find((r) => r.type === selectedReportType)?.name}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {reportDefinitions.find(r => r.type === selectedReportType)?.description}
+                {reportDefinitions.find((r) => r.type === selectedReportType)?.description}
               </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label htmlFor="report-start-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label
+                  htmlFor="report-start-date"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                >
                   Start Date
                 </label>
                 <Input
@@ -639,12 +706,15 @@ const ReportsPage: React.FC = () => {
                   type="date"
                   value={dateRange.startDate}
                   onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setDateRange(prev => ({ ...prev, startDate: event.currentTarget.value }))
+                    setDateRange((prev) => ({ ...prev, startDate: event.currentTarget.value }))
                   }
                 />
               </div>
               <div>
-                <label htmlFor="report-end-date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label
+                  htmlFor="report-end-date"
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                >
                   End Date
                 </label>
                 <Input
@@ -652,7 +722,7 @@ const ReportsPage: React.FC = () => {
                   type="date"
                   value={dateRange.endDate}
                   onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
-                    setDateRange(prev => ({ ...prev, endDate: event.currentTarget.value }))
+                    setDateRange((prev) => ({ ...prev, endDate: event.currentTarget.value }))
                   }
                 />
               </div>
@@ -709,13 +779,19 @@ const ReportsPage: React.FC = () => {
             {/* Summary */}
             {selectedReport.summary && Object.keys(selectedReport.summary).length > 0 && (
               <div>
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Summary</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Summary
+                </h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {Object.entries(selectedReport.summary).map(([key, value]) => (
                     <div key={key} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">{formatColumnHeader(key)}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        {formatColumnHeader(key)}
+                      </p>
                       <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                        {typeof value === 'number' ? value.toLocaleString() : renderReportValue(value)}
+                        {typeof value === 'number'
+                          ? value.toLocaleString()
+                          : renderReportValue(value)}
                       </p>
                     </div>
                   ))}
@@ -729,11 +805,14 @@ const ReportsPage: React.FC = () => {
               {Array.isArray(selectedReport.data) && selectedReport.data.length > 0 ? (
                 <DataTable<Record<string, unknown>>
                   data={(selectedReport.data as Record<string, unknown>[]).slice(0, 10)}
-                  columns={Object.keys(selectedReport.data[0] as Record<string, unknown>).map((key) => ({
-                    key,
-                    header: formatColumnHeader(key),
-                    render: (_value: unknown, row: Record<string, unknown>) => renderReportValue(row[key]),
-                  }))}
+                  columns={Object.keys(selectedReport.data[0] as Record<string, unknown>).map(
+                    (key) => ({
+                      key,
+                      header: formatColumnHeader(key),
+                      render: (_value: unknown, row: Record<string, unknown>) =>
+                        renderReportValue(row[key]),
+                    }),
+                  )}
                   keyExtractor={(row) => JSON.stringify(row)}
                   searchable={false}
                   sortable={false}
@@ -743,7 +822,9 @@ const ReportsPage: React.FC = () => {
                 />
               ) : (
                 <div className="border rounded-lg">
-                  <p className="p-4 text-gray-500 dark:text-gray-400 text-center">No data available</p>
+                  <p className="p-4 text-gray-500 dark:text-gray-400 text-center">
+                    No data available
+                  </p>
                 </div>
               )}
               {Array.isArray(selectedReport.data) && selectedReport.data.length > 10 && (
@@ -757,9 +838,12 @@ const ReportsPage: React.FC = () => {
               <Button variant="secondary" onClick={() => setShowPreviewModal(false)}>
                 Close
               </Button>
-              <Button variant="primary" onClick={() => {
-                void handleDownload(selectedReport);
-              }}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void handleDownload(selectedReport);
+                }}
+              >
                 Download Report
               </Button>
             </div>

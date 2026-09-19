@@ -6,7 +6,15 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, KpiCard, useAuth, getTenantId, tenantScopedStorageKey, chartChrome, colors } from '@aquaculture/shared-ui';
+import {
+  Card,
+  KpiCard,
+  useAuth,
+  getTenantId,
+  tenantScopedStorageKey,
+  chartChrome,
+  colors,
+} from '@aquaculture/shared-ui';
 import {
   BarChart,
   Bar,
@@ -28,6 +36,7 @@ import {
   defaultChartVisibility,
 } from '../../tanks/components';
 import type { ChartVisibility } from '../../tanks/components';
+import { Plus } from 'lucide-react';
 
 // ============================================================================
 // Constants
@@ -66,9 +75,7 @@ interface TanksAnalyticsTabProps {
  */
 const NoDataPlaceholder: React.FC<{ label: string }> = ({ label }) => (
   <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
-    <svg className="w-12 h-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 12H4M12 4v16" />
-    </svg>
+    <Plus className="w-12 h-12 mb-2" aria-hidden="true" />
     <p className="text-sm">{label}</p>
   </div>
 );
@@ -91,19 +98,20 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   }, [tankData, totalTanks]);
 
   const avgMortalityRate = useMemo(() => {
-    const tanksWithRate = tankData.filter(t => t.mortalityRate != null);
+    const tanksWithRate = tankData.filter((t) => t.mortalityRate != null);
     if (tanksWithRate.length === 0) return null;
     const sum = tanksWithRate.reduce((acc, t) => acc + (t.mortalityRate ?? 0), 0);
     return Math.round((sum / tanksWithRate.length) * 10) / 10;
   }, [tankData]);
 
   // Biomass by tank -- top 10 sorted descending
-  const biomassByTank = useMemo(() =>
-    tankData
-      .filter(t => (t.biomass ?? 0) > 0)
-      .sort((a, b) => (b.biomass ?? 0) - (a.biomass ?? 0))
-      .slice(0, 10)
-      .map(t => ({ tank: t.name, biomass: Math.round((t.biomass ?? 0) * 10) / 10 })),
+  const biomassByTank = useMemo(
+    () =>
+      tankData
+        .filter((t) => (t.biomass ?? 0) > 0)
+        .sort((a, b) => (b.biomass ?? 0) - (a.biomass ?? 0))
+        .slice(0, 10)
+        .map((t) => ({ tank: t.name, biomass: Math.round((t.biomass ?? 0) * 10) / 10 })),
     [tankData],
   );
 
@@ -131,9 +139,18 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
   // every read/write below no-op — no shared 'default' bucket, so no cross-tenant bleed.
   const { tenantId: authTenantId } = useAuth();
   const tenantId = authTenantId ?? getTenantId();
-  const timeRangeKey = useMemo(() => tenantScopedStorageKey('tanks-chart-time-range', tenantId), [tenantId]);
-  const visibilityKey = useMemo(() => tenantScopedStorageKey('tanks-chart-visibility', tenantId), [tenantId]);
-  const selectedIdsKey = useMemo(() => tenantScopedStorageKey('tanks-chart-selected-ids', tenantId), [tenantId]);
+  const timeRangeKey = useMemo(
+    () => tenantScopedStorageKey('tanks-chart-time-range', tenantId),
+    [tenantId],
+  );
+  const visibilityKey = useMemo(
+    () => tenantScopedStorageKey('tanks-chart-visibility', tenantId),
+    [tenantId],
+  );
+  const selectedIdsKey = useMemo(
+    () => tenantScopedStorageKey('tanks-chart-selected-ids', tenantId),
+    [tenantId],
+  );
 
   // ============================================================================
   // CHART SETTINGS STATE
@@ -161,9 +178,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
             defaultChartVisibility,
             Object.fromEntries(
               Object.entries(parsed as Record<string, unknown>).filter(
-                ([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype'
-              )
-            )
+                ([k]) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype',
+              ),
+            ),
           );
           return safe as ChartVisibility;
         }
@@ -183,18 +200,23 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
       const saved = selectedIdsKey ? localStorage.getItem(selectedIdsKey) : null;
       if (saved) {
         let parsedIds: unknown;
-        try { parsedIds = JSON.parse(saved); } catch { parsedIds = null; }
-        const savedIds = Array.isArray(parsedIds) && parsedIds.every(x => typeof x === 'string')
-          ? (parsedIds as string[])
-          : [];
-        const validIds = savedIds.filter(id => tankData.some(t => t.id === id));
+        try {
+          parsedIds = JSON.parse(saved);
+        } catch {
+          parsedIds = null;
+        }
+        const savedIds =
+          Array.isArray(parsedIds) && parsedIds.every((x) => typeof x === 'string')
+            ? (parsedIds as string[])
+            : [];
+        const validIds = savedIds.filter((id) => tankData.some((t) => t.id === id));
         if (validIds.length > 0) {
           setChartSelectedTankIds(validIds);
         } else {
-          setChartSelectedTankIds(tankData.map(t => t.id));
+          setChartSelectedTankIds(tankData.map((t) => t.id));
         }
       } else {
-        setChartSelectedTankIds(tankData.map(t => t.id));
+        setChartSelectedTankIds(tankData.map((t) => t.id));
       }
     }
   }, [tankData, selectedIdsKey]);
@@ -217,11 +239,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
     <div className="space-y-6">
       {/* KPI Row -- derived from real tankData */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          title="Total Tanks"
-          value={totalTanks}
-          variant="primary"
-        />
+        <KpiCard title="Total Tanks" value={totalTanks} variant="primary" />
         <KpiCard
           title="Avg. Biomass"
           value={totalTanks > 0 ? `${avgBiomass} kg` : 'N/A'}
@@ -229,7 +247,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         />
         <KpiCard
           title="Active Tanks"
-          value={tankData.filter(t => t.isActive).length}
+          value={tankData.filter((t) => t.isActive).length}
           variant="info"
         />
         <KpiCard
@@ -244,8 +262,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         {/* Biomass by Tank */}
         <Card>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Biomass by Tank</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Top 10 tanks by current biomass (kg)</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Biomass by Tank
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Top 10 tanks by current biomass (kg)
+            </p>
           </div>
           <div className="p-4">
             {biomassByTank.length > 0 ? (
@@ -255,7 +277,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
                   <XAxis type="number" stroke={chartChrome.axis} />
                   <YAxis dataKey="tank" type="category" stroke={chartChrome.axis} width={80} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="biomass" name="Biomass (kg)" fill={colors.primary[500]} radius={[0, 4, 4, 0]} />
+                  <Bar
+                    dataKey="biomass"
+                    name="Biomass (kg)"
+                    fill={colors.primary[500]}
+                    radius={[0, 4, 4, 0]}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -267,8 +294,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         {/* Tank Status Distribution */}
         <Card>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tank Status Distribution</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Current operational status of all tanks</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Tank Status Distribution
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Current operational status of all tanks
+            </p>
           </div>
           <div className="p-4">
             {tankStatusData.length > 0 ? (
@@ -303,8 +334,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         {/* Water Temperature Trend */}
         <Card>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Water Temperature Trend</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Daily average temperature over 30 days</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Water Temperature Trend
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Daily average temperature over 30 days
+            </p>
           </div>
           <div className="p-4">
             <NoDataPlaceholder label="No water temperature data available yet" />
@@ -314,8 +349,12 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
         {/* Mortality Trend */}
         <Card>
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Mortality Trend</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Daily mortality count and cumulative total</p>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Mortality Trend
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Daily mortality count and cumulative total
+            </p>
           </div>
           <div className="p-4">
             <NoDataPlaceholder label="No mortality trend data available yet" />

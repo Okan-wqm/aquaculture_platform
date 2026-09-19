@@ -15,6 +15,7 @@ import { WelfareEventModal } from '../components/modals';
 import { SubmissionHistorySection } from '../components/SubmissionHistorySection';
 import { ProvenanceBadge } from '../components/common';
 import { useTanksList } from '../../../hooks/useTanks';
+import { Plus, TriangleAlert } from 'lucide-react';
 
 /**
  * Map the modal's internal domain values to the GraphQL enum WIRE names (the
@@ -62,7 +63,8 @@ export const WelfareAssembledReview: React.FC<{
 }> = ({ prefill }) => {
   if (!prefill) return null;
   const p = prefill.draftPayload;
-  const meta = (path: string): ReturnType<typeof findFieldMeta> => findFieldMeta(prefill.fields, path);
+  const meta = (path: string): ReturnType<typeof findFieldMeta> =>
+    findFieldMeta(prefill.fields, path);
 
   if (!p.assessmentId) {
     return (
@@ -86,7 +88,9 @@ export const WelfareAssembledReview: React.FC<{
 
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">Assembled from the latest assessment</h3>
+      <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-1">
+        Assembled from the latest assessment
+      </h3>
       <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
         Indicator scores and the derived severity come from the welfare assessment — read-only here;
         corrections go to Fish Health.
@@ -100,7 +104,9 @@ export const WelfareAssembledReview: React.FC<{
                 <span>{row.label}</span>
                 {m && <ProvenanceBadge meta={m} />}
               </dt>
-              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">{row.value}</dd>
+              <dd className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+                {row.value}
+              </dd>
             </div>
           );
         })}
@@ -139,7 +145,10 @@ interface MortalityWarningBannerProps {
   onCreateReport: () => void;
 }
 
-const MortalityWarningBanner: React.FC<MortalityWarningBannerProps> = ({ tankNames, onCreateReport }) => {
+const MortalityWarningBanner: React.FC<MortalityWarningBannerProps> = ({
+  tankNames,
+  onCreateReport,
+}) => {
   if (tankNames.length === 0) return null;
 
   const displayNames = tankNames.slice(0, 5).join(', ');
@@ -149,19 +158,12 @@ const MortalityWarningBanner: React.FC<MortalityWarningBannerProps> = ({ tankNam
     <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-6">
       <div className="flex items-start">
         <div className="flex-shrink-0">
-          <svg className="h-5 w-5 text-amber-500 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-            <path
-              fillRule="evenodd"
-              d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-              clipRule="evenodd"
-            />
-          </svg>
+          <TriangleAlert className="h-5 w-5 text-amber-500 mt-0.5" aria-hidden="true" />
         </div>
         <div className="ml-3 flex-1">
           <p className="text-sm font-medium text-amber-800">
             Elevated mortality detected in {displayNames}
-            {remaining > 0 && ` and ${remaining} more`}
-            . Review and report if threshold exceeded.
+            {remaining > 0 && ` and ${remaining} more`}. Review and report if threshold exceeded.
           </p>
           <div className="mt-2">
             <button
@@ -190,13 +192,7 @@ const ThresholdAlert: React.FC<ThresholdAlertProps> = ({ onCreateReport }) => (
   <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
     <div className="flex">
       <div className="flex-shrink-0">
-        <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-          <path
-            fillRule="evenodd"
-            d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-            clipRule="evenodd"
-          />
-        </svg>
+        <TriangleAlert className="h-5 w-5 text-red-400" aria-hidden="true" />
       </div>
       <div className="ml-3 flex-1">
         <h3 className="text-sm font-medium text-red-800">Reporting Thresholds</h3>
@@ -257,7 +253,7 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
       .filter(
         (t) =>
           t.batchMetrics?.mortalityRate != null &&
-          t.batchMetrics.mortalityRate >= MORTALITY_THRESHOLDS.DAILY.ELEVATED
+          t.batchMetrics.mortalityRate >= MORTALITY_THRESHOLDS.DAILY.ELEVATED,
       )
       .map((t) => t.name);
   }, [tanks]);
@@ -315,13 +311,14 @@ export const WelfareEventTab: React.FC<WelfareEventTabProps> = ({ siteId }) => {
         <div>
           <h2 className="text-lg font-medium text-gray-900 dark:text-gray-100">Welfare Events</h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-            Immediate reporting required for welfare incidents to {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
+            Immediate reporting required for welfare incidents to{' '}
+            {REGULATORY_CONTACTS.MATTILSYNET_EMAIL}
           </p>
         </div>
-        <Button variant="danger" type="button" onClick={handleCreateReport}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Report Event</Button>
+        <Button variant="danger" type="button" onClick={handleCreateReport}>
+          <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+          Report Event
+        </Button>
       </div>
 
       {/* Mortality Warning Banner */}

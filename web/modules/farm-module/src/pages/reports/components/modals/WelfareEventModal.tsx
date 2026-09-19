@@ -13,6 +13,7 @@ import {
 import { REGULATORY_CONTACTS, MORTALITY_THRESHOLDS } from '../../utils/thresholds';
 import { useTanksList, Tank } from '../../../../hooks/useTanks';
 import { useBatchList, Batch } from '../../../../hooks/useBatches';
+import { Check as CheckIcon, Plus, X } from 'lucide-react';
 
 interface WelfareEventModalProps {
   isOpen: boolean;
@@ -407,8 +408,12 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   className="mt-0.5 h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600"
                 />
                 <div className="ml-3">
-                  <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">{option.label}</span>
-                  <span className="block text-xs text-gray-500 dark:text-gray-400">{option.description}</span>
+                  <span className="block text-sm font-medium text-gray-900 dark:text-gray-100">
+                    {option.label}
+                  </span>
+                  <span className="block text-xs text-gray-500 dark:text-gray-400">
+                    {option.description}
+                  </span>
                 </div>
               </label>
             ))}
@@ -522,9 +527,18 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
             </div>
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Period</label>
-              <Select fullWidth options={[{ value: '1_day', label: '1 Day' }, { value: '3_day', label: '3 Days' }, { value: '7_day', label: '7 Days' }]} value={formData.mortalityPeriod} onChange={(e) =>
-         handleChange('mortalityPeriod', e.target.value as '1_day' | '3_day' | '7_day')
-        } />
+              <Select
+                fullWidth
+                options={[
+                  { value: '1_day', label: '1 Day' },
+                  { value: '3_day', label: '3 Days' },
+                  { value: '7_day', label: '7 Days' },
+                ]}
+                value={formData.mortalityPeriod}
+                onChange={(e) =>
+                  handleChange('mortalityPeriod', e.target.value as '1_day' | '3_day' | '7_day')
+                }
+              />
             </div>
 
             {/* Threshold comparison */}
@@ -618,11 +632,15 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
 
         {formData.eventType === 'equipment_failure' && (
           <div className="space-y-4 p-4 bg-yellow-50 rounded-md border border-yellow-200">
-            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Equipment Details</h4>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              Equipment Details
+            </h4>
 
             {/* Equipment Type Quick Select */}
             <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Equipment Type</label>
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                Equipment Type
+              </label>
               <div className="flex flex-wrap gap-2 mb-2">
                 {EQUIPMENT_TYPE_OPTIONS.map((type) => (
                   <button
@@ -702,24 +720,50 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Injured Fish</label>
-                <Input fullWidth type="number" value={formData.injuredFishCount} onChange={(e) => handleChange('injuredFishCount', e.target.value)} placeholder="0" />
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                  Injured Fish
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  value={formData.injuredFishCount}
+                  onChange={(e) => handleChange('injuredFishCount', e.target.value)}
+                  placeholder="0"
+                />
               </div>
               <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Mortality Count</label>
-                <Input fullWidth type="number" value={formData.mortalityCount} onChange={(e) => handleChange('mortalityCount', e.target.value)} placeholder="0" />
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                  Mortality Count
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  value={formData.mortalityCount}
+                  onChange={(e) => handleChange('mortalityCount', e.target.value)}
+                  placeholder="0"
+                />
               </div>
             </div>
             <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Description</label>
-              <Textarea fullWidth value={formData.description} onChange={(e) => handleChange('description', e.target.value)} rows={2} placeholder="Describe the equipment failure and its impact..." />
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                Description
+              </label>
+              <Textarea
+                fullWidth
+                value={formData.description}
+                onChange={(e) => handleChange('description', e.target.value)}
+                rows={2}
+                placeholder="Describe the equipment failure and its impact..."
+              />
             </div>
           </div>
         )}
 
         {formData.eventType === 'welfare_impact' && (
           <div className="space-y-4 p-4 bg-blue-50 rounded-md border border-blue-200">
-            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">Welfare Impact Details</h4>
+            <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              Welfare Impact Details
+            </h4>
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
                 Description <span className="text-red-500">*</span>
@@ -760,8 +804,17 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                 )}
               </div>
               <div>
-                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Affected Percentage (%)</label>
-                <Input fullWidth type="number" step="0.1" value={formData.affectedPercentage} onChange={(e) => handleChange('affectedPercentage', e.target.value)} placeholder="e.g., 15" />
+                <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                  Affected Percentage (%)
+                </label>
+                <Input
+                  fullWidth
+                  type="number"
+                  step="0.1"
+                  value={formData.affectedPercentage}
+                  onChange={(e) => handleChange('affectedPercentage', e.target.value)}
+                  placeholder="e.g., 15"
+                />
               </div>
             </div>
 
@@ -798,36 +851,12 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
                   >
                     {isAdded ? (
                       <span className="flex items-center gap-1">
-                        <svg
-                          className="w-3 h-3"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 13l4 4L19 7"
-                          />
-                        </svg>
+                        <CheckIcon className="w-3 h-3" aria-hidden="true" />
                         {action}
                       </span>
                     ) : (
                       <span className="flex items-center gap-1">
-                        <svg
-                          className="w-3 h-3"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                          />
-                        </svg>
+                        <Plus className="w-3 h-3" aria-hidden="true" />
                         {action}
                       </span>
                     )}
@@ -845,26 +874,30 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
           </label>
           <div className="space-y-2">
             {formData.immediateActions.map((action, index) => (
-              <div key={index} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md">
+              <div
+                key={index}
+                className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md"
+              >
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{action}</span>
-                <Button variant="ghost" type="button" onClick={() => removeAction(index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg></Button>
+                <Button variant="ghost" type="button" onClick={() => removeAction(index)}>
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </Button>
               </div>
             ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <Input type="text" value={formData.newAction} onChange={(e) => handleChange('newAction', e.target.value)} onKeyPress={(e) => {
-        if (e.key === 'Enter') {
-         e.preventDefault();
-         addAction();
-        }
-       }} placeholder="Add an action taken..." />
+            <Input
+              type="text"
+              value={formData.newAction}
+              onChange={(e) => handleChange('newAction', e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addAction();
+                }
+              }}
+              placeholder="Add an action taken..."
+            />
             <button
               type="button"
               onClick={addAction}
@@ -884,15 +917,19 @@ export const WelfareEventModal: React.FC<WelfareEventModalProps> = ({
           This report will be sent to Mattilsynet immediately upon submission.
         </p>
         <div className="flex gap-3">
-          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-          <Button variant="danger" type="button" onClick={handleSubmit} disabled={isSubmitting}>{isSubmitting ? (
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button variant="danger" type="button" onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? (
               <>
                 <Spinner size="sm" color="inherit" />
                 Submitting...
               </>
             ) : (
               'Submit Report'
-            )}</Button>
+            )}
+          </Button>
         </div>
       </div>
     </Modal>

@@ -8,6 +8,30 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import type { NavigationItem, UserRole } from '../../types';
 import { useI18n } from '../../i18n';
 import { useDialogBehavior } from '../Modal/useDialogBehavior';
+import {
+  Activity,
+  Bell,
+  Building2,
+  Calendar,
+  ChartColumn,
+  ChevronDown,
+  ChevronsLeft,
+  ClipboardList,
+  Cpu,
+  CreditCard,
+  Database,
+  FileChartColumn,
+  House,
+  LayoutTemplate,
+  LifeBuoy,
+  MessageCircle,
+  Settings,
+  ShieldCheck,
+  SlidersVertical,
+  Sprout,
+  Users,
+  X,
+} from 'lucide-react';
 
 // Alias for backward compatibility
 type NavItem = NavigationItem;
@@ -75,148 +99,34 @@ export interface SidebarProps {
  * Default icons (keyed by icon name string)
  */
 const defaultIcons: Record<string, React.ReactNode> = {
-  dashboard: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-    </svg>
-  ),
-  farm: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-    </svg>
-  ),
-  sensor: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-    </svg>
-  ),
-  alert: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-    </svg>
-  ),
-  process: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-    </svg>
-  ),
-  admin: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  ),
-  users: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-    </svg>
-  ),
-  billing: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-    </svg>
-  ),
-  reports: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-    </svg>
-  ),
+  dashboard: <House className="w-5 h-5" aria-hidden="true" />,
+  farm: <Building2 className="w-5 h-5" aria-hidden="true" />,
+  sensor: <ChartColumn className="w-5 h-5" aria-hidden="true" />,
+  alert: <Bell className="w-5 h-5" aria-hidden="true" />,
+  process: <LayoutTemplate className="w-5 h-5" aria-hidden="true" />,
+  admin: <Settings className="w-5 h-5" aria-hidden="true" />,
+  users: <Users className="w-5 h-5" aria-hidden="true" />,
+  billing: <CreditCard className="w-5 h-5" aria-hidden="true" />,
+  reports: <FileChartColumn className="w-5 h-5" aria-hidden="true" />,
   // Additional icons for Admin Panel
-  analytics: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-    </svg>
-  ),
-  tenants: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-    </svg>
-  ),
-  building: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-    </svg>
-  ),
-  support: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
-    </svg>
-  ),
-  security: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-    </svg>
-  ),
-  shield: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-    </svg>
-  ),
-  system: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  ),
-  database: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-    </svg>
-  ),
-  modules: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-    </svg>
-  ),
-  grid: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
-    </svg>
-  ),
-  audit: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-    </svg>
-  ),
-  clipboard: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-    </svg>
-  ),
-  settings: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-    </svg>
-  ),
-  messages: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-    </svg>
-  ),
-  sprout: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 22V12M12 12C12 12 8 8 4 8c0 4 4 8 8 8zM12 12c0 0 4-4 8-4c0 4-4 8-8 8z" />
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c0-2-1-4-4-6c0 3 1 5 4 6zM12 8c0-2 1-4 4-6c0 3-1 5-4 6z" />
-    </svg>
-  ),
-  activity: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M22 12h-4l-3 9L9 3l-3 9H2" />
-    </svg>
-  ),
-  cpu: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <rect x="4" y="4" width="16" height="16" rx="2" strokeWidth={2} />
-      <rect x="9" y="9" width="6" height="6" strokeWidth={2} />
-      <path strokeLinecap="round" strokeWidth={2} d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3" />
-    </svg>
-  ),
-  calendar: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <rect x="3" y="4" width="18" height="18" rx="2" strokeWidth={2} />
-      <path strokeLinecap="round" strokeWidth={2} d="M16 2v4M8 2v4M3 10h18" />
-    </svg>
-  ),
+  analytics: <ChartColumn className="w-5 h-5" aria-hidden="true" />,
+  tenants: <Building2 className="w-5 h-5" aria-hidden="true" />,
+  building: <Building2 className="w-5 h-5" aria-hidden="true" />,
+  support: <LifeBuoy className="w-5 h-5" aria-hidden="true" />,
+  security: <ShieldCheck className="w-5 h-5" aria-hidden="true" />,
+  shield: <ShieldCheck className="w-5 h-5" aria-hidden="true" />,
+  system: <Settings className="w-5 h-5" aria-hidden="true" />,
+  database: <Database className="w-5 h-5" aria-hidden="true" />,
+  modules: <LayoutTemplate className="w-5 h-5" aria-hidden="true" />,
+  grid: <LayoutTemplate className="w-5 h-5" aria-hidden="true" />,
+  audit: <ClipboardList className="w-5 h-5" aria-hidden="true" />,
+  clipboard: <ClipboardList className="w-5 h-5" aria-hidden="true" />,
+  settings: <SlidersVertical className="w-5 h-5" aria-hidden="true" />,
+  messages: <MessageCircle className="w-5 h-5" aria-hidden="true" />,
+  sprout: <Sprout className="w-5 h-5" aria-hidden="true" />,
+  activity: <Activity className="w-5 h-5" aria-hidden="true" />,
+  cpu: <Cpu className="w-5 h-5" aria-hidden="true" />,
+  calendar: <Calendar className="w-5 h-5" aria-hidden="true" />,
 };
 
 /**
@@ -273,13 +183,22 @@ const MenuItem: React.FC<{
   userRoles?: UserRole[];
   theme?: SidebarTheme;
   customIcons?: Record<string, React.ReactNode>;
-}> = ({ item, activePath, collapsed, depth = 0, onNavigate, userRoles = [], theme = 'default', customIcons }) => {
+}> = ({
+  item,
+  activePath,
+  collapsed,
+  depth = 0,
+  onNavigate,
+  userRoles = [],
+  theme = 'default',
+  customIcons,
+}) => {
   const hasChildren = !!item.children?.length;
   const childItems = item.children ?? [];
 
   // Access check — computed as a boolean (no useCallback overhead for a sync value)
-  const hasAccess = !item.requiredRoles?.length ||
-    item.requiredRoles.some((role) => userRoles.includes(role));
+  const hasAccess =
+    !item.requiredRoles?.length || item.requiredRoles.some((role) => userRoles.includes(role));
 
   const pathMatches = (path?: string): boolean => {
     if (!path || !activePath) return false;
@@ -299,7 +218,7 @@ const MenuItem: React.FC<{
 
   const handleClick = useCallback(() => {
     if (hasChildren) {
-      setIsExpanded(prev => !prev);
+      setIsExpanded((prev) => !prev);
     } else if (item.path) {
       if (item.isExternal) {
         window.open(item.path, '_blank', 'noopener,noreferrer');
@@ -322,11 +241,7 @@ const MenuItem: React.FC<{
     px-3 py-2 rounded-lg
     text-sm font-medium
     transition-colors duration-200
-    ${
-      isActive || isChildActive
-        ? colors.active
-        : colors.hover
-    }
+    ${isActive || isChildActive ? colors.active : colors.hover}
     ${depth > 0 ? 'ml-4' : ''}
   `;
 
@@ -340,9 +255,7 @@ const MenuItem: React.FC<{
           </span>
         )}
         {/* Label */}
-        {!collapsed && (
-          <span className="truncate">{item.label}</span>
-        )}
+        {!collapsed && <span className="truncate">{item.label}</span>}
       </div>
 
       {/* Badge and chevron */}
@@ -354,14 +267,10 @@ const MenuItem: React.FC<{
             </span>
           )}
           {hasChildren && (
-            <svg
+            <ChevronDown
               className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+              aria-hidden="true"
+            />
           )}
         </div>
       )}
@@ -371,19 +280,23 @@ const MenuItem: React.FC<{
   return (
     <div>
       {isInert ? (
-        <span className={`${baseClasses} cursor-default`} aria-disabled="true" title={collapsed ? item.label : undefined}>
+        <span
+          className={`${baseClasses} cursor-default`}
+          aria-disabled="true"
+          title={collapsed ? item.label : undefined}
+        >
           {itemContent}
         </span>
       ) : (
-      <button
-        onClick={handleClick}
-        className={baseClasses}
-        title={collapsed ? item.label : undefined}
-        aria-current={isActive ? 'page' : undefined}
-        aria-expanded={hasChildren ? isExpanded : undefined}
-      >
-        {itemContent}
-      </button>
+        <button
+          onClick={handleClick}
+          className={baseClasses}
+          title={collapsed ? item.label : undefined}
+          aria-current={isActive ? 'page' : undefined}
+          aria-expanded={hasChildren ? isExpanded : undefined}
+        >
+          {itemContent}
+        </button>
       )}
 
       {/* Sub-menu */}
@@ -473,7 +386,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   // Escape, focus into the panel, focus back to the opener on close and the
   // body scroll lock come from the hook Modal and Drawer share — one open-
   // surface behaviour, not a third copy.
-  useDialogBehavior({ isOpen: mobileOpen, onClose: closeOverlay, closeOnEscape: true, containerRef: asideRef });
+  useDialogBehavior({
+    isOpen: mobileOpen,
+    onClose: closeOverlay,
+    closeOnEscape: true,
+    containerRef: asideRef,
+  });
 
   // The overlay is a phone-width surface. Once the viewport grows past `md`
   // the in-flow column is on screen again, so an open overlay would show the
@@ -528,7 +446,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         `}
       >
         {/* Logo, the overlay's close button and the column's collapse button */}
-        <div className={`h-16 flex items-center ${rail ? 'justify-center' : 'justify-between px-4'} border-b ${themeStyle.border}`}>
+        <div
+          className={`h-16 flex items-center ${rail ? 'justify-center' : 'justify-between px-4'} border-b ${themeStyle.border}`}
+        >
           {!rail && logo}
           <div className="flex items-center">
             <button
@@ -537,9 +457,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className={`md:hidden p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 ${themeStyle.toggleHover} rounded-lg`}
               aria-label={t('header.closeNavigation')}
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="w-5 h-5" aria-hidden="true" />
             </button>
             {onCollapsedChange && (
               <button
@@ -549,15 +467,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title={collapsed ? 'Expand' : 'Collapse'}
                 aria-label={collapsed ? t('sidebar.expand') : t('sidebar.collapse')}
               >
-                <svg
+                <ChevronsLeft
                   className={`w-5 h-5 transition-transform ${collapsed ? 'rotate-180' : ''}`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
                   aria-hidden="true"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                </svg>
+                />
               </button>
             )}
           </div>

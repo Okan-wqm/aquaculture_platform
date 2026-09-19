@@ -7,6 +7,7 @@
 import React, { useState, useCallback, ReactNode } from 'react';
 import { Modal, Spinner, Button } from '@aquaculture/shared-ui';
 import { WizardStepIndicator, WizardStep } from './WizardStepIndicator';
+import { CircleX, X } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -199,23 +200,13 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
           {displayError && (
             <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
               <div className="flex">
-                <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                  <path
-                    fillRule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clipRule="evenodd"
-                  />
-                </svg>
+                <CircleX className="h-5 w-5 text-red-400" aria-hidden="true" />
                 <div className="ml-3">
                   <p className="text-sm text-red-700">{displayError}</p>
                 </div>
-                <Button variant="ghost" type="button" onClick={clearErrors}><svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path
-                      fillRule="evenodd"
-                      d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                      clipRule="evenodd"
-                    />
-                  </svg></Button>
+                <Button variant="ghost" type="button" onClick={clearErrors}>
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </Button>
               </div>
             </div>
           )}
@@ -227,27 +218,44 @@ export const ReportWizard: React.FC<ReportWizardProps> = ({
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
           {/* Left side - Back/Cancel */}
-          <Button variant="secondary" type="button" onClick={currentStep === 0 ? handleClose : prevStep}>{currentStep === 0 ? 'Cancel' : 'Back'}</Button>
+          <Button
+            variant="secondary"
+            type="button"
+            onClick={currentStep === 0 ? handleClose : prevStep}
+          >
+            {currentStep === 0 ? 'Cancel' : 'Back'}
+          </Button>
 
           {/* Right side - Skip/Next/Submit */}
           <div className="flex items-center space-x-3">
             {/* Skip button for optional steps */}
             {currentStepData?.optional && !isLastStep && (
-              <Button variant="ghost" type="button" onClick={nextStep}>Skip</Button>
+              <Button variant="ghost" type="button" onClick={nextStep}>
+                Skip
+              </Button>
             )}
 
             {/* Next/Submit button */}
             {isLastStep ? (
-              <Button variant="primary" type="button" onClick={handleSubmit} disabled={isSubmitting || !canProceed}>{isSubmitting ? (
+              <Button
+                variant="primary"
+                type="button"
+                onClick={handleSubmit}
+                disabled={isSubmitting || !canProceed}
+              >
+                {isSubmitting ? (
                   <span className="flex items-center">
                     <Spinner size="sm" color="white" className="-ml-1 mr-2" />
                     Submitting...
                   </span>
                 ) : (
                   submitButtonText
-                )}</Button>
+                )}
+              </Button>
             ) : (
-              <Button variant="primary" type="button" onClick={nextStep} disabled={!canProceed}>Next</Button>
+              <Button variant="primary" type="button" onClick={nextStep} disabled={!canProceed}>
+                Next
+              </Button>
             )}
           </div>
         </div>

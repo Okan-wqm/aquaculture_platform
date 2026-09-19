@@ -19,6 +19,7 @@ import {
   CustomPlan,
   CustomPlanStatus,
 } from '../services/adminApi';
+import { ChevronLeft, CircleCheck } from 'lucide-react';
 
 // ============================================================================
 // Types
@@ -170,9 +171,7 @@ const CustomPlanBuilderPage: React.FC = () => {
       // 1.0) that came from no sheet at all, so a failed call quietly showed a
       // price the server would not have charged.
       setPricing(null);
-      setPricingError(
-        err instanceof Error ? err.message : 'Could not price this plan right now',
-      );
+      setPricingError(err instanceof Error ? err.message : 'Could not price this plan right now');
     } finally {
       setCalculating(false);
     }
@@ -224,13 +223,15 @@ const CustomPlanBuilderPage: React.FC = () => {
     }
   };
 
-  const updateModuleQuantity = (moduleCode: string, field: keyof ModuleQuantities, value: number) => {
+  const updateModuleQuantity = (
+    moduleCode: string,
+    field: keyof ModuleQuantities,
+    value: number,
+  ) => {
     setConfig({
       ...config,
       modules: config.modules.map((m) =>
-        m.moduleCode === moduleCode
-          ? { ...m, quantities: { ...m.quantities, [field]: value } }
-          : m
+        m.moduleCode === moduleCode ? { ...m, quantities: { ...m.quantities, [field]: value } } : m,
       ),
     });
   };
@@ -335,9 +336,7 @@ const CustomPlanBuilderPage: React.FC = () => {
             onClick={() => navigate('/admin/billing/custom-plans')}
             className="text-sm text-blue-600 hover:text-blue-800 mb-1 flex items-center gap-1"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
+            <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             Back to Custom Plans
           </button>
         }
@@ -383,7 +382,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Description
+                </label>
                 <Input
                   placeholder="Description..."
                   value={config.description}
@@ -391,7 +392,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tier</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Tier
+                </label>
                 <select
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   value={config.tier}
@@ -404,11 +407,15 @@ const CustomPlanBuilderPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Billing Cycle</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Billing Cycle
+                </label>
                 <select
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                   value={config.billingCycle}
-                  onChange={(e) => setConfig({ ...config, billingCycle: e.target.value as BillingCycle })}
+                  onChange={(e) =>
+                    setConfig({ ...config, billingCycle: e.target.value as BillingCycle })
+                  }
                 >
                   <option value={BillingCycle.MONTHLY}>Monthly</option>
                   <option value={BillingCycle.QUARTERLY}>Quarterly (5% off)</option>
@@ -417,7 +424,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valid From</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Valid From
+                </label>
                 <Input
                   type="date"
                   value={config.validFrom}
@@ -425,7 +434,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valid To (Optional)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Valid To (Optional)
+                </label>
                 <Input
                   type="date"
                   value={config.validTo}
@@ -459,16 +470,12 @@ const CustomPlanBuilderPage: React.FC = () => {
                       <div className="text-2xl">{module.moduleIcon || '📦'}</div>
                       <div className="flex-1">
                         <div className="font-medium">{module.moduleName}</div>
-                        <div className="text-sm text-gray-500 dark:text-gray-400">{formatCurrency(Number(basePrice))}/mo base</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">
+                          {formatCurrency(Number(basePrice))}/mo base
+                        </div>
                       </div>
                       {isSelected && (
-                        <svg className="w-6 h-6 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                          <path
-                            fillRule="evenodd"
-                            d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
+                        <CircleCheck className="w-6 h-6 text-blue-600" aria-hidden="true" />
                       )}
                     </div>
                   </div>
@@ -484,12 +491,15 @@ const CustomPlanBuilderPage: React.FC = () => {
               <div className="space-y-6">
                 {config.modules.map((selectedModule) => {
                   const modulePricing = availableModules.find(
-                    (m) => m.moduleCode === selectedModule.moduleCode
+                    (m) => m.moduleCode === selectedModule.moduleCode,
                   );
                   if (!modulePricing) return null;
 
                   return (
-                    <div key={selectedModule.moduleCode} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                    <div
+                      key={selectedModule.moduleCode}
+                      className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                    >
                       <div className="flex items-center gap-2 mb-4">
                         <span className="text-xl">{modulePricing.moduleIcon || '📦'}</span>
                         <span className="font-medium">{modulePricing.moduleName}</span>
@@ -519,7 +529,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                                     updateModuleQuantity(
                                       selectedModule.moduleCode,
                                       field,
-                                      parseInt(e.target.value) || 0
+                                      parseInt(e.target.value) || 0,
                                     )
                                   }
                                 />
@@ -539,7 +549,9 @@ const CustomPlanBuilderPage: React.FC = () => {
             <h2 className="text-lg font-semibold mb-4">Discounts (Optional)</h2>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Discount %</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Discount %
+                </label>
                 <Input
                   type="number"
                   min={0}
@@ -550,7 +562,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fixed Discount ($)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Fixed Discount ($)
+                </label>
                 <Input
                   type="number"
                   min={0}
@@ -560,7 +574,9 @@ const CustomPlanBuilderPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Discount Reason</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Discount Reason
+                </label>
                 <Input
                   placeholder="Early adopter discount"
                   value={config.discountReason}
@@ -590,7 +606,7 @@ const CustomPlanBuilderPage: React.FC = () => {
                 <div className="space-y-3 mb-6">
                   {config.modules.map((m) => {
                     const modulePricing = availableModules.find(
-                      (mp) => mp.moduleCode === m.moduleCode
+                      (mp) => mp.moduleCode === m.moduleCode,
                     );
                     const basePrice =
                       modulePricing?.metrics.find(
@@ -661,7 +677,13 @@ const CustomPlanBuilderPage: React.FC = () => {
                     variant="primary"
                     className="w-full"
                     onClick={handleSavePlan}
-                    disabled={saving || savingDraft || !config.tenantId || !config.name || config.modules.length === 0}
+                    disabled={
+                      saving ||
+                      savingDraft ||
+                      !config.tenantId ||
+                      !config.name ||
+                      config.modules.length === 0
+                    }
                   >
                     {saving ? 'Creating...' : 'Create & Submit for Approval'}
                   </Button>

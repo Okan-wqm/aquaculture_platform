@@ -16,8 +16,19 @@ import {
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList, type Feed } from '../../../hooks/useFeeds';
 import { isBlockingError } from '../../../utils/list-view-state';
-import { Modal, useAuth, DataTable, type DataTableColumn, Spinner, Button, Input, Select, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useAuth,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import type { Batch } from '../../../hooks/useBatches';
+import { Plus } from 'lucide-react';
 
 // ============================================================================
 // TYPES
@@ -263,10 +274,12 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
       align: 'right',
       render: (_value, record) => (
         <>
-          <Button variant="ghost" onClick={() => handleEdit(record)}>Edit</Button>
+          <Button variant="ghost" onClick={() => handleEdit(record)}>
+            Edit
+          </Button>
         </>
       ),
-    }
+    },
   ];
 
   return (
@@ -292,21 +305,31 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
         <div className="flex items-center space-x-4">
           {/* Date Range */}
           <div className="flex items-center space-x-2">
-            <Input type="date" value={startDate} onChange={(e) => {
-        setStartDate(e.target.value);
-        setPage(1);
-       }} placeholder="Start Date" />
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                setStartDate(e.target.value);
+                setPage(1);
+              }}
+              placeholder="Start Date"
+            />
             <span className="text-gray-500 dark:text-gray-400">to</span>
-            <Input type="date" value={endDate} onChange={(e) => {
-        setEndDate(e.target.value);
-        setPage(1);
-       }} placeholder="End Date" />
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                setEndDate(e.target.value);
+                setPage(1);
+              }}
+              placeholder="End Date"
+            />
           </div>
         </div>
-        <Button variant="primary" onClick={handleCreate}><svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          New Record</Button>
+        <Button variant="primary" onClick={handleCreate}>
+          <Plus className="w-4 h-4 mr-2" aria-hidden="true" />
+          New Record
+        </Button>
       </div>
 
       {/* Records Table */}
@@ -329,8 +352,22 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
               records
             </div>
             <div className="flex space-x-2">
-              <Button variant="secondary" size="sm" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>Previous</Button>
-              <Button variant="secondary" size="sm" onClick={() => setPage((p) => p + 1)} disabled={!data.hasNextPage}>Next</Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                Previous
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setPage((p) => p + 1)}
+                disabled={!data.hasNextPage}
+              >
+                Next
+              </Button>
             </div>
           </div>
         )}
@@ -445,7 +482,9 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Batch */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Batch *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Batch *
+              </label>
               <select
                 name="batchId"
                 value={formData.batchId}
@@ -466,7 +505,9 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Feed */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Feed *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feed *
+              </label>
               <select
                 name="feedId"
                 value={formData.feedId}
@@ -487,27 +528,59 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Date */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Feeding Date *</label>
-              <Input fullWidth type="date" name="feedingDate" value={formData.feedingDate} onChange={handleChange} required />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feeding Date *
+              </label>
+              <Input
+                fullWidth
+                type="date"
+                name="feedingDate"
+                value={formData.feedingDate}
+                onChange={handleChange}
+                required
+              />
             </div>
           )}
 
           {/* Time */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Feeding Time *</label>
-              <Input fullWidth type="time" name="feedingTime" value={formData.feedingTime} onChange={handleChange} required />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feeding Time *
+              </label>
+              <Input
+                fullWidth
+                type="time"
+                name="feedingTime"
+                value={formData.feedingTime}
+                onChange={handleChange}
+                required
+              />
             </div>
           )}
 
           {/* Sequence */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Meal #</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Meal #
+              </label>
               <div className="flex items-center space-x-2">
-                <Input type="number" name="feedingSequence" value={formData.feedingSequence} onChange={handleChange} min={1} />
+                <Input
+                  type="number"
+                  name="feedingSequence"
+                  value={formData.feedingSequence}
+                  onChange={handleChange}
+                  min={1}
+                />
                 <span className="text-gray-500 dark:text-gray-400">of</span>
-                <Input type="number" name="totalMealsToday" value={formData.totalMealsToday} onChange={handleChange} min={1} />
+                <Input
+                  type="number"
+                  name="totalMealsToday"
+                  value={formData.totalMealsToday}
+                  onChange={handleChange}
+                  min={1}
+                />
               </div>
             </div>
           )}
@@ -515,8 +588,22 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Method */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Method</label>
-              <Select fullWidth options={[{ value: 'MANUAL', label: 'Manual' }, { value: 'AUTOMATIC', label: 'Automatic' }, { value: 'DEMAND', label: 'Demand' }, { value: 'BROADCAST', label: 'Broadcast' }, { value: 'SPOT', label: 'Spot' }]} name="feedingMethod" value={formData.feedingMethod} onChange={handleChange} />
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Method
+              </label>
+              <Select
+                fullWidth
+                options={[
+                  { value: 'MANUAL', label: 'Manual' },
+                  { value: 'AUTOMATIC', label: 'Automatic' },
+                  { value: 'DEMAND', label: 'Demand' },
+                  { value: 'BROADCAST', label: 'Broadcast' },
+                  { value: 'SPOT', label: 'Spot' },
+                ]}
+                name="feedingMethod"
+                value={formData.feedingMethod}
+                onChange={handleChange}
+              />
             </div>
           )}
 
@@ -526,7 +613,16 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Planned Amount (kg) *
               </label>
-              <Input fullWidth type="number" name="plannedAmount" value={formData.plannedAmount} onChange={handleChange} required step="0.1" min="0" />
+              <Input
+                fullWidth
+                type="number"
+                name="plannedAmount"
+                value={formData.plannedAmount}
+                onChange={handleChange}
+                required
+                step="0.1"
+                min="0"
+              />
             </div>
           )}
 
@@ -535,7 +631,16 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Actual Amount (kg) *
             </label>
-            <Input fullWidth type="number" name="actualAmount" value={formData.actualAmount} onChange={handleChange} required step="0.1" min="0" />
+            <Input
+              fullWidth
+              type="number"
+              name="actualAmount"
+              value={formData.actualAmount}
+              onChange={handleChange}
+              required
+              step="0.1"
+              min="0"
+            />
           </div>
 
           {/* Waste Amount */}
@@ -543,16 +648,44 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Waste Amount (kg)
             </label>
-            <Input fullWidth type="number" name="wasteAmount" value={formData.wasteAmount} onChange={handleChange} step="0.1" min="0" />
+            <Input
+              fullWidth
+              type="number"
+              name="wasteAmount"
+              value={formData.wasteAmount}
+              onChange={handleChange}
+              step="0.1"
+              min="0"
+            />
           </div>
 
           {/* Feed Cost */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Feed Cost</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feed Cost
+              </label>
               <div className="flex items-center space-x-2">
-                <Input fullWidth type="number" name="feedCost" value={formData.feedCost} onChange={handleChange} step="0.01" min="0" />
-                <Select options={[{ value: 'NOK', label: 'NOK' }, { value: 'EUR', label: 'EUR' }, { value: 'USD', label: 'USD' }, { value: 'TRY', label: 'TRY' }]} name="currency" value={formData.currency} onChange={handleChange} />
+                <Input
+                  fullWidth
+                  type="number"
+                  name="feedCost"
+                  value={formData.feedCost}
+                  onChange={handleChange}
+                  step="0.01"
+                  min="0"
+                />
+                <Select
+                  options={[
+                    { value: 'NOK', label: 'NOK' },
+                    { value: 'EUR', label: 'EUR' },
+                    { value: 'USD', label: 'USD' },
+                    { value: 'TRY', label: 'TRY' },
+                  ]}
+                  name="currency"
+                  value={formData.currency}
+                  onChange={handleChange}
+                />
               </div>
             </div>
           )}
@@ -560,14 +693,27 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
 
         {/* Notes */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Notes</label>
-          <Textarea fullWidth name="notes" value={formData.notes} onChange={handleChange} rows={2} placeholder="Optional notes..." />
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Notes
+          </label>
+          <Textarea
+            fullWidth
+            name="notes"
+            value={formData.notes}
+            onChange={handleChange}
+            rows={2}
+            placeholder="Optional notes..."
+          />
         </div>
 
         {/* Actions */}
         <div className="flex justify-end space-x-3 pt-4 border-t">
-          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={isSubmitting}>{isSubmitting ? 'Saving...' : isEdit ? 'Update Record' : 'Create Record'}</Button>
+          <Button variant="secondary" type="button" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving...' : isEdit ? 'Update Record' : 'Create Record'}
+          </Button>
         </div>
       </form>
     </Modal>

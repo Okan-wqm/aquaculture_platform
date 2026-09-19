@@ -5,12 +5,8 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
-import {
-  billingApi,
-  PaymentOverview,
-  PaymentStatus,
-  PaymentMethod,
-} from '../services/adminApi';
+import { billingApi, PaymentOverview, PaymentStatus, PaymentMethod } from '../services/adminApi';
+import { Search } from 'lucide-react';
 
 // ============================================================================
 // Helpers
@@ -90,7 +86,10 @@ const PaymentsPage: React.FC = () => {
   const [invoiceIdFilter, setInvoiceIdFilter] = useState('');
 
   // Toast
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
+  } | null>(null);
 
   // Record Payment modal
   const [showRecordModal, setShowRecordModal] = useState(false);
@@ -138,7 +137,10 @@ const PaymentsPage: React.FC = () => {
       const mapped = (data.payments || []).map((p: PaymentOverview) => ({
         ...p,
         amount: typeof p.amount === 'string' ? parseFloat(p.amount as unknown as string) : p.amount,
-        refundedAmount: typeof p.refundedAmount === 'string' ? parseFloat(p.refundedAmount as unknown as string) : (p.refundedAmount || 0),
+        refundedAmount:
+          typeof p.refundedAmount === 'string'
+            ? parseFloat(p.refundedAmount as unknown as string)
+            : p.refundedAmount || 0,
       }));
 
       setPayments(mapped);
@@ -176,7 +178,9 @@ const PaymentsPage: React.FC = () => {
         invoiceId: recordForm.invoiceId.trim(),
         amount,
         paymentMethod: recordForm.paymentMethod,
-        paymentDate: recordForm.paymentDate ? new Date(recordForm.paymentDate).toISOString() : undefined,
+        paymentDate: recordForm.paymentDate
+          ? new Date(recordForm.paymentDate).toISOString()
+          : undefined,
         notes: recordForm.notes || undefined,
       });
       showToast('Payment recorded successfully', 'success');
@@ -228,7 +232,10 @@ const PaymentsPage: React.FC = () => {
     }
     const maxRefundable = refundPayment.amount - (refundPayment.refundedAmount || 0);
     if (amount > maxRefundable) {
-      showToast(`Refund amount exceeds refundable amount (${formatCurrency(maxRefundable)})`, 'error');
+      showToast(
+        `Refund amount exceeds refundable amount (${formatCurrency(maxRefundable)})`,
+        'error',
+      );
       return;
     }
 
@@ -253,16 +260,19 @@ const PaymentsPage: React.FC = () => {
 
   const canRefund = (payment: PaymentOverview): boolean => {
     return (
-      payment.status === PaymentStatus.SUCCEEDED ||
-      payment.status === PaymentStatus.PARTIALLY_REFUNDED
-    ) && (payment.amount - (payment.refundedAmount || 0)) > 0.01;
+      (payment.status === PaymentStatus.SUCCEEDED ||
+        payment.status === PaymentStatus.PARTIALLY_REFUNDED) &&
+      payment.amount - (payment.refundedAmount || 0) > 0.01
+    );
   };
 
   // ============================================================================
   // Stats summary
   // ============================================================================
 
-  const succeededPayments = payments.filter(p => p.status === PaymentStatus.SUCCEEDED || p.status === PaymentStatus.PARTIALLY_REFUNDED);
+  const succeededPayments = payments.filter(
+    (p) => p.status === PaymentStatus.SUCCEEDED || p.status === PaymentStatus.PARTIALLY_REFUNDED,
+  );
   const totalSucceeded = succeededPayments.reduce((sum, p) => sum + p.amount, 0);
   const totalRefunded = payments.reduce((sum, p) => sum + (p.refundedAmount || 0), 0);
 
@@ -275,7 +285,9 @@ const PaymentsPage: React.FC = () => {
       key: 'transactionId',
       header: 'Transaction',
       render: (_value, payment) => (
-        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono">{payment.transactionId}</div>
+        <div className="text-sm font-medium text-gray-900 dark:text-gray-100 font-mono">
+          {payment.transactionId}
+        </div>
       ),
     },
     {
@@ -283,7 +295,8 @@ const PaymentsPage: React.FC = () => {
       header: 'Invoice',
       render: (_value, payment) => (
         <div className="text-sm text-blue-600">
-          {(payment as PaymentOverview & { invoiceNumber?: string }).invoiceNumber || payment.invoiceId.substring(0, 8) + '...'}
+          {(payment as PaymentOverview & { invoiceNumber?: string }).invoiceNumber ||
+            payment.invoiceId.substring(0, 8) + '...'}
         </div>
       ),
     },
@@ -316,7 +329,9 @@ const PaymentsPage: React.FC = () => {
       key: 'status',
       header: 'Status',
       render: (_value, payment) => (
-        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payment.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+        <span
+          className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payment.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+        >
           {statusLabels[payment.status] || payment.status}
         </span>
       ),
@@ -325,7 +340,9 @@ const PaymentsPage: React.FC = () => {
       key: 'paymentDate',
       header: 'Date',
       render: (_value, payment) => (
-        <div className="text-sm text-gray-900 dark:text-gray-100">{formatDate(payment.paymentDate)}</div>
+        <div className="text-sm text-gray-900 dark:text-gray-100">
+          {formatDate(payment.paymentDate)}
+        </div>
       ),
     },
     {
@@ -359,11 +376,15 @@ const PaymentsPage: React.FC = () => {
     <div className="space-y-6">
       {/* Toast */}
       {toast && (
-        <div className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
-          toast.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' :
-          toast.type === 'error' ? 'bg-red-50 text-red-800 border border-red-200' :
-          'bg-blue-50 text-blue-800 border border-blue-200'
-        }`}>
+        <div
+          className={`fixed top-4 right-4 z-[100] px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all ${
+            toast.type === 'success'
+              ? 'bg-green-50 text-green-800 border border-green-200'
+              : toast.type === 'error'
+                ? 'bg-red-50 text-red-800 border border-red-200'
+                : 'bg-blue-50 text-blue-800 border border-blue-200'
+          }`}
+        >
           {toast.message}
         </div>
       )}
@@ -386,7 +407,9 @@ const PaymentsPage: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Total Payments</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{totalPayments}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+            {totalPayments}
+          </p>
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Succeeded Amount</p>
@@ -398,7 +421,9 @@ const PaymentsPage: React.FC = () => {
         </div>
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">Net Revenue</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{formatCurrency(totalSucceeded - totalRefunded)}</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">
+            {formatCurrency(totalSucceeded - totalRefunded)}
+          </p>
         </div>
       </div>
 
@@ -427,14 +452,10 @@ const PaymentsPage: React.FC = () => {
                 onChange={(e) => setInvoiceIdFilter(e.target.value)}
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
               />
-              <svg
+              <Search
                 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
+                aria-hidden="true"
+              />
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -502,30 +523,42 @@ const PaymentsPage: React.FC = () => {
         >
           <div className="flex justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">Transaction ID</span>
-            <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">{selectedPayment.transactionId}</span>
+            <span className="text-sm font-mono font-medium text-gray-900 dark:text-gray-100">
+              {selectedPayment.transactionId}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">Invoice ID</span>
-            <span className="text-sm text-gray-900 dark:text-gray-100">{selectedPayment.invoiceId}</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">
+              {selectedPayment.invoiceId}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">Status</span>
-            <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedPayment.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}>
+            <span
+              className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[selectedPayment.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'}`}
+            >
               {statusLabels[selectedPayment.status] || selectedPayment.status}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">Method</span>
-            <span className="text-sm text-gray-900 dark:text-gray-100">{methodLabels[selectedPayment.paymentMethod] || selectedPayment.paymentMethod}</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">
+              {methodLabels[selectedPayment.paymentMethod] || selectedPayment.paymentMethod}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-sm text-gray-500 dark:text-gray-400">Payment Date</span>
-            <span className="text-sm text-gray-900 dark:text-gray-100">{formatDateTime(selectedPayment.paymentDate)}</span>
+            <span className="text-sm text-gray-900 dark:text-gray-100">
+              {formatDateTime(selectedPayment.paymentDate)}
+            </span>
           </div>
           {selectedPayment.processedAt && (
             <div className="flex justify-between">
               <span className="text-sm text-gray-500 dark:text-gray-400">Processed At</span>
-              <span className="text-sm text-gray-900 dark:text-gray-100">{formatDateTime(selectedPayment.processedAt)}</span>
+              <span className="text-sm text-gray-900 dark:text-gray-100">
+                {formatDateTime(selectedPayment.processedAt)}
+              </span>
             </div>
           )}
           {selectedPayment.failureReason && (
@@ -537,31 +570,44 @@ const PaymentsPage: React.FC = () => {
           {selectedPayment.notes && (
             <div className="flex justify-between">
               <span className="text-sm text-gray-500 dark:text-gray-400">Notes</span>
-              <span className="text-sm text-gray-900 dark:text-gray-100 max-w-[200px] text-right">{selectedPayment.notes}</span>
+              <span className="text-sm text-gray-900 dark:text-gray-100 max-w-[200px] text-right">
+                {selectedPayment.notes}
+              </span>
             </div>
           )}
           {selectedPayment.createdBy && (
             <div className="flex justify-between">
               <span className="text-sm text-gray-500 dark:text-gray-400">Recorded By</span>
-              <span className="text-sm text-gray-900 dark:text-gray-100">{selectedPayment.createdBy}</span>
+              <span className="text-sm text-gray-900 dark:text-gray-100">
+                {selectedPayment.createdBy}
+              </span>
             </div>
           )}
 
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
             <div className="flex justify-between py-2">
               <span className="text-sm text-gray-600 dark:text-gray-400">Amount</span>
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{formatCurrency(selectedPayment.amount, selectedPayment.currency)}</span>
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                {formatCurrency(selectedPayment.amount, selectedPayment.currency)}
+              </span>
             </div>
             {selectedPayment.refundedAmount > 0 && (
               <div className="flex justify-between py-2">
                 <span className="text-sm text-gray-600 dark:text-gray-400">Refunded</span>
-                <span className="text-sm font-medium text-purple-600">-{formatCurrency(selectedPayment.refundedAmount, selectedPayment.currency)}</span>
+                <span className="text-sm font-medium text-purple-600">
+                  -{formatCurrency(selectedPayment.refundedAmount, selectedPayment.currency)}
+                </span>
               </div>
             )}
             <div className="flex justify-between pt-3 border-t border-gray-200 dark:border-gray-700 mt-3">
-              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Net Amount</span>
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Net Amount
+              </span>
               <span className="text-sm font-bold text-gray-900 dark:text-gray-100">
-                {formatCurrency(selectedPayment.amount - (selectedPayment.refundedAmount || 0), selectedPayment.currency)}
+                {formatCurrency(
+                  selectedPayment.amount - (selectedPayment.refundedAmount || 0),
+                  selectedPayment.currency,
+                )}
               </span>
             </div>
           </div>
@@ -569,7 +615,9 @@ const PaymentsPage: React.FC = () => {
           {/* Refund History */}
           {selectedPayment.refunds && selectedPayment.refunds.length > 0 && (
             <div className="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">Refund History</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-3">
+                Refund History
+              </h3>
               <div className="space-y-2">
                 {selectedPayment.refunds.map((refund, idx) => (
                   <div key={idx} className="bg-purple-50 border border-purple-100 rounded-lg p-3">
@@ -577,7 +625,9 @@ const PaymentsPage: React.FC = () => {
                       <span className="text-sm text-purple-800 font-medium">
                         {formatCurrency(refund.amount, selectedPayment.currency)}
                       </span>
-                      <span className="text-xs text-purple-600">{formatDate(refund.refundedAt)}</span>
+                      <span className="text-xs text-purple-600">
+                        {formatDate(refund.refundedAt)}
+                      </span>
                     </div>
                     <p className="text-xs text-purple-700 mt-1">{refund.reason}</p>
                   </div>
@@ -637,7 +687,9 @@ const PaymentsPage: React.FC = () => {
               Amount <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+                $
+              </span>
               <input
                 type="number"
                 step="0.01"
@@ -655,11 +707,15 @@ const PaymentsPage: React.FC = () => {
             </label>
             <select
               value={recordForm.paymentMethod}
-              onChange={(e) => setRecordForm({ ...recordForm, paymentMethod: e.target.value as PaymentMethod })}
+              onChange={(e) =>
+                setRecordForm({ ...recordForm, paymentMethod: e.target.value as PaymentMethod })
+              }
               className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
             >
               {Object.entries(methodLabels).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
+                <option key={value} value={value}>
+                  {label}
+                </option>
               ))}
             </select>
           </div>
@@ -725,18 +781,25 @@ const PaymentsPage: React.FC = () => {
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-3">
             <div className="flex justify-between text-sm">
               <span className="text-purple-700">Original Amount</span>
-              <span className="font-medium text-purple-900">{formatCurrency(refundPayment.amount, refundPayment.currency)}</span>
+              <span className="font-medium text-purple-900">
+                {formatCurrency(refundPayment.amount, refundPayment.currency)}
+              </span>
             </div>
             {refundPayment.refundedAmount > 0 && (
               <div className="flex justify-between text-sm mt-1">
                 <span className="text-purple-700">Already Refunded</span>
-                <span className="font-medium text-purple-900">{formatCurrency(refundPayment.refundedAmount, refundPayment.currency)}</span>
+                <span className="font-medium text-purple-900">
+                  {formatCurrency(refundPayment.refundedAmount, refundPayment.currency)}
+                </span>
               </div>
             )}
             <div className="flex justify-between text-sm mt-1 pt-1 border-t border-purple-200">
               <span className="text-purple-700 font-medium">Max Refundable</span>
               <span className="font-bold text-purple-900">
-                {formatCurrency(refundPayment.amount - (refundPayment.refundedAmount || 0), refundPayment.currency)}
+                {formatCurrency(
+                  refundPayment.amount - (refundPayment.refundedAmount || 0),
+                  refundPayment.currency,
+                )}
               </span>
             </div>
           </div>
@@ -746,7 +809,9 @@ const PaymentsPage: React.FC = () => {
               Refund Amount <span className="text-red-500">*</span>
             </label>
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">
+                $
+              </span>
               <input
                 type="number"
                 step="0.01"

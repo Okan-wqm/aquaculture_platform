@@ -19,6 +19,13 @@ import type {
 } from '../services/types';
 import { AggregationPeriod, MeterType } from '../services/types';
 import { PageHeader } from '@aquaculture/shared-ui';
+import {
+  ChartColumn,
+  Database as DatabaseIcon,
+  Inbox,
+  Users as UsersIcon,
+  Zap,
+} from 'lucide-react';
 
 // ============================================================================
 // Constants
@@ -48,10 +55,18 @@ const METER_COLORS: Record<string, { bg: string; text: string; bar: string }> = 
   [MeterType.PONDS_ACTIVE]: { bg: 'bg-cyan-100', text: 'text-cyan-700', bar: 'bg-cyan-500' },
   [MeterType.REPORTS_GENERATED]: { bg: 'bg-pink-100', text: 'text-pink-700', bar: 'bg-pink-500' },
   [MeterType.FARMS_ACTIVE]: { bg: 'bg-teal-100', text: 'text-teal-700', bar: 'bg-teal-500' },
-  [MeterType.SENSORS_ACTIVE]: { bg: 'bg-yellow-100', text: 'text-yellow-700', bar: 'bg-yellow-500' },
+  [MeterType.SENSORS_ACTIVE]: {
+    bg: 'bg-yellow-100',
+    text: 'text-yellow-700',
+    bar: 'bg-yellow-500',
+  },
 };
 
-const DEFAULT_METER_COLOR = { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', bar: 'bg-gray-500' };
+const DEFAULT_METER_COLOR = {
+  bg: 'bg-gray-100 dark:bg-gray-800',
+  text: 'text-gray-700 dark:text-gray-300',
+  bar: 'bg-gray-500',
+};
 
 const PERIOD_OPTIONS = [
   { value: AggregationPeriod.DAILY, label: 'Daily' },
@@ -96,8 +111,7 @@ const formatDate = (dateStr: string): string => {
   });
 };
 
-const getMeterColor = (meterType: string) =>
-  METER_COLORS[meterType] || DEFAULT_METER_COLOR;
+const getMeterColor = (meterType: string) => METER_COLORS[meterType] || DEFAULT_METER_COLOR;
 
 // ============================================================================
 // Sub-components
@@ -119,7 +133,9 @@ const SummaryCard: React.FC<SummaryCardProps> = ({ title, value, subtitle, icon,
         <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 mt-1">{value}</p>
         {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{subtitle}</p>}
       </div>
-      <div className={`w-12 h-12 ${iconBg} rounded-lg flex items-center justify-center flex-shrink-0 ml-4`}>
+      <div
+        className={`w-12 h-12 ${iconBg} rounded-lg flex items-center justify-center flex-shrink-0 ml-4`}
+      >
         {icon}
       </div>
     </div>
@@ -137,7 +153,9 @@ const MeterBreakdownCard: React.FC<MeterBreakdownCardProps> = ({ meter, maxUsage
 
   return (
     <div className="flex items-center gap-4 py-3 border-b border-gray-100 dark:border-gray-700 last:border-0">
-      <div className={`w-10 h-10 ${color.bg} rounded-lg flex items-center justify-center flex-shrink-0`}>
+      <div
+        className={`w-10 h-10 ${color.bg} rounded-lg flex items-center justify-center flex-shrink-0`}
+      >
         <span className={`text-xs font-bold ${color.text}`}>
           {(METER_DISPLAY_NAMES[meter.meterType] || meter.meterType).slice(0, 2).toUpperCase()}
         </span>
@@ -159,8 +177,12 @@ const MeterBreakdownCard: React.FC<MeterBreakdownCardProps> = ({ meter, maxUsage
         </div>
         <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 dark:text-gray-400">
           <span>{meter.tenantCount} tenants</span>
-          <span>Avg: {formatNumber(meter.avgPerTenant, true)}/{meter.unit}</span>
-          <span>Max: {formatNumber(meter.maxPerTenant, true)}/{meter.unit}</span>
+          <span>
+            Avg: {formatNumber(meter.avgPerTenant, true)}/{meter.unit}
+          </span>
+          <span>
+            Max: {formatNumber(meter.maxPerTenant, true)}/{meter.unit}
+          </span>
         </div>
       </div>
     </div>
@@ -174,9 +196,7 @@ interface TenantUsageRowProps {
 
 const TenantUsageRow: React.FC<TenantUsageRowProps> = ({ tenant, rank }) => {
   const topMeters = useMemo(() => {
-    return [...tenant.meters]
-      .sort((a, b) => b.totalUsage - a.totalUsage)
-      .slice(0, 4);
+    return [...tenant.meters].sort((a, b) => b.totalUsage - a.totalUsage).slice(0, 4);
   }, [tenant.meters]);
 
   return (
@@ -204,7 +224,8 @@ const TenantUsageRow: React.FC<TenantUsageRowProps> = ({ tenant, rank }) => {
                 key={m.meterType}
                 className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded ${color.bg} ${color.text}`}
               >
-                {METER_DISPLAY_NAMES[m.meterType]?.split(' ')[0] || m.meterType}: {formatNumber(m.totalUsage, true)}
+                {METER_DISPLAY_NAMES[m.meterType]?.split(' ')[0] || m.meterType}:{' '}
+                {formatNumber(m.totalUsage, true)}
               </span>
             );
           })}
@@ -226,7 +247,9 @@ const TopTenantItem: React.FC<TopTenantItemProps> = ({ tenant, rank, maxUsage })
 
   return (
     <div className="flex items-center gap-3 py-2.5 border-b border-gray-100 dark:border-gray-700 last:border-0">
-      <span className="text-sm font-semibold text-gray-400 dark:text-gray-500 w-6 text-right">{rank}</span>
+      <span className="text-sm font-semibold text-gray-400 dark:text-gray-500 w-6 text-right">
+        {rank}
+      </span>
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-1">
           <Link
@@ -268,10 +291,13 @@ const TrendChart: React.FC<TrendChartProps> = ({ trends, selectedMeter }) => {
     return (
       <div className="h-48 flex items-center justify-center bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
         <div className="text-center">
-          <svg className="w-10 h-10 text-gray-400 dark:text-gray-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-          <span className="text-gray-500 dark:text-gray-400 text-sm">No usage data for this period</span>
+          <ChartColumn
+            className="w-10 h-10 text-gray-400 dark:text-gray-500 mx-auto mb-2"
+            aria-hidden="true"
+          />
+          <span className="text-gray-500 dark:text-gray-400 text-sm">
+            No usage data for this period
+          </span>
         </div>
       </div>
     );
@@ -292,10 +318,7 @@ const TrendChart: React.FC<TrendChartProps> = ({ trends, selectedMeter }) => {
         {filteredTrends.map((point, idx) => {
           const heightPercent = (point.totalUsage / maxValue) * 100;
           return (
-            <div
-              key={idx}
-              className="flex-1 flex flex-col items-center group relative"
-            >
+            <div key={idx} className="flex-1 flex flex-col items-center group relative">
               <div
                 className={`w-full ${color.bar} rounded-t opacity-80 hover:opacity-100 transition-opacity min-h-[2px]`}
                 style={{ height: `${Math.max(heightPercent, 1)}%` }}
@@ -378,26 +401,10 @@ const LoadingSkeleton: React.FC = () => (
 // ============================================================================
 
 const Icons = {
-  Activity: (
-    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-    </svg>
-  ),
-  Users: (
-    <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-    </svg>
-  ),
-  Chart: (
-    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-    </svg>
-  ),
-  Database: (
-    <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-    </svg>
-  ),
+  Activity: <Zap className="w-6 h-6 text-blue-600" aria-hidden="true" />,
+  Users: <UsersIcon className="w-6 h-6 text-purple-600" aria-hidden="true" />,
+  Chart: <ChartColumn className="w-6 h-6 text-green-600" aria-hidden="true" />,
+  Database: <DatabaseIcon className="w-6 h-6 text-orange-600" aria-hidden="true" />,
 };
 
 // ============================================================================
@@ -445,7 +452,12 @@ const UsageDashboardPage: React.FC = () => {
   const fetchTrends = useCallback(async () => {
     return billingApi.getUsageTrends({
       period: trendPeriod,
-      numPeriods: trendPeriod === AggregationPeriod.DAILY ? 30 : trendPeriod === AggregationPeriod.WEEKLY ? 12 : 6,
+      numPeriods:
+        trendPeriod === AggregationPeriod.DAILY
+          ? 30
+          : trendPeriod === AggregationPeriod.WEEKLY
+            ? 12
+            : 6,
     });
   }, [trendPeriod]);
 
@@ -574,7 +586,9 @@ const UsageDashboardPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Meter Breakdown */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Usage by Meter Type</h3>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+            Usage by Meter Type
+          </h3>
           <div className="space-y-1">
             {summary?.meterBreakdown && summary.meterBreakdown.length > 0 ? (
               [...summary.meterBreakdown]
@@ -588,11 +602,14 @@ const UsageDashboardPage: React.FC = () => {
                 ))
             ) : (
               <div className="py-8 text-center text-gray-500 dark:text-gray-400">
-                <svg className="w-10 h-10 text-gray-400 dark:text-gray-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-                </svg>
+                <Inbox
+                  className="w-10 h-10 text-gray-400 dark:text-gray-500 mx-auto mb-2"
+                  aria-hidden="true"
+                />
                 <p>No usage data available</p>
-                <p className="text-xs mt-1">Usage will appear once tenants begin consuming metered resources</p>
+                <p className="text-xs mt-1">
+                  Usage will appear once tenants begin consuming metered resources
+                </p>
               </div>
             )}
           </div>
@@ -640,7 +657,9 @@ const UsageDashboardPage: React.FC = () => {
         {/* Top Tenants */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Top Tenants by Usage</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Top Tenants by Usage
+            </h3>
             <select
               value={topTenantsMeter}
               onChange={(e) => setTopTenantsMeter(e.target.value as MeterType)}
@@ -680,7 +699,9 @@ const UsageDashboardPage: React.FC = () => {
         {/* All Tenants Usage */}
         <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tenant Usage Overview</h3>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              Tenant Usage Overview
+            </h3>
             <span className="text-sm text-gray-500 dark:text-gray-400">
               {tenantsData?.total ?? 0} tenants total
             </span>
@@ -694,11 +715,7 @@ const UsageDashboardPage: React.FC = () => {
               </div>
             ) : tenantsData?.tenants && tenantsData.tenants.length > 0 ? (
               tenantsData.tenants.map((tenant, idx) => (
-                <TenantUsageRow
-                  key={tenant.tenantId}
-                  tenant={tenant}
-                  rank={idx + 1}
-                />
+                <TenantUsageRow key={tenant.tenantId} tenant={tenant} rank={idx + 1} />
               ))
             ) : (
               <div className="py-8 text-center text-gray-500 dark:text-gray-400">
@@ -718,23 +735,36 @@ const UsageDashboardPage: React.FC = () => {
 
       {/* Pricing Information */}
       <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Metered Billing Pricing Tiers</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
+          Metered Billing Pricing Tiers
+        </h3>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-          Usage-based pricing with tiered rates. Overages beyond included units are billed per unit at the applicable tier rate.
+          Usage-based pricing with tiered rates. Overages beyond included units are billed per unit
+          at the applicable tier rate.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { meter: 'API Calls', included: '10K-1M', rate: '$0.0005-0.001/call', icon: 'AC' },
-            { meter: 'Sensor Readings', included: '100K-10M', rate: '$0.00001-0.00005/reading', icon: 'SR' },
+            {
+              meter: 'Sensor Readings',
+              included: '100K-10M',
+              rate: '$0.00001-0.00005/reading',
+              icon: 'SR',
+            },
             { meter: 'Data Storage', included: '5-500 GB', rate: '$0.01-0.10/GB', icon: 'DS' },
             { meter: 'Alerts Sent', included: '100-10K', rate: '$0.005-0.05/alert', icon: 'AS' },
           ].map((item) => (
-            <div key={item.meter} className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <div
+              key={item.meter}
+              className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
+            >
               <div className="flex items-center gap-2 mb-2">
                 <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
                   <span className="text-xs font-bold text-blue-700">{item.icon}</span>
                 </div>
-                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{item.meter}</span>
+                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                  {item.meter}
+                </span>
               </div>
               <p className="text-xs text-gray-600 dark:text-gray-400">Included: {item.included}</p>
               <p className="text-xs text-gray-600 dark:text-gray-400">Rate: {item.rate}</p>
@@ -742,7 +772,8 @@ const UsageDashboardPage: React.FC = () => {
           ))}
         </div>
         <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
-          Rates vary by plan tier (Starter, Professional, Enterprise). See plan management for full pricing details.
+          Rates vary by plan tier (Starter, Professional, Enterprise). See plan management for full
+          pricing details.
         </p>
       </div>
     </div>

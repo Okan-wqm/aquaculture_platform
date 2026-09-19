@@ -22,6 +22,7 @@ import {
   type InAppNotification,
   type NotificationData,
 } from '@/hooks/useNotifications';
+import { Bell } from 'lucide-react';
 
 // ============================================================================
 // Pagination Constants
@@ -127,16 +128,13 @@ function getNotificationIndicator(data: NotificationData | null): {
   const type = data.type.toLowerCase();
   if (type.includes('alert') || type.includes('sensor'))
     return { color: 'bg-red-500', icon: 'alert' };
-  if (type.includes('task'))
-    return { color: 'bg-amber-500', icon: 'task' };
+  if (type.includes('task')) return { color: 'bg-amber-500', icon: 'task' };
   if (type.includes('leave') || type.includes('attendance') || type.includes('hr'))
     return { color: 'bg-purple-500', icon: 'hr' };
   if (type.includes('harvest') || type.includes('feeding') || type.includes('farm'))
     return { color: 'bg-emerald-500', icon: 'farm' };
-  if (type.includes('billing'))
-    return { color: 'bg-orange-500', icon: 'billing' };
-  if (type.includes('system'))
-    return { color: 'bg-gray-500', icon: 'system' };
+  if (type.includes('billing')) return { color: 'bg-orange-500', icon: 'billing' };
+  if (type.includes('system')) return { color: 'bg-gray-500', icon: 'system' };
 
   return { color: 'bg-blue-500', icon: 'info' };
 }
@@ -161,12 +159,16 @@ const NotificationItem: React.FC<{
     >
       {/* Indicator dot */}
       <div className="flex-shrink-0 mt-1">
-        <div className={`w-2.5 h-2.5 rounded-full ${indicator.color} ${notification.isRead ? 'opacity-40' : ''}`} />
+        <div
+          className={`w-2.5 h-2.5 rounded-full ${indicator.color} ${notification.isRead ? 'opacity-40' : ''}`}
+        />
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0">
-        <p className={`text-sm truncate ${notification.isRead ? 'text-gray-500 dark:text-gray-400 font-normal' : 'text-gray-900 dark:text-gray-100 font-semibold'}`}>
+        <p
+          className={`text-sm truncate ${notification.isRead ? 'text-gray-500 dark:text-gray-400 font-normal' : 'text-gray-900 dark:text-gray-100 font-semibold'}`}
+        >
           {notification.title}
         </p>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">
@@ -190,19 +192,7 @@ const NotificationItem: React.FC<{
 /** Empty state */
 const EmptyState: React.FC = () => (
   <div className="py-12 px-4 text-center">
-    <svg
-      className="w-12 h-12 mx-auto text-gray-300 mb-3"
-      fill="none"
-      viewBox="0 0 24 24"
-      stroke="currentColor"
-    >
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.5}
-        d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-      />
-    </svg>
+    <Bell className="w-12 h-12 mx-auto text-gray-300 mb-3" aria-hidden="true" />
     <p className="text-sm font-medium text-gray-500 dark:text-gray-400">No notifications</p>
     <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">You're all caught up!</p>
   </div>
@@ -318,36 +308,30 @@ export const NotificationPanel: React.FC = () => {
       aria-label="Notifications"
       panelClassName="w-96"
       trigger={(props) => (
-      <button
-        {...props}
-        type="button"
-        className="relative p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
-      >
-        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-          />
-        </svg>
-        {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
-            {unreadCount > 99 ? '99+' : unreadCount}
-          </span>
-        )}
-      </button>
+        <button
+          {...props}
+          type="button"
+          className="relative p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          aria-label={`Notifications ${unreadCount > 0 ? `(${unreadCount} unread)` : ''}`}
+        >
+          <Bell className="w-6 h-6" aria-hidden="true" />
+          {unreadCount > 0 && (
+            <span className="absolute top-1 right-1 flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
+              {unreadCount > 99 ? '99+' : unreadCount}
+            </span>
+          )}
+        </button>
       )}
     >
-
       {/* Panel content */}
       {isOpen && (
         <div className="max-h-[32rem] flex flex-col overflow-hidden">
           {/* Header */}
           <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between flex-shrink-0">
             <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Notifications</h3>
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                Notifications
+              </h3>
               {unreadCount > 0 && (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                   {unreadCount} new

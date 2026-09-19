@@ -7,6 +7,17 @@ import { Button } from '@aquaculture/shared-ui';
 import { ReportBase, ReportType } from '../../types/reports.types';
 import { ReportStatusBadge } from './ReportStatusBadge';
 import { DeadlineIndicator } from './DeadlineIndicator';
+import {
+  Box,
+  Calendar,
+  ChartColumn,
+  CircleCheck,
+  DollarSign,
+  FlaskConical,
+  Sparkles,
+  TriangleAlert,
+  Zap,
+} from 'lucide-react';
 
 interface ReportCardProps {
   report: ReportBase & { deadline?: Date };
@@ -21,83 +32,43 @@ interface ReportCardProps {
 const reportTypeLabels: Record<ReportType, { label: string; icon: React.ReactNode }> = {
   'sea-lice': {
     label: 'Sea Lice',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    icon: <DollarSign className="w-5 h-5" aria-hidden="true" />,
   },
   biomass: {
     label: 'Biomass',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-      </svg>
-    ),
+    icon: <ChartColumn className="w-5 h-5" aria-hidden="true" />,
   },
   smolt: {
     label: 'Smolt',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10l-2 1m0 0l-2-1m2 1v2.5M20 7l-2 1m2-1l-2-1m2 1v2.5M14 4l-2-1-2 1M4 7l2-1M4 7l2 1M4 7v2.5M12 21l-2-1m2 1l2-1m-2 1v-2.5M6 18l-2-1v-2.5M18 18l2-1v-2.5" />
-      </svg>
-    ),
+    icon: <Box className="w-5 h-5" aria-hidden="true" />,
   },
   'cleaner-fish': {
     label: 'Cleaner Fish',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-      </svg>
-    ),
+    icon: <Sparkles className="w-5 h-5" aria-hidden="true" />,
   },
   slaughter: {
     label: 'Slaughter',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
+    icon: <Calendar className="w-5 h-5" aria-hidden="true" />,
   },
   'slaughter-planned': {
     label: 'Planned Slaughter',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-      </svg>
-    ),
+    icon: <Calendar className="w-5 h-5" aria-hidden="true" />,
   },
   'slaughter-executed': {
     label: 'Executed Slaughter',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
-    ),
+    icon: <CircleCheck className="w-5 h-5" aria-hidden="true" />,
   },
   welfare: {
     label: 'Welfare Event',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-      </svg>
-    ),
+    icon: <TriangleAlert className="w-5 h-5" aria-hidden="true" />,
   },
   disease: {
     label: 'Disease Outbreak',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-      </svg>
-    ),
+    icon: <FlaskConical className="w-5 h-5" aria-hidden="true" />,
   },
   escape: {
     label: 'Escape Report',
-    icon: (
-      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-      </svg>
-    ),
+    icon: <Zap className="w-5 h-5" aria-hidden="true" />,
   },
 };
 
@@ -169,9 +140,13 @@ export const ReportCard: React.FC<ReportCardProps> = ({
           {report.submittedAt && (
             <div className="flex items-center text-sm">
               <span className="text-gray-500 dark:text-gray-400 w-20">Submitted:</span>
-              <span className="text-gray-700 dark:text-gray-300">{formatDate(report.submittedAt)}</span>
+              <span className="text-gray-700 dark:text-gray-300">
+                {formatDate(report.submittedAt)}
+              </span>
               {report.submittedBy && (
-                <span className="text-gray-400 dark:text-gray-500 ml-1">by {report.submittedBy}</span>
+                <span className="text-gray-400 dark:text-gray-500 ml-1">
+                  by {report.submittedBy}
+                </span>
               )}
             </div>
           )}
@@ -195,22 +170,43 @@ export const ReportCard: React.FC<ReportCardProps> = ({
         <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 rounded-b-lg">
           <div className="flex items-center justify-end gap-2">
             {onView && (
-              <Button variant="secondary" size="sm" type="button" onClick={(e) => {
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                onClick={(e) => {
                   e.stopPropagation();
                   onView();
-                }}>View</Button>
+                }}
+              >
+                View
+              </Button>
             )}
             {canEdit && onEdit && (
-              <Button variant="secondary" size="sm" type="button" onClick={(e) => {
+              <Button
+                variant="secondary"
+                size="sm"
+                type="button"
+                onClick={(e) => {
                   e.stopPropagation();
                   onEdit();
-                }}>Edit</Button>
+                }}
+              >
+                Edit
+              </Button>
             )}
             {canSubmit && onSubmit && (
-              <Button variant="primary" size="sm" type="button" onClick={(e) => {
+              <Button
+                variant="primary"
+                size="sm"
+                type="button"
+                onClick={(e) => {
                   e.stopPropagation();
                   onSubmit();
-                }}>Submit</Button>
+                }}
+              >
+                Submit
+              </Button>
             )}
           </div>
         </div>

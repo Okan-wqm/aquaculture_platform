@@ -16,6 +16,7 @@ import { Modal, Spinner, Button, Input } from '@aquaculture/shared-ui';
 import { EscapeReport, EscapeCause } from '../../types/reports.types';
 import { REGULATORY_CONTACTS, ESCAPE_CAUSES } from '../../utils/thresholds';
 import { useTanksList } from '../../../../hooks/useTanks';
+import { Plus, X } from 'lucide-react';
 
 interface EscapeReportModalProps {
   isOpen: boolean;
@@ -425,8 +426,12 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <span className="text-sm text-gray-500 dark:text-gray-400">Site: </span>
-              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{siteName}</span>
-              {siteCode && <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({siteCode})</span>}
+              <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                {siteName}
+              </span>
+              {siteCode && (
+                <span className="text-sm text-gray-500 dark:text-gray-400 ml-2">({siteCode})</span>
+              )}
             </div>
             {gpsCoordinates && (
               <div className="text-sm text-gray-500 dark:text-gray-400">
@@ -469,7 +474,9 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
 
         {/* Escape Details - Species & Cause */}
         <div className="p-4 bg-red-50 rounded-md border border-red-200">
-          <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Escape Details</h4>
+          <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+            Escape Details
+          </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
@@ -545,14 +552,7 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
               onClick={addUnit}
               className="inline-flex items-center px-2 py-1 text-xs font-medium text-yellow-700 bg-yellow-100 border border-yellow-300 rounded hover:bg-yellow-200 focus:outline-hidden"
             >
-              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                />
-              </svg>
+              <Plus className="w-3 h-3 mr-1" aria-hidden="true" />
               Add Affected Unit
             </button>
           </div>
@@ -571,25 +571,18 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
               const unitBiomass = ((unit.escapedCount || 0) * (unit.avgWeightG || 0)) / 1000;
 
               return (
-                <div key={unit.id} className="p-3 bg-white dark:bg-gray-900 rounded-md border border-yellow-200">
+                <div
+                  key={unit.id}
+                  className="p-3 bg-white dark:bg-gray-900 rounded-md border border-yellow-200"
+                >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                       Unit {idx + 1}
                     </span>
                     {formData.affectedUnits.length > 1 && (
-                      <Button variant="ghost" type="button" onClick={() => removeUnit(idx)}><svg
-                          className="w-4 h-4"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M6 18L18 6M6 6l12 12"
-                          />
-                        </svg></Button>
+                      <Button variant="ghost" type="button" onClick={() => removeUnit(idx)}>
+                        <X className="w-4 h-4" aria-hidden="true" />
+                      </Button>
                     )}
                   </div>
 
@@ -638,24 +631,50 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
 
                     {/* Batch Number */}
                     <div>
-                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Batch Number</label>
-                      <Input fullWidth type="text" value={unit.batchNumber} onChange={(e) => handleUnitChange(idx, 'batchNumber', e.target.value)} placeholder="e.g., NF-2025-001" readOnly={!!unit.tankId} />
+                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                        Batch Number
+                      </label>
+                      <Input
+                        fullWidth
+                        type="text"
+                        value={unit.batchNumber}
+                        onChange={(e) => handleUnitChange(idx, 'batchNumber', e.target.value)}
+                        placeholder="e.g., NF-2025-001"
+                        readOnly={!!unit.tankId}
+                      />
                     </div>
 
                     {/* Average Weight */}
                     <div>
-                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Avg Weight (g)</label>
-                      <Input fullWidth type="number" value={unit.avgWeightG || ''} onChange={(e) =>
-             handleUnitChange(idx, 'avgWeightG', parseFloat(e.target.value) || 0)
-            } placeholder="e.g., 3500" />
+                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                        Avg Weight (g)
+                      </label>
+                      <Input
+                        fullWidth
+                        type="number"
+                        value={unit.avgWeightG || ''}
+                        onChange={(e) =>
+                          handleUnitChange(idx, 'avgWeightG', parseFloat(e.target.value) || 0)
+                        }
+                        placeholder="e.g., 3500"
+                      />
                     </div>
 
                     {/* Original Stock Count */}
                     <div>
-                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Original Stock</label>
-                      <Input fullWidth type="number" value={unit.originalCount || ''} onChange={(e) =>
-             handleUnitChange(idx, 'originalCount', parseInt(e.target.value) || 0)
-            } placeholder="Stock before escape" readOnly={!!unit.tankId} />
+                      <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                        Original Stock
+                      </label>
+                      <Input
+                        fullWidth
+                        type="number"
+                        value={unit.originalCount || ''}
+                        onChange={(e) =>
+                          handleUnitChange(idx, 'originalCount', parseInt(e.target.value) || 0)
+                        }
+                        placeholder="Stock before escape"
+                        readOnly={!!unit.tankId}
+                      />
                     </div>
 
                     {/* Escaped Count */}
@@ -713,15 +732,33 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
 
         {/* Recovery Efforts */}
         <div className="p-4 bg-blue-50 rounded-md border border-blue-200">
-          <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Recovery Efforts</h4>
+          <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+            Recovery Efforts
+          </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Recaptured Count</label>
-              <Input fullWidth type="number" value={formData.recapturedCount} onChange={(e) => handleChange('recapturedCount', e.target.value)} placeholder="0" />
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                Recaptured Count
+              </label>
+              <Input
+                fullWidth
+                type="number"
+                value={formData.recapturedCount}
+                onChange={(e) => handleChange('recapturedCount', e.target.value)}
+                placeholder="0"
+              />
             </div>
             <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Recapture Method</label>
-              <Input fullWidth type="text" value={formData.recaptureMethod} onChange={(e) => handleChange('recaptureMethod', e.target.value)} placeholder="e.g., Seine netting" />
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                Recapture Method
+              </label>
+              <Input
+                fullWidth
+                type="text"
+                value={formData.recaptureMethod}
+                onChange={(e) => handleChange('recaptureMethod', e.target.value)}
+                placeholder="e.g., Seine netting"
+              />
             </div>
           </div>
           <div className="mt-4">
@@ -732,14 +769,18 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                 onChange={(e) => handleChange('ongoingEfforts', e.target.checked)}
                 className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Recovery efforts ongoing</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                Recovery efforts ongoing
+              </span>
             </label>
           </div>
         </div>
 
         {/* Environmental Impact */}
         <div className="p-4 bg-green-50 rounded-md border border-green-200">
-          <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Environmental Impact</h4>
+          <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+            Environmental Impact
+          </h4>
           <div className="space-y-3">
             <label className="flex items-center gap-2">
               <input
@@ -748,11 +789,15 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                 onChange={(e) => handleChange('nearbyWildPopulations', e.target.checked)}
                 className="h-4 w-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Nearby wild salmon populations</span>
+              <span className="text-sm text-gray-700 dark:text-gray-300">
+                Nearby wild salmon populations
+              </span>
             </label>
 
             <div>
-              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">Nearby River Systems</label>
+              <label className="block text-sm text-gray-700 dark:text-gray-300 mb-1">
+                Nearby River Systems
+              </label>
               <div className="space-y-2">
                 {formData.riverSystems.map((river, index) => (
                   <div
@@ -760,30 +805,37 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
                     className="flex items-center gap-2 bg-white dark:bg-gray-900 px-3 py-2 rounded-md border"
                   >
                     <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{river}</span>
-                    <Button variant="ghost" type="button" onClick={() => removeItem('riverSystems', index)}><svg
-                        className="w-4 h-4"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg></Button>
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      onClick={() => removeItem('riverSystems', index)}
+                    >
+                      <X className="w-4 h-4" aria-hidden="true" />
+                    </Button>
                   </div>
                 ))}
               </div>
               <div className="mt-2 flex gap-2">
-                <Input type="text" value={formData.newRiver} onChange={(e) => handleChange('newRiver', e.target.value)} onKeyPress={(e) => {
-          if (e.key === 'Enter') {
-           e.preventDefault();
-           addItem('riverSystems', 'newRiver');
-          }
-         }} placeholder="Add river system..." />
-                <Button variant="secondary" size="sm" type="button" onClick={() => addItem('riverSystems', 'newRiver')}>Add</Button>
+                <Input
+                  type="text"
+                  value={formData.newRiver}
+                  onChange={(e) => handleChange('newRiver', e.target.value)}
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      addItem('riverSystems', 'newRiver');
+                    }
+                  }}
+                  placeholder="Add river system..."
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  onClick={() => addItem('riverSystems', 'newRiver')}
+                >
+                  Add
+                </Button>
               </div>
             </div>
           </div>
@@ -796,26 +848,34 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
           </label>
           <div className="space-y-2">
             {formData.preventiveMeasures.map((measure, index) => (
-              <div key={index} className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md">
+              <div
+                key={index}
+                className="flex items-center gap-2 bg-gray-50 dark:bg-gray-800 px-3 py-2 rounded-md"
+              >
                 <span className="flex-1 text-sm text-gray-700 dark:text-gray-300">{measure}</span>
-                <Button variant="ghost" type="button" onClick={() => removeItem('preventiveMeasures', index)}><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M6 18L18 6M6 6l12 12"
-                    />
-                  </svg></Button>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  onClick={() => removeItem('preventiveMeasures', index)}
+                >
+                  <X className="w-4 h-4" aria-hidden="true" />
+                </Button>
               </div>
             ))}
           </div>
           <div className="mt-2 flex gap-2">
-            <Input type="text" value={formData.newMeasure} onChange={(e) => handleChange('newMeasure', e.target.value)} onKeyPress={(e) => {
-        if (e.key === 'Enter') {
-         e.preventDefault();
-         addItem('preventiveMeasures', 'newMeasure');
-        }
-       }} placeholder="e.g., Emergency net repair completed..." />
+            <Input
+              type="text"
+              value={formData.newMeasure}
+              onChange={(e) => handleChange('newMeasure', e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  addItem('preventiveMeasures', 'newMeasure');
+                }
+              }}
+              placeholder="e.g., Emergency net repair completed..."
+            />
             <button
               type="button"
               onClick={() => addItem('preventiveMeasures', 'newMeasure')}
@@ -835,15 +895,19 @@ export const EscapeReportModal: React.FC<EscapeReportModalProps> = ({
           This report will be sent to Mattilsynet immediately upon submission.
         </p>
         <div className="flex gap-3">
-          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>Cancel</Button>
-          <Button variant="danger" type="button" onClick={handleSubmit} disabled={isSubmitting}>{isSubmitting ? (
+          <Button variant="secondary" type="button" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button variant="danger" type="button" onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? (
               <>
                 <Spinner size="sm" color="inherit" />
                 Submitting...
               </>
             ) : (
               'Submit Report'
-            )}</Button>
+            )}
+          </Button>
         </div>
       </div>
     </Modal>

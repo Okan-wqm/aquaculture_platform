@@ -6,7 +6,7 @@
  */
 
 import React, { useState } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Input, Select, Modal, useConfirm, usePrompt, PageHeader } from '@aquaculture/shared-ui';
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
 import { QueryFailureNotice } from '../../components';
@@ -57,6 +57,8 @@ const defaultForm: MaintenanceForm = {
 // ============================================================================
 
 export const MaintenancePage: React.FC = () => {
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   // State
   const [activeTab, setActiveTab] = useState<'upcoming' | 'active' | 'history'>('upcoming');
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -130,6 +132,13 @@ export const MaintenancePage: React.FC = () => {
     void windowsQuery.refetch();
   };
 
+  const closeForm = (): void => {
+    setShowCreateModal(false);
+    setShowEditModal(false);
+    setSelectedMaintenance(null);
+    setFormData(defaultForm);
+  };
+
   const handleCreate = async (): Promise<void> => {
     if (!formData.title || !formData.scheduledStart) return;
 
@@ -169,7 +178,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleStartMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`Start maintenance "${maintenance.title}" now?`)) return;
+    if (!(await confirm({ title: `Start maintenance "${maintenance.title}" now?`, confirmText: 'Start', cancelText: 'Cancel', variant: 'warning' }))) return;
     try {
       await startWindow.mutateAsync(maintenance.id);
     } catch {
@@ -178,7 +187,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleEndMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`End maintenance "${maintenance.title}"?`)) return;
+    if (!(await confirm({ title: `End maintenance "${maintenance.title}"?`, confirmText: 'End', cancelText: 'Cancel', variant: 'warning' }))) return;
     try {
       await endWindow.mutateAsync(maintenance.id);
     } catch {
@@ -187,7 +196,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleExtendMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    const minutes = prompt('Extend by how many minutes?', '30');
+    const minutes = await prompt({ title: 'Extend maintenance', label: 'Extend by how many minutes?', defaultValue: '30', confirmText: 'Extend', cancelText: 'Cancel' });
     if (!minutes) return;
     const additionalMinutes = Number.parseInt(minutes, 10);
     if (!Number.isFinite(additionalMinutes) || additionalMinutes <= 0) return;
@@ -200,7 +209,7 @@ export const MaintenancePage: React.FC = () => {
   };
 
   const handleCancelMaintenance = async (maintenance: MaintenanceWindow): Promise<void> => {
-    if (!confirm(`Cancel maintenance "${maintenance.title}"?`)) return;
+    if (!(await confirm({ title: `Cancel maintenance "${maintenance.title}"?`, confirmText: 'Cancel maintenance', cancelText: 'Keep', variant: 'danger' }))) return;
     try {
       await cancelWindow.mutateAsync(maintenance.id);
     } catch {
@@ -231,7 +240,7 @@ export const MaintenancePage: React.FC = () => {
       database_migration: 'bg-indigo-100 text-indigo-800',
       security_patch: 'bg-orange-100 text-orange-800',
     };
-    return colors[type] || 'bg-gray-100 text-gray-800';
+    return colors[type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   };
 
   const filteredMaintenance = maintenanceList.filter((m) => {
@@ -272,13 +281,13 @@ export const MaintenancePage: React.FC = () => {
   if (loading) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/4" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl p-6 h-24" />
+            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl p-6 h-24" />
           ))}
         </div>
-        <div className="bg-white rounded-xl p-6 h-96" />
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 h-96" />
       </div>
     );
   }
@@ -286,20 +295,18 @@ export const MaintenancePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Maintenance Mode</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Schedule and manage system maintenance windows
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Schedule Maintenance
-        </Button>
-      </div>
+      <PageHeader
+        title="Maintenance Mode"
+        description="Schedule and manage system maintenance windows"
+        actions={
+          <Button onClick={() => setShowCreateModal(true)}>
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Schedule Maintenance
+          </Button>
+        }
+      />
 
       {/* A failed read or a rejected maintenance action, named on the page.
           It used to go to a fixed toast in the bottom-right corner, while the
@@ -338,24 +345,24 @@ export const MaintenancePage: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="p-4">
           <div className="text-2xl font-bold text-blue-600">{stats.scheduled}</div>
-          <div className="text-sm text-gray-500">Scheduled</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Scheduled</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-yellow-600">{stats.inProgress}</div>
-          <div className="text-sm text-gray-500">In Progress</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">In Progress</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-green-600">{stats.completed}</div>
-          <div className="text-sm text-gray-500">Completed</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Completed</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-600">{stats.cancelled}</div>
-          <div className="text-sm text-gray-500">Cancelled</div>
+          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">{stats.cancelled}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Cancelled</div>
         </Card>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-8">
           {(['upcoming', 'active', 'history'] as const).map((tab) => (
             <button
@@ -364,7 +371,7 @@ export const MaintenancePage: React.FC = () => {
               className={`py-3 border-b-2 font-medium text-sm capitalize transition-colors ${
                 activeTab === tab
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
               }`}
             >
               {tab}
@@ -383,7 +390,7 @@ export const MaintenancePage: React.FC = () => {
         {filteredMaintenance.length === 0 ? (
           <Card className="p-12 text-center">
             <svg
-              className="w-12 h-12 mx-auto text-gray-500 mb-4"
+              className="w-12 h-12 mx-auto text-gray-500 dark:text-gray-400 mb-4"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -396,7 +403,7 @@ export const MaintenancePage: React.FC = () => {
               />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
-            <p className="text-gray-500">No {activeTab} maintenance windows</p>
+            <p className="text-gray-500 dark:text-gray-400">No {activeTab} maintenance windows</p>
           </Card>
         ) : (
           filteredMaintenance.map((maintenance) => (
@@ -405,46 +412,46 @@ export const MaintenancePage: React.FC = () => {
                 <div className="flex-1">
                   {/* Header */}
                   <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900">{maintenance.title}</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{maintenance.title}</h3>
                     <Badge variant={getStatusBadge(maintenance.status)}>
                       {maintenance.status.replace('_', ' ')}
                     </Badge>
                     <span className={`px-2 py-1 text-xs font-medium rounded-full ${getTypeBadge(maintenance.type)}`}>
                       {maintenance.type.replace('_', ' ')}
                     </span>
-                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
+                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
                       {maintenance.scope}
                     </span>
                   </div>
 
                   {/* Description */}
-                  <p className="text-gray-600 mb-4">{maintenance.description}</p>
+                  <p className="text-gray-600 dark:text-gray-400 mb-4">{maintenance.description}</p>
 
                   {/* Timeline */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
                     <div>
-                      <div className="text-gray-500">Scheduled Start</div>
+                      <div className="text-gray-500 dark:text-gray-400">Scheduled Start</div>
                       <div className="font-medium">{formatDateTime(maintenance.scheduledStart)}</div>
                     </div>
                     {maintenance.scheduledEnd && (
                       <div>
-                        <div className="text-gray-500">Scheduled End</div>
+                        <div className="text-gray-500 dark:text-gray-400">Scheduled End</div>
                         <div className="font-medium">{formatDateTime(maintenance.scheduledEnd)}</div>
                       </div>
                     )}
                     <div>
-                      <div className="text-gray-500">Duration</div>
+                      <div className="text-gray-500 dark:text-gray-400">Duration</div>
                       <div className="font-medium">{formatDuration(maintenance.estimatedDurationMinutes)}</div>
                     </div>
                     {maintenance.actualStart && (
                       <div>
-                        <div className="text-gray-500">Actual Start</div>
+                        <div className="text-gray-500 dark:text-gray-400">Actual Start</div>
                         <div className="font-medium text-yellow-600">{formatDateTime(maintenance.actualStart)}</div>
                       </div>
                     )}
                     {maintenance.actualEnd && (
                       <div>
-                        <div className="text-gray-500">Actual End</div>
+                        <div className="text-gray-500 dark:text-gray-400">Actual End</div>
                         <div className="font-medium text-green-600">{formatDateTime(maintenance.actualEnd)}</div>
                       </div>
                     )}
@@ -453,7 +460,7 @@ export const MaintenancePage: React.FC = () => {
                   {/* Affected Services */}
                   {maintenance.affectedServices && maintenance.affectedServices.length > 0 && (
                     <div className="mb-4">
-                      <div className="text-sm text-gray-500 mb-2">Affected Services:</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">Affected Services:</div>
                       <div className="flex flex-wrap gap-2">
                         {maintenance.affectedServices.map((service, idx) => (
                           <span
@@ -475,9 +482,9 @@ export const MaintenancePage: React.FC = () => {
 
                   {/* User Message */}
                   {maintenance.userMessage && (
-                    <div className="p-3 bg-gray-50 rounded-lg">
-                      <div className="text-xs text-gray-500 mb-1">User Message:</div>
-                      <div className="text-sm text-gray-700">{maintenance.userMessage}</div>
+                    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">User Message:</div>
+                      <div className="text-sm text-gray-700 dark:text-gray-300">{maintenance.userMessage}</div>
                     </div>
                   )}
 
@@ -570,147 +577,142 @@ export const MaintenancePage: React.FC = () => {
 
       {/* Create/Edit Modal */}
       {(showCreateModal || showEditModal) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">
-                {showEditModal ? 'Edit Maintenance Window' : 'Schedule Maintenance'}
-              </h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Title <span className="text-red-500">*</span>
-                  </label>
-                  <Input
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    placeholder="Maintenance title"
-                  />
-                </div>
+        <Modal
+          isOpen
+          onClose={closeForm}
+          size="lg"
+          title={showEditModal ? 'Edit Maintenance Window' : 'Schedule Maintenance'}
+          showCloseButton={!saving}
+          closeOnEscape={!saving}
+          closeOnOverlayClick={!saving}
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeForm}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreate}
+                loading={saving}
+                disabled={!formData.title || !formData.scheduledStart}
+              >
+                {showEditModal ? 'Update' : 'Schedule Maintenance'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Title <span className="text-red-500">*</span>
+              </label>
+              <Input
+                value={formData.title}
+                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                placeholder="Maintenance title"
+              />
+            </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="What will be done during this maintenance?"
-                  />
-                </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Description
+              </label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="What will be done during this maintenance?"
+              />
+            </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                    <Select
-                      value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value as MaintenanceForm['type'] })}
-                      options={[
-                        { value: 'scheduled', label: 'Scheduled' },
-                        { value: 'emergency', label: 'Emergency' },
-                        { value: 'rolling_update', label: 'Rolling Update' },
-                        { value: 'database_migration', label: 'Database Migration' },
-                        { value: 'security_patch', label: 'Security Patch' },
-                      ]}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Scope</label>
-                    <Select
-                      value={formData.scope}
-                      onChange={(e) => setFormData({ ...formData, scope: e.target.value as MaintenanceForm['scope'] })}
-                      options={[
-                        { value: 'global', label: 'Global' },
-                        { value: 'tenant', label: 'Tenant' },
-                        { value: 'service', label: 'Service' },
-                        { value: 'region', label: 'Region' },
-                      ]}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Start Date & Time <span className="text-red-500">*</span>
-                    </label>
-                    <Input
-                      type="datetime-local"
-                      value={formData.scheduledStart}
-                      onChange={(e) => setFormData({ ...formData, scheduledStart: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Estimated Duration (minutes)
-                    </label>
-                    <Input
-                      type="number"
-                      value={formData.estimatedDurationMinutes}
-                      onChange={(e) => setFormData({ ...formData, estimatedDurationMinutes: parseInt(e.target.value) || 60 })}
-                      placeholder="60"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">User Message</label>
-                  <textarea
-                    value={formData.userMessage}
-                    onChange={(e) => setFormData({ ...formData, userMessage: e.target.value })}
-                    rows={2}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Message shown to users during maintenance"
-                  />
-                </div>
-
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.allowReadOnlyAccess}
-                      onChange={(e) => setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Allow Read-Only Access</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.bypassForSuperAdmins}
-                      onChange={(e) => setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Bypass for Super Admins</span>
-                  </label>
-                </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type</label>
+                <Select
+                  value={formData.type}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value as MaintenanceForm['type'] })}
+                  options={[
+                    { value: 'scheduled', label: 'Scheduled' },
+                    { value: 'emergency', label: 'Emergency' },
+                    { value: 'rolling_update', label: 'Rolling Update' },
+                    { value: 'database_migration', label: 'Database Migration' },
+                    { value: 'security_patch', label: 'Security Patch' },
+                  ]}
+                />
               </div>
-
-              <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setShowEditModal(false);
-                    setSelectedMaintenance(null);
-                    setFormData(defaultForm);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleCreate}
-                  loading={saving}
-                  disabled={!formData.title || !formData.scheduledStart}
-                >
-                  {showEditModal ? 'Update' : 'Schedule Maintenance'}
-                </Button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Scope</label>
+                <Select
+                  value={formData.scope}
+                  onChange={(e) => setFormData({ ...formData, scope: e.target.value as MaintenanceForm['scope'] })}
+                  options={[
+                    { value: 'global', label: 'Global' },
+                    { value: 'tenant', label: 'Tenant' },
+                    { value: 'service', label: 'Service' },
+                    { value: 'region', label: 'Region' },
+                  ]}
+                />
               </div>
             </div>
-          </Card>
-        </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Start Date & Time <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="datetime-local"
+                  value={formData.scheduledStart}
+                  onChange={(e) => setFormData({ ...formData, scheduledStart: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Estimated Duration (minutes)
+                </label>
+                <Input
+                  type="number"
+                  value={formData.estimatedDurationMinutes}
+                  onChange={(e) => setFormData({ ...formData, estimatedDurationMinutes: parseInt(e.target.value) || 60 })}
+                  placeholder="60"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">User Message</label>
+              <textarea
+                value={formData.userMessage}
+                onChange={(e) => setFormData({ ...formData, userMessage: e.target.value })}
+                rows={2}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Message shown to users during maintenance"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.allowReadOnlyAccess}
+                  onChange={(e) => setFormData({ ...formData, allowReadOnlyAccess: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Allow Read-Only Access</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.bypassForSuperAdmins}
+                  onChange={(e) => setFormData({ ...formData, bypassForSuperAdmins: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Bypass for Super Admins</span>
+              </label>
+            </div>
+          </div>
+        </Modal>
       )}
 
     </div>

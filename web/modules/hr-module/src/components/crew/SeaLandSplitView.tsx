@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Ship, Building2, Plane, Calendar, Users } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Spinner } from '@aquaculture/shared-ui';
 import { useSeaLandSplit, useOffshoreHeadcount } from '../../hooks';
 import { EmployeeAvatar } from '../common/EmployeeAvatar';
 
@@ -64,16 +64,16 @@ function CrewSection({
                   {emp.firstName} {emp.lastName}
                 </p>
                 {emp.currentWorkArea && (
-                  <p className="truncate text-xs text-gray-500">{emp.currentWorkArea}</p>
+                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">{emp.currentWorkArea}</p>
                 )}
                 {emp.destination && (
-                  <p className="truncate text-xs text-gray-500">To: {emp.destination}</p>
+                  <p className="truncate text-xs text-gray-500 dark:text-gray-400">To: {emp.destination}</p>
                 )}
               </div>
             </div>
           ))}
           {remainingCount > 0 && (
-            <p className="text-sm text-gray-500">+{remainingCount} more</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">+{remainingCount} more</p>
           )}
         </div>
       )}
@@ -157,7 +157,7 @@ export function SeaLandSplitView({
     return (
       <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
         <div className="flex items-center justify-center py-8">
-          <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-indigo-600" />
+          <Spinner size="md" />
         </div>
       </div>
     );
@@ -166,7 +166,7 @@ export function SeaLandSplitView({
   if (error || !data) {
     return (
       <div className={cn('rounded-lg border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800', className)}>
-        <p className="text-center text-sm text-gray-500">Failed to load crew data</p>
+        <p className="text-center text-sm text-gray-500 dark:text-gray-400">Failed to load crew data</p>
       </div>
     );
   }
@@ -181,7 +181,7 @@ export function SeaLandSplitView({
           <Users className="h-5 w-5 text-indigo-600" />
           <h3 className="font-semibold text-gray-900 dark:text-white">Crew Distribution</h3>
         </div>
-        <span className="text-sm text-gray-500">{total} total personnel</span>
+        <span className="text-sm text-gray-500 dark:text-gray-400">{total} total personnel</span>
       </div>
 
       <div className="p-4">
@@ -196,7 +196,7 @@ export function SeaLandSplitView({
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.offshore.count}
               </p>
-              <p className="text-xs text-gray-500">Offshore</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Offshore</p>
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center">
@@ -205,7 +205,7 @@ export function SeaLandSplitView({
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.onshore.count}
               </p>
-              <p className="text-xs text-gray-500">Onshore</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Onshore</p>
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center">
@@ -214,16 +214,16 @@ export function SeaLandSplitView({
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.inTransit.count}
               </p>
-              <p className="text-xs text-gray-500">In Transit</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">In Transit</p>
             </div>
             <div className="text-center">
               <div className="flex items-center justify-center">
-                <Calendar className="h-5 w-5 text-gray-400" />
+                <Calendar className="h-5 w-5 text-gray-400 dark:text-gray-500" />
               </div>
               <p className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
                 {data.onLeave.count}
               </p>
-              <p className="text-xs text-gray-500">On Leave</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">On Leave</p>
             </div>
           </div>
         ) : (

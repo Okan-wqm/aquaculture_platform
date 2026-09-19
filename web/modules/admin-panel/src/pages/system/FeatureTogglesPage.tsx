@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import { Card, Button, Badge, Input, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Select, Modal, useConfirm, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { systemSettingsApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -44,6 +44,7 @@ const defaultForm: FeatureToggleForm = {
 // ============================================================================
 
 export const FeatureTogglesPage: React.FC = () => {
+  const confirm = useConfirm();
   // State
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -156,6 +157,13 @@ export const FeatureTogglesPage: React.FC = () => {
     }
   };
 
+  const closeForm = (): void => {
+    setShowCreateModal(false);
+    setShowEditModal(false);
+    setSelectedToggle(null);
+    setFormData(defaultForm);
+  };
+
   const handleCreate = async (): Promise<void> => {
     if (!formData.key || !formData.name) return;
     try {
@@ -182,7 +190,7 @@ export const FeatureTogglesPage: React.FC = () => {
   };
 
   const handleDelete = async (toggle: FeatureToggle): Promise<void> => {
-    if (!confirm(`Are you sure you want to delete "${toggle.name}"?`)) return;
+    if (!(await confirm({ title: `Delete toggle "${toggle.name}"?`, message: 'Code paths reading this flag fall back to their default.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) return;
     try {
       await deleteToggle.mutateAsync(toggle.id);
     } catch {
@@ -248,34 +256,130 @@ export const FeatureTogglesPage: React.FC = () => {
   if (loading) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/4" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4" />
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="bg-white rounded-xl p-6 h-24" />
+            <div key={i} className="bg-white dark:bg-gray-900 rounded-xl p-6 h-24" />
           ))}
         </div>
-        <div className="bg-white rounded-xl p-6 h-96" />
+        <div className="bg-white dark:bg-gray-900 rounded-xl p-6 h-96" />
       </div>
     );
   }
 
+  const toggleColumns: DataTableColumn<FeatureToggle>[] = [
+    {
+      key: 'name',
+      header: 'Toggle',
+      render: (_value, toggle) => (
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-gray-900 dark:text-gray-100">{toggle.name}</span>
+            {toggle.isExperimental && (
+              <Badge variant="warning" size="sm">Experimental</Badge>
+            )}
+          </div>
+          <span className="text-sm font-mono text-gray-500 dark:text-gray-400">{toggle.key}</span>
+          {toggle.description && (
+            <span className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-1">
+              {toggle.description}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'scope',
+      header: 'Scope',
+      render: (_value, toggle) => (
+        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getScopeBadge(toggle.scope)}`}>
+          {toggle.scope}
+        </span>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, toggle) => (
+        <Badge variant={getStatusBadge(toggle.status)}>
+          {toggle.status.replace('_', ' ')}
+        </Badge>
+      ),
+    },
+    {
+      key: 'rolloutPercentage',
+      header: 'Rollout',
+      render: (_value, toggle) =>
+        toggle.status === 'percentage_rollout' ? (
+          <div className="flex items-center gap-2">
+            <div className="w-20 bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all"
+                style={{ width: `${toggle.rolloutPercentage}%` }}
+              />
+            </div>
+            <span className="text-sm text-gray-600 dark:text-gray-400">{toggle.rolloutPercentage}%</span>
+          </div>
+        ) : (
+          <span className="text-sm text-gray-500 dark:text-gray-400">-</span>
+        ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, toggle) => <span className="text-sm text-gray-600 dark:text-gray-400">{toggle.category || '-'}</span>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, toggle) => (
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => handleToggleStatus(toggle)}
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              toggle.status === 'enabled'
+                ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                : 'bg-green-100 text-green-700 hover:bg-green-200'
+            }`}
+          >
+            {toggle.status === 'enabled' ? 'Disable' : 'Enable'}
+          </button>
+          <button
+            type="button"
+            onClick={() => openEditModal(toggle)}
+            className="px-3 py-1.5 text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDelete(toggle)}
+            className="px-3 py-1.5 text-sm font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Feature Toggles</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage feature flags and rollouts across the platform
-          </p>
-        </div>
-        <Button onClick={() => setShowCreateModal(true)}>
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Create Toggle
-        </Button>
-      </div>
+      <PageHeader
+        title="Feature Toggles"
+        description="Manage feature flags and rollouts across the platform"
+        actions={
+          <Button onClick={() => setShowCreateModal(true)}>
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Create Toggle
+          </Button>
+        }
+      />
 
       {/* A failed read or a rejected flag action, named where the operator is
           looking rather than in a fixed toast in the corner. */}
@@ -288,24 +392,24 @@ export const FeatureTogglesPage: React.FC = () => {
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Toggles</div>
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Toggles</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-green-600">{stats.enabled}</div>
-          <div className="text-sm text-gray-500">Enabled</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Enabled</div>
         </Card>
         <Card className="p-4">
-          <div className="text-2xl font-bold text-gray-600">{stats.disabled}</div>
-          <div className="text-sm text-gray-500">Disabled</div>
+          <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">{stats.disabled}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Disabled</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-blue-600">{stats.rollout}</div>
-          <div className="text-sm text-gray-500">Rolling Out</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Rolling Out</div>
         </Card>
         <Card className="p-4">
           <div className="text-2xl font-bold text-yellow-600">{stats.experimental}</div>
-          <div className="text-sm text-gray-500">Experimental</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Experimental</div>
         </Card>
       </div>
 
@@ -353,255 +457,149 @@ export const FeatureTogglesPage: React.FC = () => {
       </Card>
 
       {/* Toggles List */}
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Toggle
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Scope
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Rollout
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {safeToggles.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
-                    No feature toggles found
-                  </td>
-                </tr>
-              ) : (
-                safeToggles.map((toggle) => (
-                  <tr key={toggle.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-gray-900">{toggle.name}</span>
-                          {toggle.isExperimental && (
-                            <Badge variant="warning" size="sm">Experimental</Badge>
-                          )}
-                        </div>
-                        <span className="text-sm font-mono text-gray-500">{toggle.key}</span>
-                        {toggle.description && (
-                          <span className="text-sm text-gray-500 mt-1 line-clamp-1">
-                            {toggle.description}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${getScopeBadge(toggle.scope)}`}>
-                        {toggle.scope}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <Badge variant={getStatusBadge(toggle.status)}>
-                        {toggle.status.replace('_', ' ')}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4">
-                      {toggle.status === 'percentage_rollout' ? (
-                        <div className="flex items-center gap-2">
-                          <div className="w-20 bg-gray-200 rounded-full h-2">
-                            <div
-                              className="bg-blue-600 h-2 rounded-full transition-all"
-                              style={{ width: `${toggle.rolloutPercentage}%` }}
-                            />
-                          </div>
-                          <span className="text-sm text-gray-600">{toggle.rolloutPercentage}%</span>
-                        </div>
-                      ) : (
-                        <span className="text-sm text-gray-500">-</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm text-gray-600">{toggle.category || '-'}</span>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          onClick={() => handleToggleStatus(toggle)}
-                          className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                            toggle.status === 'enabled'
-                              ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                              : 'bg-green-100 text-green-700 hover:bg-green-200'
-                          }`}
-                        >
-                          {toggle.status === 'enabled' ? 'Disable' : 'Enable'}
-                        </button>
-                        <button
-                          onClick={() => openEditModal(toggle)}
-                          className="px-3 py-1.5 text-sm font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDelete(toggle)}
-                          className="px-3 py-1.5 text-sm font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <DataTable<FeatureToggle>
+        data={safeToggles}
+        columns={toggleColumns}
+        keyExtractor={(toggle) => toggle.id}
+        loading={loading}
+        loadingMessage="Loading feature toggles..."
+        emptyMessage="No feature toggles found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Create/Edit Modal */}
       {(showCreateModal || showEditModal) && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <Card className="max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 mb-6">
-                {showEditModal ? 'Edit Feature Toggle' : 'Create Feature Toggle'}
-              </h2>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Key <span className="text-red-500">*</span>
-                    </label>
-                    <Input
-                      value={formData.key}
-                      onChange={(e) => setFormData({ ...formData, key: e.target.value })}
-                      placeholder="feature_key"
-                      disabled={showEditModal}
-                      className="font-mono"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Name <span className="text-red-500">*</span>
-                    </label>
-                    <Input
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Feature Name"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description
-                  </label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Describe what this feature does..."
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Scope
-                    </label>
-                    <Select
-                      value={formData.scope}
-                      // Fixed at creation — `UpdateFeatureToggleDto` has no
-                      // `scope`, so an editable control here would offer a
-                      // change the API discards (ADMIN-HIGH-113).
-                      disabled={showEditModal}
-                      onChange={(e) => setFormData({ ...formData, scope: e.target.value as FeatureToggleForm['scope'] })}
-                      options={[
-                        { value: 'global', label: 'Global' },
-                        { value: 'tenant', label: 'Tenant' },
-                        { value: 'user', label: 'User' },
-                        // Offered because the API can return it: an
-                        // environment-scoped toggle opened here without this
-                        // option would have been saved back with a different
-                        // scope (ADMIN-MEDIUM-111).
-                        { value: 'environment', label: 'Environment' },
-                      ]}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Category
-                    </label>
-                    <Input
-                      value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                      placeholder="e.g., ui, analytics, ml"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Rollout Percentage
-                  </label>
-                  <div className="flex items-center gap-4">
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={formData.rolloutPercentage}
-                      onChange={(e) => setFormData({ ...formData, rolloutPercentage: parseInt(e.target.value) })}
-                      className="flex-1"
-                    />
-                    <span className="w-12 text-center font-medium">{formData.rolloutPercentage}%</span>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={formData.isExperimental}
-                      onChange={(e) => setFormData({ ...formData, isExperimental: e.target.checked })}
-                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-700">Experimental</span>
-                  </label>
-                </div>
+        <Modal
+          isOpen
+          onClose={closeForm}
+          size="lg"
+          title={showEditModal ? 'Edit Feature Toggle' : 'Create Feature Toggle'}
+          showCloseButton={!saving}
+          closeOnEscape={!saving}
+          closeOnOverlayClick={!saving}
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="secondary" onClick={closeForm}>
+                Cancel
+              </Button>
+              <Button
+                onClick={showEditModal ? handleUpdate : handleCreate}
+                loading={saving}
+                disabled={!formData.key || !formData.name}
+              >
+                {showEditModal ? 'Update Toggle' : 'Create Toggle'}
+              </Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Key <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={formData.key}
+                  onChange={(e) => setFormData({ ...formData, key: e.target.value })}
+                  placeholder="feature_key"
+                  disabled={showEditModal}
+                  className="font-mono"
+                />
               </div>
-
-              <div className="flex justify-end gap-3 mt-8 pt-4 border-t">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setShowEditModal(false);
-                    setSelectedToggle(null);
-                    setFormData(defaultForm);
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={showEditModal ? handleUpdate : handleCreate}
-                  loading={saving}
-                  disabled={!formData.key || !formData.name}
-                >
-                  {showEditModal ? 'Update Toggle' : 'Create Toggle'}
-                </Button>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Name <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="Feature Name"
+                />
               </div>
             </div>
-          </Card>
-        </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Description
+              </label>
+              <textarea
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Describe what this feature does..."
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Scope
+                </label>
+                <Select
+                  value={formData.scope}
+                  // Fixed at creation — `UpdateFeatureToggleDto` has no
+                  // `scope`, so an editable control here would offer a
+                  // change the API discards (ADMIN-HIGH-113).
+                  disabled={showEditModal}
+                  onChange={(e) => setFormData({ ...formData, scope: e.target.value as FeatureToggleForm['scope'] })}
+                  options={[
+                    { value: 'global', label: 'Global' },
+                    { value: 'tenant', label: 'Tenant' },
+                    { value: 'user', label: 'User' },
+                    // Offered because the API can return it: an
+                    // environment-scoped toggle opened here without this
+                    // option would have been saved back with a different
+                    // scope (ADMIN-MEDIUM-111).
+                    { value: 'environment', label: 'Environment' },
+                  ]}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Category
+                </label>
+                <Input
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  placeholder="e.g., ui, analytics, ml"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Rollout Percentage
+              </label>
+              <div className="flex items-center gap-4">
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={formData.rolloutPercentage}
+                  onChange={(e) => setFormData({ ...formData, rolloutPercentage: parseInt(e.target.value) })}
+                  className="flex-1"
+                />
+                <span className="w-12 text-center font-medium">{formData.rolloutPercentage}%</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formData.isExperimental}
+                  onChange={(e) => setFormData({ ...formData, isExperimental: e.target.checked })}
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Experimental</span>
+              </label>
+            </div>
+          </div>
+        </Modal>
       )}
 
     </div>

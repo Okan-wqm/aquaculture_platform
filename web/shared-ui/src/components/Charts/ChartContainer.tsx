@@ -19,19 +19,19 @@ export interface ChartContainerProps {
 
 const LoadingSkeleton: React.FC<{ height: number | string }> = ({ height }) => (
   <div className="animate-pulse" style={{ height }}>
-    <div className="h-full bg-gray-100 rounded-lg" />
+    <div className="h-full bg-gray-100 dark:bg-gray-800 rounded-lg" />
   </div>
 );
 
 // BUG-021: Remove hardcoded min-h-[200px] — use h-full so error state respects
 // the container height prop and doesn't overflow small charts
 const ErrorState: React.FC<{ message: string }> = ({ message }) => (
-  <div className="flex items-center justify-center h-full w-full bg-red-50 rounded-lg">
+  <div className="flex items-center justify-center h-full w-full bg-error-50 rounded-lg">
     <div className="text-center">
-      <svg className="w-12 h-12 mx-auto text-red-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-12 h-12 mx-auto text-error-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
-      <p className="text-sm text-red-600">{message}</p>
+      <p className="text-sm text-error-600">{message}</p>
     </div>
   </div>
 );
@@ -50,13 +50,13 @@ const ChartContainerInner: React.FC<ChartContainerProps> = ({
   footer,
 }) => {
   return (
-    <div className={`bg-white rounded-xl shadow-sm border border-gray-200 ${className}`}>
+    <div className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 ${className}`}>
       {/* Header */}
       {(title || actions) && (
-        <div className="flex items-start justify-between p-4 border-b border-gray-100">
+        <div className="flex items-start justify-between p-4 border-b border-gray-100 dark:border-gray-700">
           <div>
-            {title && <h3 className="text-sm font-semibold text-gray-900">{title}</h3>}
-            {subtitle && <p className="text-xs text-gray-500 mt-0.5">{subtitle}</p>}
+            {title && <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{title}</h3>}
+            {subtitle && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{subtitle}</p>}
           </div>
           {actions && <div className="flex items-center gap-2">{actions}</div>}
         </div>
@@ -74,7 +74,7 @@ const ChartContainerInner: React.FC<ChartContainerProps> = ({
       </div>
 
       {/* Footer */}
-      {footer && <div className="px-4 py-3 border-t border-gray-100 bg-gray-50 rounded-b-xl">{footer}</div>}
+      {footer && <div className="px-4 py-3 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">{footer}</div>}
     </div>
   );
 };

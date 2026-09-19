@@ -97,7 +97,7 @@ const TableSkeleton: React.FC<{ columns: number; rows?: number }> = ({
       <tr key={rowIndex}>
         {Array.from({ length: columns }).map((_, colIndex) => (
           <td key={colIndex} className="px-4 py-3">
-            <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
           </td>
         ))}
       </tr>
@@ -130,7 +130,7 @@ const EmptyState: React.FC<{ columns: number; message: string }> = ({
               d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
             />
           </svg>
-          <p className="text-gray-500">{message}</p>
+          <p className="text-gray-500 dark:text-gray-400">{message}</p>
         </div>
       </td>
     </tr>
@@ -148,7 +148,7 @@ const SortIndicator: React.FC<{ active: boolean; direction?: 'asc' | 'desc' }> =
   <span className="ml-2 inline-flex">
     <svg
       className={`w-4 h-4 transition-colors ${
-        active ? 'text-blue-600' : 'text-gray-500'
+        active ? 'text-primary-600' : 'text-gray-500 dark:text-gray-400'
       }`}
       fill="none"
       viewBox="0 0 24 24"
@@ -211,8 +211,8 @@ const Pagination: React.FC<PaginationProps> = ({
   }, [current, totalPages]);
 
   return (
-    <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-gray-200">
-      <div className="text-sm text-gray-700">
+    <div className="flex items-center justify-between px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
+      <div className="text-sm text-gray-700 dark:text-gray-300">
         <span className="font-medium">{startItem}</span>
         {' - '}
         <span className="font-medium">{endItem}</span>
@@ -224,13 +224,13 @@ const Pagination: React.FC<PaginationProps> = ({
         <button
           onClick={() => onChange(current - 1, pageSize)}
           disabled={current === 1}
-          className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+          className="px-3 py-1 rounded border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
         >
           {labels?.previous ?? 'Önceki'}
         </button>
         {pages.map((page, index) =>
           page === 'ellipsis' ? (
-            <span key={`ellipsis-${index}`} className="px-2 text-gray-500">
+            <span key={`ellipsis-${index}`} className="px-2 text-gray-500 dark:text-gray-400">
               ...
             </span>
           ) : (
@@ -239,8 +239,8 @@ const Pagination: React.FC<PaginationProps> = ({
               onClick={() => onChange(page, pageSize)}
               className={`px-3 py-1 rounded text-sm ${
                 current === page
-                  ? 'bg-blue-600 text-white'
-                  : 'border border-gray-300 hover:bg-gray-50'
+                  ? 'bg-primary-600 text-white'
+                  : 'border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               {page}
@@ -250,7 +250,7 @@ const Pagination: React.FC<PaginationProps> = ({
         <button
           onClick={() => onChange(current + 1, pageSize)}
           disabled={current === totalPages}
-          className="px-3 py-1 rounded border border-gray-300 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+          className="px-3 py-1 rounded border border-gray-300 dark:border-gray-600 text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
         >
           {labels?.next ?? 'Sonraki'}
         </button>
@@ -369,11 +369,11 @@ export function Table<T extends object = Record<string, unknown>>({
   const cellPadding = compact ? 'px-3 py-2' : 'px-4 py-3';
 
   return (
-    <div className={`bg-white rounded-lg shadow overflow-hidden ${className}`}>
+    <div className={`bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden ${className}`}>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           {/* Tablo Başlığı */}
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 dark:bg-gray-800">
             <tr>
               {/* Seçim kolonu */}
               {selectable && (
@@ -385,7 +385,7 @@ export function Table<T extends object = Record<string, unknown>>({
                       if (input) input.indeterminate = someSelected;
                     }}
                     onChange={handleSelectAll}
-                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                    className="w-4 h-4 text-primary-600 rounded border-gray-300 dark:border-gray-600 focus:ring-primary-500"
                   />
                 </th>
               )}
@@ -396,8 +396,8 @@ export function Table<T extends object = Record<string, unknown>>({
                   key={String(column.key)}
                   className={`
                     ${cellPadding}
-                    text-left text-xs font-medium text-gray-500 uppercase tracking-wider
-                    ${column.sortable ? 'cursor-pointer hover:bg-gray-100' : ''}
+                    text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider
+                    ${column.sortable ? 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700' : ''}
                   `}
                   style={{ width: column.width }}
                   onClick={() => column.sortable && handleSort(String(column.key))}
@@ -429,7 +429,7 @@ export function Table<T extends object = Record<string, unknown>>({
           ) : data.length === 0 ? (
             <EmptyState columns={totalColumns} message={emptyMessage} />
           ) : (
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
               {data.map((row, rowIndex) => {
                 const key = getRowKey(row, resolvedRowKey, rowIndex);
                 const isSelected = selectedRows.includes(key);
@@ -440,9 +440,9 @@ export function Table<T extends object = Record<string, unknown>>({
                     onClick={() => onRowClick?.(row)}
                     className={`
                       ${onRowClick ? 'cursor-pointer' : ''}
-                      ${isSelected ? 'bg-blue-50' : ''}
-                      ${striped && rowIndex % 2 === 1 ? 'bg-gray-50' : ''}
-                      hover:bg-gray-50 transition-colors
+                      ${isSelected ? 'bg-primary-50' : ''}
+                      ${striped && rowIndex % 2 === 1 ? 'bg-gray-50 dark:bg-gray-800' : ''}
+                      hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
                     `}
                   >
                     {/* Seçim checkbox */}
@@ -452,7 +452,7 @@ export function Table<T extends object = Record<string, unknown>>({
                           type="checkbox"
                           checked={isSelected}
                           onChange={() => handleSelectRow(key)}
-                          className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                          className="w-4 h-4 text-primary-600 rounded border-gray-300 dark:border-gray-600 focus:ring-primary-500"
                         />
                       </td>
                     )}
@@ -469,7 +469,7 @@ export function Table<T extends object = Record<string, unknown>>({
                           key={String(column.key)}
                           className={`
                             ${cellPadding}
-                            text-sm text-gray-900
+                            text-sm text-gray-900 dark:text-gray-100
                             ${column.align === 'center' ? 'text-center' : column.align === 'right' ? 'text-right' : ''}
                           `}
                         >

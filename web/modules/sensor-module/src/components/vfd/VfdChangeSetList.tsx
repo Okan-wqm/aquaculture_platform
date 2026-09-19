@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { usePrompt, type PromptFn, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   ChevronDown,
   ChevronRight,
@@ -14,7 +15,6 @@ import {
   Clock,
   RotateCcw,
   Play,
-  Loader2,
   AlertTriangle,
   FileText,
   Plus,
@@ -25,6 +25,7 @@ import {
   VfdChangeSet,
   VfdChangeSetStatus,
   VfdRiskLevel,
+  VfdChangeSetItem,
 } from '../../types/vfd.types';
 import { useVfdProgrammingStore } from '../../store/vfdProgrammingStore';
 import { VfdChangeSetDetail } from './VfdChangeSetDetail';
@@ -47,7 +48,7 @@ const STATUS_OPTIONS: { value: VfdChangeSetStatus | ''; label: string }[] = [
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   [VfdChangeSetStatus.DRAFT]: {
-    bg: 'bg-gray-100', text: 'text-gray-800',
+    bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-800 dark:text-gray-200',
     icon: <FileText className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.PENDING_APPROVAL]: {
@@ -64,7 +65,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.Reac
   },
   [VfdChangeSetStatus.APPLYING]: {
     bg: 'bg-indigo-100', text: 'text-indigo-800',
-    icon: <Loader2 className="h-3 w-3 animate-spin" />,
+    icon: <Spinner size="sm" color="inherit" />,
   },
   [VfdChangeSetStatus.APPLIED]: {
     bg: 'bg-green-100', text: 'text-green-800',
@@ -85,7 +86,7 @@ const STATUS_STYLES: Record<string, { bg: string; text: string; icon: React.Reac
     icon: <RotateCcw className="h-3 w-3" />,
   },
   [VfdChangeSetStatus.CANCELLED]: {
-    bg: 'bg-gray-100', text: 'text-gray-500',
+    bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-500 dark:text-gray-400',
     icon: <Ban className="h-3 w-3" />,
   },
 };
@@ -130,6 +131,7 @@ export function VfdChangeSetList({
   onCancel,
   onSubmitForApproval,
 }: VfdChangeSetListProps) {
+  const prompt = usePrompt();
   const { changeSetFilter, setChangeSetFilter, selectedChangeSetId, setSelectedChangeSetId } =
     useVfdProgrammingStore();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -159,6 +161,34 @@ export function VfdChangeSetList({
     );
   }
 
+  const vfdChangeSetItemColumns: DataTableColumn<VfdChangeSetItem>[] = [
+    {
+      key: 'parameter',
+      header: 'Parameter',
+      render: (_value, item) => item.parameterName,
+    },
+    {
+      key: 'previous',
+      header: 'Previous',
+      render: (_value, item) => item.previousValue ?? '-',
+    },
+    {
+      key: 'requested',
+      header: 'Requested',
+      render: (_value, item) => item.requestedValue,
+    },
+    {
+      key: 'applied',
+      header: 'Applied',
+      render: (_value, item) => item.appliedValue ?? '-',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => item.status || '-',
+    }
+  ];
+
   return (
     <div data-testid="vfd-changeset-list">
       {/* Detail slide-over */}
@@ -177,7 +207,7 @@ export function VfdChangeSetList({
       {/* Toolbar */}
       <div className="mb-4 flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <Filter className="h-4 w-4 text-gray-400" />
+          <Filter className="h-4 w-4 text-gray-400 dark:text-gray-500" />
           <select
             value={changeSetFilter ?? ''}
             onChange={(e) =>
@@ -185,7 +215,7 @@ export function VfdChangeSetList({
                 e.target.value ? (e.target.value as VfdChangeSetStatus) : null,
               )
             }
-            className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+            className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
             aria-label="Filter by status"
           >
             {STATUS_OPTIONS.map((opt) => (
@@ -195,7 +225,7 @@ export function VfdChangeSetList({
             ))}
           </select>
         </div>
-        <div className="ml-auto text-xs text-gray-400">
+        <div className="ml-auto text-xs text-gray-400 dark:text-gray-500">
           {filteredSets.length} change set{filteredSets.length !== 1 ? 's' : ''}
         </div>
       </div>
@@ -203,13 +233,13 @@ export function VfdChangeSetList({
       {/* List */}
       {loading && changeSets.length === 0 ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          <Spinner size="md" />
         </div>
       ) : filteredSets.length === 0 ? (
         <div className="py-12 text-center">
           <FileText className="mx-auto mb-2 h-8 w-8 text-gray-300" />
-          <p className="text-sm text-gray-500">No change sets yet</p>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="text-sm text-gray-500 dark:text-gray-400">No change sets yet</p>
+          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
             Add parameter changes from the Parameters tab to create one
           </p>
         </div>
@@ -223,7 +253,7 @@ export function VfdChangeSetList({
             return (
               <div
                 key={cs.id}
-                className="rounded-lg border border-gray-200 bg-white"
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900"
                 data-testid={`changeset-card-${cs.id}`}
               >
                 <div className="p-4">
@@ -233,7 +263,7 @@ export function VfdChangeSetList({
                         <button
                           type="button"
                           onClick={() => toggleExpand(cs.id)}
-                          className="text-gray-400 hover:text-gray-600"
+                          className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                           aria-label={isExpanded ? 'Collapse items' : 'Expand items'}
                           aria-expanded={isExpanded}
                         >
@@ -243,14 +273,14 @@ export function VfdChangeSetList({
                             <ChevronRight className="h-4 w-4" />
                           )}
                         </button>
-                        <h4 className="text-sm font-semibold text-gray-900">
+                        <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                           {cs.description || `Change Set ${cs.id.slice(0, 8)}`}
                         </h4>
                         <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}>
                           {computeMaxRisk(cs)}
                         </span>
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                      <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium ${style.bg} ${style.text}`}>
                           {style.icon} {formatStatus(cs.status)}
                         </span>
@@ -271,39 +301,27 @@ export function VfdChangeSetList({
                     <button
                       type="button"
                       onClick={() => setSelectedChangeSetId(cs.id)}
-                      className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                      className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                     >
                       View Details
                     </button>
-                    {renderActions(cs, { onApprove, onReject, onRollback, onCancel, onSubmitForApproval })}
+                    {renderActions(cs, { onApprove, onReject, onRollback, onCancel, onSubmitForApproval }, prompt)}
                   </div>
                 </div>
 
                 {/* Expanded items table */}
                 {isExpanded && (
-                  <div className="border-t bg-gray-50 px-4 py-3">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="text-left text-gray-500">
-                          <th className="pb-1 pr-3">Parameter</th>
-                          <th className="pb-1 pr-3">Previous</th>
-                          <th className="pb-1 pr-3">Requested</th>
-                          <th className="pb-1 pr-3">Applied</th>
-                          <th className="pb-1">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cs.items.map((item) => (
-                          <tr key={item.id} className="border-t border-gray-200">
-                            <td className="py-1 pr-3 font-mono">{item.parameterName}</td>
-                            <td className="py-1 pr-3">{item.previousValue ?? '-'}</td>
-                            <td className="py-1 pr-3 font-medium text-indigo-700">{item.requestedValue}</td>
-                            <td className="py-1 pr-3">{item.appliedValue ?? '-'}</td>
-                            <td className="py-1">{item.status || '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div className="border-t bg-gray-50 dark:bg-gray-800 px-4 py-3">
+                    <DataTable<VfdChangeSetItem>
+                      data={cs.items}
+                      columns={vfdChangeSetItemColumns}
+                      keyExtractor={(item) => item.id}
+                      emptyMessage="No items"
+                      searchable={false}
+                      sortable={false}
+                      stickyHeader={false}
+                      compact
+                    />
                   </div>
                 )}
               </div>
@@ -319,9 +337,9 @@ export function VfdChangeSetList({
             type="button"
             onClick={onLoadMore}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+            {loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
             Load More
           </button>
         </div>
@@ -366,7 +384,7 @@ interface ActionCallbacks {
   onSubmitForApproval: (id: string) => Promise<unknown>;
 }
 
-function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks): React.ReactNode {
+function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks, prompt: PromptFn): React.ReactNode {
   const buttons: React.ReactNode[] = [];
 
   if (cs.status === VfdChangeSetStatus.DRAFT) {
@@ -404,10 +422,11 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks): React.ReactNode 
       <button
         key="reject"
         type="button"
-        onClick={() => {
-          const reason = window.prompt('Rejection reason:');
-          if (reason) cbs.onReject(cs.id, reason);
-        }}
+        onClick={() =>
+          void prompt({ title: 'Reject change set', label: 'Rejection reason', confirmText: 'Reject', cancelText: 'Cancel' }).then((reason) => {
+            if (reason) void cbs.onReject(cs.id, reason);
+          })
+        }
         className="inline-flex items-center gap-1 rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
       >
         <X className="h-3 w-3" /> Reject
@@ -438,7 +457,7 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks): React.ReactNode 
         key="cancel-approved"
         type="button"
         onClick={() => cbs.onCancel(cs.id)}
-        className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
       >
         Cancel
       </button>,
@@ -450,10 +469,11 @@ function renderActions(cs: VfdChangeSet, cbs: ActionCallbacks): React.ReactNode 
       <button
         key="rollback"
         type="button"
-        onClick={() => {
-          const reason = window.prompt('Rollback reason:');
-          if (reason) cbs.onRollback(cs.id, reason);
-        }}
+        onClick={() =>
+          void prompt({ title: 'Roll back change set', label: 'Rollback reason', confirmText: 'Roll back', cancelText: 'Cancel' }).then((reason) => {
+            if (reason) void cbs.onRollback(cs.id, reason);
+          })
+        }
         className="inline-flex items-center gap-1 rounded-md border border-purple-200 px-3 py-1 text-xs font-medium text-purple-600 hover:bg-purple-50"
       >
         <RotateCcw className="h-3 w-3" /> Rollback

@@ -14,12 +14,11 @@ import {
   Search,
   Filter,
   CheckCircle,
-  X,
   Clock,
   FileText,
   TrendingUp,
 } from 'lucide-react';
-import { cn, useAuth, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY } from '@aquaculture/shared-ui';
+import { cn, Modal, useAuth, SearchableSelect, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   usePayrolls,
   usePendingPayrolls,
@@ -27,8 +26,8 @@ import {
   useApprovePayroll,
   useEmployees,
 } from '../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../components/common';
-import type { Column } from '../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../components/common';
 import type {
   Payroll,
   PayrollFilterInput,
@@ -176,256 +175,19 @@ function CreatePayrollModal({
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 pt-10">
-      <div className="w-full max-w-3xl rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Create Payroll
-          </h2>
-          <button
-            onClick={handleClose}
-            className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* Form */}
-        <form id="create-payroll-form" onSubmit={handleSubmit} className="max-h-[70vh] overflow-y-auto px-6 py-4">
-          <div className="space-y-6">
-            {/* Employee & Period */}
-            <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Pay Period
-              </h3>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <SearchableSelect
-                    label="Employee"
-                    required
-                    options={employees.map((emp) => ({
-                      value: emp.id,
-                      label: `${emp.firstName} ${emp.lastName} (${emp.employeeNumber})`,
-                    }))}
-                    value={employeeId}
-                    onChange={(val) => setEmployeeId(String(val))}
-                    placeholder="Select employee..."
-                    searchPlaceholder="Search employees..."
-                    size="md"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="payroll-payPeriodType" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Pay Period Type <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    id="payroll-payPeriodType"
-                    value={payPeriodType}
-                    onChange={(e) => setPayPeriodType(e.target.value as PayPeriodType)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  >
-                    {Object.entries(PAY_PERIOD_TYPE_LABELS).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="payroll-currency" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Currency
-                  </label>
-                  <select
-                    id="payroll-currency"
-                    value={currency}
-                    onChange={(e) => setCurrency(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  >
-                    <option value="USD">USD</option>
-                    <option value="EUR">EUR</option>
-                    <option value="GBP">GBP</option>
-                    <option value="TRY">TRY</option>
-                    <option value="NOK">NOK</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label htmlFor="payroll-periodStart" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Period Start <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="payroll-periodStart"
-                    type="date"
-                    value={payPeriodStart}
-                    onChange={(e) => setPayPeriodStart(e.target.value)}
-                    required
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="payroll-periodEnd" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Period End <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="payroll-periodEnd"
-                    type="date"
-                    value={payPeriodEnd}
-                    onChange={(e) => setPayPeriodEnd(e.target.value)}
-                    required
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Work Hours */}
-            <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Work Hours
-              </h3>
-              <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                {[
-                  { label: 'Regular', value: regularHours, setter: setRegularHours },
-                  { label: 'Overtime', value: overtimeHours, setter: setOvertimeHours },
-                  { label: 'Holiday', value: holidayHours, setter: setHolidayHours },
-                  { label: 'Sick Leave', value: sickLeaveHours, setter: setSickLeaveHours },
-                  { label: 'Vacation', value: vacationHours, setter: setVacationHours },
-                ].map(({ label, value, setter }) => {
-                  const fieldId = `payroll-hours-${label.toLowerCase().replace(/\s+/g, '-')}`;
-                  return (
-                    <div key={label}>
-                      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                        {label}
-                      </label>
-                      <input
-                        id={fieldId}
-                        type="number"
-                        min="0"
-                        max="744"
-                        step="0.5"
-                        value={value}
-                        onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Earnings */}
-            <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Earnings
-              </h3>
-              <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                {[
-                  { label: 'Base Salary', value: baseSalary, setter: setBaseSalary },
-                  { label: 'Overtime Pay', value: overtimePay, setter: setOvertimePay },
-                  { label: 'Bonus', value: bonus, setter: setBonus },
-                  { label: 'Commission', value: commission, setter: setCommission },
-                  { label: 'Allowances', value: allowances, setter: setAllowances },
-                ].map(({ label, value, setter }) => {
-                  const fieldId = `payroll-earning-${label.toLowerCase().replace(/\s+/g, '-')}`;
-                  return (
-                    <div key={label}>
-                      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                        {label}
-                      </label>
-                      <input
-                        id={fieldId}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={value}
-                        onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-2 text-right text-sm font-medium text-gray-700 dark:text-gray-300">
-                Gross Pay: <span className="text-green-600 dark:text-green-400">{formatCurrency(grossPay, currency)}</span>
-              </div>
-            </div>
-
-            {/* Deductions */}
-            <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                Deductions
-              </h3>
-              <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                {[
-                  { label: 'Tax', value: tax, setter: setTax },
-                  { label: 'Social Security', value: socialSecurity, setter: setSocialSecurity },
-                  { label: 'Health Insurance', value: healthInsurance, setter: setHealthInsurance },
-                  { label: 'Retirement', value: retirement, setter: setRetirement },
-                  { label: 'Other', value: otherDeductions, setter: setOtherDeductions },
-                ].map(({ label, value, setter }) => {
-                  const fieldId = `payroll-deduction-${label.toLowerCase().replace(/\s+/g, '-')}`;
-                  return (
-                    <div key={label}>
-                      <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                        {label}
-                      </label>
-                      <input
-                        id={fieldId}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={value}
-                        onChange={(e) => setter(parseFloat(e.target.value) || 0)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-2 text-right text-sm font-medium text-gray-700 dark:text-gray-300">
-                Total Deductions: <span className="text-red-600 dark:text-red-400">{formatCurrency(totalDeductions, currency)}</span>
-              </div>
-            </div>
-
-            {/* Net Pay Summary */}
-            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
-                  Net Pay
-                </span>
-                <span className="text-xl font-bold text-indigo-700 dark:text-indigo-300">
-                  {formatCurrency(netPay, currency)}
-                </span>
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div>
-              <label htmlFor="payroll-notes" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-                Notes
-              </label>
-              <textarea
-                id="payroll-notes"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={2}
-                maxLength={1000}
-                placeholder="Optional notes..."
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              />
-            </div>
-          </div>
-        </form>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      size="xl"
+      title="Create Payroll"
+      showCloseButton={!isSubmitting}
+      closeOnEscape={!isSubmitting}
+      closeOnOverlayClick={!isSubmitting}
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto"
+      footer={
+        <>
           <button
             onClick={handleClose}
             className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:ring-gray-600 dark:hover:bg-gray-700"
@@ -439,13 +201,242 @@ function CreatePayrollModal({
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting && (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <Spinner size="sm" color="white" />
             )}
             Create Payroll
           </button>
+        </>
+      }
+    >
+      <form id="create-payroll-form" onSubmit={handleSubmit} className="px-6 py-4">
+        <div className="space-y-6">
+          {/* Employee & Period */}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Pay Period
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <SearchableSelect
+                  label="Employee"
+                  required
+                  options={employees.map((emp) => ({
+                    value: emp.id,
+                    label: `${emp.firstName} ${emp.lastName} (${emp.employeeNumber})`,
+                  }))}
+                  value={employeeId}
+                  onChange={(val) => setEmployeeId(String(val))}
+                  placeholder="Select employee..."
+                  searchPlaceholder="Search employees..."
+                  size="md"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="payroll-payPeriodType" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Pay Period Type <span className="text-red-500">*</span>
+                </label>
+                <select
+                  id="payroll-payPeriodType"
+                  value={payPeriodType}
+                  onChange={(e) => setPayPeriodType(e.target.value as PayPeriodType)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                >
+                  {Object.entries(PAY_PERIOD_TYPE_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="payroll-currency" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Currency
+                </label>
+                <select
+                  id="payroll-currency"
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                >
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                  <option value="GBP">GBP</option>
+                  <option value="TRY">TRY</option>
+                  <option value="NOK">NOK</option>
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="payroll-periodStart" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Period Start <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="payroll-periodStart"
+                  type="date"
+                  value={payPeriodStart}
+                  onChange={(e) => setPayPeriodStart(e.target.value)}
+                  required
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="payroll-periodEnd" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Period End <span className="text-red-500">*</span>
+                </label>
+                <input
+                  id="payroll-periodEnd"
+                  type="date"
+                  value={payPeriodEnd}
+                  onChange={(e) => setPayPeriodEnd(e.target.value)}
+                  required
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Work Hours */}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Work Hours
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              {[
+                { label: 'Regular', value: regularHours, setter: setRegularHours },
+                { label: 'Overtime', value: overtimeHours, setter: setOvertimeHours },
+                { label: 'Holiday', value: holidayHours, setter: setHolidayHours },
+                { label: 'Sick Leave', value: sickLeaveHours, setter: setSickLeaveHours },
+                { label: 'Vacation', value: vacationHours, setter: setVacationHours },
+              ].map(({ label, value, setter }) => {
+                const fieldId = `payroll-hours-${label.toLowerCase().replace(/\s+/g, '-')}`;
+                return (
+                  <div key={label}>
+                    <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {label}
+                    </label>
+                    <input
+                      id={fieldId}
+                      type="number"
+                      min="0"
+                      max="744"
+                      step="0.5"
+                      value={value}
+                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Earnings */}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Earnings
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              {[
+                { label: 'Base Salary', value: baseSalary, setter: setBaseSalary },
+                { label: 'Overtime Pay', value: overtimePay, setter: setOvertimePay },
+                { label: 'Bonus', value: bonus, setter: setBonus },
+                { label: 'Commission', value: commission, setter: setCommission },
+                { label: 'Allowances', value: allowances, setter: setAllowances },
+              ].map(({ label, value, setter }) => {
+                const fieldId = `payroll-earning-${label.toLowerCase().replace(/\s+/g, '-')}`;
+                return (
+                  <div key={label}>
+                    <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {label}
+                    </label>
+                    <input
+                      id={fieldId}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={value}
+                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-2 text-right text-sm font-medium text-gray-700 dark:text-gray-300">
+              Gross Pay: <span className="text-green-600 dark:text-green-400">{formatCurrency(grossPay, currency)}</span>
+            </div>
+          </div>
+
+          {/* Deductions */}
+          <div>
+            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              Deductions
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
+              {[
+                { label: 'Tax', value: tax, setter: setTax },
+                { label: 'Social Security', value: socialSecurity, setter: setSocialSecurity },
+                { label: 'Health Insurance', value: healthInsurance, setter: setHealthInsurance },
+                { label: 'Retirement', value: retirement, setter: setRetirement },
+                { label: 'Other', value: otherDeductions, setter: setOtherDeductions },
+              ].map(({ label, value, setter }) => {
+                const fieldId = `payroll-deduction-${label.toLowerCase().replace(/\s+/g, '-')}`;
+                return (
+                  <div key={label}>
+                    <label htmlFor={fieldId} className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {label}
+                    </label>
+                    <input
+                      id={fieldId}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={value}
+                      onChange={(e) => setter(parseFloat(e.target.value) || 0)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-2 text-right text-sm font-medium text-gray-700 dark:text-gray-300">
+              Total Deductions: <span className="text-red-600 dark:text-red-400">{formatCurrency(totalDeductions, currency)}</span>
+            </div>
+          </div>
+
+          {/* Net Pay Summary */}
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                Net Pay
+              </span>
+              <span className="text-xl font-bold text-indigo-700 dark:text-indigo-300">
+                {formatCurrency(netPay, currency)}
+              </span>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label htmlFor="payroll-notes" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Notes
+            </label>
+            <textarea
+              id="payroll-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              maxLength={1000}
+              placeholder="Optional notes..."
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            />
+          </div>
         </div>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -548,13 +539,12 @@ const PayrollPage: React.FC = () => {
   }, [displayData, searchQuery]);
 
   // Table columns
-  const columns: Column<Payroll>[] = useMemo(
+  const columns: DataTableColumn<Payroll>[] = useMemo(
     () => [
       {
         key: 'employee',
         header: 'Employee',
-        sortable: true,
-        accessor: (row) => (
+          render: (_value, row) => (
           <div className="flex items-center gap-3">
             {row.employee ? (
               <>
@@ -567,11 +557,11 @@ const PayrollPage: React.FC = () => {
                   <p className="font-medium text-gray-900 dark:text-white">
                     {row.employee.firstName} {row.employee.lastName}
                   </p>
-                  <p className="text-xs text-gray-500">{row.payrollNumber}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{row.payrollNumber}</p>
                 </div>
               </>
             ) : (
-              <span className="text-gray-500">{row.payrollNumber}</span>
+              <span className="text-gray-500 dark:text-gray-400">{row.payrollNumber}</span>
             )}
           </div>
         ),
@@ -579,13 +569,12 @@ const PayrollPage: React.FC = () => {
       {
         key: 'period',
         header: 'Period',
-        sortable: true,
-        accessor: (row) => (
+          render: (_value, row) => (
           <div className="text-sm">
             <p className="text-gray-900 dark:text-white">
               {formatDate(row.payPeriodStart)} - {formatDate(row.payPeriodEnd)}
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {PAY_PERIOD_TYPE_LABELS[row.payPeriodType] || row.payPeriodType}
             </p>
           </div>
@@ -594,8 +583,7 @@ const PayrollPage: React.FC = () => {
       {
         key: 'status',
         header: 'Status',
-        sortable: true,
-        accessor: (row) => {
+          render: (_value, row) => {
           const config = PAYROLL_STATUS_CONFIG[row.status] || {
             label: row.status,
             variant: 'default',
@@ -607,7 +595,7 @@ const PayrollPage: React.FC = () => {
         key: 'grossPay',
         header: 'Gross Pay',
         align: 'right',
-        accessor: (row) => (
+        render: (_value, row) => (
           <span className="font-medium text-gray-900 dark:text-white">
             {formatCurrency(parseMoney(row.earningsGrossPayDecimal), row.currency)}
           </span>
@@ -617,7 +605,7 @@ const PayrollPage: React.FC = () => {
         key: 'deductions',
         header: 'Deductions',
         align: 'right',
-        accessor: (row) => (
+        render: (_value, row) => (
           <span className="text-red-600 dark:text-red-400">
             {formatCurrency(parseMoney(row.deductionsTotalDecimal), row.currency)}
           </span>
@@ -627,7 +615,7 @@ const PayrollPage: React.FC = () => {
         key: 'netPay',
         header: 'Net Pay',
         align: 'right',
-        accessor: (row) => (
+        render: (_value, row) => (
           <span className="font-semibold text-green-700 dark:text-green-400">
             {formatCurrency(parseMoney(row.netPayDecimal), row.currency)}
           </span>
@@ -638,7 +626,7 @@ const PayrollPage: React.FC = () => {
         header: '',
         width: '80px',
         align: 'right',
-        accessor: (row) => (
+        render: (_value, row) => (
           <div className="flex items-center justify-end gap-2">
             {row.status === PayrollStatus.PENDING_APPROVAL && (
               <button
@@ -732,21 +720,19 @@ const PayrollPage: React.FC = () => {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Payroll</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Salary and payment management
-          </p>
-        </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4" />
-          Create Payroll
-        </button>
-      </div>
+      <PageHeader
+        title="Payroll"
+        description="Salary and payment management"
+        actions={
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            Create Payroll
+          </button>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -781,7 +767,7 @@ const PayrollPage: React.FC = () => {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'all'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           All Payrolls
@@ -792,7 +778,7 @@ const PayrollPage: React.FC = () => {
             'flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'pending'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Pending Approval
@@ -807,7 +793,7 @@ const PayrollPage: React.FC = () => {
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative max-w-md flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Search payrolls..."
@@ -888,20 +874,21 @@ const PayrollPage: React.FC = () => {
       )}
 
       {/* Data Table */}
-      <DataTable
+      <DataTable<Payroll>
         data={filteredData || []}
         columns={columns}
         keyExtractor={keyExtractor}
-        isLoading={isLoading}
+        loading={isLoading}
         emptyMessage="No payroll records found"
-        total={activeTab === 'pending' ? undefined : allPayrolls?.total}
-        page={
-          activeTab === 'pending'
-            ? 1
-            : filter.page || 1
+        pagination={
+          activeTab !== 'pending' && allPayrolls
+            ? derivePaginationMetadataV1(allPayrolls.total, filter.page || 1, filter.limit || 20)
+            : undefined
         }
-        pageSize={filter.limit || 20}
         onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
       />
     </div>
   );

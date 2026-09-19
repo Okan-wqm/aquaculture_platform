@@ -15,10 +15,10 @@ import {
   Ship,
   Building2,
 } from 'lucide-react';
-import { cn, useAuth } from '@aquaculture/shared-ui';
+import { cn, useAuth, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import { useEmployees, useDepartments, usePositions, useToggleFarmWorker } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar, DepartmentBadge } from '../../components/common';
-import type { Column } from '../../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar, DepartmentBadge } from '../../components/common';
 import type { Employee, EmployeeFilterInput, EmployeeStatus, PersonnelCategory, PaginationInput } from '../../types';
 import { EMPLOYEE_STATUS_CONFIG, PERSONNEL_CATEGORY_CONFIG } from '../../types';
 
@@ -40,9 +40,7 @@ export function EmployeesListPage() {
   // a new network request fires.  useDeferredValue yields the previous value
   // during the transition, so the table stays responsive while the query runs.
   const deferredSearch = useDeferredValue(searchQuery);
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const [sortBy, setSortBy] = useState<string>('lastName');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
   // Data fetching
@@ -55,12 +53,11 @@ export function EmployeesListPage() {
   const toggleFarmWorker = useToggleFarmWorker();
 
   // PERF-004: memoize columns to avoid re-creating the array on every render
-  const columns: Column<Employee>[] = useMemo(() => [
+  const columns: DataTableColumn<Employee>[] = useMemo(() => [
     {
       key: 'employee',
       header: 'Employee',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           <EmployeeAvatar
             firstName={row.firstName}
@@ -71,7 +68,7 @@ export function EmployeesListPage() {
             <p className="font-medium text-gray-900 dark:text-white">
               {row.firstName} {row.lastName}
             </p>
-            <p className="text-sm text-gray-500">{row.employeeNumber}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{row.employeeNumber}</p>
           </div>
         </div>
       ),
@@ -79,21 +76,20 @@ export function EmployeesListPage() {
     {
       key: 'department',
       header: 'Department',
-      sortable: true,
-      accessor: (row) =>
+      render: (_value, row) =>
         row.department ? (
           <DepartmentBadge
             name={row.department}
             size="sm"
           />
         ) : (
-          <span className="text-gray-400">-</span>
+          <span className="text-gray-400 dark:text-gray-500">-</span>
         ),
     },
     {
       key: 'position',
       header: 'Position',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-600 dark:text-gray-300">
           {row.position || '-'}
         </span>
@@ -102,8 +98,8 @@ export function EmployeesListPage() {
     {
       key: 'personnelCategory',
       header: 'Category',
-      accessor: (row) => {
-        if (!row.personnelCategory) return <span className="text-gray-400">-</span>;
+      render: (_value, row) => {
+        if (!row.personnelCategory) return <span className="text-gray-400 dark:text-gray-500">-</span>;
         const config = PERSONNEL_CATEGORY_CONFIG[row.personnelCategory];
         return (
           <div className="flex items-center gap-1">
@@ -120,8 +116,7 @@ export function EmployeesListPage() {
     {
       key: 'status',
       header: 'Status',
-      sortable: true,
-      accessor: (row) => {
+      render: (_value, row) => {
         const config = EMPLOYEE_STATUS_CONFIG[row.status];
         return <StatusBadge label={config.label} variant={config.variant} size="sm" />;
       },
@@ -130,7 +125,7 @@ export function EmployeesListPage() {
       key: 'seaWorthy',
       header: 'Sea Worthy',
       align: 'center',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span
           className={cn(
             'inline-flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium',
@@ -147,7 +142,7 @@ export function EmployeesListPage() {
       key: 'farmWorker',
       header: 'Farm',
       align: 'center',
-      accessor: (row) => (
+      render: (_value, row) => (
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -170,7 +165,7 @@ export function EmployeesListPage() {
       header: '',
       width: '60px',
       align: 'right',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center justify-end gap-1">
           <button
             onClick={(e) => {
@@ -201,15 +196,6 @@ export function EmployeesListPage() {
   // PERF-009: stable keyExtractor so DataTable's useMemo deps don't invalidate
   const keyExtractor = useCallback((row: Employee) => row.id, []);
 
-  const handleSort = (key: string) => {
-    if (sortBy === key) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(key);
-      setSortOrder('asc');
-    }
-  };
-
   const handlePageChange = (page: number) => {
     setPagination({
       ...pagination,
@@ -229,26 +215,24 @@ export function EmployeesListPage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Employees</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Manage your organization's workforce
-          </p>
-        </div>
-        <button
-          onClick={() => navigate('/hr/employees/new')}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4" />
-          Add Employee
-        </button>
-      </div>
+      <PageHeader
+        title="Employees"
+        description="Manage your organization's workforce"
+        actions={
+          <button
+            onClick={() => navigate('/hr/employees/new')}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            Add Employee
+          </button>
+        }
+      />
 
       {/* Search and Filters */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Search employees..."
@@ -370,10 +354,10 @@ export function EmployeesListPage() {
       )}
 
       {/* Selection Actions */}
-      {selectedKeys.size > 0 && (
+      {selectedKeys.length > 0 && (
         <div className="flex items-center gap-4 rounded-lg bg-indigo-50 px-4 py-2 dark:bg-indigo-900/30">
           <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
-            {selectedKeys.size} selected
+            {selectedKeys.length} selected
           </span>
           <div className="flex items-center gap-2">
             {canBulkDelete && (
@@ -397,8 +381,8 @@ export function EmployeesListPage() {
             )}
           </div>
           <button
-            onClick={() => setSelectedKeys(new Set())}
-            className="ml-auto text-sm text-gray-500 hover:text-gray-700"
+            onClick={() => setSelectedKeys([])}
+            className="ml-auto text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100"
           >
             Clear selection
           </button>
@@ -406,23 +390,25 @@ export function EmployeesListPage() {
       )}
 
       {/* Data Table */}
-      <DataTable
-        data={employees?.items || []}
+      <DataTable<Employee>
+        data={employees?.items ?? []}
         columns={columns}
         keyExtractor={keyExtractor}
-        isLoading={isLoading}
+        loading={isLoading}
         emptyMessage="No employees found"
-        total={employees?.total}
-        page={pagination.page || 1}
-        pageSize={pagination.limit || 20}
+        pagination={
+          employees
+            ? derivePaginationMetadataV1(employees.total, pagination.page || 1, pagination.limit || 20)
+            : undefined
+        }
         onPageChange={handlePageChange}
-        sortBy={sortBy}
-        sortOrder={sortOrder}
-        onSort={handleSort}
         selectable
-        selectedKeys={selectedKeys}
+        selectedRows={selectedKeys}
         onSelectionChange={setSelectedKeys}
         onRowClick={(row) => navigate(`/hr/employees/${row.id}`)}
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
       />
     </div>
   );

@@ -2,7 +2,7 @@
  * Storage & Stock Management Page
  * 8-tab page for warehouse, inventory, and procurement management
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, PageHeader } from '@aquaculture/shared-ui';
 import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useStorageOverview } from '../../hooks/useStorageInventory';
@@ -153,68 +153,67 @@ const StoragePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="px-4 sm:px-6 py-6">
-          <h1 className="text-2xl font-bold text-gray-900">Storage & Stock Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage warehouses, inventory, stock movements and procurement
-          </p>
-        </div>
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
+        <PageHeader
+          title="Storage & Stock Management"
+          description="Manage warehouses, inventory, stock movements and procurement"
+          className="px-4 sm:px-6 py-6"
+        />
       </div>
 
       {/* Summary Cards */}
       <div className="px-4 sm:px-6 py-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
               <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
             <div>
-              <div className="text-xs text-gray-500">Total Stock Value</div>
-              <div className="text-lg font-bold text-gray-900">
+              <div className="text-xs text-gray-500 dark:text-gray-400">Total Stock Value</div>
+              <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
                 {overviewLoading ? '...' : formatCurrency(parseMoney(overview?.totalStockValueDecimal), 'NOK')}
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
               <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
             </div>
             <div>
-              <div className="text-xs text-gray-500">Low Stock Alerts</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Low Stock Alerts</div>
               <div className="text-lg font-bold text-red-600">
                 {overviewLoading ? '...' : (overview?.lowStockAlertCount ?? 0)}
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-amber-100 flex items-center justify-center">
               <svg className="w-5 h-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 100 4 2 2 0 000-4z" />
               </svg>
             </div>
             <div>
-              <div className="text-xs text-gray-500">Total Items</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Total Items</div>
               <div className="text-lg font-bold text-amber-600">
                 {overviewLoading ? '...' : (overview?.totalItems ?? 0)}
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center gap-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 flex items-center gap-4">
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
               <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
               </svg>
             </div>
             <div>
-              <div className="text-xs text-gray-500">Recent Movements</div>
-              <div className="text-lg font-bold text-gray-900">
+              <div className="text-xs text-gray-500 dark:text-gray-400">Recent Movements</div>
+              <div className="text-lg font-bold text-gray-900 dark:text-gray-100">
                 {overviewLoading ? '...' : (overview?.recentMovementsCount ?? 0)}
               </div>
             </div>
@@ -223,7 +222,7 @@ const StoragePage: React.FC = () => {
       </div>
 
       {/* Tab Navigation */}
-      <div className="bg-white border-b border-gray-200">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700">
         <div className="px-4 sm:px-6">
           <nav className="-mb-px flex space-x-1 overflow-x-auto" aria-label="Tabs">
             {tabs.map(tab => (
@@ -234,11 +233,11 @@ const StoragePage: React.FC = () => {
                   inline-flex items-center gap-2 py-3 px-4 border-b-2 font-medium text-sm whitespace-nowrap transition-colors
                   ${activeTab === tab.id
                     ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
                   }
                 `}
               >
-                <span className={activeTab === tab.id ? 'text-blue-500' : 'text-gray-400'}>
+                <span className={activeTab === tab.id ? 'text-blue-500' : 'text-gray-400 dark:text-gray-500'}>
                   {tab.icon}
                 </span>
                 {tab.name}

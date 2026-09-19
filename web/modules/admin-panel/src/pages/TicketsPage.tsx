@@ -22,7 +22,6 @@ import {
   Target,
   Star,
   RefreshCw,
-  Loader2,
   Inbox,
 } from 'lucide-react';
 import {
@@ -34,6 +33,7 @@ import {
   type TicketStatus,
   type TicketCategory,
 } from '../services/adminApi';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -228,7 +228,7 @@ export const TicketsPage: React.FC = () => {
       case 'critical': return 'bg-red-100 text-red-700 border-red-200';
       case 'high': return 'bg-orange-100 text-orange-700 border-orange-200';
       case 'medium': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
-      case 'low': return 'bg-gray-100 text-gray-700 border-gray-200';
+      case 'low': return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700';
     }
   };
 
@@ -243,7 +243,7 @@ export const TicketsPage: React.FC = () => {
     in_progress: 'bg-purple-100 text-purple-700',
     waiting_customer: 'bg-yellow-100 text-yellow-700',
     resolved: 'bg-green-100 text-green-700',
-    closed: 'bg-gray-100 text-gray-600',
+    closed: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
   };
   const getStatusColor = (status: TicketStatus): string => STATUS_COLORS[status];
 
@@ -365,26 +365,26 @@ export const TicketsPage: React.FC = () => {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Support Tickets</h1>
-            <p className="text-gray-500 mt-1">Manage and resolve customer support requests</p>
-          </div>
-          <button
-            onClick={() => { fetchTickets(); fetchStats(); }}
-            className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-          >
-            <RefreshCw size={18} />
-          </button>
-        </div>
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+        <PageHeader
+          title="Support Tickets"
+          description="Manage and resolve customer support requests"
+          actions={
+            <button
+              onClick={() => { fetchTickets(); fetchStats(); }}
+              className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
+            >
+              <RefreshCw size={18} />
+            </button>
+          }
+        />
 
         {/* Stats */}
         {stats && (
           <div className="grid grid-cols-8 gap-3 mt-4">
-            <div className="bg-gray-50 rounded-lg p-3">
-              <div className="text-sm text-gray-500">Total</div>
-              <div className="text-xl font-semibold text-gray-900">{stats.total}</div>
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+              <div className="text-sm text-gray-500 dark:text-gray-400">Total</div>
+              <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{stats.total}</div>
             </div>
             <div className="bg-blue-50 rounded-lg p-3">
               <div className="text-sm text-blue-600">Open</div>
@@ -424,24 +424,24 @@ export const TicketsPage: React.FC = () => {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Ticket List */}
-        <div className={`${selectedTicket ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 bg-white`}>
+        <div className={`${selectedTicket ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900`}>
           {/* Filters */}
-          <div className="p-4 border-b border-gray-200 space-y-3">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" size={18} />
               <input
                 type="text"
                 placeholder="Search tickets..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div className="flex items-center gap-2">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as TicketStatus | 'all')}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Status</option>
                 <option value="open">Open</option>
@@ -453,7 +453,7 @@ export const TicketsPage: React.FC = () => {
               <select
                 value={priorityFilter}
                 onChange={(e) => setPriorityFilter(e.target.value as TicketPriority | 'all')}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Priority</option>
                 <option value="critical">Critical</option>
@@ -464,7 +464,7 @@ export const TicketsPage: React.FC = () => {
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value as TicketCategory | 'all')}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Categories</option>
                 <option value="technical">Technical</option>
@@ -480,7 +480,7 @@ export const TicketsPage: React.FC = () => {
           <div className="flex-1 overflow-y-auto">
             {loading ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="animate-spin text-blue-600" size={32} />
+                <Spinner size="lg" />
               </div>
             ) : error ? (
               <div className="flex flex-col items-center justify-center h-full text-red-500 p-4">
@@ -494,8 +494,8 @@ export const TicketsPage: React.FC = () => {
                 </button>
               </div>
             ) : filteredTickets.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500 p-4">
-                <Inbox size={48} className="mb-2 text-gray-500" />
+              <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400 p-4">
+                <Inbox size={48} className="mb-2 text-gray-500 dark:text-gray-400" />
                 <p>No tickets found</p>
               </div>
             ) : (
@@ -503,7 +503,7 @@ export const TicketsPage: React.FC = () => {
                 <div
                   key={ticket.id}
                   onClick={() => setSelectedTicket(ticket)}
-                  className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                  className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                     selectedTicket?.id === ticket.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
                   }`}
                 >
@@ -522,13 +522,13 @@ export const TicketsPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <h3 className="font-medium text-gray-900 mt-1 truncate">{ticket.subject}</h3>
-                      <div className="flex items-center gap-2 mt-1 text-sm text-gray-500">
+                      <h3 className="font-medium text-gray-900 dark:text-gray-100 mt-1 truncate">{ticket.subject}</h3>
+                      <div className="flex items-center gap-2 mt-1 text-sm text-gray-500 dark:text-gray-400">
                         <span>{ticket.ticketNumber}</span>
                         <span>·</span>
                         <span>{ticket.tenantName}</span>
                       </div>
-                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                      <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
                         <span className="flex items-center gap-1">
                           <Clock size={12} />
                           {formatTime(ticket.createdAt)}
@@ -545,7 +545,7 @@ export const TicketsPage: React.FC = () => {
                         </span>
                       </div>
                     </div>
-                    <ChevronRight size={18} className="text-gray-500" />
+                    <ChevronRight size={18} className="text-gray-500 dark:text-gray-400" />
                   </div>
                 </div>
               ))
@@ -555,9 +555,9 @@ export const TicketsPage: React.FC = () => {
 
         {/* Ticket Detail */}
         {selectedTicket && (
-          <div className="w-1/2 flex flex-col bg-gray-50">
+          <div className="w-1/2 flex flex-col bg-gray-50 dark:bg-gray-800">
             {/* Detail Header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4">
+            <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
               <div className="flex items-start justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -567,15 +567,15 @@ export const TicketsPage: React.FC = () => {
                     <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedTicket.status)}`}>
                       {getStatusLabel(selectedTicket.status)}
                     </span>
-                    <span className="flex items-center gap-1 text-xs text-gray-500">
+                    <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                       {getCategoryIcon(selectedTicket.category)}
                       {selectedTicket.category.replace('_', ' ')}
                     </span>
                   </div>
-                  <h2 className="text-lg font-semibold text-gray-900 mt-2">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mt-2">
                     {selectedTicket.subject}
                   </h2>
-                  <div className="flex items-center gap-3 mt-1 text-sm text-gray-500">
+                  <div className="flex items-center gap-3 mt-1 text-sm text-gray-500 dark:text-gray-400">
                     <span>{selectedTicket.ticketNumber}</span>
                     <span>·</span>
                     <span>{selectedTicket.tenantName}</span>
@@ -585,7 +585,7 @@ export const TicketsPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => setSelectedTicket(null)}
-                  className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                  className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                 >
                   <X size={20} />
                 </button>
@@ -597,7 +597,7 @@ export const TicketsPage: React.FC = () => {
                 <select
                   value={selectedTicket.status}
                   onChange={(e) => handleStatusChange(selectedTicket.id, e.target.value as TicketStatus)}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="open">Open</option>
                   <option value="in_progress">In Progress</option>
@@ -610,7 +610,7 @@ export const TicketsPage: React.FC = () => {
                 <select
                   value={selectedTicket.priority}
                   onChange={(e) => handlePriorityChange(selectedTicket.id, e.target.value as TicketPriority)}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="critical">Critical</option>
                   <option value="high">High</option>
@@ -627,7 +627,7 @@ export const TicketsPage: React.FC = () => {
                       handleAssign(selectedTicket.id, member.id, member.name);
                     }
                   }}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Assign to...</option>
                   {supportTeam.map((member) => (
@@ -640,9 +640,9 @@ export const TicketsPage: React.FC = () => {
 
               {/* SLA Info */}
               {(selectedTicket.slaResponseDeadline || selectedTicket.slaResolutionDeadline) && (
-                <div className="flex items-center gap-4 mt-4 p-3 bg-gray-50 rounded-lg text-sm">
+                <div className="flex items-center gap-4 mt-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm">
                   {selectedTicket.slaResponseDeadline && !selectedTicket.firstResponseAt && (
-                    <div className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResponseDeadline) ? 'text-red-600' : 'text-gray-600'}`}>
+                    <div className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResponseDeadline) ? 'text-red-600' : 'text-gray-600 dark:text-gray-400'}`}>
                       <Clock size={14} />
                       <span>Response: {formatTime(selectedTicket.slaResponseDeadline)}</span>
                       {isSLABreached(selectedTicket.slaResponseDeadline) && (
@@ -651,7 +651,7 @@ export const TicketsPage: React.FC = () => {
                     </div>
                   )}
                   {selectedTicket.slaResolutionDeadline && selectedTicket.status !== 'resolved' && selectedTicket.status !== 'closed' && (
-                    <div className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResolutionDeadline) ? 'text-red-600' : 'text-gray-600'}`}>
+                    <div className={`flex items-center gap-2 ${isSLABreached(selectedTicket.slaResolutionDeadline) ? 'text-red-600' : 'text-gray-600 dark:text-gray-400'}`}>
                       <Target size={14} />
                       <span>Resolution: {formatTime(selectedTicket.slaResolutionDeadline)}</span>
                       {isSLABreached(selectedTicket.slaResolutionDeadline) && (
@@ -666,7 +666,7 @@ export const TicketsPage: React.FC = () => {
               {selectedTicket.tags && selectedTicket.tags.length > 0 && (
                 <div className="flex items-center gap-2 mt-3">
                   {selectedTicket.tags.map((tag) => (
-                    <span key={tag} className="px-2 py-0.5 bg-gray-100 text-gray-600 text-xs rounded">
+                    <span key={tag} className="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 text-xs rounded">
                       {tag}
                     </span>
                   ))}
@@ -678,11 +678,11 @@ export const TicketsPage: React.FC = () => {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {commentsLoading ? (
                 <div className="flex items-center justify-center h-full">
-                  <Loader2 className="animate-spin text-blue-600" size={32} />
+                  <Spinner size="lg" />
                 </div>
               ) : comments.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                  <MessageSquare size={48} className="mb-2 text-gray-500" />
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 dark:text-gray-400">
+                  <MessageSquare size={48} className="mb-2 text-gray-500 dark:text-gray-400" />
                   <p>No comments yet</p>
                 </div>
               ) : (
@@ -694,7 +694,7 @@ export const TicketsPage: React.FC = () => {
                         ? 'bg-yellow-50 border border-yellow-200'
                         : comment.authorType === 'admin'
                         ? 'bg-blue-50 border border-blue-100'
-                        : 'bg-white border border-gray-200'
+                        : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700'
                     }`}
                   >
                     {comment.isInternal && (
@@ -705,19 +705,19 @@ export const TicketsPage: React.FC = () => {
                     )}
                     <div className="flex items-center justify-between mb-2">
                       <div className="flex items-center gap-2">
-                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                          <User size={16} className="text-gray-500" />
+                        <div className="w-8 h-8 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                          <User size={16} className="text-gray-500 dark:text-gray-400" />
                         </div>
                         <div>
-                          <div className="font-medium text-gray-900 text-sm">{comment.authorName}</div>
-                          <div className="text-xs text-gray-500">
+                          <div className="font-medium text-gray-900 dark:text-gray-100 text-sm">{comment.authorName}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400">
                             {comment.authorType === 'admin' ? 'Support Team' : 'Customer'}
                           </div>
                         </div>
                       </div>
-                      <span className="text-xs text-gray-500">{formatTime(comment.createdAt)}</span>
+                      <span className="text-xs text-gray-500 dark:text-gray-400">{formatTime(comment.createdAt)}</span>
                     </div>
-                    <p className={`text-sm whitespace-pre-wrap ${comment.isInternal ? 'text-yellow-800' : 'text-gray-700'}`}>
+                    <p className={`text-sm whitespace-pre-wrap ${comment.isInternal ? 'text-yellow-800' : 'text-gray-700 dark:text-gray-300'}`}>
                       {comment.content}
                     </p>
                     {comment.attachments && comment.attachments.length > 0 && (
@@ -726,10 +726,10 @@ export const TicketsPage: React.FC = () => {
                           <a
                             key={att.id}
                             href={att.url}
-                            className="flex items-center gap-2 p-2 bg-white rounded border border-gray-200 hover:bg-gray-50 text-sm"
+                            className="flex items-center gap-2 p-2 bg-white dark:bg-gray-900 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-sm"
                           >
-                            <Paperclip size={14} className="text-gray-500" />
-                            <span className="text-gray-700">{att.filename}</span>
+                            <Paperclip size={14} className="text-gray-500 dark:text-gray-400" />
+                            <span className="text-gray-700 dark:text-gray-300">{att.filename}</span>
                           </a>
                         ))}
                       </div>
@@ -741,14 +741,14 @@ export const TicketsPage: React.FC = () => {
 
             {/* Reply Input */}
             {selectedTicket.status !== 'closed' && (
-              <div className="bg-white border-t border-gray-200 p-4">
+              <div className="bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 p-4">
                 <div className="flex items-center gap-2 mb-2">
                   <button
                     onClick={() => setIsInternalNote(!isInternalNote)}
                     className={`text-xs px-2 py-1 rounded ${
                       isInternalNote
                         ? 'bg-yellow-100 text-yellow-700 border border-yellow-300'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
                     }`}
                   >
                     {isInternalNote ? 'Internal Note' : 'Public Reply'}
@@ -760,10 +760,10 @@ export const TicketsPage: React.FC = () => {
                     onChange={(e) => setNewComment(e.target.value)}
                     placeholder={isInternalNote ? 'Add internal note...' : 'Write a reply...'}
                     rows={3}
-                    className="flex-1 px-4 py-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    className="flex-1 px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                   <div className="flex flex-col gap-2">
-                    <button className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100">
+                    <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
                       <Paperclip size={20} />
                     </button>
                     <button
@@ -790,7 +790,7 @@ export const TicketsPage: React.FC = () => {
                         size={16}
                         className={star <= selectedTicket.satisfactionRating!
                           ? 'text-yellow-500 fill-yellow-500'
-                          : 'text-gray-500'
+                          : 'text-gray-500 dark:text-gray-400'
                         }
                       />
                     ))}

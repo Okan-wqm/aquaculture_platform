@@ -82,10 +82,12 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
   // ── DRAFT: prepare for the manual Altinn submission ──────────────────────
   if (report.status === 'DRAFT') {
     return (
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 space-y-3">
         <div>
-          <p className="text-sm font-medium text-gray-900">Manual Altinn submission (FD-0001)</p>
-          <p className="text-xs text-gray-600 mt-1">
+          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            Manual Altinn submission (FD-0001)
+          </p>
+          <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
             This biomass report is submitted to Fiskeridirektoratet manually via Altinn. Mark it
             ready to generate the FD-0001 export you transcribe into the Altinn form.
           </p>
@@ -126,13 +128,13 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
             <button
               type="button"
               onClick={() => downloadCsv(exportData.filename, exportData.csv)}
-              className="px-3 py-1.5 text-xs bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-100"
+              className="px-3 py-1.5 text-xs bg-white dark:bg-gray-900 border border-blue-300 text-blue-700 rounded-md hover:bg-blue-100"
             >
               Download CSV ({exportData.filename})
             </button>
             <span className="text-xs text-blue-600">Period {exportData.periodLabel}</span>
           </div>
-          <pre className="bg-white border border-gray-200 rounded-md p-3 text-xs text-gray-800 overflow-x-auto whitespace-pre-wrap">
+          <pre className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3 text-xs text-gray-800 dark:text-gray-200 overflow-x-auto whitespace-pre-wrap">
             {exportData.printable}
           </pre>
         </div>
@@ -150,7 +152,7 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
             value={altinnReference}
             onChange={(e) => setAltinnReference(e.target.value)}
             placeholder="e.g. AR123456789"
-            className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white flex-1"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 flex-1"
           />
           <button
             type="button"
@@ -167,7 +169,7 @@ export const BiomassAltinnPanel: React.FC<BiomassAltinnPanelProps> = ({ report }
           type="button"
           onClick={() => revertToDraft.mutate(report.id)}
           disabled={revertToDraft.isPending}
-          className="text-xs text-gray-500 hover:text-gray-700 underline disabled:opacity-50"
+          className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 underline disabled:opacity-50"
         >
           Reopen to draft
         </button>

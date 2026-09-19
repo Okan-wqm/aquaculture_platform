@@ -18,3 +18,6 @@ export {
 } from './useGraphQL';
 export { useToast, ToastContainer } from './useToast';
 export type { ToastOptions } from './useToast';
+export { useConfirm, usePrompt } from './useConfirm';
+export type { ConfirmOptions, PromptOptions, ConfirmFn, PromptFn } from './useConfirm';
+export { useClickOutside } from './useClickOutside';

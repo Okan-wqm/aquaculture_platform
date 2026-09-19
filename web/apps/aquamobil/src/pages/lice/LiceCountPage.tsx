@@ -28,7 +28,7 @@ import { useTanks } from '@/hooks/useTanks';
 import type { QueuedPayload } from '@/types';
 
 const LICE_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-violet-600 to-violet-500',
+  headerTone: 'violet',
   accentText: 'text-violet-600',
   summaryHeaderBg: 'bg-violet-50 dark:bg-violet-900/20 border-violet-100 dark:border-violet-800/50',
   summaryHeaderText: 'text-violet-700 dark:text-violet-300',

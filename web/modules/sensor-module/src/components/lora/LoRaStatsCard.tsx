@@ -21,20 +21,20 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
   const pct = total > 0 ? Math.round((joined / total) * 100) : 0;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center gap-2 mb-4">
         <Radio className="w-5 h-5 text-cyan-600" />
-        <h3 className="text-lg font-semibold text-gray-900">LoRa Ozet</h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">LoRa Ozet</h3>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {/* Aktif Cihaz */}
         <div>
-          <p className="text-sm text-gray-500 mb-1">Aktif Cihaz</p>
-          <p className="text-2xl font-bold text-gray-900">
-            {joined} <span className="text-sm font-normal text-gray-500">/ {total}</span>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Aktif Cihaz</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            {joined} <span className="text-sm font-normal text-gray-500 dark:text-gray-400">/ {total}</span>
           </p>
-          <div className="mt-2 h-2 bg-gray-100 rounded-full overflow-hidden">
+          <div className="mt-2 h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
             <div
               className="h-full rounded-full bg-cyan-500"
               style={{ width: `${pct}%` }}
@@ -48,8 +48,8 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
             <ArrowUpCircle className="w-5 h-5 text-blue-600" />
           </div>
           <div>
-            <p className="text-sm text-gray-500">Toplam Uplink</p>
-            <p className="text-xl font-bold text-gray-900">{totalUplinks.toLocaleString('tr-TR')}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Toplam Uplink</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{totalUplinks.toLocaleString('tr-TR')}</p>
           </div>
         </div>
 
@@ -59,8 +59,8 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
             <Link2 className="w-5 h-5 text-green-600" />
           </div>
           <div>
-            <p className="text-sm text-gray-500">Join Sayisi</p>
-            <p className="text-xl font-bold text-gray-900">{joinCount}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Join Sayisi</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{joinCount}</p>
           </div>
         </div>
 
@@ -70,8 +70,8 @@ const LoRaStatsCard: React.FC<LoRaStatsCardProps> = ({ devices }) => {
             <AlertTriangle className="w-5 h-5 text-yellow-600" />
           </div>
           <div>
-            <p className="text-sm text-gray-500">Bekleyen</p>
-            <p className="text-xl font-bold text-gray-900">{total - joined}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Bekleyen</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{total - joined}</p>
           </div>
         </div>
       </div>

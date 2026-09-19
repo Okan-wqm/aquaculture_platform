@@ -30,12 +30,12 @@ import {
   AlertTriangle,
   RefreshCw,
   Plus,
-  Loader2,
 } from 'lucide-react';
 import { supportApi } from '../services/adminApi';
 import type { OnboardingStep as ApiOnboardingStep, TenantOnboarding } from '../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -204,7 +204,7 @@ export const OnboardingPage: React.FC = () => {
 
   const getStatusColor = (status: OnboardingStatus) => {
     switch (status) {
-      case 'not_started': return 'bg-gray-100 text-gray-700';
+      case 'not_started': return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
       case 'in_progress': return 'bg-blue-100 text-blue-700';
       case 'completed': return 'bg-green-100 text-green-700';
       case 'skipped': return 'bg-yellow-100 text-yellow-700';
@@ -217,7 +217,7 @@ export const OnboardingPage: React.FC = () => {
       case 'document': return <FileText size={16} className="text-blue-500" />;
       case 'webinar': return <Users size={16} className="text-green-500" />;
       case 'interactive': return <Play size={16} className="text-orange-500" />;
-      default: return <BookOpen size={16} className="text-gray-500" />;
+      default: return <BookOpen size={16} className="text-gray-500 dark:text-gray-400" />;
     }
   };
 
@@ -237,8 +237,8 @@ export const OnboardingPage: React.FC = () => {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="text-center">
-          <Loader2 size={48} className="mx-auto mb-3 text-blue-500 animate-spin" />
-          <p className="text-gray-500">Loading onboarding data...</p>
+          <Spinner size="xl" block className="mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">Loading onboarding data...</p>
         </div>
       </div>
     );
@@ -273,30 +273,30 @@ export const OnboardingPage: React.FC = () => {
       </div>
 
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Onboarding & Training</h1>
-            <p className="text-gray-500 mt-1">Manage tenant onboarding and training resources</p>
-          </div>
-          <button
-            onClick={reload}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <RefreshCw size={14} />
-            Refresh
-          </button>
-        </div>
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
+        <PageHeader
+          title="Onboarding & Training"
+          description="Manage tenant onboarding and training resources"
+          actions={
+            <button
+              onClick={reload}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+          }
+        />
 
         {/* Stats */}
         <div className="grid grid-cols-5 gap-3 mt-4">
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-sm text-gray-500">Total Tenants</div>
-            <div className="text-xl font-semibold text-gray-900">{count(totalTenants)}</div>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+            <div className="text-sm text-gray-500 dark:text-gray-400">Total Tenants</div>
+            <div className="text-xl font-semibold text-gray-900 dark:text-gray-100">{count(totalTenants)}</div>
           </div>
-          <div className="bg-gray-50 rounded-lg p-3">
-            <div className="text-sm text-gray-500">Not Started</div>
-            <div className="text-xl font-semibold text-gray-700">{count(stats?.notStarted)}</div>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+            <div className="text-sm text-gray-500 dark:text-gray-400">Not Started</div>
+            <div className="text-xl font-semibold text-gray-700 dark:text-gray-300">{count(stats?.notStarted)}</div>
           </div>
           <div className="bg-blue-50 rounded-lg p-3">
             <div className="text-sm text-blue-600">In Progress</div>
@@ -313,13 +313,13 @@ export const OnboardingPage: React.FC = () => {
         </div>
 
         {/* Tabs */}
-        <div className="flex items-center gap-4 mt-4 border-b border-gray-200">
+        <div className="flex items-center gap-4 mt-4 border-b border-gray-200 dark:border-gray-700">
           <button
             onClick={() => setActiveTab('progress')}
             className={`pb-3 px-1 text-sm font-medium border-b-2 -mb-px ${
               activeTab === 'progress'
                 ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             Tenant Progress
@@ -329,7 +329,7 @@ export const OnboardingPage: React.FC = () => {
             className={`pb-3 px-1 text-sm font-medium border-b-2 -mb-px ${
               activeTab === 'resources'
                 ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
+                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
             }`}
           >
             Training Resources
@@ -340,24 +340,24 @@ export const OnboardingPage: React.FC = () => {
       {activeTab === 'progress' ? (
         <div className="flex-1 flex overflow-hidden">
           {/* Progress List */}
-          <div className={`${selectedProgress ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 bg-white`}>
+          <div className={`${selectedProgress ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900`}>
             {/* Filters */}
-            <div className="p-4 border-b border-gray-200 space-y-3">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" size={18} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400" size={18} />
                 <input
                   type="text"
                   placeholder="Search tenants..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <div className="flex items-center gap-2">
                 <select
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value as OnboardingStatus | 'all')}
-                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  className="px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="all">All Status</option>
                   <option value="not_started">Not Started</option>
@@ -370,7 +370,7 @@ export const OnboardingPage: React.FC = () => {
                   className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm border ${
                     showNeedingAttention
                       ? 'bg-red-100 border-red-300 text-red-700'
-                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   }`}
                 >
                   <AlertTriangle size={14} />
@@ -391,15 +391,15 @@ export const OnboardingPage: React.FC = () => {
                   <div
                     key={progress.tenantId}
                     onClick={() => setSelectedTenantId(progress.tenantId)}
-                    className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 ${
+                    className={`p-4 border-b border-gray-100 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                       selectedProgress?.tenantId === progress.tenantId ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
                     }`}
                   >
                     <div className="flex items-start justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <Building2 size={16} className="text-gray-500" />
-                          <span className="font-medium text-gray-900">{progress.tenantName}</span>
+                          <Building2 size={16} className="text-gray-500 dark:text-gray-400" />
+                          <span className="font-medium text-gray-900 dark:text-gray-100">{progress.tenantName}</span>
                           {needsAttention && (
                             <AlertTriangle size={14} className="text-red-500" />
                           )}
@@ -408,20 +408,20 @@ export const OnboardingPage: React.FC = () => {
                           <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(progress.status as OnboardingStatus)}`}>
                             {progress.status.replace('_', ' ')}
                           </span>
-                          <span className="text-sm text-gray-500">
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
                             {progress.progress}% complete
                           </span>
                         </div>
 
                         {/* Progress Bar */}
-                        <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="mt-2 h-2 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                           <div
                             className="h-full bg-blue-500 rounded-full transition-all"
                             style={{ width: `${progress.progress}%` }}
                           />
                         </div>
 
-                        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                        <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
                           <span>{progress.completedSteps.length}/{steps.length} steps</span>
                           {progress.assignedTo && (
                             <span className="flex items-center gap-1">
@@ -434,15 +434,15 @@ export const OnboardingPage: React.FC = () => {
                           )}
                         </div>
                       </div>
-                      <ChevronRight size={18} className="text-gray-500" />
+                      <ChevronRight size={18} className="text-gray-500 dark:text-gray-400" />
                     </div>
                   </div>
                 );
               })}
 
               {filteredProgress.length === 0 && (
-                <div className="p-8 text-center text-gray-500">
-                  <GraduationCap size={48} className="mx-auto mb-3 text-gray-500" />
+                <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                  <GraduationCap size={48} className="mx-auto mb-3 text-gray-500 dark:text-gray-400" />
                   <p>No onboarding progress found</p>
                 </div>
               )}
@@ -451,26 +451,26 @@ export const OnboardingPage: React.FC = () => {
 
           {/* Detail Panel */}
           {selectedProgress && (
-            <div className="w-1/2 flex flex-col bg-gray-50 overflow-y-auto">
+            <div className="w-1/2 flex flex-col bg-gray-50 dark:bg-gray-800 overflow-y-auto">
               {/* Header */}
-              <div className="bg-white border-b border-gray-200 px-6 py-4">
+              <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
                 <div className="flex items-start justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold text-gray-900">
+                    <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                       {selectedProgress.tenantName}
                     </h2>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={`px-2 py-0.5 text-xs rounded ${getStatusColor(selectedProgress.status as OnboardingStatus)}`}>
                         {selectedProgress.status.replace('_', ' ')}
                       </span>
-                      <span className="text-sm text-gray-500">
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
                         {selectedProgress.progress}% complete
                       </span>
                     </div>
                   </div>
                   <button
                     onClick={() => setSelectedTenantId(null)}
-                    className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+                    className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"
                   >
                     <X size={20} />
                   </button>
@@ -485,7 +485,7 @@ export const OnboardingPage: React.FC = () => {
                       className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
                     >
                       {actionLoading ? (
-                        <Loader2 size={14} className="animate-spin" />
+                        <Spinner size="sm" color="inherit" />
                       ) : (
                         <Mail size={14} />
                       )}
@@ -496,7 +496,7 @@ export const OnboardingPage: React.FC = () => {
                     <button
                       onClick={() => handleSkipOnboarding(selectedProgress.tenantId)}
                       disabled={actionLoading}
-                      className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                     >
                       Skip Onboarding
                     </button>
@@ -507,8 +507,8 @@ export const OnboardingPage: React.FC = () => {
               {/* Progress Detail */}
               <div className="p-6 space-y-6">
                 {/* Onboarding Steps */}
-                <div className="bg-white rounded-lg border border-gray-200 p-4">
-                  <h3 className="font-semibold text-gray-900 mb-4">Onboarding Steps</h3>
+                <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Onboarding Steps</h3>
                   <div className="space-y-3">
                     {steps.map((step) => {
                       const isCompleted = selectedProgress.completedSteps.includes(step.id);
@@ -518,7 +518,7 @@ export const OnboardingPage: React.FC = () => {
                         <div
                           key={step.id}
                           className={`flex items-start gap-3 p-3 rounded-lg ${
-                            isCompleted ? 'bg-green-50' : isCurrent ? 'bg-blue-50' : 'bg-gray-50'
+                            isCompleted ? 'bg-green-50' : isCurrent ? 'bg-blue-50' : 'bg-gray-50 dark:bg-gray-800'
                           }`}
                         >
                           <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
@@ -532,15 +532,15 @@ export const OnboardingPage: React.FC = () => {
                           </div>
                           <div className="flex-1">
                             <div className="flex items-center gap-2">
-                              <span className={`font-medium ${isCompleted ? 'text-green-700' : isCurrent ? 'text-blue-700' : 'text-gray-700'}`}>
+                              <span className={`font-medium ${isCompleted ? 'text-green-700' : isCurrent ? 'text-blue-700' : 'text-gray-700 dark:text-gray-300'}`}>
                                 {step.name}
                               </span>
                               {step.isRequired && (
                                 <span className="text-xs text-red-500">Required</span>
                               )}
                             </div>
-                            <p className="text-sm text-gray-500 mt-0.5">{step.description}</p>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                            <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">{step.description}</p>
+                            <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
                               <span className="flex items-center gap-1">
                                 <Clock size={12} />
                                 ~{step.estimatedMinutes}m
@@ -561,35 +561,35 @@ export const OnboardingPage: React.FC = () => {
 
                 {/* Notes */}
                 {selectedProgress.notes && (
-                  <div className="bg-white rounded-lg border border-gray-200 p-4">
-                    <h3 className="font-semibold text-gray-900 mb-4">Notes</h3>
-                    <p className="text-sm text-gray-600">{selectedProgress.notes}</p>
+                  <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                    <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Notes</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{selectedProgress.notes}</p>
                   </div>
                 )}
 
                 {/* Timeline */}
-                <div className="bg-white rounded-lg border border-gray-200 p-4">
-                  <h3 className="font-semibold text-gray-900 mb-4">Timeline</h3>
+                <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                  <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">Timeline</h3>
                   <div className="space-y-3 text-sm">
                     {selectedProgress.startedAt && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-purple-500 rounded-full" />
-                        <span className="text-gray-500">Started Onboarding</span>
-                        <span className="text-gray-700">{formatDate(selectedProgress.startedAt)}</span>
+                        <span className="text-gray-500 dark:text-gray-400">Started Onboarding</span>
+                        <span className="text-gray-700 dark:text-gray-300">{formatDate(selectedProgress.startedAt)}</span>
                       </div>
                     )}
                     {selectedProgress.completedAt && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-green-500 rounded-full" />
-                        <span className="text-gray-500">Completed</span>
-                        <span className="text-gray-700">{formatDate(selectedProgress.completedAt)}</span>
+                        <span className="text-gray-500 dark:text-gray-400">Completed</span>
+                        <span className="text-gray-700 dark:text-gray-300">{formatDate(selectedProgress.completedAt)}</span>
                       </div>
                     )}
                     {selectedProgress.lastActivityAt && (
                       <div className="flex items-center gap-3">
                         <div className="w-2 h-2 bg-gray-300 rounded-full" />
-                        <span className="text-gray-500">Last Activity</span>
-                        <span className="text-gray-700">{formatDate(selectedProgress.lastActivityAt)}</span>
+                        <span className="text-gray-500 dark:text-gray-400">Last Activity</span>
+                        <span className="text-gray-700 dark:text-gray-300">{formatDate(selectedProgress.lastActivityAt)}</span>
                       </div>
                     )}
                   </div>
@@ -609,22 +609,22 @@ export const OnboardingPage: React.FC = () => {
 
               return (
                 <div key={category} className="mb-8">
-                  <h2 className="text-lg font-semibold text-gray-900 mb-4 capitalize">
+                  <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4 capitalize">
                     {category} Resources
                   </h2>
                   <div className="grid grid-cols-2 gap-4">
                     {categoryResources.map((resource) => (
                       <div
                         key={resource.id}
-                        className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md transition-shadow"
+                        className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 hover:shadow-md transition-shadow"
                       >
                         <div className="flex items-start gap-3">
-                          <div className="p-2 bg-gray-100 rounded-lg">
+                          <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
                             {getResourceIcon(resource.type)}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h3 className="font-medium text-gray-900">{resource.title}</h3>
-                            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                            <h3 className="font-medium text-gray-900 dark:text-gray-100">{resource.title}</h3>
+                            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500 dark:text-gray-400">
                               <span className="capitalize">{resource.type}</span>
                             </div>
                           </div>
@@ -643,8 +643,8 @@ export const OnboardingPage: React.FC = () => {
             })}
 
             {resources.length === 0 && (
-              <div className="p-8 text-center text-gray-500">
-                <BookOpen size={48} className="mx-auto mb-3 text-gray-500" />
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                <BookOpen size={48} className="mx-auto mb-3 text-gray-500 dark:text-gray-400" />
                 <p>No training resources available</p>
               </div>
             )}

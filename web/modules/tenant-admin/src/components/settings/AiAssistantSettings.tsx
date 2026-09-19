@@ -92,11 +92,11 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
 
   const saving = updateMutation.isPending;
   const inputClass =
-    'w-full px-4 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed';
+    'w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed';
 
   if (isLoading) {
     return (
-      <div className="flex items-center gap-2 text-sm text-gray-500">
+      <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
         <RefreshCw className="w-4 h-4 animate-spin" />
         Loading AI settings…
       </div>
@@ -131,7 +131,9 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
       )}
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">AI Provider</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          AI Provider
+        </label>
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as LlmProviderId)}
@@ -146,22 +148,22 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
         </select>
       </div>
 
-      <label className="flex items-center gap-3 text-sm font-medium text-gray-700">
+      <label className="flex items-center gap-3 text-sm font-medium text-gray-700 dark:text-gray-300">
         <input
           type="checkbox"
           checked={isEnabled}
           onChange={(e) => setIsEnabled(e.target.checked)}
           disabled={!canEdit}
-          className="h-4 w-4 rounded border-gray-300 text-tenant-600 focus:ring-tenant-500 disabled:cursor-not-allowed"
+          className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500 disabled:cursor-not-allowed"
         />
         Enable the AI assistant
       </label>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Anthropic API Key
           {settings?.anthropicKeyHint && (
-            <span className="ml-2 text-xs font-normal text-gray-400">
+            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
               current: {settings.anthropicKeyHint}
             </span>
           )}
@@ -178,10 +180,10 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           OpenAI API Key
           {settings?.openaiKeyHint && (
-            <span className="ml-2 text-xs font-normal text-gray-400">
+            <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">
               current: {settings.openaiKeyHint}
             </span>
           )}
@@ -198,8 +200,11 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
       </div>
 
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          Chat Model <span className="text-xs font-normal text-gray-400">(optional override)</span>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Chat Model{' '}
+          <span className="text-xs font-normal text-gray-400 dark:text-gray-500">
+            (optional override)
+          </span>
         </label>
         <input
           type="text"
@@ -213,7 +218,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Monthly Token Budget
           </label>
           <input
@@ -226,7 +231,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Hourly Request Limit
           </label>
           <input
@@ -251,7 +256,7 @@ const AiAssistantSettings: React.FC<AiAssistantSettingsProps> = ({ canEdit }) =>
           <button
             onClick={handleSave}
             disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saved ? (
               <>

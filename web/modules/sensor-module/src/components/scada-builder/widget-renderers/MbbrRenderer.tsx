@@ -6,16 +6,17 @@
  * inlet/outlet pipes on each side.
  *
  * Status colors follow platform convention:
- *   Running: #22c55e   Stopped: #9ca3af   Error: #ef4444
+ *   Running: success-500   Stopped: neutral-400   Error: error-500
  */
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const STATUS_COLORS: Record<string, { fill: string; accent: string }> = {
-  running: { fill: '#22c55e', accent: '#16a34a' },
-  stopped: { fill: '#9ca3af', accent: '#6b7280' },
-  error:   { fill: '#ef4444', accent: '#dc2626' },
+  running: { fill: themeColors.success[500], accent: themeColors.success[600] },
+  stopped: { fill: themeColors.neutral[400], accent: themeColors.gray[400] },
+  error:   { fill: themeColors.error[500], accent: themeColors.error[600] },
 };
 
 /** Bio-media carrier positions (cx, cy) — scattered inside the tank */
@@ -51,7 +52,7 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
         height="100%"
         viewBox="0 0 140 106"
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         {/* Tank body */}
         <rect
@@ -60,7 +61,7 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
           width={100}
           height={86}
           rx={3}
-          fill="#cfd8dc"
+          fill={themeColors.neutral[300]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -135,17 +136,17 @@ const MbbrRenderer: React.FC<WidgetRendererProps> = ({
         {/* Bio-media carriers (small donut shapes) */}
         {CARRIERS.map(([cx, cy], i) => (
           <g key={`carrier-${i}`}>
-            <circle cx={cx} cy={cy - 14} r={4} fill="#e0e0e0" stroke="#777" strokeWidth={1} />
-            <circle cx={cx} cy={cy - 14} r={1.5} fill="#cfd8dc" />
+            <circle cx={cx} cy={cy - 14} r={4} fill={themeColors.neutral[200]} stroke="#777" strokeWidth={1} />
+            <circle cx={cx} cy={cy - 14} r={1.5} fill={themeColors.neutral[300]} />
           </g>
         ))}
 
         {/* Inlet pipe (left) */}
-        <rect x={2} y={26} width={20} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect x={2} y={26} width={20} height={8} fill={themeColors.neutral[300]} stroke="#333" strokeWidth={1.5} rx={1} />
         <polygon points="16,30 20,27 20,33" fill={colors.fill} />
 
         {/* Outlet pipe (right) */}
-        <rect x={118} y={26} width={20} height={8} fill="#cfd8dc" stroke="#333" strokeWidth={1.5} rx={1} />
+        <rect x={118} y={26} width={20} height={8} fill={themeColors.neutral[300]} stroke="#333" strokeWidth={1.5} rx={1} />
         <polygon points="132,30 136,27 136,33" fill={colors.fill} />
 
         {/* Status indicator */}

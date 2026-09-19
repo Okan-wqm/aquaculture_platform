@@ -8,6 +8,7 @@ import { SCADA_VIEWER_CANVAS_URL } from '../../canvas-contract';
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Loader2 } from 'lucide-react';
 import { useScadaViewerStore, ScadaProcess } from '../../store/scadaViewerStore';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // Strip HTML tags from a string to prevent stored XSS via canvas node rendering
 function stripHtml(value: unknown): unknown {
@@ -123,13 +124,13 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
   // Show empty state if no process selected
   if (!selectedProcess) {
     return (
-      <div className={`flex-1 flex items-center justify-center bg-gray-50 ${className}`}>
+      <div className={`flex-1 flex items-center justify-center bg-gray-50 dark:bg-gray-800 ${className}`}>
         <div className="text-center">
-          <Loader2 size={48} className="mx-auto mb-4 text-gray-500" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">
+          <Loader2 size={48} className="mx-auto mb-4 text-gray-500 dark:text-gray-400" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">
             Proses Seçin
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Görüntülemek için sol üstten bir proses seçin
           </p>
         </div>
@@ -141,10 +142,10 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
     <div className={`flex-1 relative ${className}`}>
       {/* Loading overlay */}
       {isLoading && (
-        <div className="absolute inset-0 bg-gray-50 flex items-center justify-center z-10">
+        <div className="absolute inset-0 bg-gray-50 dark:bg-gray-800 flex items-center justify-center z-10">
           <div className="text-center">
-            <Loader2 size={32} className="mx-auto mb-2 text-blue-500 animate-spin" />
-            <p className="text-sm text-gray-600">SCADA görünümü yükleniyor...</p>
+            <Spinner size="lg" block className="mb-2" />
+            <p className="text-sm text-gray-600 dark:text-gray-400">SCADA görünümü yükleniyor...</p>
           </div>
         </div>
       )}
@@ -159,10 +160,10 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
       />
 
       {/* Process info panel */}
-      <div className="absolute top-3 left-3 bg-white rounded-lg shadow-sm border border-gray-200 p-3 z-20">
-        <h3 className="font-medium text-gray-900 text-sm">{selectedProcess.name}</h3>
+      <div className="absolute top-3 left-3 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-3 z-20">
+        <h3 className="font-medium text-gray-900 dark:text-gray-100 text-sm">{selectedProcess.name}</h3>
         {selectedProcess.description && (
-          <p className="text-xs text-gray-500 mt-1">{selectedProcess.description}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{selectedProcess.description}</p>
         )}
         <div className="flex items-center gap-2 mt-2">
           <span
@@ -172,7 +173,7 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
                 selectedProcess.status === 'active'
                   ? 'bg-green-100 text-green-700'
                   : selectedProcess.status === 'draft'
-                  ? 'bg-gray-100 text-gray-700'
+                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                   : selectedProcess.status === 'inactive'
                   ? 'bg-yellow-100 text-yellow-700'
                   : 'bg-red-100 text-red-700'
@@ -187,36 +188,36 @@ export const ScadaViewer: React.FC<ScadaViewerProps> = ({ className = '' }) => {
               ? 'Pasif'
               : 'Arşivlenmiş'}
           </span>
-          <span className="text-xs text-gray-500">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
             {selectedProcess.nodes.length} ekipman
           </span>
         </div>
       </div>
 
       {/* Controls panel */}
-      <div className="absolute bottom-3 left-3 bg-white rounded-lg shadow-sm border border-gray-200 p-1 z-20">
+      <div className="absolute bottom-3 left-3 bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-1 z-20">
         <div className="flex items-center gap-1">
           <button
             onClick={handleZoomIn}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             title="Yakınlaştır"
           >
-            <ZoomIn size={18} className="text-gray-600" />
+            <ZoomIn size={18} className="text-gray-600 dark:text-gray-400" />
           </button>
           <button
             onClick={handleZoomOut}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             title="Uzaklaştır"
           >
-            <ZoomOut size={18} className="text-gray-600" />
+            <ZoomOut size={18} className="text-gray-600 dark:text-gray-400" />
           </button>
-          <div className="w-px h-6 bg-gray-200 mx-1" />
+          <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
           <button
             onClick={handleFitView}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             title="Sığdır"
           >
-            <Maximize2 size={18} className="text-gray-600" />
+            <Maximize2 size={18} className="text-gray-600 dark:text-gray-400" />
           </button>
         </div>
       </div>

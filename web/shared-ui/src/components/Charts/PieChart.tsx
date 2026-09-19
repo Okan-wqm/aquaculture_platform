@@ -132,7 +132,7 @@ export const PieChart: React.FC<PieChartProps> = ({
   if (!data || data.length === 0 || total === 0) {
     return (
       <div className={`flex items-center justify-center ${className}`} style={{ width: size, height: size }}>
-        <span className="text-gray-500 text-sm">No data available</span>
+        <span className="text-gray-500 dark:text-gray-400 text-sm">No data available</span>
       </div>
     );
   }
@@ -186,8 +186,8 @@ export const PieChart: React.FC<PieChartProps> = ({
             className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
             style={{ top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
           >
-            <span className="text-xl font-bold text-gray-900">{formatValue(total)}</span>
-            <span className="text-xs text-gray-500">Total</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">{formatValue(total)}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Total</span>
           </div>
         )}
 
@@ -203,11 +203,11 @@ export const PieChart: React.FC<PieChartProps> = ({
                 <span>{slices[hoveredIndex].label}</span>
               </div>
               <div className="flex items-center justify-between gap-4 mt-1">
-                <span className="text-gray-500">Value:</span>
+                <span className="text-gray-500 dark:text-gray-400">Value:</span>
                 <span className="font-medium">{formatValue(slices[hoveredIndex].value)}</span>
               </div>
               <div className="flex items-center justify-between gap-4">
-                <span className="text-gray-500">Share:</span>
+                <span className="text-gray-500 dark:text-gray-400">Share:</span>
                 <span className="font-medium">{slices[hoveredIndex].percentage.toFixed(1)}%</span>
               </div>
             </div>
@@ -231,8 +231,8 @@ export const PieChart: React.FC<PieChartProps> = ({
                 className="w-3 h-3 rounded-full flex-shrink-0"
                 style={{ backgroundColor: slice.color }}
               />
-              <span className="text-gray-600 truncate max-w-[120px]">{slice.label}</span>
-              <span className="text-gray-500 ml-auto">{slice.percentage.toFixed(1)}%</span>
+              <span className="text-gray-600 dark:text-gray-400 truncate max-w-[120px]">{slice.label}</span>
+              <span className="text-gray-500 dark:text-gray-400 ml-auto">{slice.percentage.toFixed(1)}%</span>
             </div>
           ))}
         </div>

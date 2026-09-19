@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, KpiCard, useAuth, getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import { Card, KpiCard, useAuth, getTenantId, tenantScopedStorageKey, chartChrome, colors } from '@aquaculture/shared-ui';
 import {
   BarChart,
   Bar,
@@ -35,7 +35,7 @@ import type { ChartVisibility } from '../../tanks/components';
 
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
@@ -44,13 +44,13 @@ const tooltipStyle = {
 // ============================================================================
 
 const STATUS_COLORS: Record<string, string> = {
-  operational: '#22c55e',
-  active: '#22c55e',
-  maintenance: '#f59e0b',
-  fallow: '#94a3b8',
-  quarantine: '#ef4444',
-  inactive: '#6b7280',
-  empty: '#d1d5db',
+  operational: colors.success[500],
+  active: colors.success[500],
+  maintenance: colors.warning[500],
+  fallow: colors.neutral[400],
+  quarantine: colors.error[500],
+  inactive: colors.gray[400],
+  empty: colors.neutral[300],
 };
 
 // ============================================================================
@@ -65,7 +65,7 @@ interface TanksAnalyticsTabProps {
  * "No data available" placeholder for charts without real data
  */
 const NoDataPlaceholder: React.FC<{ label: string }> = ({ label }) => (
-  <div className="flex flex-col items-center justify-center h-[300px] text-gray-400">
+  <div className="flex flex-col items-center justify-center h-[300px] text-gray-400 dark:text-gray-500">
     <svg className="w-12 h-12 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 12H4M12 4v16" />
     </svg>
@@ -117,7 +117,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
     return Array.from(statusMap.entries()).map(([name, value]) => ({
       name: name.charAt(0).toUpperCase() + name.slice(1),
       value,
-      color: STATUS_COLORS[name] || '#6b7280',
+      color: STATUS_COLORS[name] || colors.gray[400],
     }));
   }, [tankData]);
 
@@ -243,19 +243,19 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Biomass by Tank */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Biomass by Tank</h2>
-            <p className="text-sm text-gray-500">Top 10 tanks by current biomass (kg)</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Biomass by Tank</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Top 10 tanks by current biomass (kg)</p>
           </div>
           <div className="p-4">
             {biomassByTank.length > 0 ? (
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={biomassByTank} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis type="number" stroke="#6b7280" />
-                  <YAxis dataKey="tank" type="category" stroke="#6b7280" width={80} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                  <XAxis type="number" stroke={chartChrome.axis} />
+                  <YAxis dataKey="tank" type="category" stroke={chartChrome.axis} width={80} />
                   <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="biomass" name="Biomass (kg)" fill="#0073e6" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="biomass" name="Biomass (kg)" fill={colors.primary[500]} radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -266,9 +266,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
 
         {/* Tank Status Distribution */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Tank Status Distribution</h2>
-            <p className="text-sm text-gray-500">Current operational status of all tanks</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tank Status Distribution</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Current operational status of all tanks</p>
           </div>
           <div className="p-4">
             {tankStatusData.length > 0 ? (
@@ -302,9 +302,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Water Temperature Trend */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Water Temperature Trend</h2>
-            <p className="text-sm text-gray-500">Daily average temperature over 30 days</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Water Temperature Trend</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Daily average temperature over 30 days</p>
           </div>
           <div className="p-4">
             <NoDataPlaceholder label="No water temperature data available yet" />
@@ -313,9 +313,9 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
 
         {/* Mortality Trend */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Mortality Trend</h2>
-            <p className="text-sm text-gray-500">Daily mortality count and cumulative total</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Mortality Trend</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Daily mortality count and cumulative total</p>
           </div>
           <div className="p-4">
             <NoDataPlaceholder label="No mortality trend data available yet" />
@@ -324,7 +324,7 @@ const TanksAnalyticsTab: React.FC<TanksAnalyticsTabProps> = ({ dateRange: _dateR
       </div>
 
       {/* Divider — Live Tank Analytics */}
-      <hr className="border-gray-300" />
+      <hr className="border-gray-300 dark:border-gray-600" />
 
       {/* Compact Summary Stats from real data */}
       <CompactSummaryStats data={tankData} />

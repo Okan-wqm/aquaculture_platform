@@ -118,8 +118,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
   };
 
   const inputStateStyles = error
-    ? 'border-red-500 focus-within:ring-red-500 focus-within:border-red-500'
-    : 'border-gray-300 dark:border-gray-600 focus-within:ring-blue-500 focus-within:border-blue-500';
+    ? 'border-error-500 focus-within:ring-error-500 focus-within:border-error-500'
+    : 'border-gray-300 dark:border-gray-600 focus-within:ring-primary-500 focus-within:border-primary-500';
 
   const disabledStyles = disabled
     ? 'bg-gray-100 dark:bg-gray-800 cursor-not-allowed text-gray-500'
@@ -133,7 +133,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
         >
           {label}
-          {required && <span className="text-red-500 ml-1">*</span>}
+          {required && <span className="text-error-500 ml-1">*</span>}
         </span>
       )}
 
@@ -180,7 +180,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
             )}
             {/* Chevron */}
             <svg
-              className={`w-4 h-4 text-gray-500 transition-transform pointer-events-none ${isOpen ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform pointer-events-none ${isOpen ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -201,7 +201,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-hidden focus:ring-1 focus:ring-primary-500 focus:border-primary-500"
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     setIsOpen(false);
@@ -231,8 +231,8 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
                     onClick={() => !option.disabled && handleSelect(option.value)}
                     className={`
                       px-3 py-2 text-sm
-                      ${option.disabled ? 'opacity-50 cursor-not-allowed text-gray-400' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
-                      ${option.value === value ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 font-medium' : 'text-gray-900 dark:text-gray-200'}
+                      ${option.disabled ? 'opacity-50 cursor-not-allowed text-gray-400 dark:text-gray-500' : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'}
+                      ${option.value === value ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium' : 'text-gray-900 dark:text-gray-200'}
                     `}
                   >
                     {option.label}
@@ -250,7 +250,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
       </div>
 
       {error && (
-        <p className="mt-1 text-sm text-red-600" role="alert">
+        <p className="mt-1 text-sm text-error-600" role="alert">
           {error}
         </p>
       )}

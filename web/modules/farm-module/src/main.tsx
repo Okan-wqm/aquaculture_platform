@@ -5,7 +5,7 @@
  * Production'da Module Federation ile yüklenir.
  */
 
-import { ConfiguredBrowserRouter } from '@aquaculture/shared-ui';
+import { ConfiguredBrowserRouter, ConfirmProvider } from '@aquaculture/shared-ui';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -21,8 +21,10 @@ if (root) {
     <React.StrictMode>
       <QueryClientProvider client={queryClient}>
         <ConfiguredBrowserRouter>
-          <div className="min-h-screen bg-gray-50 p-6">
-            <FarmModule />
+          <div className="min-h-screen bg-gray-50 dark:bg-gray-800 p-6">
+            <ConfirmProvider>
+              <FarmModule />
+            </ConfirmProvider>
           </div>
         </ConfiguredBrowserRouter>
       </QueryClientProvider>

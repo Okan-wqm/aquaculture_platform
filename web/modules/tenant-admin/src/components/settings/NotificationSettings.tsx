@@ -84,7 +84,7 @@ const NotificationSettings: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <RefreshCw className="w-6 h-6 animate-spin text-tenant-600" />
+        <RefreshCw className="w-6 h-6 animate-spin text-green-600" />
       </div>
     );
   }
@@ -93,8 +93,8 @@ const NotificationSettings: React.FC = () => {
     <div className="space-y-6">
       {/* Channel toggles */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2">Channels</h3>
-        <div className="divide-y divide-gray-100">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">Channels</h3>
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           <Toggle
             enabled={notifPrefs.emailEnabled}
             onChange={(v) => updatePref('emailEnabled', v)}
@@ -118,8 +118,8 @@ const NotificationSettings: React.FC = () => {
 
       {/* Category toggles */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2">Categories</h3>
-        <div className="divide-y divide-gray-100">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">Categories</h3>
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           <Toggle
             enabled={notifPrefs.alertNotifications}
             onChange={(v) => updatePref('alertNotifications', v)}
@@ -143,35 +143,35 @@ const NotificationSettings: React.FC = () => {
 
       {/* Quiet hours */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-2">Quiet Hours</h3>
-        <p className="text-xs text-gray-500 mb-3">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-2">Quiet Hours</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
           Suppress non-critical notifications during specified hours. Critical alerts are always delivered.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Start Time</label>
             <input
               type="time"
               value={notifPrefs.quietHoursStart}
               onChange={(e) => updatePref('quietHoursStart', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">End Time</label>
             <input
               type="time"
               value={notifPrefs.quietHoursEnd}
               onChange={(e) => updatePref('quietHoursEnd', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Timezone</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Timezone</label>
             <select
               value={notifPrefs.quietHoursTimezone}
               onChange={(e) => updatePref('quietHoursTimezone', e.target.value)}
-              className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:border-transparent"
+              className="w-full px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 text-sm focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:border-transparent"
             >
               <option value="Europe/Istanbul">Europe/Istanbul (UTC+3)</option>
               <option value="UTC">UTC</option>
@@ -188,7 +188,7 @@ const NotificationSettings: React.FC = () => {
       {/* Dirty indicator + Save */}
       <div className="flex items-center justify-between">
         {dirty && (
-          <div className="flex items-center gap-2 text-sm text-tenant-600">
+          <div className="flex items-center gap-2 text-sm text-green-600">
             <Info className="w-4 h-4" />
             <span>You have unsaved changes</span>
           </div>
@@ -203,7 +203,7 @@ const NotificationSettings: React.FC = () => {
           <button
             onClick={handleSave}
             disabled={saving || !dirty}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saved ? (
               <>

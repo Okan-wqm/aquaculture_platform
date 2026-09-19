@@ -26,6 +26,7 @@ import type { StrokeDashPattern, StrokeLineCap, StrokeLineJoin, GradientConfig, 
 import { DEFAULT_GRADIENT, DEFAULT_FILTER } from '../../../types/scada-svg-properties.types';
 import type { SvgTransform } from '../../../types/scada-transform.types';
 import { DEFAULT_SVG_TRANSFORM } from '../../../types/scada-transform.types';
+import { colors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -34,7 +35,7 @@ interface WidgetConfigProps {
 }
 
 const INPUT_CLASS =
-  'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const transform = (config.transform as SvgTransform) ?? DEFAULT_SVG_TRANSFORM;
@@ -50,9 +51,9 @@ export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange
         deviceId={deviceId}
       />
 
-      <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Fill</div>
+      <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Fill</div>
       <ColorAlphaInput
-        color={(config.fill as string) || '#3b82f6'}
+        color={(config.fill as string) || colors.info[500]}
         alpha={(config.fillOpacity as number) ?? 1}
         onChange={(color, alpha) => onChange({ fill: color, fillOpacity: alpha })}
         label="Fill Color"
@@ -67,7 +68,7 @@ export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
       {/* Stroke section -- delegated to shared StrokeConfig */}
       <StrokeConfig
-        stroke={(config.stroke as string) || '#1d4ed8'}
+        stroke={(config.stroke as string) || colors.info[700]}
         strokeWidth={(config.strokeWidth as number) ?? 2}
         strokeOpacity={(config.strokeOpacity as number) ?? 1}
         dashPattern={(config.dashPattern as StrokeDashPattern) || 'solid'}
@@ -78,7 +79,7 @@ export const SvgEllipseConfig: React.FC<WidgetConfigProps> = ({ config, onChange
 
       {/* Label */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Label</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <input
           type="text"
           value={(config.label as string) || ''}

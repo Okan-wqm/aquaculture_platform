@@ -192,10 +192,10 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
       size="lg"
     >
       <div className="space-y-6">
-        <div className="bg-gray-50 rounded-lg p-4">
-          <p className="text-sm text-gray-500">Batch</p>
-          <p className="font-medium text-gray-900">{batchNumber}</p>
-          <p className="text-xs text-gray-500 mt-1">
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Batch</p>
+          <p className="font-medium text-gray-900 dark:text-gray-100">{batchNumber}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
             Every row maps a fish weight range (min–max g) to a feed product.
             The active feed for a given fish is the row whose range covers the
             current average weight; overlapping ranges are disambiguated by
@@ -207,12 +207,12 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
           {entries.map((entry, idx) => (
             <div
               key={entry.key}
-              className="border border-gray-200 rounded-lg p-3 grid grid-cols-12 gap-2 items-end"
+              className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 grid grid-cols-12 gap-2 items-end"
             >
               <div className="col-span-5">
                 <label
                   htmlFor={`feed-${entry.key}`}
-                  className="block text-xs text-gray-600 mb-1"
+                  className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
                 >
                   Feed
                 </label>
@@ -220,7 +220,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                   id={`feed-${entry.key}`}
                   value={entry.feedId}
                   onChange={(e) => setField(idx, 'feedId', e.target.value)}
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 >
                   <option value="">— Choose a feed —</option>
                   {feedList.data?.items.map((feed) => (
@@ -234,7 +234,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
               <div className="col-span-2">
                 <label
                   htmlFor={`min-${entry.key}`}
-                  className="block text-xs text-gray-600 mb-1"
+                  className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
                 >
                   Min (g)
                 </label>
@@ -247,14 +247,14 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                   onChange={(e) =>
                     setField(idx, 'minWeightG', parseFloat(e.target.value) || 0)
                   }
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 />
               </div>
 
               <div className="col-span-2">
                 <label
                   htmlFor={`max-${entry.key}`}
-                  className="block text-xs text-gray-600 mb-1"
+                  className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
                 >
                   Max (g)
                 </label>
@@ -267,14 +267,14 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                   onChange={(e) =>
                     setField(idx, 'maxWeightG', parseFloat(e.target.value) || 0)
                   }
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 />
               </div>
 
               <div className="col-span-2">
                 <label
                   htmlFor={`prio-${entry.key}`}
-                  className="block text-xs text-gray-600 mb-1"
+                  className="block text-xs text-gray-600 dark:text-gray-400 mb-1"
                 >
                   Priority
                 </label>
@@ -287,7 +287,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                   onChange={(e) =>
                     setField(idx, 'priority', parseInt(e.target.value, 10) || 1)
                   }
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
                 />
               </div>
 
@@ -296,7 +296,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
                   type="button"
                   onClick={() => removeRow(idx)}
                   disabled={entries.length <= 1}
-                  className="text-sm text-red-600 hover:text-red-800 disabled:text-gray-400"
+                  className="text-sm text-red-600 hover:text-red-800 disabled:text-gray-400 dark:disabled:text-gray-500"
                   aria-label={`Remove row ${idx + 1}`}
                 >
                   ✕
@@ -315,7 +315,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
         </div>
 
         <div>
-          <label htmlFor="feed-assign-notes" className="block text-sm font-medium text-gray-700">
+          <label htmlFor="feed-assign-notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Notes (optional)
           </label>
           <textarea
@@ -324,7 +324,7 @@ export const AssignFeedsToBatchModal: React.FC<AssignFeedsToBatchModalProps> = (
             maxLength={2000}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-orange-500 focus:ring-orange-500 sm:text-sm"
           />
         </div>
 

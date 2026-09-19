@@ -20,7 +20,14 @@ import {
 } from '../../../hooks/useChemicals';
 import { useSupplierList, Supplier, SupplierType } from '../../../hooks/useSuppliers';
 import { useSiteList, Site } from '../../../hooks/useSites';
-import { Modal, useToast } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useToast,
+  useConfirm,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+} from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -38,7 +45,7 @@ const categoryColors: Record<string, string> = {
   ANESTHETIC: 'bg-pink-100 text-pink-800',
   pH_ADJUSTER: 'bg-teal-100 text-teal-800',
   ALGAECIDE: 'bg-lime-100 text-lime-800',
-  OTHER: 'bg-gray-100 text-gray-800',
+  OTHER: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const categoryLabels: Record<string, string> = {
@@ -60,8 +67,8 @@ const statusColors: Record<string, string> = {
   AVAILABLE: 'bg-green-100 text-green-800',
   LOW_STOCK: 'bg-yellow-100 text-yellow-800',
   OUT_OF_STOCK: 'bg-red-100 text-red-800',
-  EXPIRED: 'bg-gray-100 text-gray-800',
-  DISCONTINUED: 'bg-gray-100 text-gray-800',
+  EXPIRED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<string, string> = {
@@ -179,18 +186,20 @@ const CollapsibleSection: React.FC<{
   children: React.ReactNode;
   optional?: boolean;
 }> = ({ title, isOpen, onToggle, children, optional }) => (
-  <div className="border border-gray-200 rounded-lg mb-4">
+  <div className="border border-gray-200 dark:border-gray-700 rounded-lg mb-4">
     <button
       type="button"
       onClick={onToggle}
-      className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-t-lg"
+      className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-t-lg"
     >
-      <span className="font-medium text-gray-700">
+      <span className="font-medium text-gray-700 dark:text-gray-300">
         {title}
-        {optional && <span className="ml-2 text-xs text-gray-400">(Optional)</span>}
+        {optional && (
+          <span className="ml-2 text-xs text-gray-400 dark:text-gray-500">(Optional)</span>
+        )}
       </span>
       <svg
-        className={`w-5 h-5 text-gray-500 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
+        className={`w-5 h-5 text-gray-500 dark:text-gray-400 transition-transform ${isOpen ? 'transform rotate-180' : ''}`}
         fill="none"
         viewBox="0 0 24 24"
         stroke="currentColor"
@@ -198,7 +207,7 @@ const CollapsibleSection: React.FC<{
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
       </svg>
     </button>
-    {isOpen && <div className="p-4 border-t border-gray-200">{children}</div>}
+    {isOpen && <div className="p-4 border-t border-gray-200 dark:border-gray-700">{children}</div>}
   </div>
 );
 
@@ -222,21 +231,21 @@ const SiteMultiSelect: React.FC<{
   return (
     <div className="space-y-2">
       {sites.length === 0 ? (
-        <p className="text-sm text-gray-500">No sites available</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">No sites available</p>
       ) : (
-        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg p-2">
+        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg p-2">
           {sites.map((site) => (
             <label
               key={site.id}
-              className="flex items-center p-2 rounded hover:bg-gray-50 cursor-pointer"
+              className="flex items-center p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
             >
               <input
                 type="checkbox"
                 checked={selectedIds.includes(site.id)}
                 onChange={() => toggleSite(site.id)}
-                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
               />
-              <span className="ml-2 text-sm text-gray-700">{site.name}</span>
+              <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">{site.name}</span>
             </label>
           ))}
         </div>
@@ -306,41 +315,47 @@ const DocumentsSection: React.FC<{
 
   if (!chemicalId) {
     return (
-      <p className="text-sm text-gray-500 italic">Save the chemical first to upload documents</p>
+      <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+        Save the chemical first to upload documents
+      </p>
     );
   }
 
   return (
     <div className="space-y-4">
       {/* Upload Form */}
-      <div className="flex flex-col gap-3 p-3 bg-gray-50 rounded-lg">
+      <div className="flex flex-col gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
         <div className="flex gap-3">
           <input
             ref={fileInputRef}
             type="file"
             accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
             onChange={handleFileSelect}
-            className="flex-1 text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            className="flex-1 text-sm text-gray-500 dark:text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
           />
         </div>
         {selectedFile && (
           <div className="flex gap-3 items-end">
             <div className="flex-1">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Document Name</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Document Name
+              </label>
               <input
                 type="text"
                 value={uploadName}
                 onChange={(e) => setUploadName(e.target.value)}
                 placeholder="Enter document name"
-                className="w-full border border-gray-300 rounded-md py-1.5 px-3 text-sm"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md py-1.5 px-3 text-sm"
               />
             </div>
             <div className="w-40">
-              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                Type
+              </label>
               <select
                 value={uploadType}
                 onChange={(e) => setUploadType(e.target.value as ChemicalDocumentType)}
-                className="w-full border border-gray-300 rounded-md py-1.5 px-3 text-sm"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md py-1.5 px-3 text-sm"
               >
                 {Object.entries(documentTypeLabels).map(([value, label]) => (
                   <option key={value} value={value}>
@@ -363,12 +378,12 @@ const DocumentsSection: React.FC<{
 
       {/* Documents List */}
       {documents.length > 0 ? (
-        <div className="border border-gray-200 rounded-lg divide-y divide-gray-200">
+        <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700">
           {documents.map((doc) => (
             <div key={doc.id} className="flex items-center justify-between p-3">
               <div className="flex items-center gap-3">
                 <svg
-                  className="w-8 h-8 text-gray-400"
+                  className="w-8 h-8 text-gray-400 dark:text-gray-500"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -381,8 +396,8 @@ const DocumentsSection: React.FC<{
                   />
                 </svg>
                 <div>
-                  <p className="text-sm font-medium text-gray-900">{doc.name}</p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{doc.name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     {documentTypeLabels[doc.type]} | {new Date(doc.uploadedAt).toLocaleDateString()}
                   </p>
                 </div>
@@ -408,7 +423,9 @@ const DocumentsSection: React.FC<{
           ))}
         </div>
       ) : (
-        <p className="text-sm text-gray-500 text-center py-4">No documents uploaded yet</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-4">
+          No documents uploaded yet
+        </p>
       )}
     </div>
   );
@@ -472,23 +489,24 @@ export const ChemicalsTab: React.FC = () => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const confirm = useConfirm();
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!formData.name) {
-      alert('Please enter a name.');
+      toast({ title: 'Please enter a name.', variant: 'warning' });
       return;
     }
     if (!formData.code) {
-      alert('Please enter a code.');
+      toast({ title: 'Please enter a code.', variant: 'warning' });
       return;
     }
     if (!formData.type) {
-      alert('Please select a chemical type.');
+      toast({ title: 'Please select a chemical type.', variant: 'warning' });
       return;
     }
     if (!formData.siteId) {
-      alert('Please select a site.');
+      toast({ title: 'Please select a site.', variant: 'warning' });
       return;
     }
 
@@ -605,12 +623,19 @@ export const ChemicalsTab: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this chemical?')) {
+    if (
+      await confirm({
+        title: 'Delete this chemical?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteChemicalMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete chemical:', err);
-        alert('Failed to delete chemical. Please try again.');
+        toast({ title: 'Failed to delete chemical. Please try again.', variant: 'error' });
       }
     }
   };
@@ -627,13 +652,20 @@ export const ChemicalsTab: React.FC = () => {
       refetch();
     } catch (err) {
       console.error('Failed to upload document:', err);
-      alert('Failed to upload document. Please try again.');
+      toast({ title: 'Failed to upload document. Please try again.', variant: 'error' });
     }
   };
 
   const handleDocumentDelete = async (doc: ChemicalDocument) => {
     if (!editingId) return;
-    if (confirm(`Delete document "${doc.name}"?`)) {
+    if (
+      await confirm({
+        title: `Delete document "${doc.name}"?`,
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         const filename = doc.url.split('/').pop() || doc.name;
         await removeDocument.mutateAsync({
@@ -644,7 +676,7 @@ export const ChemicalsTab: React.FC = () => {
         refetch();
       } catch (err) {
         console.error('Failed to delete document:', err);
-        alert('Failed to delete document. Please try again.');
+        toast({ title: 'Failed to delete document. Please try again.', variant: 'error' });
       }
     }
   };
@@ -654,6 +686,84 @@ export const ChemicalsTab: React.FC = () => {
     const supplier = suppliers.find((s) => s.id === supplierId);
     return supplier?.name || '-';
   };
+
+  type ChemicalRow = (typeof filteredChemicals)[number];
+  const chemicalRowColumns: DataTableColumn<ChemicalRow>[] = [
+    {
+      key: 'chemical',
+      header: 'Chemical',
+      render: (_value, chemical) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {chemical.name}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{chemical.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (_value, chemical) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[chemical.type] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {categoryLabels[chemical.type] || chemical.type}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'manufacturer',
+      header: 'Manufacturer',
+      render: (_value, chemical) => getSupplierName(chemical.supplierId),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, chemical) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[chemical.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {statusLabels[chemical.status] || chemical.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      render: (_value, chemical) => chemical.notes || '-',
+    },
+    {
+      key: 'documents',
+      header: 'Documents',
+      render: (_value, chemical) => <>{chemical.documents?.length || 0} docs</>,
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, chemical) => (
+        <>
+          <button
+            onClick={() => handleEdit(chemical)}
+            className="text-blue-600 hover:text-blue-900 mr-3"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => handleDelete(chemical.id)}
+            className="text-red-600 hover:text-red-900"
+          >
+            Delete
+          </button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div>
@@ -666,10 +776,10 @@ export const ChemicalsTab: React.FC = () => {
               placeholder="Search chemicals..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -685,7 +795,7 @@ export const ChemicalsTab: React.FC = () => {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Categories</option>
             {chemicalTypes.map((type) => (
@@ -728,7 +838,7 @@ export const ChemicalsTab: React.FC = () => {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
@@ -744,87 +854,22 @@ export const ChemicalsTab: React.FC = () => {
 
       {/* Chemicals Table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Chemical
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Category
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Manufacturer
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Notes
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Documents
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredChemicals.map((chemical) => (
-                <tr key={chemical.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{chemical.name}</div>
-                    <div className="text-sm text-gray-500">{chemical.code}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${categoryColors[chemical.type] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {categoryLabels[chemical.type] || chemical.type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {getSupplierName(chemical.supplierId)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[chemical.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {statusLabels[chemical.status] || chemical.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                    {chemical.notes || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {chemical.documents?.length || 0} docs
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(chemical)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(chemical.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <DataTable<ChemicalRow>
+            data={filteredChemicals}
+            columns={chemicalRowColumns}
+            keyExtractor={(chemical) => chemical.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
           {/* Empty State */}
           {filteredChemicals.length === 0 && (
             <div className="text-center py-12">
               <svg
-                className="mx-auto h-12 w-12 text-gray-400"
+                className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -836,8 +881,10 @@ export const ChemicalsTab: React.FC = () => {
                   d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"
                 />
               </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No chemicals found</h3>
-              <p className="mt-1 text-sm text-gray-500">
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No chemicals found
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Add chemicals to manage treatments and protocols.
               </p>
             </div>
@@ -863,36 +910,42 @@ export const ChemicalsTab: React.FC = () => {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Name *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Name *
+                    </label>
                     <input
                       type="text"
                       required
                       value={formData.name}
                       onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Code *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Code *
+                    </label>
                     <input
                       type="text"
                       required
                       value={formData.code}
                       onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Category *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Category *
+                    </label>
                     <select
                       required
                       value={formData.type}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, type: e.target.value as ChemicalType }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="">Select Category</option>
                       {chemicalTypes.map((type) => (
@@ -903,12 +956,14 @@ export const ChemicalsTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Site *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Site *
+                    </label>
                     <select
                       required
                       value={formData.siteId}
                       onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="">Select Site</option>
                       {sites.map((site) => (
@@ -921,7 +976,7 @@ export const ChemicalsTab: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Manufacturer (Supplier)
                     </label>
                     <select
@@ -929,7 +984,7 @@ export const ChemicalsTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="">Select Supplier</option>
                       {suppliers.map((supplier) => (
@@ -940,12 +995,14 @@ export const ChemicalsTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Unit *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Unit *
+                    </label>
                     <select
                       required
                       value={formData.unit}
                       onChange={(e) => setFormData((prev) => ({ ...prev, unit: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="liter">Liter</option>
                       <option value="ml">Milliliter</option>
@@ -956,24 +1013,28 @@ export const ChemicalsTab: React.FC = () => {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Description</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Description
+                  </label>
                   <textarea
                     value={formData.description}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, description: e.target.value }))
                     }
                     rows={2}
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Status
+                  </label>
                   <select
                     value={formData.status}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, status: e.target.value as ChemicalStatus }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   >
                     {Object.entries(statusLabels).map(([value, label]) => (
                       <option key={value} value={value}>
@@ -994,7 +1055,7 @@ export const ChemicalsTab: React.FC = () => {
             >
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Active Ingredient
                   </label>
                   <input
@@ -1003,11 +1064,13 @@ export const ChemicalsTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, activeIngredient: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Concentration</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Concentration
+                  </label>
                   <input
                     type="text"
                     value={formData.concentration}
@@ -1015,17 +1078,19 @@ export const ChemicalsTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, concentration: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Formulation</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Formulation
+                  </label>
                   <select
                     value={formData.formulation}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, formulation: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">Select Formulation</option>
                     <option value="liquid">Liquid</option>
@@ -1049,7 +1114,7 @@ export const ChemicalsTab: React.FC = () => {
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Storage Requirements
                     </label>
                     <select
@@ -1057,7 +1122,7 @@ export const ChemicalsTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
                       {storageOptions.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -1067,20 +1132,24 @@ export const ChemicalsTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Hazard Class</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Hazard Class
+                    </label>
                     <input
                       type="text"
                       value={formData.hazardClass}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, hazardClass: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
                 <div className="grid grid-cols-4 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Min Temp (°C)</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Min Temp (°C)
+                    </label>
                     <input
                       type="number"
                       step="0.1"
@@ -1091,11 +1160,13 @@ export const ChemicalsTab: React.FC = () => {
                           storageTempMin: e.target.value ? parseFloat(e.target.value) : '',
                         }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Max Temp (°C)</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Max Temp (°C)
+                    </label>
                     <input
                       type="number"
                       step="0.1"
@@ -1106,11 +1177,11 @@ export const ChemicalsTab: React.FC = () => {
                           storageTempMax: e.target.value ? parseFloat(e.target.value) : '',
                         }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Min Humidity (%)
                     </label>
                     <input
@@ -1125,11 +1196,11 @@ export const ChemicalsTab: React.FC = () => {
                           storageHumidityMin: e.target.value ? parseFloat(e.target.value) : '',
                         }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Max Humidity (%)
                     </label>
                     <input
@@ -1144,19 +1215,21 @@ export const ChemicalsTab: React.FC = () => {
                           storageHumidityMax: e.target.value ? parseFloat(e.target.value) : '',
                         }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Signal Word</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Signal Word
+                    </label>
                     <select
                       value={formData.signalWord}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, signalWord: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="">None</option>
                       <option value="warning">Warning</option>
@@ -1164,7 +1237,9 @@ export const ChemicalsTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">MSDS URL</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      MSDS URL
+                    </label>
                     <input
                       type="url"
                       value={formData.msdsUrl}
@@ -1172,7 +1247,7 @@ export const ChemicalsTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, msdsUrl: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1188,7 +1263,7 @@ export const ChemicalsTab: React.FC = () => {
             >
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Withdrawal Period (days)
                   </label>
                   <input
@@ -1201,11 +1276,13 @@ export const ChemicalsTab: React.FC = () => {
                         withdrawalPeriodDays: parseInt(e.target.value) || 0,
                       }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Usage Guide URL</label>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Usage Guide URL
+                  </label>
                   <input
                     type="url"
                     value={formData.usageGuideUrl}
@@ -1213,7 +1290,7 @@ export const ChemicalsTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, usageGuideUrl: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>
               </div>
@@ -1263,12 +1340,12 @@ export const ChemicalsTab: React.FC = () => {
                 onChange={(e) => setFormData((prev) => ({ ...prev, notes: e.target.value }))}
                 rows={3}
                 placeholder="Additional notes about this chemical..."
-                className="w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
               />
             </CollapsibleSection>
           </div>
 
-          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
             <button
               type="submit"
               disabled={isSaving}
@@ -1279,7 +1356,7 @@ export const ChemicalsTab: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
             </button>

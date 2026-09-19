@@ -21,9 +21,14 @@ const spies = vi.hoisted(() => ({
   tags: [] as unknown[],
 }));
 
-vi.mock('@aquaculture/shared-ui', async () => {
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => {
   const { useQuery } = await import('@tanstack/react-query');
+  const actual = await importOriginal<typeof import('@aquaculture/shared-ui')>();
   return {
+    Modal: actual.Modal,
+    ConfirmModal: actual.ConfirmModal,
+    // The registry list renders through the real DataTable (empty state, rows).
+    DataTable: actual.DataTable,
     useAuth: () => ({ tenantId: 'tenant-1', token: 't' }),
     createTenantQueryKey: (tenantId: string, ...rest: unknown[]) => ['tenant', tenantId, ...rest],
     // Faithful stub of the SSoT hook: tenant-prefixed key + the given fetcher

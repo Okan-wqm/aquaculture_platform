@@ -1,10 +1,12 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
+import { CheckCircle, Play, Clock, MapPin, Tag, AlertCircle, Send, WifiOff } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import {useParams} from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { GET_TASK_DETAIL } from '@/graphql/operations';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTaskActions } from '@/hooks/useTaskActions';
@@ -16,7 +18,7 @@ const PRIORITY_LABELS: Record<string, { label: string; color: string }> = {
   URGENT: { label: 'Urgent', color: 'bg-red-100 text-red-700' },
   HIGH: { label: 'High', color: 'bg-orange-100 text-orange-700' },
   MEDIUM: { label: 'Medium', color: 'bg-blue-100 text-blue-700' },
-  LOW: { label: 'Low', color: 'bg-gray-100 text-gray-600' },
+  LOW: { label: 'Low', color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' },
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -34,15 +36,14 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  PENDING: { label: 'Pending', color: 'bg-gray-100 text-gray-600' },
+  PENDING: { label: 'Pending', color: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' },
   IN_PROGRESS: { label: 'In Progress', color: 'bg-amber-100 text-amber-700' },
   COMPLETED: { label: 'Completed', color: 'bg-green-100 text-green-700' },
   OVERDUE: { label: 'Overdue', color: 'bg-red-100 text-red-700' },
-  CANCELLED: { label: 'Cancelled', color: 'bg-gray-100 text-gray-500' },
+  CANCELLED: { label: 'Cancelled', color: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' },
 };
 
 export function TaskDetailPage(): JSX.Element {
-  const navigate = useNavigate();
   const { taskId } = useParams<{ taskId: string }>();
   const { completeTask, startTask, setChecklistItem, addNote } = useTaskActions();
 
@@ -190,16 +191,11 @@ export function TaskDetailPage(): JSX.Element {
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <h1 className="text-lg font-bold">Task Details</h1>
-          </div>
-        </div>
+        <PageHeader
+          title="Task Details"
+        />
         <div className="flex items-center justify-center min-h-[50vh]">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
+          <Spinner size="lg" />
         </div>
       </div>
     );
@@ -208,14 +204,9 @@ export function TaskDetailPage(): JSX.Element {
   if (error || !task) {
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <h1 className="text-lg font-bold">Task Details</h1>
-          </div>
-        </div>
+        <PageHeader
+          title="Task Details"
+        />
         <div className="px-4 mt-4">
           <div className="bg-red-50 dark:bg-red-900/20 rounded-xl p-4 flex items-center gap-3 border border-red-200 dark:border-red-800">
             <AlertCircle size={20} className="text-red-500 flex-shrink-0" />
@@ -238,14 +229,9 @@ export function TaskDetailPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <h1 className="text-lg font-bold">Task Details</h1>
-        </div>
-      </div>
+      <PageHeader
+        title="Task Details"
+      />
 
       {/* Task info */}
       <div className="px-4 mt-4">
@@ -272,7 +258,7 @@ export function TaskDetailPage(): JSX.Element {
           {/* Meta info */}
           <div className="space-y-2">
             {task.dueDate && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <Clock size={14} />
                 <span>
                   {new Date(task.dueDate).toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' })}
@@ -281,19 +267,19 @@ export function TaskDetailPage(): JSX.Element {
               </div>
             )}
             {task.location && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <MapPin size={14} />
                 <span>{task.location}</span>
               </div>
             )}
             {task.estimatedMinutes && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <Clock size={14} />
                 <span>Estimated: {task.estimatedMinutes} minutes</span>
               </div>
             )}
             {task.tags && task.tags.length > 0 && (
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <Tag size={14} />
                 <div className="flex flex-wrap gap-1">
                   {task.tags.map((tag, i) => (
@@ -311,7 +297,7 @@ export function TaskDetailPage(): JSX.Element {
       {/* Checklist */}
       {checklistItems.length > 0 && (
         <div className="px-4 mt-4">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+          <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
             Checklist ({checklistItems.filter((c) => c.isCompleted).length}/{checklistItems.length})
           </h3>
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -342,7 +328,7 @@ export function TaskDetailPage(): JSX.Element {
                   className={clsx(
                     'text-sm',
                     item.isCompleted
-                      ? 'text-gray-400 line-through'
+                      ? 'text-gray-400 dark:text-gray-500 line-through'
                       : 'text-gray-900 dark:text-white',
                   )}
                 >
@@ -356,14 +342,14 @@ export function TaskDetailPage(): JSX.Element {
 
       {/* Notes */}
       <div className="px-4 mt-4">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Notes</h3>
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Notes</h3>
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
           {notes.length > 0 && (
             <div className="space-y-3 mb-4">
               {notes.map((note, index) => (
                 <div key={note.id || index} className="border-b border-gray-50 dark:border-gray-800 pb-3 last:border-0 last:pb-0">
                   <p className="text-sm text-gray-900 dark:text-white">{note.text}</p>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
                     {note.createdBy && `${note.createdBy} - `}
                     {note.createdAt && new Date(note.createdAt).toLocaleString('en-US')}
                   </p>
@@ -407,7 +393,7 @@ export function TaskDetailPage(): JSX.Element {
 
       {/* Action buttons */}
       {task.status !== 'COMPLETED' && task.status !== 'CANCELLED' && (
-        <div className="px-4 mt-5 pb-28">
+        <div className="px-4 mt-5">
           {task.status === 'PENDING' || task.status === 'OVERDUE' ? (
             <div className="space-y-3">
               <button
@@ -416,7 +402,7 @@ export function TaskDetailPage(): JSX.Element {
                 className="w-full py-4 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-bold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                 ) : (
                   <>
                     <Play size={20} />
@@ -430,7 +416,7 @@ export function TaskDetailPage(): JSX.Element {
                 className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
               >
                 {isSubmitting ? (
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                 ) : (
                   <>
                     <CheckCircle size={20} />
@@ -446,7 +432,7 @@ export function TaskDetailPage(): JSX.Element {
               className="w-full py-4 bg-gradient-to-r from-green-600 to-green-500 text-white font-bold rounded-2xl shadow-lg shadow-green-500/25 disabled:opacity-50 touch-feedback transition-all flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
               ) : (
                 <>
                   <CheckCircle size={20} />
@@ -458,8 +444,6 @@ export function TaskDetailPage(): JSX.Element {
         </div>
       )}
 
-      {/* Bottom spacer if no actions */}
-      {(task.status === 'COMPLETED' || task.status === 'CANCELLED') && <div className="h-24" />}
     </div>
   );
 }

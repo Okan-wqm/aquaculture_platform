@@ -304,14 +304,14 @@ export const tankStatusColors: Record<string, string> = {
   cleaning: 'bg-cyan-100 text-cyan-800',
   HARVESTING: 'bg-purple-100 text-purple-800',
   harvesting: 'bg-purple-100 text-purple-800',
-  FALLOW: 'bg-gray-100 text-gray-800',
-  fallow: 'bg-gray-100 text-gray-800',
+  FALLOW: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
+  fallow: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   QUARANTINE: 'bg-red-100 text-red-800',
   quarantine: 'bg-red-100 text-red-800',
-  OUT_OF_SERVICE: 'bg-gray-200 text-gray-600',
-  DECOMMISSIONED: 'bg-gray-200 text-gray-600',
-  inactive: 'bg-gray-200 text-gray-600',
-  INACTIVE: 'bg-gray-200 text-gray-600',
+  OUT_OF_SERVICE: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+  DECOMMISSIONED: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+  inactive: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
+  INACTIVE: 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400',
 };
 
 // Tank type labels

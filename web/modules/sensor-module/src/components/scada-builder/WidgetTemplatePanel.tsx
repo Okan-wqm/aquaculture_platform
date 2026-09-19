@@ -40,12 +40,12 @@ export const WidgetTemplatePanel: React.FC = () => {
 
   if (widgetTemplates.length === 0) {
     return (
-      <div className="w-64 bg-white border border-gray-200 rounded-lg shadow-lg p-4">
+      <div className="w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-4">
         <div className="flex items-center gap-2 mb-3">
-          <Bookmark className="w-4 h-4 text-gray-500" />
-          <span className="text-sm font-medium text-gray-700">Templates</span>
+          <Bookmark className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Templates</span>
         </div>
-        <p className="text-xs text-gray-500 text-center py-4">
+        <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-4">
           No templates yet. Right-click a widget and select "Save as Template".
         </p>
       </div>
@@ -53,27 +53,27 @@ export const WidgetTemplatePanel: React.FC = () => {
   }
 
   return (
-    <div className="w-64 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100">
-        <Bookmark className="w-4 h-4 text-gray-500" />
-        <span className="text-sm font-medium text-gray-700">Templates</span>
-        <span className="text-[10px] text-gray-500 ml-auto">{widgetTemplates.length}</span>
+    <div className="w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+        <Bookmark className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Templates</span>
+        <span className="text-[10px] text-gray-500 dark:text-gray-400 ml-auto">{widgetTemplates.length}</span>
       </div>
 
       <div className="max-h-72 overflow-y-auto">
         {categories.map((cat) => (
           <div key={cat}>
-            <div className="px-3 py-1.5 text-[10px] font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
+            <div className="px-3 py-1.5 text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider bg-gray-50 dark:bg-gray-800">
               {cat}
             </div>
             {grouped[cat].map((t) => (
               <div
                 key={t.id}
-                className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 border-b border-gray-50 group"
+                className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-50 group"
               >
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm text-gray-800 truncate">{t.name}</div>
-                  <div className="text-[10px] text-gray-500">
+                  <div className="text-sm text-gray-800 dark:text-gray-200 truncate">{t.name}</div>
+                  <div className="text-[10px] text-gray-500 dark:text-gray-400">
                     {t.widgetType} · {t.defaultSize.w}x{t.defaultSize.h}
                   </div>
                 </div>

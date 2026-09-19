@@ -10,6 +10,7 @@ import DrainageCompositionTab from './tabs/DrainageCompositionTab';
 import PreviousDrainageTab from './tabs/PreviousDrainageTab';
 import CurrentNsFormulaTab from './tabs/CurrentNsFormulaTab';
 import ReadjustmentSettingsTab from './tabs/ReadjustmentSettingsTab';
+import { PageHeader, Tabs } from '@aquaculture/shared-ui';
 
 // Always-visible tabs
 const BASE_TAB_COMPONENTS: Record<string, React.FC> = {
@@ -42,38 +43,25 @@ const SolutionPageInner: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Nutrient Solution Calculator</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Configure nutrient solution parameters for your hydroponic systems
-        </p>
-      </div>
+      <PageHeader
+        title="Nutrient Solution Calculator"
+        description="Configure nutrient solution parameters for your hydroponic systems"
+        className="mb-6"
+      />
 
-      {/* Tab Bar */}
-      <div className="border-b border-gray-200 mb-6">
-        <nav className="flex gap-0 -mb-px overflow-x-auto" role="tablist">
-          {tabs.map((tab) => {
-            const isActive = currentTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => navigate(`/hydroponics/solution/${tab.path}`)}
-                className={`
-                  whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors
-                  ${isActive
-                    ? 'border-green-500 text-green-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }
-                `}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      {/* Tab Bar — each tab is a route; the strip navigates */}
+      <Tabs
+        items={tabs}
+        value={currentTab}
+        onChange={(id) => {
+          const target = tabs.find((tab) => tab.id === id);
+          if (target) navigate(`/hydroponics/solution/${target.path}`);
+        }}
+        tabsId="hydro-solution"
+        aria-label="Nutrient solution steps"
+        scrollable
+        className="mb-6"
+      />
 
       {/* Tab Content */}
       <Routes>

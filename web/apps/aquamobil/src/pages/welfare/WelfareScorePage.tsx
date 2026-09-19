@@ -28,7 +28,7 @@ import { useTanks } from '@/hooks/useTanks';
 import type { QueuedPayload } from '@/types';
 
 const WELFARE_THEME: RecordEntityTheme = {
-  headerGradient: 'bg-gradient-to-r from-emerald-600 to-emerald-500',
+  headerTone: 'emerald',
   accentText: 'text-emerald-600',
   summaryHeaderBg:
     'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800/50',
@@ -56,7 +56,9 @@ function ScoreDial(props: {
   const { label, value, onChange } = props;
   return (
     <div className="px-4 mt-4">
-      <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{label}</h3>
+      <h3 className="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">
+        {label}
+      </h3>
       <div className="grid grid-cols-4 gap-2">
         {SCORE_LABELS.map((scoreLabel, score) => {
           const selected = value === score;

@@ -27,7 +27,7 @@ const Slider: React.FC<{
   disabled?: boolean;
 }> = ({ label, value, min, max, step, unit, onChange, disabled }) => (
   <div className="mb-2">
-    <div className="flex justify-between text-[11px] text-gray-600">
+    <div className="flex justify-between text-[11px] text-gray-600 dark:text-gray-400">
       <span>{label}</span>
       <span className="font-mono">{value.toFixed(step < 1 ? (step < 0.1 ? 2 : 1) : 0)}{unit || ''}</span>
     </div>
@@ -62,50 +62,49 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   const baseInfo = BASE_REAGENTS.find(r => r.name === config.baseReagent);
 
   return (
-    <div className="w-[280px] flex-shrink-0 bg-white rounded-lg border border-gray-200 p-3 overflow-y-auto text-sm"
-         style={{ maxHeight: 'calc(100vh - 100px)' }}>
+    <div className="w-[280px] flex-shrink-0 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-3 overflow-y-auto text-sm max-h-[calc(100vh_-_100px)]">
       {/* Tank Values */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Tank Values</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Tank Values</h4>
         <div className="grid grid-cols-2 gap-2">
           <div className={`rounded p-2 text-center ${phInRange ? 'bg-green-50' : 'bg-red-50'}`}>
-            <div className="text-[10px] text-gray-500">pH</div>
+            <div className="text-[10px] text-gray-500 dark:text-gray-400">pH</div>
             <div className={`text-xl font-bold font-mono ${phColor}`}>{state.pH.toFixed(2)}</div>
-            <div className="text-[9px] font-mono text-gray-400">
+            <div className="text-[9px] font-mono text-gray-400 dark:text-gray-500">
               eq: <span className={state.eqPH >= config.phMin && state.eqPH <= config.phMax ? 'text-green-600' : 'text-red-500'}>
                 {state.eqPH.toFixed(2)}
               </span>
             </div>
           </div>
           <div className={`rounded p-2 text-center ${ecInRange ? 'bg-green-50' : 'bg-red-50'}`}>
-            <div className="text-[10px] text-gray-500">EC (mS/cm)</div>
+            <div className="text-[10px] text-gray-500 dark:text-gray-400">EC (mS/cm)</div>
             <div className={`text-xl font-bold font-mono ${ecColor}`}>{state.EC.toFixed(2)}</div>
           </div>
-          <div className="bg-gray-50 rounded p-2 text-center">
-            <div className="text-[10px] text-gray-500">DIC (mmol/L)</div>
-            <div className="text-sm font-mono text-gray-700">{state.DIC.toFixed(3)}</div>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-center">
+            <div className="text-[10px] text-gray-500 dark:text-gray-400">DIC (mmol/L)</div>
+            <div className="text-sm font-mono text-gray-700 dark:text-gray-300">{state.DIC.toFixed(3)}</div>
           </div>
-          <div className="bg-gray-50 rounded p-2 text-center">
-            <div className="text-[10px] text-gray-500">ALK (meq/L)</div>
-            <div className="text-sm font-mono text-gray-700">{state.ALK.toFixed(3)}</div>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-center">
+            <div className="text-[10px] text-gray-500 dark:text-gray-400">ALK (meq/L)</div>
+            <div className="text-sm font-mono text-gray-700 dark:text-gray-300">{state.ALK.toFixed(3)}</div>
           </div>
-          <div className="bg-gray-50 rounded p-2 text-center">
-            <div className="text-[10px] text-gray-500">CO₂ (mg/L)</div>
-            <div className="text-sm font-mono text-gray-700">
+          <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-center">
+            <div className="text-[10px] text-gray-500 dark:text-gray-400">CO₂ (mg/L)</div>
+            <div className="text-sm font-mono text-gray-700 dark:text-gray-300">
               {state.co2.toFixed(1)}
-              <span className="text-[9px] text-gray-400"> / {state.co2Eq.toFixed(1)} eq</span>
+              <span className="text-[9px] text-gray-400 dark:text-gray-500"> / {state.co2Eq.toFixed(1)} eq</span>
             </div>
           </div>
-          <div className="bg-gray-50 rounded p-2 text-center">
-            <div className="text-[10px] text-gray-500">State</div>
-            <div className="text-sm font-mono text-gray-700">{state.state}</div>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded p-2 text-center">
+            <div className="text-[10px] text-gray-500 dark:text-gray-400">State</div>
+            <div className="text-sm font-mono text-gray-700 dark:text-gray-300">{state.state}</div>
           </div>
         </div>
       </div>
 
       {/* Target Ranges */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">pH Range</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">pH Range</h4>
         <Slider label="pH Min" value={config.phMin} min={4.0} max={config.phMax - 0.1} step={0.1}
           onChange={v => onConfigChange({ ...config, phMin: v })} />
         <Slider label="pH Max" value={config.phMax} min={config.phMin + 0.1} max={8.0} step={0.1}
@@ -113,7 +112,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">EC Range</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">EC Range</h4>
         <Slider label="EC Min" value={config.ecMin} min={0.5} max={config.ecMax - 0.1} step={0.1} unit=" mS/cm"
           onChange={v => onConfigChange({ ...config, ecMin: v })} />
         <Slider label="EC Max" value={config.ecMax} min={config.ecMin + 0.1} max={4.0} step={0.1} unit=" mS/cm"
@@ -122,11 +121,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       {/* Reagent Selection */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Acid</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Acid</h4>
         <select
           value={config.acidReagent}
           onChange={e => onConfigChange({ ...config, acidReagent: e.target.value })}
-          className="w-full mb-2 px-2 py-1.5 text-[11px] border border-gray-200 rounded bg-white"
+          className="w-full mb-2 px-2 py-1.5 text-[11px] border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900"
           disabled={running}
         >
           {ACID_REAGENTS.map(r => (
@@ -138,11 +137,11 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Base</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Base</h4>
         <select
           value={config.baseReagent}
           onChange={e => onConfigChange({ ...config, baseReagent: e.target.value })}
-          className="w-full mb-2 px-2 py-1.5 text-[11px] border border-gray-200 rounded bg-white"
+          className="w-full mb-2 px-2 py-1.5 text-[11px] border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900"
           disabled={running}
         >
           {BASE_REAGENTS.map(r => (
@@ -155,7 +154,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       {/* System */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">System</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">System</h4>
         <Slider label="Volume" value={config.volumeL} min={10} max={1000} step={10} unit=" L"
           onChange={v => onConfigChange({ ...config, volumeL: v })} disabled={running} />
         <Slider label="Temperature" value={config.tempC} min={10} max={40} step={1} unit=" °C"
@@ -166,7 +165,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       {/* Freshwater */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Freshwater</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Freshwater</h4>
         <Slider label="Water ALK" value={config.freshwaterALK} min={0.5} max={8.0} step={0.1} unit=" meq/L"
           onChange={v => onConfigChange({ ...config, freshwaterALK: v })} />
         <Slider label="Water pH" value={config.freshwaterPH} min={5.0} max={8.5} step={0.1}
@@ -175,7 +174,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       {/* Usage Summary */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Usage</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Usage</h4>
         <div className="space-y-1.5 text-[10px] font-mono">
           <div className="flex justify-between items-center bg-red-50 rounded px-2 py-1.5">
             <span className="text-red-700 font-semibold">{acidInfo?.formula || 'Acid'}</span>
@@ -194,7 +193,7 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       {/* Disturbances */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Disturbances</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Disturbances</h4>
         <div className="grid grid-cols-2 gap-1.5">
           <button onClick={() => onDisturbance('phUp')}
             className="px-2 py-1.5 text-[11px] bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200"
@@ -213,14 +212,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       {/* Speed */}
       <div className="mb-4">
-        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Speed</h4>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">Speed</h4>
         <div className="flex gap-1">
           {[1, 5, 20, 60].map(s => (
             <button key={s} onClick={() => onConfigChange({ ...config, speedMultiplier: s })}
               className={`flex-1 py-1 text-[11px] rounded border ${
                 config.speedMultiplier === s
                   ? 'bg-blue-600 text-white border-blue-700'
-                  : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                  : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700'
               }`}>{s}x</button>
           ))}
         </div>
@@ -236,10 +235,10 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
             className="flex-1 py-2 text-xs font-semibold bg-yellow-500 hover:bg-yellow-600 text-white rounded">STOP</button>
         )}
         <button onClick={onReset}
-          className="flex-1 py-2 text-xs font-semibold bg-gray-200 hover:bg-gray-300 text-gray-700 rounded">RESET</button>
+          className="flex-1 py-2 text-xs font-semibold bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 text-gray-700 dark:text-gray-300 rounded">RESET</button>
       </div>
 
-      <div className="mt-2 text-center text-[10px] text-gray-400 font-mono">
+      <div className="mt-2 text-center text-[10px] text-gray-400 dark:text-gray-500 font-mono">
         Tick: {state.tick} | t = {(state.tick * config.dt).toFixed(1)}s
       </div>
     </div>

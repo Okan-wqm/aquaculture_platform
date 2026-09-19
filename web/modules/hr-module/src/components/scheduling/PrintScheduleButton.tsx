@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { Printer, FileDown } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, colors } from '@aquaculture/shared-ui';
 import { formatMinutesAsHours, getWeekdayShortTR } from '../../hooks/useScheduling';
 import type { TeamWeeklyOverview, WeekDay } from '../../types/scheduling.types';
 
@@ -67,8 +67,8 @@ export function PrintScheduleButton({
       onClick={handlePrint}
       className={cn(
         'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium',
-        'text-gray-700 bg-white border border-gray-300 rounded-lg',
-        'hover:bg-gray-50 transition-colors',
+        'text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg',
+        'hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
         className
       )}
     >
@@ -182,7 +182,7 @@ function generatePrintableHTML(
           text-align: center;
         }
         th {
-          background: #f0f0f0;
+          background: ${colors.neutral[100]};
           font-weight: bold;
           font-size: 10px;
         }
@@ -199,29 +199,29 @@ function generatePrintableHTML(
           font-size: 10px;
         }
         .cell.work {
-          background: #e3f2fd;
+          background: ${colors.info[50]};
         }
         .cell.off {
-          background: #f5f5f5;
+          background: ${colors.neutral[100]};
           color: #666;
         }
         .cell.leave {
-          background: #e8f5e9;
-          color: #2e7d32;
+          background: ${colors.success[50]};
+          color: ${colors.success[700]};
         }
         .cell.holiday {
-          background: #f3e5f5;
-          color: #7b1fa2;
+          background: ${colors.accent[50]};
+          color: ${colors.accent[700]};
         }
         .total, .hours, .overtime {
           font-weight: bold;
           width: 6%;
         }
         .overtime {
-          color: #d32f2f;
+          color: ${colors.error[600]};
         }
         .summary-row {
-          background: #fff3e0;
+          background: ${colors.warning[50]};
         }
         .summary-cell {
           font-size: 9px;
@@ -293,19 +293,19 @@ function generatePrintableHTML(
 
       <div class="legend">
         <div class="legend-item">
-          <div class="legend-box" style="background: #e3f2fd;"></div>
+          <div class="legend-box" style="background: ${colors.info[50]};"></div>
           <span>Mesai</span>
         </div>
         <div class="legend-item">
-          <div class="legend-box" style="background: #f5f5f5;"></div>
+          <div class="legend-box" style="background: ${colors.neutral[100]};"></div>
           <span>Tatil</span>
         </div>
         <div class="legend-item">
-          <div class="legend-box" style="background: #e8f5e9;"></div>
+          <div class="legend-box" style="background: ${colors.success[50]};"></div>
           <span>Izin</span>
         </div>
         <div class="legend-item">
-          <div class="legend-box" style="background: #f3e5f5;"></div>
+          <div class="legend-box" style="background: ${colors.accent[50]};"></div>
           <span>Resmi Tatil</span>
         </div>
       </div>

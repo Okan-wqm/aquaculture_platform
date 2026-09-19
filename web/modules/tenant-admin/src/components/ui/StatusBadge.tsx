@@ -7,11 +7,11 @@ export interface StatusBadgeProps {
 
 const statusConfig: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   active: { bg: 'bg-green-100', text: 'text-green-700', icon: <CheckCircle className="w-3 h-3" /> },
-  inactive: { bg: 'bg-gray-100', text: 'text-gray-700', icon: <XCircle className="w-3 h-3" /> },
+  inactive: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', icon: <XCircle className="w-3 h-3" /> },
   pending: { bg: 'bg-yellow-100', text: 'text-yellow-700', icon: <Clock className="w-3 h-3" /> },
 };
 
-const defaultConfig = { bg: 'bg-gray-100', text: 'text-gray-700', icon: <Clock className="w-3 h-3" /> };
+const defaultConfig = { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', icon: <Clock className="w-3 h-3" /> };
 
 /**
  * Renders a user status with appropriate color and icon.

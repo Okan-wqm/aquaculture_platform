@@ -1,4 +1,3 @@
-export { HubHeader } from './HubHeader';
 export { KpiStrip } from './KpiStrip';
 export { QuickActionGrid } from './QuickActionGrid';
 export { ActivityList } from './ActivityList';

@@ -18,7 +18,6 @@ import {
   Clock,
   Filter,
   XCircle,
-  Loader2,
   RefreshCw,
   ChevronLeft,
   ChevronRight,
@@ -30,6 +29,7 @@ import {
   AlertSeverity,
   AlertStatusFilter,
 } from '../hooks/useAlerts';
+import { Spinner, PageHeader, severityClasses } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -52,12 +52,12 @@ type StatusConfig = {
 // ============================================================================
 
 const SEVERITY_CONFIG: Record<AlertSeverity, SeverityConfig> = {
-  critical: { label: 'Kritik', className: 'bg-red-100 text-red-800 border-red-200', borderClass: 'border-l-red-500' },
-  high: { label: 'Yüksek', className: 'bg-orange-100 text-orange-800 border-orange-200', borderClass: 'border-l-orange-500' },
-  warning: { label: 'Uyarı', className: 'bg-yellow-100 text-yellow-800 border-yellow-200', borderClass: 'border-l-yellow-500' },
-  medium: { label: 'Orta', className: 'bg-amber-100 text-amber-800 border-amber-200', borderClass: 'border-l-amber-500' },
-  low: { label: 'Düşük', className: 'bg-blue-100 text-blue-800 border-blue-200', borderClass: 'border-l-blue-500' },
-  info: { label: 'Bilgi', className: 'bg-gray-100 text-gray-800 border-gray-200', borderClass: 'border-l-gray-400' },
+  critical: { label: 'Kritik', className: severityClasses('critical'), borderClass: severityClasses('critical', 'bar') },
+  high: { label: 'Yüksek', className: severityClasses('high'), borderClass: severityClasses('high', 'bar') },
+  warning: { label: 'Uyarı', className: severityClasses('warning'), borderClass: severityClasses('warning', 'bar') },
+  medium: { label: 'Orta', className: severityClasses('medium'), borderClass: severityClasses('medium', 'bar') },
+  low: { label: 'Düşük', className: severityClasses('low'), borderClass: severityClasses('low', 'bar') },
+  info: { label: 'Bilgi', className: severityClasses('info'), borderClass: severityClasses('info', 'bar') },
 };
 
 const STATUS_TABS: { value: AlertStatusFilter; label: string }[] = [
@@ -115,30 +115,30 @@ const AlertCard: React.FC<{
 
   return (
     <div
-      className={`bg-white rounded-xl shadow-sm border-l-4 p-6 hover:shadow-md transition-shadow ${sevConfig.borderClass}`}
+      className={`bg-white dark:bg-gray-900 rounded-xl shadow-sm border-l-4 p-6 hover:shadow-md transition-shadow ${sevConfig.borderClass}`}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-semibold text-gray-900 truncate">{alert.ruleName}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 truncate">{alert.ruleName}</h3>
             <SeverityBadge severity={alert.severity} />
           </div>
-          <p className="text-gray-600">{alert.message}</p>
+          <p className="text-gray-600 dark:text-gray-400">{alert.message}</p>
 
           {/* Triggering data details */}
-          <div className="flex items-center gap-4 mt-2 text-sm text-gray-500 flex-wrap">
+          <div className="flex items-center gap-4 mt-2 text-sm text-gray-500 dark:text-gray-400 flex-wrap">
             {triggeringValue !== undefined && (
               <span>
-                Deger: <strong className="text-gray-900">{String(triggeringValue)}{unit ? ` ${unit}` : ''}</strong>
+                Deger: <strong className="text-gray-900 dark:text-gray-100">{String(triggeringValue)}{unit ? ` ${unit}` : ''}</strong>
               </span>
             )}
             {threshold !== undefined && (
               <span>
-                Esik: <strong className="text-gray-900">{String(threshold)}{unit ? ` ${unit}` : ''}</strong>
+                Esik: <strong className="text-gray-900 dark:text-gray-100">{String(threshold)}{unit ? ` ${unit}` : ''}</strong>
               </span>
             )}
             {alert.sensorId && (
-              <span className="text-xs text-gray-500 font-mono">
+              <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">
                 Sensor: {alert.sensorId.slice(0, 8)}...
               </span>
             )}
@@ -146,7 +146,7 @@ const AlertCard: React.FC<{
 
           {/* Acknowledgement info */}
           {alert.acknowledged && alert.acknowledgedBy && (
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
               Onaylayan: {alert.acknowledgedBy}
               {alert.acknowledgementNote && (
                 <span className="italic ml-1">- {alert.acknowledgementNote}</span>
@@ -157,7 +157,7 @@ const AlertCard: React.FC<{
 
         <div className="text-right ml-4 shrink-0">
           <StatusBadge alert={alert} />
-          <p className="text-sm text-gray-500 mt-2">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
             {new Date(alert.triggeredAt).toLocaleString('tr-TR')}
           </p>
         </div>
@@ -165,7 +165,7 @@ const AlertCard: React.FC<{
 
       {/* Action buttons for non-resolved alerts */}
       {!alert.resolved && (
-        <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-gray-100">
+        <div className="flex items-center justify-end gap-2 mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
           {!alert.acknowledged && (
             <button
               onClick={() => onAcknowledge(alert.id)}
@@ -173,7 +173,7 @@ const AlertCard: React.FC<{
               className="flex items-center gap-1.5 px-4 py-2 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 rounded-lg transition-colors disabled:opacity-50"
             >
               {isMutating ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <Clock className="w-4 h-4" />
               )}
@@ -186,7 +186,7 @@ const AlertCard: React.FC<{
             className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
           >
             {isMutating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <CheckCircle className="w-4 h-4" />
             )}
@@ -232,8 +232,8 @@ const AlertsPage: React.FC = () => {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]" role="status" aria-live="polite">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
-          <p className="text-gray-500">Uyarılar yükleniyor...</p>
+          <Spinner size="lg" block className="mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">Uyarılar yükleniyor...</p>
         </div>
       </div>
     );
@@ -261,10 +261,10 @@ const AlertsPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Uyarılar</h1>
-          <p className="text-gray-500 mt-1">
+      <PageHeader
+        title="Uyarılar"
+        description={
+          <>
             {stats.active > 0 ? (
               <span className="text-red-600 font-medium">{stats.active} aktif uyarı</span>
             ) : (
@@ -273,17 +273,19 @@ const AlertsPage: React.FC = () => {
             {stats.critical > 0 && (
               <span className="text-red-600 font-medium"> ({stats.critical} kritik)</span>
             )}
-          </p>
-        </div>
-        <button
-          onClick={refetch}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Yenile
-        </button>
-      </div>
+          </>
+        }
+        actions={
+          <button
+            onClick={refetch}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Yenile
+          </button>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -326,18 +328,18 @@ const AlertsPage: React.FC = () => {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center">
           {/* Status Tabs */}
-          <div className="flex bg-gray-100 rounded-lg p-1">
+          <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
             {STATUS_TABS.map((tab) => (
               <button
                 key={tab.value}
                 onClick={() => updateFilters({ status: tab.value })}
                 className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                   filters.status === tab.value
-                    ? 'bg-white text-gray-900 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
+                    ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow-sm'
+                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
                 }`}
               >
                 {tab.label}
@@ -347,7 +349,7 @@ const AlertsPage: React.FC = () => {
 
           {/* Severity Filter */}
           <div className="flex items-center gap-2">
-            <Filter className="w-5 h-5 text-gray-500" />
+            <Filter className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             <select
               value={filters.severity || 'all'}
               onChange={(e) =>
@@ -355,7 +357,7 @@ const AlertsPage: React.FC = () => {
                   severity: e.target.value === 'all' ? undefined : (e.target.value as AlertSeverity),
                 })
               }
-              className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
+              className="px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-cyan-500 text-sm"
             >
               <option value="all">Tüm Önem Dereceleri</option>
               <option value="critical">Kritik</option>
@@ -368,7 +370,7 @@ const AlertsPage: React.FC = () => {
           </div>
 
           {/* Auto-refresh indicator */}
-          <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-500">
+          <div className="ml-auto flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
             <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
             Otomatik yenileme: 30s
           </div>
@@ -388,10 +390,10 @@ const AlertsPage: React.FC = () => {
 
       {/* Empty State */}
       {alerts.length === 0 && !loading && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Uyarı Bulunamadı</h3>
-          <p className="text-gray-500 text-sm">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+          <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Uyarı Bulunamadı</h3>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
             {filters.status !== 'all' || filters.severity
               ? 'Seçili filtrelerle eşleşen uyarı bulunamadı. Filtreleri değiştirmeyi deneyin.'
               : 'Henüz tetiklenmiş uyarı bulunmuyor.'}
@@ -414,25 +416,25 @@ const AlertsPage: React.FC = () => {
 
       {/* Pagination */}
       {alerts.length > 0 && (
-        <div className="flex items-center justify-between bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-          <p className="text-sm text-gray-500">
+        <div className="flex items-center justify-between bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Sayfa {filters.page} - {alerts.length} sonuç gösteriliyor
           </p>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage(filters.page - 1)}
               disabled={filters.page <= 1}
-              className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="px-3 py-1 text-sm font-medium text-gray-700">
+            <span className="px-3 py-1 text-sm font-medium text-gray-700 dark:text-gray-300">
               {filters.page}
             </span>
             <button
               onClick={() => setPage(filters.page + 1)}
               disabled={alerts.length < filters.limit}
-              className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -442,9 +444,9 @@ const AlertsPage: React.FC = () => {
 
       {/* Loading overlay for background refresh */}
       {loading && alerts.length > 0 && (
-        <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
-          <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
-          <span className="text-sm text-gray-700">Güncelleniyor...</span>
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+          <Spinner size="md" />
+          <span className="text-sm text-gray-700 dark:text-gray-300">Güncelleniyor...</span>
         </div>
       )}
     </div>

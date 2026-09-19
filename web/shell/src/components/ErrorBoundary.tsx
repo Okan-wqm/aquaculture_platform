@@ -105,16 +105,16 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               </svg>
             </div>
 
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
               {moduleName ? `Failed to Load ${moduleName}` : 'An Error Occurred'}
             </h2>
 
-            <p className="text-gray-600 mb-6">
+            <p className="text-gray-600 dark:text-gray-400 mb-6">
               An unexpected error occurred. Please refresh the page or try again later.
             </p>
 
             {import.meta.env.DEV && error && (
-              <div className="mb-6 p-4 bg-gray-100 rounded-lg text-left">
+              <div className="mb-6 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg text-left">
                 <p className="text-sm font-mono text-red-600 break-all">
                   {error.message}
                 </p>

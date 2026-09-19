@@ -4,7 +4,7 @@
  * Displays a list of cleaner fish batches with status, quantities, and actions.
  */
 import React from 'react';
-import { Button } from '@aquaculture/shared-ui';
+import { Button, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { CleanerFishBatch, CleanerFishSpecies } from '../../../hooks/useCleanerFish';
 import { BatchStatusLabels, BatchStatusColors, SourceTypeLabels } from '../types';
 
@@ -37,8 +37,8 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
 
   if (batches.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow p-8 text-center">
-        <div className="mx-auto h-12 w-12 text-gray-400">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-8 text-center">
+        <div className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500">
           <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
               strokeLinecap="round"
@@ -48,18 +48,137 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
             />
           </svg>
         </div>
-        <h3 className="mt-2 text-sm font-medium text-gray-900">No cleaner fish batches</h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No cleaner fish batches</h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Get started by creating a new cleaner fish batch.
         </p>
       </div>
     );
   }
 
+  type BatchRow = (typeof batches)[number];
+  const batchRowColumns: DataTableColumn<BatchRow>[] = [
+    {
+      key: 'batch',
+      header: 'Batch #',
+      render: (_value, batch) => (
+        <div className="text-sm font-medium text-blue-600">{batch.batchNumber}</div>
+      ),
+    },
+    {
+      key: 'species',
+      header: 'Species',
+      render: (_value, batch) => (
+        <>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{batch.speciesName}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{batch.speciesCode}</div>
+        </>
+      ),
+    },
+    {
+      key: 'initial',
+      header: 'Initial',
+      align: 'right',
+      render: (_value, batch) => (
+        <div className="text-sm text-gray-900 dark:text-gray-100">
+          {batch.initialQuantity.toLocaleString()}
+        </div>
+      ),
+    },
+    {
+      key: 'current',
+      header: 'Current',
+      align: 'right',
+      render: (_value, batch) => (
+        <>
+          <div
+            className={`text-sm font-medium ${
+              batch.currentQuantity === 0 ? 'text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-gray-100'
+            }`}
+          >
+            {batch.currentQuantity.toLocaleString()}
+          </div>
+          {batch.currentQuantity === 0 && (
+            <span className="text-xs text-gray-400 dark:text-gray-500">Depleted</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'deployed',
+      header: 'Deployed',
+      align: 'right',
+      render: (_value, batch) => {
+        const deployed = getDeployedQuantity(batch);
+        return (
+          <div className="text-sm text-green-600">{deployed.toLocaleString()}</div>
+        );
+      },
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, batch) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              batch.sourceType === 'farmed'
+                ? 'bg-blue-100 text-blue-800'
+                : 'bg-amber-100 text-amber-800'
+            }`}
+          >
+            {SourceTypeLabels[batch.sourceType || 'farmed'] || batch.sourceType}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, batch) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+              BatchStatusColors[batch.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+            }`}
+          >
+            {BatchStatusLabels[batch.status] || batch.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'stocked',
+      header: 'Stocked',
+      render: (_value, batch) => formatDate(batch.stockedAt),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, batch) => {
+        const canDeploy = batch.currentQuantity > 0 && batch.status === 'ACTIVE';
+        return (
+          <div className="flex items-center justify-end space-x-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onDeploy(batch)}
+              disabled={!canDeploy}
+              title={canDeploy ? 'Deploy to tank' : 'No fish available to deploy'}
+            >
+              Deploy
+            </Button>
+          </div>
+        );
+      },
+    }
+  ];
+
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="px-4 py-4 sm:px-6 flex items-center justify-between border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900">Cleaner Fish Batches</h3>
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
+      <div className="px-4 py-4 sm:px-6 flex items-center justify-between border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Cleaner Fish Batches</h3>
         <Button variant="secondary" size="sm" onClick={onRefresh}>
           <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path
@@ -73,159 +192,32 @@ export const CleanerBatchList: React.FC<CleanerBatchListProps> = ({
         </Button>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Batch #
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Species
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Initial
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Current
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Deployed
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Source
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Status
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Stocked
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider"
-              >
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {batches.map((batch) => {
-              const deployed = getDeployedQuantity(batch);
-              const canDeploy = batch.currentQuantity > 0 && batch.status === 'ACTIVE';
-
-              return (
-                <tr key={batch.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-blue-600">{batch.batchNumber}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{batch.speciesName}</div>
-                    <div className="text-xs text-gray-500">{batch.speciesCode}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className="text-sm text-gray-900">
-                      {batch.initialQuantity.toLocaleString()}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div
-                      className={`text-sm font-medium ${
-                        batch.currentQuantity === 0 ? 'text-gray-400' : 'text-gray-900'
-                      }`}
-                    >
-                      {batch.currentQuantity.toLocaleString()}
-                    </div>
-                    {batch.currentQuantity === 0 && (
-                      <span className="text-xs text-gray-400">Depleted</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className="text-sm text-green-600">{deployed.toLocaleString()}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        batch.sourceType === 'farmed'
-                          ? 'bg-blue-100 text-blue-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {SourceTypeLabels[batch.sourceType || 'farmed'] || batch.sourceType}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        BatchStatusColors[batch.status] || 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {BatchStatusLabels[batch.status] || batch.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatDate(batch.stockedAt)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right">
-                    <div className="flex items-center justify-end space-x-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => onDeploy(batch)}
-                        disabled={!canDeploy}
-                        title={canDeploy ? 'Deploy to tank' : 'No fish available to deploy'}
-                      >
-                        Deploy
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<BatchRow>
+        data={batches}
+        columns={batchRowColumns}
+        keyExtractor={(batch) => batch.id}
+        emptyMessage="No records found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Summary Footer */}
-      <div className="bg-gray-50 px-6 py-4 border-t border-gray-200">
+      <div className="bg-gray-50 dark:bg-gray-800 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-500">
+          <span className="text-gray-500 dark:text-gray-400">
             {batches.length} batch{batches.length !== 1 ? 'es' : ''}
           </span>
           <div className="flex items-center space-x-6">
-            <span className="text-gray-500">
+            <span className="text-gray-500 dark:text-gray-400">
               Total Available:{' '}
-              <span className="font-medium text-gray-900">
+              <span className="font-medium text-gray-900 dark:text-gray-100">
                 {batches
                   .reduce((sum, b) => sum + b.currentQuantity, 0)
                   .toLocaleString()}
               </span>
             </span>
-            <span className="text-gray-500">
+            <span className="text-gray-500 dark:text-gray-400">
               Total Deployed:{' '}
               <span className="font-medium text-green-600">
                 {batches

@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Card, Button, Select } from '@aquaculture/shared-ui';
+import { Card, Button, Select, chartChrome, chartPalette, colors, PageHeader } from '@aquaculture/shared-ui';
 // PERF-L4: shared icon components -- eliminates duplicate inline SVG bytes
 import { DownloadIcon } from '../components/icons';
 import {
@@ -59,7 +59,7 @@ function safeValidateDateRange(value: string): DateRange {
 // PERF-M1: tooltip style hoisted to module scope -- prevents new object on every render
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
@@ -70,7 +70,7 @@ const MONTH_LABELS = [
 ];
 
 // Pie chart colors for farm distribution
-const PIE_COLORS = ['#0073e6', '#00b36b', '#ff8f73', '#f59e0b', '#8b5cf6', '#ec4899'];
+const PIE_COLORS = chartPalette;
 
 // ============================================================================
 // CSV Export Helper
@@ -166,11 +166,11 @@ function transformSensorData(readings: SensorReadingData[]) {
 
 const ChartSkeleton: React.FC<{ height?: number }> = ({ height = 300 }) => (
   <div className="animate-pulse p-4" style={{ height }}>
-    <div className="h-4 bg-gray-200 rounded w-1/4 mb-4" />
-    <div className="h-3 bg-gray-200 rounded w-1/3 mb-6" />
+    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/4 mb-4" />
+    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-6" />
     <div className="flex items-end space-x-2 h-3/4">
       {[40, 60, 45, 70, 55, 80].map((h, i) => (
-        <div key={i} className="bg-gray-200 rounded-t flex-1" style={{ height: `${h}%` }} />
+        <div key={i} className="bg-gray-200 dark:bg-gray-700 rounded-t flex-1" style={{ height: `${h}%` }} />
       ))}
     </div>
   </div>
@@ -191,7 +191,7 @@ const ChartError: React.FC<{ title: string; onRetry: () => void }> = ({ title, o
 
 const ChartEmpty: React.FC<{ message: string }> = ({ message }) => (
   <div className="p-4 text-center py-8">
-    <p className="text-sm text-gray-500">{message}</p>
+    <p className="text-sm text-gray-500 dark:text-gray-400">{message}</p>
   </div>
 );
 
@@ -236,7 +236,7 @@ const AnalyticsPage: React.FC = () => {
     // Fall back to sensor farm grouping if farms not available directly
     if (!statsQuery.data) return [];
     return [
-      { name: 'Aktif Ciftlikler', value: statsQuery.data.totalFarms, color: '#00b36b' },
+      { name: 'Aktif Ciftlikler', value: statsQuery.data.totalFarms, color: colors.secondary[600] },
     ];
   }, [statsQuery.data]);
 
@@ -293,61 +293,59 @@ const AnalyticsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Sayfa Basligi */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analitik</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Detayli performans metrikleri ve trendler
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex items-center space-x-3">
-          <Select
-            value={dateRange}
-            onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
-            options={[
-              { value: '7days', label: 'Son 7 Gun' },
-              { value: '30days', label: 'Son 30 Gun' },
-              { value: '90days', label: 'Son 90 Gun' },
-              { value: 'year', label: 'Bu Yil' },
-            ]}
-          />
-          <Button variant="outline" size="sm" onClick={handleExportCSV}>
-            <DownloadIcon className="w-4 h-4 mr-2" />
-            Rapor Indir
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Analitik"
+        description="Detayli performans metrikleri ve trendler"
+        actions={
+          <div className="mt-4 sm:mt-0 flex items-center space-x-3">
+            <Select
+              value={dateRange}
+              onChange={(e) => setDateRange(safeValidateDateRange(e.target.value))}
+              options={[
+                { value: '7days', label: 'Son 7 Gun' },
+                { value: '30days', label: 'Son 30 Gun' },
+                { value: '90days', label: 'Son 90 Gun' },
+                { value: 'year', label: 'Bu Yil' },
+              ]}
+            />
+            <Button variant="outline" size="sm" onClick={handleExportCSV}>
+              <DownloadIcon className="w-4 h-4 mr-2" />
+              Rapor Indir
+            </Button>
+          </div>
+        }
+      />
 
       {/* KPI Ozet Kartlari */}
       {summary && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Toplam Uretim</p>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Toplam Uretim</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {(summary.totalBiomassKg / 1000).toFixed(1)} Ton
             </p>
-            <p className="text-xs text-gray-400 mt-1">{summary.totalHarvests} hasat</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">{summary.totalHarvests} hasat</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Toplam Gelir</p>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Toplam Gelir</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {summary.totalRevenue > 0 ? `${(summary.totalRevenue / 1000).toFixed(0)}K` : '0'}
             </p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               {summary.averagePricePerKg > 0 ? `Ort. ${summary.averagePricePerKg.toFixed(1)} /kg` : 'Fiyat verisi yok'}
             </p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Ort. Agirlik</p>
-            <p className="text-2xl font-bold text-gray-900">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Ort. Agirlik</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
               {summary.averageWeight > 0 ? `${summary.averageWeight.toFixed(0)}g` : '-'}
             </p>
-            <p className="text-xs text-gray-400 mt-1">Hasat basina ortalama</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Hasat basina ortalama</p>
           </Card>
           <Card className="p-4">
-            <p className="text-sm text-gray-500">Aktif Sensorler</p>
-            <p className="text-2xl font-bold text-gray-900">{activeSensorIds.length}</p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-sm text-gray-500 dark:text-gray-400">Aktif Sensorler</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{activeSensorIds.length}</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               {sensorsQuery.data?.length ?? 0} toplam sensor
             </p>
           </Card>
@@ -356,9 +354,9 @@ const AnalyticsPage: React.FC = () => {
 
       {/* Uretim Trendi */}
       <Card>
-        <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Uretim Trendi</h2>
-          <p className="text-sm text-gray-500">Aylik uretim miktari (ton)</p>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Uretim Trendi</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Aylik uretim miktari (ton)</p>
         </div>
         {harvestQuery.isLoading ? (
           <ChartSkeleton />
@@ -376,20 +374,20 @@ const AnalyticsPage: React.FC = () => {
               <ComposedChart data={productionChartData}>
                 <defs>
                   <linearGradient id="colorUretim" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0073e6" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#0073e6" stopOpacity={0.1} />
+                    <stop offset="5%" stopColor={colors.primary[500]} stopOpacity={0.8} />
+                    <stop offset="95%" stopColor={colors.primary[500]} stopOpacity={0.1} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="month" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                <XAxis dataKey="month" stroke={chartChrome.axis} />
+                <YAxis stroke={chartChrome.axis} />
                 <Tooltip contentStyle={tooltipStyle} />
                 <Legend />
                 <Area
                   type="monotone"
                   dataKey="uretim"
                   name="Uretim (Ton)"
-                  stroke="#0073e6"
+                  stroke={colors.primary[500]}
                   fillOpacity={1}
                   fill="url(#colorUretim)"
                 />
@@ -397,7 +395,7 @@ const AnalyticsPage: React.FC = () => {
                   type="monotone"
                   dataKey="hasat"
                   name="Hasat Sayisi"
-                  stroke="#94a3b8"
+                  stroke={colors.neutral[400]}
                   strokeDasharray="5 5"
                 />
               </ComposedChart>
@@ -410,9 +408,9 @@ const AnalyticsPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Sensor Trendleri */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Sensor Verileri</h2>
-            <p className="text-sm text-gray-500">Son sensor okumalari</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Sensor Verileri</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Son sensor okumalari</p>
           </div>
           {sensorsQuery.isLoading || readingsQuery.isLoading ? (
             <ChartSkeleton height={250} />
@@ -424,14 +422,14 @@ const AnalyticsPage: React.FC = () => {
             <div className="p-4">
               <ResponsiveContainer width="100%" height={250}>
                 <ComposedChart data={sensorChartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="time" stroke="#6b7280" />
-                  <YAxis stroke="#6b7280" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                  <XAxis dataKey="time" stroke={chartChrome.axis} />
+                  <YAxis stroke={chartChrome.axis} />
                   <Tooltip contentStyle={tooltipStyle} />
                   <Legend />
-                  <Line type="monotone" dataKey="ph" name="pH" stroke="#0073e6" strokeWidth={2} connectNulls />
-                  <Line type="monotone" dataKey="oksijen" name="Oksijen (mg/L)" stroke="#00b36b" strokeWidth={2} connectNulls />
-                  <Line type="monotone" dataKey="sicaklik" name="Sicaklik (C)" stroke="#ff8f73" strokeWidth={2} connectNulls />
+                  <Line type="monotone" dataKey="ph" name="pH" stroke={colors.primary[500]} strokeWidth={2} connectNulls />
+                  <Line type="monotone" dataKey="oksijen" name="Oksijen (mg/L)" stroke={colors.secondary[600]} strokeWidth={2} connectNulls />
+                  <Line type="monotone" dataKey="sicaklik" name="Sicaklik (C)" stroke={colors.accent[500]} strokeWidth={2} connectNulls />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -440,9 +438,9 @@ const AnalyticsPage: React.FC = () => {
 
         {/* Ciftlik Dagilimi */}
         <Card>
-          <div className="p-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">Ciftlik Dagilimi</h2>
-            <p className="text-sm text-gray-500">Ciftlik durumuna gore dagilim</p>
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Ciftlik Dagilimi</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Ciftlik durumuna gore dagilim</p>
           </div>
           {statsQuery.isLoading ? (
             <ChartSkeleton height={250} />
@@ -476,9 +474,9 @@ const AnalyticsPage: React.FC = () => {
 
       {/* Tur Bazli Uretim */}
       <Card>
-        <div className="p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Tur Bazli Uretim</h2>
-          <p className="text-sm text-gray-500">Aktif partilerdeki tur dagilimi</p>
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Tur Bazli Uretim</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Aktif partilerdeki tur dagilimi</p>
         </div>
         {batchesQuery.isLoading ? (
           <ChartSkeleton />
@@ -490,11 +488,11 @@ const AnalyticsPage: React.FC = () => {
           <div className="p-4">
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={speciesChartData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis type="number" stroke="#6b7280" />
-                <YAxis dataKey="species" type="category" stroke="#6b7280" width={80} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
+                <XAxis type="number" stroke={chartChrome.axis} />
+                <YAxis dataKey="species" type="category" stroke={chartChrome.axis} width={80} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="miktar" name="Miktar (adet)" fill="#0073e6" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="miktar" name="Miktar (adet)" fill={colors.primary[500]} radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

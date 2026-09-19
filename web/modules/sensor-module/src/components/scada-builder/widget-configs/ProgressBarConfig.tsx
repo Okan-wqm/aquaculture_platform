@@ -14,6 +14,7 @@
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
 import { ExpressionBindingSection } from './ExpressionBindingSection';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface WidgetConfigProps {
   config: Record<string, unknown>;
@@ -35,7 +36,7 @@ const LABEL_POSITION_OPTIONS: { value: LabelPosition; label: string }[] = [
   { value: 'below', label: 'Below' },
 ];
 
-const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
 export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChange, deviceId }) => {
   const min = (config.min ?? 0) as number;
@@ -43,8 +44,8 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   const showLabel = (config.showLabel ?? true) as boolean;
   const showPercentage = (config.showPercentage ?? true) as boolean;
   const barHeight = (config.height ?? 24) as number;
-  const backgroundColor = (config.backgroundColor ?? '#e5e7eb') as string;
-  const fillColor = (config.fillColor ?? '#3b82f6') as string;
+  const backgroundColor = (config.backgroundColor ?? themeColors.neutral[200]) as string;
+  const fillColor = (config.fillColor ?? themeColors.info[500]) as string;
   const zones = (config.zones ?? []) as ColorZone[];
   const borderRadius = (config.borderRadius ?? 4) as number;
   const labelPosition = (config.labelPosition ?? 'inside') as LabelPosition;
@@ -55,7 +56,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
   /* ---------------------------------------------------------------- */
 
   const addZone = () => {
-    onChange({ zones: [...zones, { min: 0, max: 50, color: '#22c55e' }] });
+    onChange({ zones: [...zones, { min: 0, max: 50, color: themeColors.success[500] }] });
   };
 
   const updateZone = (index: number, field: keyof ColorZone, value: string | number) => {
@@ -73,7 +74,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
     <div className="space-y-3">
       {/* Tag binding */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Tag</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tag</label>
         <TagBrowser
           deviceId={deviceId || null}
           value={(config.tagName ?? '') as string}
@@ -91,7 +92,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Label */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Label</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <input
           type="text"
           value={label}
@@ -104,7 +105,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Range */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Min</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
           <input
             type="number"
             value={min}
@@ -113,7 +114,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Max</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
           <input
             type="number"
             value={max}
@@ -126,7 +127,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       {/* Bar dimensions */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Bar Height (px)</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Bar Height (px)</label>
           <input
             type="number"
             min={8}
@@ -137,7 +138,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Border Radius</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Radius</label>
           <input
             type="number"
             min={0}
@@ -151,7 +152,7 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
 
       {/* Label position & toggles */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Label Position</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label Position</label>
         <select
           value={labelPosition}
           onChange={(e) => onChange({ labelPosition: e.target.value })}
@@ -164,60 +165,60 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
       </div>
 
       <div className="space-y-2">
-        <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
           <input
             type="checkbox"
             checked={showLabel}
             onChange={(e) => onChange({ showLabel: e.target.checked })}
-            className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
           />
           Show Label
         </label>
-        <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
           <input
             type="checkbox"
             checked={showPercentage}
             onChange={(e) => onChange({ showPercentage: e.target.checked })}
-            className="rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
           />
           Show Percentage
         </label>
       </div>
 
       {/* Colors */}
-      <div className="pt-2 border-t border-gray-100">
-        <label className="text-xs text-gray-500 font-medium mb-2 block">Colors</label>
+      <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Colors</label>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Background</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Background</label>
             <input
               type="color"
               value={backgroundColor}
               onChange={(e) => onChange({ backgroundColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 rounded cursor-pointer"
+              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Fill Color</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fill Color</label>
             <input
               type="color"
               value={fillColor}
               onChange={(e) => onChange({ fillColor: e.target.value })}
-              className="w-full h-8 border border-gray-300 rounded cursor-pointer"
+              className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
             />
           </div>
         </div>
       </div>
 
       {/* Color Zones */}
-      <div className="pt-2 border-t border-gray-100">
+      <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
-          <label className="text-xs text-gray-500 font-medium">Color Zones</label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Color Zones</label>
           <button onClick={addZone} className="text-xs text-cyan-600 hover:text-cyan-700">
             + Add Zone
           </button>
         </div>
-        <p className="text-[10px] text-gray-400 mb-2">
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-2">
           Zones define color ranges by percentage. First matching zone wins.
         </p>
         <div className="space-y-2">
@@ -227,21 +228,21 @@ export const ProgressBarConfig: React.FC<WidgetConfigProps> = ({ config, onChang
                 type="number"
                 value={zone.min}
                 onChange={(e) => updateZone(i, 'min', Number(e.target.value))}
-                className="w-16 px-2 py-1 text-xs border border-gray-300 rounded"
+                className="w-16 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
                 placeholder="Min %"
               />
               <input
                 type="number"
                 value={zone.max}
                 onChange={(e) => updateZone(i, 'max', Number(e.target.value))}
-                className="w-16 px-2 py-1 text-xs border border-gray-300 rounded"
+                className="w-16 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
                 placeholder="Max %"
               />
               <input
                 type="color"
                 value={zone.color}
                 onChange={(e) => updateZone(i, 'color', e.target.value)}
-                className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
+                className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               />
               <button onClick={() => removeZone(i)} className="text-red-400 hover:text-red-600 text-xs px-1">
                 X

@@ -1,9 +1,10 @@
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors } from '@aquaculture/shared-ui';
 
 const PipeFlowRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height }) => {
-  const pipeColor = (config.pipeColor ?? '#6b7280') as string;
-  const flowColor = (config.flowColor ?? '#3b82f6') as string;
+  const pipeColor = (config.pipeColor ?? colors.gray[400]) as string;
+  const flowColor = (config.flowColor ?? colors.info[500]) as string;
   const pipeWidth = (config.pipeWidth ?? 12) as number;
   const flowWidth = (config.flowWidth ?? 4) as number;
   const dashLength = (config.dashLength ?? 8) as number;
@@ -31,12 +32,12 @@ const PipeFlowRenderer: React.FC<WidgetRendererProps> = ({ config, value, width,
         stroke={pipeColor} strokeWidth={pipeWidth} strokeLinecap="round" />
       {/* Pipe fill (inner) */}
       <line x1={x1} y1={y1} x2={x2} y2={y2}
-        stroke={isActive ? flowColor : '#d1d5db'}
+        stroke={isActive ? flowColor : colors.neutral[300]}
         strokeWidth={pipeWidth - 4} strokeLinecap="round" />
       {/* Flow indicator (animated dashes) */}
       {isActive && (
         <line x1={x1} y1={y1} x2={x2} y2={y2}
-          stroke="#ffffff" strokeWidth={flowWidth}
+          stroke={colors.white} strokeWidth={flowWidth}
           strokeDasharray={`${dashLength} ${dashGap}`}
           strokeLinecap="round"
           className={flowClass}

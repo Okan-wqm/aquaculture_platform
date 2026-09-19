@@ -51,7 +51,7 @@ export const PrefilledField: React.FC<PrefilledFieldProps> = ({
   return (
     <div className="py-2 flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-sm text-gray-700">{label}</span>
+        <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
         {meta && <ProvenanceBadge meta={meta} />}
       </div>
 
@@ -65,7 +65,7 @@ export const PrefilledField: React.FC<PrefilledFieldProps> = ({
             aria-label={label}
             aria-invalid={isBlockingEmpty || undefined}
             className={`w-40 px-2 py-1 text-sm text-right rounded-md border ${
-              isBlockingEmpty ? 'border-red-400 bg-red-50' : 'border-gray-300'
+              isBlockingEmpty ? 'border-red-400 bg-red-50' : 'border-gray-300 dark:border-gray-600'
             } focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50`}
             placeholder={meta?.blocking ? 'Required' : 'Optional'}
           />
@@ -76,7 +76,9 @@ export const PrefilledField: React.FC<PrefilledFieldProps> = ({
       ) : (
         // RECORDS / SENSOR / plain: read-only. No input — corrections go to the
         // source record, not the report.
-        <span className="text-sm font-medium text-gray-900 text-right">{displayValue(value)}</span>
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100 text-right">
+          {displayValue(value)}
+        </span>
       )}
     </div>
   );

@@ -2,7 +2,7 @@
  * Receive Delivery Modal - Mark PO items as received
  */
 import React, { useState } from 'react';
-import { Modal, useToast } from '@aquaculture/shared-ui';
+import { Modal, useToast, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useReceiveDelivery,
   PurchaseOrder,
@@ -82,6 +82,73 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
     }
   };
 
+  type ItemRow = (typeof pendingItems)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'item',
+      header: 'Item',
+      render: (_value, item) => item.itemName,
+    },
+    {
+      key: 'ordered',
+      header: 'Ordered',
+      render: (_value, item) => (
+        <>
+          {item.quantity} {item.unit}
+        </>
+      ),
+    },
+    {
+      key: 'received',
+      header: 'Received',
+      render: (_value, item) => item.quantityReceived,
+    },
+    {
+      key: 'receiveNow',
+      header: 'Receive Now',
+      render: (_value, item) => {
+        const remaining = Number(item.quantity) - Number(item.quantityReceived);
+        return (
+          <input
+            type="number"
+            min="0"
+            max={remaining}
+            step="0.01"
+            value={receivedItems[item.itemId]?.qty ?? ''}
+            onChange={(e) => updateReceived(item.itemId, 'qty', parseFloat(e.target.value) || 0)}
+            placeholder={String(remaining)}
+            className="w-20 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
+          />
+        );
+      },
+    },
+    {
+      key: 'lot',
+      header: 'Lot #',
+      render: (_value, item) => (
+        <input
+          type="text"
+          value={receivedItems[item.itemId]?.lotNumber ?? ''}
+          onChange={(e) => updateReceived(item.itemId, 'lotNumber', e.target.value)}
+          placeholder="LOT-"
+          className="w-24 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
+        />
+      ),
+    },
+    {
+      key: 'expiry',
+      header: 'Expiry',
+      render: (_value, item) => (
+        <input
+          type="date"
+          value={receivedItems[item.itemId]?.expiryDate ?? ''}
+          onChange={(e) => updateReceived(item.itemId, 'expiryDate', e.target.value)}
+          className="w-32 border border-gray-300 dark:border-gray-600 rounded px-2 py-1 text-sm"
+        />
+      ),
+    },
+  ];
+
   return (
     <Modal
       isOpen={isOpen}
@@ -94,12 +161,14 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
         <div className="space-y-4">
           {/* Storage Location */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Storage Location *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Storage Location *
+            </label>
             <select
               value={storageLocationId}
               onChange={(e) => setStorageLocationId(e.target.value)}
               required
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 text-sm focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Select location...</option>
               {(locations?.items || []).map((loc: any) => (
@@ -111,92 +180,28 @@ export const ReceiveDeliveryModal: React.FC<Props> = ({ isOpen, onClose, purchas
           </div>
 
           {/* Items */}
-          <div className="border border-gray-200 rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                    Item
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                    Ordered
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                    Received
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                    Receive Now
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                    Lot #
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
-                    Expiry
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {pendingItems.map((item) => {
-                  const remaining = Number(item.quantity) - Number(item.quantityReceived);
-                  return (
-                    <tr key={item.itemId}>
-                      <td className="px-4 py-2 text-sm font-medium">{item.itemName}</td>
-                      <td className="px-4 py-2 text-sm text-gray-500">
-                        {item.quantity} {item.unit}
-                      </td>
-                      <td className="px-4 py-2 text-sm text-gray-500">{item.quantityReceived}</td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="number"
-                          min="0"
-                          max={remaining}
-                          step="0.01"
-                          value={receivedItems[item.itemId]?.qty ?? ''}
-                          onChange={(e) =>
-                            updateReceived(item.itemId, 'qty', parseFloat(e.target.value) || 0)
-                          }
-                          placeholder={String(remaining)}
-                          className="w-20 border border-gray-300 rounded px-2 py-1 text-sm"
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="text"
-                          value={receivedItems[item.itemId]?.lotNumber ?? ''}
-                          onChange={(e) => updateReceived(item.itemId, 'lotNumber', e.target.value)}
-                          placeholder="LOT-"
-                          className="w-24 border border-gray-300 rounded px-2 py-1 text-sm"
-                        />
-                      </td>
-                      <td className="px-4 py-2">
-                        <input
-                          type="date"
-                          value={receivedItems[item.itemId]?.expiryDate ?? ''}
-                          onChange={(e) =>
-                            updateReceived(item.itemId, 'expiryDate', e.target.value)
-                          }
-                          className="w-32 border border-gray-300 rounded px-2 py-1 text-sm"
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ItemRow>
+            data={pendingItems}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
 
           {pendingItems.length === 0 && (
-            <div className="text-center py-4 text-sm text-gray-500">
+            <div className="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
               All items have been received.
             </div>
           )}
         </div>
 
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>

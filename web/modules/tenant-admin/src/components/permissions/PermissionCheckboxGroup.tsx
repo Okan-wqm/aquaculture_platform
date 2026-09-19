@@ -107,9 +107,9 @@ const ActionCheckbox = React.memo<ActionCheckboxProps>(({
         ${
           disabled || readOnly
             ? 'cursor-not-allowed opacity-60'
-            : 'cursor-pointer hover:bg-gray-100'
+            : 'cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700'
         }
-        ${checked ? 'text-tenant-700' : 'text-gray-500'}
+        ${checked ? 'text-green-700' : 'text-gray-500 dark:text-gray-400'}
       `}
     >
       <input
@@ -124,12 +124,12 @@ const ActionCheckbox = React.memo<ActionCheckboxProps>(({
           flex items-center justify-center w-4 h-4 rounded border transition-all
           ${
             checked
-              ? 'bg-tenant-600 border-tenant-600'
-              : 'bg-white border-gray-300'
+              ? 'bg-green-600 border-green-600'
+              : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600'
           }
           ${
             !disabled && !readOnly && !checked
-              ? 'group-hover:border-tenant-400'
+              ? 'group-hover:border-green-400'
               : ''
           }
         `}
@@ -169,7 +169,7 @@ const ResourceRow = React.memo<ResourceRowProps>(({
     !allSelected;
 
   return (
-    <div className="flex items-center py-2 px-3 hover:bg-gray-50 rounded-lg transition-colors group">
+    <div className="flex items-center py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg transition-colors group">
       {/* Resource Name with Select All */}
       <div className="w-40 flex items-center gap-2">
         <button
@@ -181,21 +181,21 @@ const ResourceRow = React.memo<ResourceRowProps>(({
           disabled={disabled || readOnly}
           className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
-            focus:outline-hidden focus:ring-2 focus:ring-tenant-500
+            focus:outline-hidden focus:ring-2 focus:ring-green-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allSelected
-                ? 'bg-tenant-600 border-tenant-600'
+                ? 'bg-green-600 border-green-600'
                 : someSelected
-                ? 'bg-tenant-100 border-tenant-400'
-                : 'bg-white border-gray-300 hover:border-tenant-400'
+                ? 'bg-green-100 border-green-400'
+                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
             }
           `}
         >
           {allSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
-          {someSelected && <Minus className="w-3 h-3 text-tenant-600" aria-hidden="true" />}
+          {someSelected && <Minus className="w-3 h-3 text-green-600" aria-hidden="true" />}
         </button>
-        <span className="text-sm font-medium text-gray-700">
+        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {formatResourceName(resource.name)}
         </span>
       </div>
@@ -268,7 +268,7 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
   );
 
   return (
-    <div className="border border-gray-200 rounded-xl overflow-hidden bg-white">
+    <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden bg-white dark:bg-gray-900">
       {/* Category Header.
           RBAC-MEDIUM-007 (M16): the select-all used to be a click-only
           <span role="checkbox"> NESTED inside the expand <button> — invalid
@@ -286,43 +286,43 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
           onClick={() => onSelectAllCategory(!allResourcesSelected)}
           className={`
             flex items-center justify-center w-5 h-5 rounded border transition-all
-            focus:outline-hidden focus:ring-2 focus:ring-tenant-500
+            focus:outline-hidden focus:ring-2 focus:ring-green-500
             ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
             ${
               allResourcesSelected
-                ? 'bg-tenant-600 border-tenant-600'
+                ? 'bg-green-600 border-green-600'
                 : someResourcesSelected
-                ? 'bg-tenant-100 border-tenant-400'
-                : 'bg-white border-gray-300 hover:border-tenant-400'
+                ? 'bg-green-100 border-green-400'
+                : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
             }
           `}
         >
           {allResourcesSelected && <Check className="w-3 h-3 text-white" aria-hidden="true" />}
           {someResourcesSelected && (
-            <Minus className="w-3 h-3 text-tenant-600" aria-hidden="true" />
+            <Minus className="w-3 h-3 text-green-600" aria-hidden="true" />
           )}
         </button>
         <button
           type="button"
-          className="flex-1 flex items-center justify-between cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-tenant-500 focus:ring-inset"
+          className="flex-1 flex items-center justify-between cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-green-500 focus:ring-inset"
           onClick={() => setIsExpanded(!isExpanded)}
           aria-expanded={isExpanded}
           aria-controls={contentId}
         >
           <span className="flex items-center gap-3">
-            <span className="flex items-center gap-2 text-gray-600" aria-hidden="true">
+            <span className="flex items-center gap-2 text-gray-600 dark:text-gray-400" aria-hidden="true">
               {getCategoryIcon(category.categoryKey)}
             </span>
-            <span className="font-semibold text-gray-900">{category.name}</span>
-            <span className="text-xs text-gray-500">
+            <span className="font-semibold text-gray-900 dark:text-gray-100">{category.name}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">
               ({selectedPermissions}/{totalPermissions})
             </span>
           </span>
           <span className="flex items-center gap-2" aria-hidden="true">
             {isExpanded ? (
-              <ChevronDown className="w-5 h-5 text-gray-500" />
+              <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             ) : (
-              <ChevronRight className="w-5 h-5 text-gray-500" />
+              <ChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
             )}
           </span>
         </button>
@@ -334,7 +334,7 @@ const CategoryAccordion = React.memo<CategoryAccordionProps>(({
           id={contentId}
           role="region"
           aria-label={`${category.name} permissions`}
-          className="border-t border-gray-100 divide-y divide-gray-50"
+          className="border-t border-gray-100 dark:border-gray-700 divide-y divide-gray-50"
         >
           {category.resources.map((resource) => (
             <ResourceRow
@@ -482,7 +482,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
   return (
     <div className="space-y-4">
       {/* Global Select All */}
-      <div className="flex items-center justify-between px-4 py-3 bg-tenant-50 rounded-xl border border-tenant-100">
+      <div className="flex items-center justify-between px-4 py-3 bg-green-50 rounded-xl border border-green-100">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -493,19 +493,19 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
               ${disabled || readOnly ? 'cursor-not-allowed' : 'cursor-pointer'}
               ${
                 allSelected
-                  ? 'bg-tenant-600 border-tenant-600'
+                  ? 'bg-green-600 border-green-600'
                   : someSelected
-                  ? 'bg-tenant-100 border-tenant-400'
-                  : 'bg-white border-gray-300 hover:border-tenant-400'
+                  ? 'bg-green-100 border-green-400'
+                  : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 hover:border-green-400'
               }
             `}
           >
             {allSelected && <Check className="w-4 h-4 text-white" />}
-            {someSelected && <Minus className="w-4 h-4 text-tenant-600" />}
+            {someSelected && <Minus className="w-4 h-4 text-green-600" />}
           </button>
           <div>
-            <span className="font-semibold text-gray-900">All Permissions</span>
-            <span className="ml-2 text-sm text-gray-500">
+            <span className="font-semibold text-gray-900 dark:text-gray-100">All Permissions</span>
+            <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">
               ({selectedCount}/{totalCount} selected)
             </span>
           </div>
@@ -515,7 +515,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
             type="button"
             onClick={() => handleSelectAll(true)}
             disabled={disabled || readOnly}
-            className="px-3 py-1.5 text-xs font-medium text-tenant-700 bg-white border border-tenant-200 rounded-lg hover:bg-tenant-50 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-xs font-medium text-green-700 bg-white dark:bg-gray-900 border border-green-200 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
           >
             Select All
           </button>
@@ -523,7 +523,7 @@ export const PermissionCheckboxGroup: React.FC<PermissionCheckboxGroupProps> = (
             type="button"
             onClick={() => handleSelectAll(false)}
             disabled={disabled || readOnly}
-            className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"
           >
             Clear All
           </button>

@@ -35,7 +35,7 @@ import {
   useCurrentEmployeeId,
 } from '../hooks';
 import { CertificationExpiryAlert, SeaLandSplitView } from '../components';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -160,21 +160,19 @@ export function HRDashboardPage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">HR Dashboard</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Workforce management and human resources overview
-          </p>
-        </div>
-        <Link
-          to="/hr/employees/new"
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
-        >
-          <UserPlus className="h-4 w-4" />
-          Add Employee
-        </Link>
-      </div>
+      <PageHeader
+        title="HR Dashboard"
+        description="Workforce management and human resources overview"
+        actions={
+          <Link
+            to="/hr/employees/new"
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700"
+          >
+            <UserPlus className="h-4 w-4" />
+            Add Employee
+          </Link>
+        }
+      />
 
       {/* Primary Stats Grid */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -411,7 +409,7 @@ export function HRDashboardPage() {
             <QuickAction
               title="Departments"
               description="Organization structure and hierarchy"
-              icon={<Building2 className="h-5 w-5 text-gray-600" />}
+              icon={<Building2 className="h-5 w-5 text-gray-600 dark:text-gray-400" />}
               to="/hr/departments"
               color="bg-gray-50 dark:bg-gray-700"
             />

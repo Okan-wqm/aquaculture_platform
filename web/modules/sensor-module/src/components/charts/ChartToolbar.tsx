@@ -204,7 +204,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
   return (
      
     <div
-      className="flex flex-wrap items-center gap-1 px-2 py-1.5 bg-gray-50 border-b border-gray-200 text-xs"
+      className="flex flex-wrap items-center gap-1 px-2 py-1.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 text-xs"
       onClick={closeMenus}
       role="toolbar"
       aria-label="Chart controls"
@@ -214,7 +214,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         type="button"
         aria-label="Navigate backward"
         onClick={(e) => { e.stopPropagation(); navigate('back'); }}
-        className="inline-flex items-center px-2 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+        className="inline-flex items-center px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
         disabled={isLoading}
       >
         &#9664;
@@ -225,14 +225,14 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         <button
           type="button"
           onClick={() => { setShowPresetMenu((v) => !v); setShowRefreshMenu(false); setShowAggMenu(false); }}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors min-w-[80px]"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors min-w-[80px]"
           disabled={isLoading}
         >
           {currentPresetLabel}
-          <span className="ml-auto text-gray-400">&#9662;</span>
+          <span className="ml-auto text-gray-400 dark:text-gray-500">&#9662;</span>
         </button>
         {showPresetMenu && (
-          <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[110px]">
+          <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[110px]">
             {PRESETS.map((preset) => (
               <button
                 key={preset.value}
@@ -243,17 +243,17 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
                   setShowCustom(false);
                 }}
                 className={`block w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors ${
-                  currentPreset?.value === preset.value ? 'font-semibold text-blue-600' : 'text-gray-700'
+                  currentPreset?.value === preset.value ? 'font-semibold text-blue-600' : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
                 {preset.label}
               </button>
             ))}
-            <hr className="my-1 border-gray-100" />
+            <hr className="my-1 border-gray-100 dark:border-gray-700" />
             <button
               type="button"
               onClick={() => { setShowCustom((v) => !v); setShowPresetMenu(false); }}
-              className="block w-full text-left px-3 py-1.5 hover:bg-blue-50 text-gray-700 transition-colors"
+              className="block w-full text-left px-3 py-1.5 hover:bg-blue-50 text-gray-700 dark:text-gray-300 transition-colors"
             >
               Custom range...
             </button>
@@ -266,7 +266,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         type="button"
         aria-label="Navigate forward"
         onClick={(e) => { e.stopPropagation(); navigate('forward'); }}
-        className="inline-flex items-center px-2 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+        className="inline-flex items-center px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors"
         disabled={isLoading}
       >
         &#9654;
@@ -275,22 +275,22 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
       {/* Custom date range inputs */}
       {showCustom && (
         <div
-          className="flex items-center gap-1 px-2 py-1 bg-white border border-gray-200 rounded shadow-sm"
+          className="flex items-center gap-1 px-2 py-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-sm"
           onClick={(e) => e.stopPropagation()}
         >
-          <span className="text-gray-500">From:</span>
+          <span className="text-gray-500 dark:text-gray-400">From:</span>
           <input
             type="datetime-local"
             value={customFrom}
             onChange={(e) => setCustomFrom(e.target.value)}
-            className="rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+            className="rounded border border-gray-300 dark:border-gray-600 px-1.5 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           />
-          <span className="text-gray-500">To:</span>
+          <span className="text-gray-500 dark:text-gray-400">To:</span>
           <input
             type="datetime-local"
             value={customTo}
             onChange={(e) => setCustomTo(e.target.value)}
-            className="rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
+            className="rounded border border-gray-300 dark:border-gray-600 px-1.5 py-0.5 text-xs focus:outline-hidden focus:ring-1 focus:ring-blue-400"
           />
           <button
             type="button"
@@ -302,7 +302,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           <button
             type="button"
             onClick={() => setShowCustom(false)}
-            className="px-2 py-1 rounded border border-gray-300 bg-white text-gray-600 hover:bg-gray-100 transition-colors"
+            className="px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
             Cancel
           </button>
@@ -315,14 +315,14 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           <button
             type="button"
             onClick={() => { setShowAggMenu((v) => !v); setShowPresetMenu(false); setShowRefreshMenu(false); }}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
           >
-            <span className="text-gray-500">Agg:</span>
+            <span className="text-gray-500 dark:text-gray-400">Agg:</span>
             {currentAggLabel}
-            <span className="ml-1 text-gray-400">&#9662;</span>
+            <span className="ml-1 text-gray-400 dark:text-gray-500">&#9662;</span>
           </button>
           {showAggMenu && (
-            <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[100px]">
+            <div className="absolute top-full left-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[100px]">
               {AGGREGATION_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
@@ -332,7 +332,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
                     setShowAggMenu(false);
                   }}
                   className={`block w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors ${
-                    opt.value === aggregationInterval ? 'font-semibold text-blue-600' : 'text-gray-700'
+                    opt.value === aggregationInterval ? 'font-semibold text-blue-600' : 'text-gray-700 dark:text-gray-300'
                   }`}
                 >
                   {opt.label}
@@ -351,7 +351,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         aria-label="Refresh"
         onClick={(e) => { e.stopPropagation(); onRefresh(); }}
         disabled={isLoading}
-        className={`inline-flex items-center px-2 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-40 transition-colors ${
+        className={`inline-flex items-center px-2 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-40 transition-colors ${
           isLoading ? 'animate-spin' : ''
         }`}
       >
@@ -363,14 +363,14 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
         <button
           type="button"
           onClick={() => { setShowRefreshMenu((v) => !v); setShowPresetMenu(false); setShowAggMenu(false); }}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         >
-          <span className="text-gray-500">Auto:</span>
+          <span className="text-gray-500 dark:text-gray-400">Auto:</span>
           {currentRefreshLabel}
-          <span className="ml-1 text-gray-400">&#9662;</span>
+          <span className="ml-1 text-gray-400 dark:text-gray-500">&#9662;</span>
         </button>
         {showRefreshMenu && (
-          <div className="absolute top-full right-0 mt-1 z-50 bg-white border border-gray-200 rounded shadow-lg py-1 min-w-[90px]">
+          <div className="absolute top-full right-0 mt-1 z-50 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded shadow-lg py-1 min-w-[90px]">
             {AUTO_REFRESH_OPTIONS.map((opt) => (
               <button
                 key={opt.label}
@@ -380,7 +380,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
                   setShowRefreshMenu(false);
                 }}
                 className={`block w-full text-left px-3 py-1.5 hover:bg-blue-50 transition-colors ${
-                  opt.ms === autoRefreshMs ? 'font-semibold text-blue-600' : 'text-gray-700'
+                  opt.ms === autoRefreshMs ? 'font-semibold text-blue-600' : 'text-gray-700 dark:text-gray-300'
                 }`}
               >
                 {opt.label}
@@ -396,7 +396,7 @@ export const ChartToolbar: React.FC<ChartToolbarProps> = ({
           type="button"
           aria-label="Export data"
           onClick={() => setShowExport((v) => !v)}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 transition-colors"
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         >
           Export &#9662;
         </button>

@@ -19,7 +19,7 @@ import {
   GraduationCap,
   AlertTriangle,
 } from 'lucide-react';
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { useEmployee } from '../hooks';
 import { EmployeeStatus } from '../types/employee.types';
 
@@ -43,7 +43,7 @@ const EmployeeDetailPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center p-6">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -67,27 +67,27 @@ const EmployeeDetailPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <PageHeader
+        title={fullName}
+        description={employee.position}
+        leading={
           <Link
             to="/hr/employees"
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors dark:hover:bg-gray-700"
           >
             <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
           </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{fullName}</h1>
-            <p className="text-gray-500 dark:text-gray-400">{employee.position}</p>
-          </div>
-        </div>
-        <Link
-          to={`/hr/employees/${employeeId}/edit`}
-          className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
-        >
-          <Edit className="w-4 h-4" />
-          Edit
-        </Link>
-      </div>
+        }
+        actions={
+          <Link
+            to={`/hr/employees/${employeeId}/edit`}
+            className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors"
+          >
+            <Edit className="w-4 h-4" />
+            Edit
+          </Link>
+        }
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Profile Card */}
@@ -145,23 +145,23 @@ const EmployeeDetailPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Work Information</h3>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-sm text-gray-500">Employee Number</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Employee Number</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.employeeNumber || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Employment Type</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Employment Type</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.employmentType || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Department</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Department</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.department || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Position</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Position</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.position || '-'}</p>
               </div>
               <div>
-                <p className="text-sm text-gray-500">Personnel Category</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Personnel Category</p>
                 <p className="font-medium text-gray-900 dark:text-white">{employee.personnelCategory || '-'}</p>
               </div>
             </div>

@@ -51,10 +51,10 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             Tank Tahsisleri
           </h2>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Bu partinin tanklara dağılımı. Yeni tank tahsisi için
             "Tanka Tahsis Et" butonunu kullanın.
           </p>
@@ -80,29 +80,29 @@ const BatchTanksTab: React.FC<BatchTanksTabProps> = ({ batch }) => {
 
       {/* Summary card — replaced with per-tank breakdown in a follow-up
           when the GraphQL Batch type exposes allocations relationally */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase">
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
               İlk Stok Adet
             </div>
-            <div className="mt-1 text-lg font-medium text-gray-900">
+            <div className="mt-1 text-lg font-medium text-gray-900 dark:text-gray-100">
               {batch.initialQuantity.toLocaleString('tr-TR')}
             </div>
           </div>
           <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase">
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
               Mevcut Adet
             </div>
-            <div className="mt-1 text-lg font-medium text-gray-900">
+            <div className="mt-1 text-lg font-medium text-gray-900 dark:text-gray-100">
               {batch.currentQuantity.toLocaleString('tr-TR')}
             </div>
           </div>
           <div>
-            <div className="text-xs font-semibold text-gray-500 uppercase">
+            <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">
               Mevcut Biyokütle
             </div>
-            <div className="mt-1 text-lg font-medium text-gray-900">
+            <div className="mt-1 text-lg font-medium text-gray-900 dark:text-gray-100">
               {batch.currentBiomassKg !== undefined
                 ? `${batch.currentBiomassKg.toFixed(1)} kg`
                 : '—'}

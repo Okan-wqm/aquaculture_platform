@@ -4,7 +4,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { X, Activity, CheckCircle, Gauge, Hash, Tag, TrendingUp } from 'lucide-react';
+import { Modal } from '@aquaculture/shared-ui';
+import { Activity, CheckCircle, Gauge, Hash, Tag, TrendingUp } from 'lucide-react';
 import { SensorNodeData, SensorDisplayType } from '../../../store/processStore';
 import { useLinkableSensors, LinkableSensor, getSensorTypeLabel } from '../../../hooks/useLinkableSensors';
 
@@ -154,18 +155,6 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
     }
   }, [initialConfig, isOpen]);
 
-  // Handle ESC key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
   // Auto-fill defaults when sensor selected
   const handleSensorSelect = (sensorId: string) => {
     const sensor = unlinkedSensors.find((s) => s.id === sensorId);
@@ -198,38 +187,30 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
   const isEditing = !!initialConfig?.sensorId;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="md"
+      className="max-h-[90vh] overflow-y-auto"
+      bodyClassName=""
+      title={
+        <span className="flex items-center gap-2">
+          <Activity className="w-5 h-5 text-green-600" />
+          {isEditing ? 'Sensor Düzenle' : 'Sensor Yapılandırması'}
+        </span>
+      }
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="sticky top-0 bg-white flex items-center justify-between p-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-green-600" />
-            {isEditing ? 'Sensor Düzenle' : 'Sensor Yapılandırması'}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Kapat"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
 
         {/* Content */}
         <div className="p-4 space-y-5">
           {/* Sensor Selection */}
           {!isEditing && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Sensor Seçimi
               </label>
               {isLoading ? (
-                <div className="p-3 text-center text-gray-500 text-sm">
+                <div className="p-3 text-center text-gray-500 dark:text-gray-400 text-sm">
                   Sensörler yükleniyor...
                 </div>
               ) : unlinkedSensors.length === 0 ? (
@@ -240,7 +221,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                 <select
                   value={config.sensorId || ''}
                   onChange={(e) => handleSensorSelect(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white"
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 bg-white dark:bg-gray-900"
                 >
                   <option value="">Sensor seçin...</option>
                   {unlinkedSensors.map((sensor) => (
@@ -258,21 +239,21 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
             <>
               {/* Custom Name */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Node Adı
                 </label>
                 <input
                   type="text"
                   value={config.customName || ''}
                   onChange={(e) => setConfig((prev) => ({ ...prev, customName: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
                   placeholder="Örn: Havuz 1 - pH"
                 />
               </div>
 
               {/* Display Type */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Görselleştirme Tipi
                 </label>
                 <div className="grid grid-cols-4 gap-2">
@@ -283,7 +264,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
                       className={`flex flex-col items-center gap-1 p-3 rounded-lg border-2 transition-colors ${
                         config.displayType === type.value
                           ? 'border-green-500 bg-green-50 text-green-700'
-                          : 'border-gray-200 hover:border-gray-300 text-gray-600'
+                          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 text-gray-600 dark:text-gray-400'
                       }`}
                     >
                       {type.icon}
@@ -294,34 +275,34 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
               </div>
 
               {/* Value Range */}
-              <div className="border-t border-gray-200 pt-4">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Değer Aralığı</h4>
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Değer Aralığı</h4>
                 <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Min</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min</label>
                     <input
                       type="number"
                       value={config.minValue ?? 0}
                       onChange={(e) => setConfig((prev) => ({ ...prev, minValue: Number(e.target.value) }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Max</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max</label>
                     <input
                       type="number"
                       value={config.maxValue ?? 100}
                       onChange={(e) => setConfig((prev) => ({ ...prev, maxValue: Number(e.target.value) }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Birim</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Birim</label>
                     <input
                       type="text"
                       value={config.displayUnit || ''}
                       onChange={(e) => setConfig((prev) => ({ ...prev, displayUnit: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
+                      className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 text-sm"
                       placeholder="pH, °C, mg/L..."
                     />
                   </div>
@@ -329,17 +310,17 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
               </div>
 
               {/* Alarm Thresholds */}
-              <div className="border-t border-gray-200 pt-4">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-sm font-medium text-gray-700">Alarm Seviyeleri</h4>
+                  <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Alarm Seviyeleri</h4>
                   <label className="flex items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={config.alarmsEnabled ?? true}
                       onChange={(e) => setConfig((prev) => ({ ...prev, alarmsEnabled: e.target.checked }))}
-                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                      className="w-4 h-4 text-green-600 border-gray-300 dark:border-gray-600 rounded focus:ring-green-500"
                     />
-                    <span className="text-gray-600">Etkin</span>
+                    <span className="text-gray-600 dark:text-gray-400">Etkin</span>
                   </label>
                 </div>
 
@@ -400,10 +381,10 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="sticky bottom-0 flex gap-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-xl">
+        <div className="sticky bottom-0 flex gap-3 p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 rounded-b-xl">
           <button
             onClick={onClose}
-            className="flex-1 px-4 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+            className="flex-1 px-4 py-2.5 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 font-medium transition-colors"
           >
             İptal
           </button>
@@ -416,8 +397,7 @@ export const SensorConfigDialog: React.FC<SensorConfigDialogProps> = ({
             Tamam
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

@@ -60,10 +60,10 @@ const DEMO_STATES: Array<{ value: string; label: string }> = [
 /*  Shared input class                                                 */
 /* ------------------------------------------------------------------ */
 
-const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+const INPUT_CLS = 'w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 const SELECT_CLS = INPUT_CLS;
-const LABEL_CLS = 'block text-xs text-gray-500 mb-1';
-const SECTION_CLS = 'pt-2 border-t border-gray-100';
+const LABEL_CLS = 'block text-xs text-gray-500 dark:text-gray-400 mb-1';
+const SECTION_CLS = 'pt-2 border-t border-gray-100 dark:border-gray-700';
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -159,7 +159,7 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({
 
       {/* ---- Parameter Visibility ---- */}
       <div className={SECTION_CLS}>
-        <label className="text-xs text-gray-500 font-medium mb-2 block">Visible Parameters</label>
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Visible Parameters</label>
         <div className="space-y-1.5">
           {[
             { field: 'showFrequency', label: 'Frequency' },
@@ -168,12 +168,12 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({
             { field: 'showPower', label: 'Power' },
             { field: 'showTemperature', label: 'Temperature' },
           ].map(({ field, label }) => (
-            <label key={field} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <label key={field} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
               <input
                 type="checkbox"
                 checked={config[field] !== false}
                 onChange={handleCheckbox(field)}
-                className="rounded border-gray-300 text-cyan-500 focus:ring-cyan-500"
+                className="rounded border-gray-300 dark:border-gray-600 text-cyan-500 focus:ring-cyan-500"
                 data-testid={`vfd-config-${field}`}
               />
               {label}
@@ -184,7 +184,7 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({
 
       {/* ---- Thresholds ---- */}
       <div className={SECTION_CLS}>
-        <label className="text-xs text-gray-500 font-medium mb-2 block">Warning Thresholds</label>
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2 block">Warning Thresholds</label>
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className={LABEL_CLS}>Temp (&#176;C)</label>
@@ -215,12 +215,12 @@ export const VfdDriveWidgetConfig: React.FC<WidgetConfigProps> = ({
 
       {/* Quick Actions Toggle */}
       <div className={SECTION_CLS}>
-        <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+        <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 cursor-pointer">
           <input
             type="checkbox"
             checked={config.showQuickActions !== false}
             onChange={handleCheckbox('showQuickActions')}
-            className="rounded border-gray-300 text-cyan-500 focus:ring-cyan-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-cyan-500 focus:ring-cyan-500"
           />
           Show Quick Actions (Start/Stop/Program)
         </label>

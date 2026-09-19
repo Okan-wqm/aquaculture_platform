@@ -8,6 +8,7 @@ import React, { useState, useEffect } from 'react';
 import { Clock } from 'lucide-react';
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
+import { colors as themeColors, Spinner } from '@aquaculture/shared-ui';
 
 interface GaugeWidgetContentProps {
   config: WidgetConfig;
@@ -48,14 +49,14 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="lg" />
       </div>
     );
   }
 
   if (error || !data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         {error || 'No data'}
       </div>
     );
@@ -76,10 +77,10 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
 
   // Status colors
   const statusColors = {
-    normal: { stroke: '#10B981', bg: '#D1FAE5' },
-    warning: { stroke: '#F59E0B', bg: '#FEF3C7' },
-    critical: { stroke: '#EF4444', bg: '#FEE2E2' },
-    offline: { stroke: '#6B7280', bg: '#F3F4F6' },
+    normal: { stroke: themeColors.success[500], bg: themeColors.success[100] },
+    warning: { stroke: themeColors.warning[500], bg: themeColors.warning[100] },
+    critical: { stroke: themeColors.error[500], bg: themeColors.error[100] },
+    offline: { stroke: themeColors.gray[400], bg: themeColors.neutral[100] },
   };
 
   const colors = statusColors[status] || statusColors.normal;
@@ -95,7 +96,7 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="#E5E7EB"
+            stroke={themeColors.neutral[200]}
             strokeWidth={strokeWidth}
             strokeDasharray={`${circumference * 0.75} ${circumference}`}
             strokeLinecap="round"
@@ -117,10 +118,10 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
 
         {/* Center value */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-2xl font-bold text-gray-900">
+          <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {value.toFixed(config.settings?.decimalPlaces ?? 1)}
           </span>
-          <span className="text-xs text-gray-500">{unit}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{unit}</span>
         </div>
       </div>
 
@@ -130,17 +131,17 @@ export const GaugeWidgetContent: React.FC<GaugeWidgetContentProps> = ({ config }
           className="w-2 h-2 rounded-full"
           style={{ backgroundColor: colors.stroke }}
         />
-        <span className="text-xs text-gray-600 capitalize">{status}</span>
+        <span className="text-xs text-gray-600 dark:text-gray-400 capitalize">{status}</span>
       </div>
 
       {/* Last update time */}
-      <div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+      <div className="mt-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
         <Clock size={10} />
         <span>{formatTimeSince(reading.timestamp)}</span>
       </div>
 
       {/* Min/Max labels */}
-      <div className="flex justify-between w-full mt-1 px-4 text-xs text-gray-500">
+      <div className="flex justify-between w-full mt-1 px-4 text-xs text-gray-500 dark:text-gray-400">
         <span>{minValue}</span>
         <span>{maxValue}</span>
       </div>

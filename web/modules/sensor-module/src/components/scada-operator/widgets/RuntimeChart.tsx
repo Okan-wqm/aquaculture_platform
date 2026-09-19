@@ -26,6 +26,7 @@ import React, {
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import type { RuntimeWidgetProps, TagValueChange } from '../../../types/scada-runtime.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                           */
@@ -68,14 +69,14 @@ class RingBuffer<T> {
 }
 
 const DEFAULT_COLORS = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#06b6d4',
-  '#f97316',
-  '#84cc16',
+  themeColors.info[500],
+  themeColors.success[500],
+  themeColors.warning[500],
+  themeColors.error[500],
+  themeColors.primary[700],
+  themeColors.primary[400],
+  themeColors.accent[600],
+  themeColors.secondary[500],
 ];
 
 const RANGE_PRESETS: Array<{ label: string; minutes: number }> = [
@@ -175,17 +176,17 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
         axes: [
           {
             scale: 'x',
-            stroke: '#9ca3af',
+            stroke: themeColors.neutral[400],
             font: '10px system-ui',
             grid: { stroke: 'rgba(0,0,0,0.06)', width: 1 },
-            ticks: { stroke: '#9ca3af', width: 1 },
+            ticks: { stroke: themeColors.neutral[400], width: 1 },
           },
           {
             scale: 'y',
-            stroke: '#9ca3af',
+            stroke: themeColors.neutral[400],
             font: '10px system-ui',
             grid: { stroke: 'rgba(0,0,0,0.06)', width: 1 },
-            ticks: { stroke: '#9ca3af', width: 1 },
+            ticks: { stroke: themeColors.neutral[400], width: 1 },
             size: 50,
           },
         ],
@@ -352,7 +353,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
     >
       {/* Mini toolbar */}
       {showToolbar && (
-        <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-50 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center gap-0.5 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
           {RANGE_PRESETS.map((preset) => (
             <button
               key={preset.label}
@@ -361,14 +362,14 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
               className={`px-1.5 py-0.5 text-[10px] rounded transition-colors ${
                 rangeMinutes === preset.minutes
                   ? 'bg-blue-500 text-white font-semibold'
-                  : 'text-gray-600 hover:bg-gray-200'
+                  : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               {preset.label}
             </button>
           ))}
           {title && (
-            <span className="ml-auto text-[10px] text-gray-400 truncate max-w-[120px]">
+            <span className="ml-auto text-[10px] text-gray-400 dark:text-gray-500 truncate max-w-[120px]">
               {title}
             </span>
           )}
@@ -377,7 +378,7 @@ const RuntimeChart: React.FC<RuntimeWidgetProps> = ({
 
       {/* No series warning */}
       {seriesList.length === 0 && (
-        <div className="flex-1 flex items-center justify-center text-xs text-gray-400">
+        <div className="flex-1 flex items-center justify-center text-xs text-gray-400 dark:text-gray-500">
           No series configured
         </div>
       )}

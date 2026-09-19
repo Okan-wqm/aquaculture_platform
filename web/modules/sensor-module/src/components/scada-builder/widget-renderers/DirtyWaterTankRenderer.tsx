@@ -5,6 +5,7 @@
 
 import React, { memo } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, width, height, isEditing }) => {
   const raw = isEditing ? (config.demoLevel ?? 55) : Number(value ?? 0);
@@ -13,7 +14,7 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
 
   const status = (isEditing ? (config.demoStatus ?? 'running') : String(value !== undefined ? 'running' : 'stopped')) as string;
   const isRunning = status === 'running';
-  const statusColor = isRunning ? '#22c55e' : '#9ca3af';
+  const statusColor = isRunning ? themeColors.success[500] : themeColors.neutral[400];
   const effectiveLevel = isRunning ? Math.max(level, 90) : 0;
   const pct = effectiveLevel / 100;
 
@@ -26,8 +27,8 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
   const fillH = tankH * pct;
 
   // Water colors
-  const dirtyColor = '#8B7355';
-  const sedimentColor = '#6B5335';
+  const dirtyColor = themeColors.accent[700];
+  const sedimentColor = themeColors.accent[800];
 
   // Sediment layer height (fixed at 10% of tank)
   const sedimentH = tankH * 0.1;
@@ -39,7 +40,7 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
         height="100%"
         viewBox="0 0 120 140"
         preserveAspectRatio="xMidYMid meet"
-        style={{ display: 'block' }}
+        className="block"
       >
         <defs>
           {/* Dirty water gradient */}
@@ -54,9 +55,9 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           </linearGradient>
           {/* Tank body gradient */}
           <linearGradient id="dirtyTankGrad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#e2e8f0" />
-            <stop offset="50%" stopColor="#f8fafc" />
-            <stop offset="100%" stopColor="#e2e8f0" />
+            <stop offset="0%" stopColor={themeColors.neutral[200]} />
+            <stop offset="50%" stopColor={themeColors.neutral[50]} />
+            <stop offset="100%" stopColor={themeColors.neutral[200]} />
           </linearGradient>
           {/* Clip path for water fill inside tank */}
           <clipPath id="dirtyTankClip">
@@ -82,7 +83,7 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           cy={tankY + capRy}
           rx={tankW / 2}
           ry={capRy}
-          fill="#e2e8f0"
+          fill={themeColors.neutral[200]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -93,7 +94,7 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           cy={tankY + tankH - capRy}
           rx={tankW / 2}
           ry={capRy}
-          fill="#cfd8dc"
+          fill={themeColors.neutral[300]}
           stroke="#333"
           strokeWidth={2}
         />
@@ -175,15 +176,15 @@ const DirtyWaterTankRenderer: React.FC<WidgetRendererProps> = ({ config, value, 
           textAnchor="middle"
           fontSize={16}
           fontWeight={700}
-          fill="#111827"
+          fill={themeColors.neutral[900]}
         >
           {Math.round(effectiveLevel)}%
         </text>
 
         {/* "Kirli" badge */}
-        <rect x={34} y={110} width={52} height={16} rx={8} fill="#d97706" opacity={0.15} />
-        <rect x={34} y={110} width={52} height={16} rx={8} fill="none" stroke="#d97706" strokeWidth={1} />
-        <text x={60} y={121} textAnchor="middle" fontSize={9} fill="#92400e" fontWeight={600}>
+        <rect x={34} y={110} width={52} height={16} rx={8} fill={themeColors.warning[600]} opacity={0.15} />
+        <rect x={34} y={110} width={52} height={16} rx={8} fill="none" stroke={themeColors.warning[600]} strokeWidth={1} />
+        <text x={60} y={121} textAnchor="middle" fontSize={9} fill={themeColors.warning[700]} fontWeight={600}>
           Dirty
         </text>
 

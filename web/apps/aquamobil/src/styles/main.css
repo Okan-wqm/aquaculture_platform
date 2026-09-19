@@ -46,11 +46,14 @@ body {
   touch-action: manipulation;
 }
 
-/* WHY: Konsta UI overrides align the component library's primary color with our ocean-blue brand */
+/* WHY: gray-400 is body copy here (captions, helper text, empty states), so it
+   is assigned per theme — darkened for sunlight on white, Tailwind's own value
+   on the dark surfaces — and tailwind.config.js reads this variable. */
 :root {
-  --k-color-primary: #0073e6;
-  --k-color-primary-tint: #3080ff;
-  --k-color-primary-shade: #0f5bcc;
+  --am-gray-400: 107 114 128;
+}
+.dark {
+  --am-gray-400: 156 163 175;
 }
 
 /* WHY: Thin scrollbar — on mobile WebViews, visible scrollbars compete with content.
@@ -130,6 +133,17 @@ body {
   animation: slide-up 0.4s ease-out;
 }
 
+/* WHY: Backdrop fade for BottomSheet — the scrim eases in behind the rising
+   sheet instead of snapping to 40% black; paired with slide-up above. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
 /* WHY: Bounce-once animation for success checkmarks — a single bounce draws attention
    to the success state without the infinite looping that causes visual fatigue. */
 @keyframes bounce-once {
@@ -163,10 +177,3 @@ body {
   background: rgba(0, 115, 230, 0.2);
 }
 
-/* WHY: Input focus styles override browser defaults with our brand color —
-   consistent focus indicators improve accessibility and brand cohesion. */
-input:focus, textarea:focus, select:focus {
-  outline: none;
-  border-color: #0073e6 !important;
-  box-shadow: 0 0 0 3px rgba(0, 115, 230, 0.1) !important;
-}

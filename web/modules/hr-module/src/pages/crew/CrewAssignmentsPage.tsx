@@ -22,16 +22,16 @@ import {
   Anchor,
   Clock,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import {
   useEmployees,
   useWorkAreas,
   useCrewAssignments,
   useCurrentlyOffshore,
 } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import { SeaLandSplitView } from '../../components/crew';
-import type { Column } from '../../components/common';
 import type { Employee, WorkArea, CrewAssignment, PersonnelCategory, WorkAreaType, PaginationInput } from '../../types';
 
 // ============================================================================
@@ -108,7 +108,7 @@ const WorkAreaCard: React.FC<{ workArea: WorkArea; employeeCount: number }> = ({
           <span>{employeeCount} assigned</span>
         </div>
         {workArea.coordinates && (
-          <div className="flex items-center gap-1 text-sm text-gray-500">
+          <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
             <MapPin className="h-3 w-3" />
             {/* BUG-018: maritime GPS requires 5 decimal places (~1m precision) */}
             <span>
@@ -168,12 +168,11 @@ export function CrewAssignmentsPage() {
   }, [crewAssignments, workAreas]);
 
   // PERF-004: memoize so the column array reference is stable across renders
-  const assignmentColumns: Column<CrewAssignment>[] = useMemo(() => [
+  const assignmentColumns: DataTableColumn<CrewAssignment>[] = useMemo(() => [
     {
       key: 'workArea',
       header: 'Work Area',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           {row.workArea?.workAreaType === ('SEA_CAGE' as WorkAreaType) || row.workArea?.workAreaType === ('VESSEL' as WorkAreaType) ? (
             <Ship className="h-4 w-4 text-blue-500" />
@@ -183,7 +182,7 @@ export function CrewAssignmentsPage() {
           <div>
             {/* WHY: Use workAreaName from the flat DTO as primary, fall back to enriched workArea */}
             <p className="font-medium text-gray-900 dark:text-white">{row.workAreaName || row.workArea?.name}</p>
-            <p className="text-sm text-gray-500 capitalize">{row.workArea?.workAreaType?.replace(/_/g, ' ') || ''}</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 capitalize">{row.workArea?.workAreaType?.replace(/_/g, ' ') || ''}</p>
           </div>
         </div>
       ),
@@ -191,18 +190,18 @@ export function CrewAssignmentsPage() {
     {
       key: 'assigned',
       header: 'Assigned Crew',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-2">
-          <Users className="h-4 w-4 text-gray-400" />
+          <Users className="h-4 w-4 text-gray-400 dark:text-gray-500" />
           <span className="text-gray-900 dark:text-white">{row.currentCount}</span>
-          <span className="text-gray-500">/ {row.maxCapacity}</span>
+          <span className="text-gray-500 dark:text-gray-400">/ {row.maxCapacity}</span>
         </div>
       ),
     },
     {
       key: 'occupancy',
       header: 'Occupancy',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-2">
           <div className="h-2 w-24 rounded-full bg-gray-200 dark:bg-gray-700">
             <div
@@ -217,7 +216,7 @@ export function CrewAssignmentsPage() {
     {
       key: 'location',
       header: 'Location',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-600 dark:text-gray-300">
           {row.workArea?.isOffshore ? 'Offshore' : 'Onshore'}
         </span>
@@ -226,7 +225,7 @@ export function CrewAssignmentsPage() {
     {
       key: 'status',
       header: 'Status',
-      accessor: (row) => (
+      render: (_value, row) => (
         <StatusBadge
           label={row.workArea?.isActive ? 'Active' : 'Inactive'}
           variant={row.workArea?.isActive ? 'success' : 'neutral'}
@@ -262,27 +261,25 @@ export function CrewAssignmentsPage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Crew Assignments</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Manage offshore and onshore crew distribution
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/hr/crew/rotations"
-            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Rotations
-          </Link>
-          <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            <Plus className="h-4 w-4" />
-            New Assignment
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Crew Assignments"
+        description="Manage offshore and onshore crew distribution"
+        actions={
+          <div className="flex items-center gap-3">
+            <Link
+              to="/hr/crew/rotations"
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Rotations
+            </Link>
+            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+              <Plus className="h-4 w-4" />
+              New Assignment
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
@@ -343,7 +340,7 @@ export function CrewAssignmentsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'overview'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Overview
@@ -354,7 +351,7 @@ export function CrewAssignmentsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'assignments'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Assignments
@@ -365,7 +362,7 @@ export function CrewAssignmentsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'work-areas'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Work Areas
@@ -416,7 +413,7 @@ export function CrewAssignmentsPage() {
                       <p className="truncate font-medium text-gray-900 dark:text-white">
                         {emp.firstName} {emp.lastName}
                       </p>
-                      <p className="truncate text-sm text-gray-500">
+                      <p className="truncate text-sm text-gray-500 dark:text-gray-400">
                         {emp.position || 'Crew Member'}
                       </p>
                     </div>
@@ -434,7 +431,7 @@ export function CrewAssignmentsPage() {
           {/* Search and Filters */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 placeholder="Search employees..."
@@ -460,16 +457,17 @@ export function CrewAssignmentsPage() {
           </div>
 
           {/* Assignments Table */}
-          <DataTable
+          <DataTable<CrewAssignment>
             data={pagedAssignments}
             columns={assignmentColumns}
             keyExtractor={assignmentKeyExtractor}
-            isLoading={loadingAssignments}
+            loading={loadingAssignments}
             emptyMessage="No crew assignments found"
-            total={enrichedAssignments.length}
-            page={Math.floor(currentOffset / pageSize) + 1}
-            pageSize={pageSize}
+            pagination={derivePaginationMetadataV1(enrichedAssignments.length, currentPage, pageSize)}
             onPageChange={handlePageChange}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
           />
         </div>
       )}

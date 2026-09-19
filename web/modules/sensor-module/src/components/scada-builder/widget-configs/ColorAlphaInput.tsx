@@ -10,13 +10,14 @@
  */
 
 import React, { useCallback } from 'react';
+import { colors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
 /* ------------------------------------------------------------------ */
 
 interface ColorAlphaInputProps {
-  /** CSS color string (hex format, e.g. #3b82f6) */
+  /** CSS color string (hex format, e.g. #rrggbb) */
   color: string;
   /** Alpha channel value (0 to 1) */
   alpha: number;
@@ -75,15 +76,15 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
   return (
     <div>
       {label && (
-        <label className="block text-xs text-gray-500 mb-1">{label}</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</label>
       )}
       <div className="flex items-center gap-1.5">
         {/* Color swatch -- opens native color picker */}
         <input
           type="color"
-          value={color.length === 7 ? color : '#000000'}
+          value={color.length === 7 ? color : colors.black}
           onChange={(e) => handleColorChange(e.target.value)}
-          className="w-8 h-8 rounded border border-gray-300 cursor-pointer flex-shrink-0 p-0"
+          className="w-8 h-8 rounded border border-gray-300 dark:border-gray-600 cursor-pointer flex-shrink-0 p-0"
           aria-label={label ? `${label} color swatch` : 'Color swatch'}
           data-testid="color-swatch"
         />
@@ -94,8 +95,8 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
           value={color}
           onChange={(e) => handleHexInput(e.target.value)}
           maxLength={7}
-          placeholder="#000000"
-          className="w-20 px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
+          placeholder={colors.black}
+          className="w-20 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 font-mono"
           aria-label={label ? `${label} hex value` : 'Hex color value'}
           data-testid="color-hex-input"
         />
@@ -121,11 +122,11 @@ export const ColorAlphaInput: React.FC<ColorAlphaInputProps> = ({
           step={1}
           value={alphaPercent}
           onChange={(e) => handleAlphaText(e.target.value)}
-          className="w-12 px-1.5 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-center"
+          className="w-12 px-1.5 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-center"
           aria-label={label ? `${label} opacity percent` : 'Opacity percent'}
           data-testid="alpha-percent"
         />
-        <span className="text-[10px] text-gray-400">%</span>
+        <span className="text-[10px] text-gray-400 dark:text-gray-500">%</span>
       </div>
     </div>
   );

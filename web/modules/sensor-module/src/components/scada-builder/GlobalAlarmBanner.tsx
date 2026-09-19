@@ -2,40 +2,17 @@ import React, { useMemo } from 'react';
 import { Bell, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useScadaPackageStore } from '../../store/scada';
 import type { AlarmRuleDef } from '../../store/scada';
+import { severityClasses } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  ISA-101 Severity Configuration                                     */
 /* ------------------------------------------------------------------ */
 
 const SEVERITY_CONFIG = {
-  critical: {
-    label: 'Critical',
-    bg: 'bg-red-600',
-    text: 'text-white',
-    pillBg: 'bg-red-700',
-    pillText: 'text-white',
-  },
-  high: {
-    label: 'High',
-    bg: 'bg-orange-500',
-    text: 'text-white',
-    pillBg: 'bg-orange-600',
-    pillText: 'text-white',
-  },
-  warning: {
-    label: 'Warning',
-    bg: 'bg-yellow-400',
-    text: 'text-gray-900',
-    pillBg: 'bg-yellow-500',
-    pillText: 'text-gray-900',
-  },
-  info: {
-    label: 'Info',
-    bg: 'bg-blue-500',
-    text: 'text-white',
-    pillBg: 'bg-blue-600',
-    pillText: 'text-white',
-  },
+  critical: { label: 'Critical', bg: severityClasses('critical', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
+  high: { label: 'High', bg: severityClasses('high', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
+  warning: { label: 'Warning', bg: severityClasses('warning', 'solid'), text: '', pillBg: 'bg-black/10', pillText: 'text-inherit' },
+  info: { label: 'Info', bg: severityClasses('info', 'solid'), text: '', pillBg: 'bg-black/20', pillText: 'text-inherit' },
 } as const;
 
 type Severity = AlarmRuleDef['severity'];
@@ -95,7 +72,7 @@ export const GlobalAlarmBanner: React.FC = () => {
   /* Bar background: red-600 + pulse if critical, otherwise neutral dark */
   const barClasses = [
     'flex items-center justify-between px-4 h-8 text-xs select-none',
-    hasCritical ? 'bg-red-600 text-white animate-pulse' : 'bg-gray-800 text-gray-500',
+    hasCritical ? 'bg-red-600 text-white animate-pulse' : 'bg-gray-800 text-gray-500 dark:text-gray-400',
   ].join(' ');
 
   return (
@@ -115,7 +92,7 @@ export const GlobalAlarmBanner: React.FC = () => {
       {/* Center: Severity summary or empty message */}
       <div className="flex items-center gap-2">
         {isEmpty ? (
-          <span className="text-gray-500 italic">No alarm rules defined</span>
+          <span className="text-gray-500 dark:text-gray-400 italic">No alarm rules defined</span>
         ) : (
           <div className="flex items-center gap-1.5">
             {SEVERITY_ORDER.map((sev, idx) => {
@@ -123,7 +100,7 @@ export const GlobalAlarmBanner: React.FC = () => {
               return (
                 <React.Fragment key={sev}>
                   {idx > 0 && (
-                    <span className={hasCritical ? 'text-red-300' : 'text-gray-600'}>
+                    <span className={hasCritical ? 'text-red-300' : 'text-gray-600 dark:text-gray-400'}>
                       &middot;
                     </span>
                   )}
@@ -146,7 +123,7 @@ export const GlobalAlarmBanner: React.FC = () => {
         <span
           className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-medium ${
             isEmpty
-              ? 'bg-gray-700 text-gray-500'
+              ? 'bg-gray-700 text-gray-500 dark:text-gray-400'
               : hasCritical
                 ? 'bg-red-800 text-red-100'
                 : 'bg-gray-700 text-gray-200'

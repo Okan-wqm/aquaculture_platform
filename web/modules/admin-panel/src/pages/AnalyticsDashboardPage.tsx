@@ -6,7 +6,7 @@
  * Connected to real backend API endpoints.
  */
 
-import { Card, Button } from '@aquaculture/shared-ui';
+import { Card, Button, chartChrome, colors, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -164,7 +164,7 @@ const KpiCard: React.FC<KpiCardProps> = ({
   const getTrendColor = (): string => {
     if (trend === 'up') return 'text-green-600';
     if (trend === 'down') return 'text-red-600';
-    return 'text-gray-500';
+    return 'text-gray-500 dark:text-gray-400';
   };
 
   const getTrendIcon = (): string => {
@@ -177,14 +177,14 @@ const KpiCard: React.FC<KpiCardProps> = ({
     <Card className="relative overflow-hidden">
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{value}</p>
-          {subtitle && <p className="mt-1 text-sm text-gray-500">{subtitle}</p>}
+          <p className="text-sm font-medium text-gray-500 dark:text-gray-400">{title}</p>
+          <p className="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+          {subtitle && <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>}
           {change !== undefined && (
             <p className={`mt-2 text-sm font-medium ${getTrendColor()}`}>
               <span className="mr-1">{getTrendIcon()}</span>
               {Math.abs(change).toFixed(1)}%
-              <span className="ml-1 text-gray-500">vs last month</span>
+              <span className="ml-1 text-gray-500 dark:text-gray-400">vs last month</span>
             </p>
           )}
         </div>
@@ -206,7 +206,7 @@ interface MiniChartProps {
   color?: string;
 }
 
-const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = '#3B82F6' }) => {
+const MiniChart: React.FC<MiniChartProps> = ({ data, height = 60, color = colors.info[500] }) => {
   if (data.length === 0) return null;
 
   const values = data.map(d => d.value);
@@ -258,7 +258,7 @@ const BarChart: React.FC<BarChartProps> = ({ data, maxHeight = 120 }) => {
               className={`w-full rounded-t ${colors[index % colors.length]}`}
               style={{ height: `${height}px` }}
             />
-            <p className="text-xs text-gray-500 mt-2 truncate w-full text-center">{item.label}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 truncate w-full text-center">{item.label}</p>
           </div>
         );
       })}
@@ -299,7 +299,7 @@ const DonutChart: React.FC<DonutChartProps> = ({
             cy={size / 2}
             r={radius}
             fill="none"
-            stroke="#E5E7EB"
+            stroke={chartChrome.grid}
             strokeWidth={strokeWidth}
           />
         ) : data.map((item, index) => {
@@ -326,8 +326,8 @@ const DonutChart: React.FC<DonutChartProps> = ({
       </svg>
       {(centerLabel || centerValue) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          {centerValue && <span className="text-2xl font-bold text-gray-900">{centerValue}</span>}
-          {centerLabel && <span className="text-xs text-gray-500">{centerLabel}</span>}
+          {centerValue && <span className="text-2xl font-bold text-gray-900 dark:text-gray-100">{centerValue}</span>}
+          {centerLabel && <span className="text-xs text-gray-500 dark:text-gray-400">{centerLabel}</span>}
         </div>
       )}
     </div>
@@ -460,7 +460,7 @@ const AnalyticsDashboardPage: React.FC = () => {
   if (loading && data === null) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -473,37 +473,37 @@ const AnalyticsDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analytics Dashboard</h1>
-          <p className="text-gray-500 mt-1">Platform metrikleri ve performans analizi</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex bg-gray-100 rounded-lg p-1">
-            {(['7d', '30d', '90d', '1y'] as const).map((period) => (
-              <button
-                key={period}
-                onClick={() => setSelectedPeriod(period)}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  selectedPeriod === period
-                    ? 'bg-white text-gray-900 shadow'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                {period}
-              </button>
-            ))}
+      <PageHeader
+        title="Analytics Dashboard"
+        description="Platform metrikleri ve performans analizi"
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+              {(['7d', '30d', '90d', '1y'] as const).map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setSelectedPeriod(period)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    selectedPeriod === period
+                      ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 shadow'
+                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                  }`}
+                >
+                  {period}
+                </button>
+              ))}
+            </div>
+            <Button variant="secondary" onClick={() => {
+              void loadData();
+            }}>
+              Refresh
+            </Button>
+            <Link to={adminRoutes.analyticsReports}>
+              <Button variant="primary">Reports</Button>
+            </Link>
           </div>
-          <Button variant="secondary" onClick={() => {
-            void loadData();
-          }}>
-            Refresh
-          </Button>
-          <Link to={adminRoutes.analyticsReports}>
-            <Button variant="primary">Reports</Button>
-          </Link>
-        </div>
-      </div>
+        }
+      />
 
       {/* A read that failed, named — the page used to render a zero-filled
           dashboard for it and say nothing (ADMIN-HIGH-125). */}
@@ -626,15 +626,15 @@ const AnalyticsDashboardPage: React.FC = () => {
         {/* Tenant Growth Chart */}
         <Card title="Tenant Growth">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={tenantTrend} height={100} color="#3B82F6" />
+            <MiniChart data={tenantTrend} height={100} color={colors.info[500]} />
             {(tenantTrend.length === 0 || tenantTrend.every(d => d.value === 0)) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-500">No analytics data available yet</p>
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 dark:bg-gray-800/80 rounded">
+                <p className="text-sm text-gray-500 dark:text-gray-400">No analytics data available yet</p>
               </div>
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">Bu ay: {formatNumber(tenants?.newThisMonth)}</span>
+            <span className="text-gray-500 dark:text-gray-400">Bu ay: {formatNumber(tenants?.newThisMonth)}</span>
             <span className="text-green-600 font-medium">{formatPercent(tenants?.growthRate, 1)}</span>
           </div>
         </Card>
@@ -642,30 +642,30 @@ const AnalyticsDashboardPage: React.FC = () => {
         {/* Revenue Trend Chart */}
         <Card title="Revenue Trend">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={revenueTrend} height={100} color="#8B5CF6" />
+            <MiniChart data={revenueTrend} height={100} color={colors.primary[700]} />
             {(revenueTrend.length === 0 || revenueTrend.every(d => d.value === 0)) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-500">No analytics data available yet</p>
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 dark:bg-gray-800/80 rounded">
+                <p className="text-sm text-gray-500 dark:text-gray-400">No analytics data available yet</p>
               </div>
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">MRR: {formatCurrency(financial?.mrr)}</span>
+            <span className="text-gray-500 dark:text-gray-400">MRR: {formatCurrency(financial?.mrr)}</span>
             <span className="text-green-600 font-medium">{formatPercent(financial?.revenueGrowthRate, 1)}</span>
           </div>
         </Card>
 
         <Card title="Daily Active Users">
           <div className="h-32 mb-4 relative">
-            <MiniChart data={userTrend} height={100} color="#10B981" />
+            <MiniChart data={userTrend} height={100} color={colors.success[500]} />
             {(userTrend.length === 0 || userTrend.every(d => d.value === 0)) && (
-              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 rounded">
-                <p className="text-sm text-gray-500">Analytics not yet available</p>
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-50/80 dark:bg-gray-800/80 rounded">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Analytics not yet available</p>
               </div>
             )}
           </div>
           <div className="flex justify-between text-sm">
-            <span className="text-gray-500">DAU: {formatNumber(users?.activeLastDay)}</span>
+            <span className="text-gray-500 dark:text-gray-400">DAU: {formatNumber(users?.activeLastDay)}</span>
           </div>
         </Card>
       </div>
@@ -677,10 +677,10 @@ const AnalyticsDashboardPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <DonutChart
               data={[
-                { label: 'Enterprise', value: tenants?.byPlan?.enterprise || 0, color: '#8B5CF6' },
-                { label: 'Professional', value: tenants?.byPlan?.professional || 0, color: '#10B981' },
-                { label: 'Starter', value: tenants?.byPlan?.starter || 0, color: '#3B82F6' },
-                { label: 'Trial', value: tenants?.byPlan?.trial || 0, color: '#F59E0B' },
+                { label: 'Enterprise', value: tenants?.byPlan?.enterprise || 0, color: colors.primary[700] },
+                { label: 'Professional', value: tenants?.byPlan?.professional || 0, color: colors.success[500] },
+                { label: 'Starter', value: tenants?.byPlan?.starter || 0, color: colors.info[500] },
+                { label: 'Trial', value: tenants?.byPlan?.trial || 0, color: colors.warning[500] },
               ]}
               centerValue={formatNumber(tenants?.total)}
               centerLabel="Total"
@@ -689,28 +689,28 @@ const AnalyticsDashboardPage: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-purple-500 mr-2" />
-                  <span className="text-sm text-gray-600">Enterprise</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Enterprise</span>
                 </div>
                 <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.enterprise ?? 0) : null)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-green-500 mr-2" />
-                  <span className="text-sm text-gray-600">Professional</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Professional</span>
                 </div>
                 <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.professional ?? 0) : null)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-blue-500 mr-2" />
-                  <span className="text-sm text-gray-600">Starter</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Starter</span>
                 </div>
                 <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.starter ?? 0) : null)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center">
                   <span className="w-3 h-3 rounded-full bg-orange-500 mr-2" />
-                  <span className="text-sm text-gray-600">Trial</span>
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Trial</span>
                 </div>
                 <span className="font-medium">{formatNumber(tenants ? (tenants.byPlan?.trial ?? 0) : null)}</span>
               </div>
@@ -732,16 +732,16 @@ const AnalyticsDashboardPage: React.FC = () => {
           </div>
           <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-4 text-center">
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.starter ?? 0) : null)}</p>
-              <p className="text-xs text-gray-500">Starter</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatCurrency(financial ? (financial.byPlan?.starter ?? 0) : null)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Starter</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.professional ?? 0) : null)}</p>
-              <p className="text-xs text-gray-500">Professional</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatCurrency(financial ? (financial.byPlan?.professional ?? 0) : null)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Professional</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-gray-900">{formatCurrency(financial ? (financial.byPlan?.enterprise ?? 0) : null)}</p>
-              <p className="text-xs text-gray-500">Enterprise</p>
+              <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{formatCurrency(financial ? (financial.byPlan?.enterprise ?? 0) : null)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Enterprise</p>
             </div>
           </div>
         </Card>
@@ -753,7 +753,7 @@ const AnalyticsDashboardPage: React.FC = () => {
         <Card title="Module Usage">
           {Object.keys(usage?.moduleUsage ?? {}).length === 0 && (
             <div className="flex items-center justify-center py-8">
-              <p className="text-sm text-gray-500">No analytics data available yet</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">No analytics data available yet</p>
             </div>
           )}
           <div className="space-y-4">
@@ -762,12 +762,12 @@ const AnalyticsDashboardPage: React.FC = () => {
               return (
                 <div key={module}>
                   <div className="flex justify-between mb-1">
-                    <span className="text-sm font-medium text-gray-700">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       {module.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}
                     </span>
-                    <span className="text-sm text-gray-500">{stats.activeUsers} users</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">{stats.activeUsers} users</span>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                     <div
                       className="bg-blue-600 h-2 rounded-full"
                       style={{ width: `${percentage}%` }}
@@ -783,17 +783,17 @@ const AnalyticsDashboardPage: React.FC = () => {
         <Card title="Feature Adoption">
           {(usage?.topFeatures.length ?? 0) === 0 && (
             <div className="flex items-center justify-center py-8">
-              <p className="text-sm text-gray-500">No analytics data available yet</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">No analytics data available yet</p>
             </div>
           )}
           <div className="space-y-4">
             {(usage?.topFeatures ?? []).map((feature) => (
               <div key={feature.feature}>
                 <div className="flex justify-between mb-1">
-                  <span className="text-sm font-medium text-gray-700">{feature.feature}</span>
-                  <span className="text-sm text-gray-500">{feature.usage}%</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{feature.feature}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">{feature.usage}%</span>
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div
                     className="bg-green-600 h-2 rounded-full"
                     style={{ width: `${feature.usage}%` }}
@@ -808,29 +808,29 @@ const AnalyticsDashboardPage: React.FC = () => {
       {/* System Metrics */}
       <Card title="System Metrics">
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatPercent(uptimePercent)}</p>
-            <p className="text-xs text-gray-500 mt-1">Uptime</p>
+          <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatPercent(uptimePercent)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Uptime</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatMs(system?.avgResponseTimeMs)}</p>
-            <p className="text-xs text-gray-500 mt-1">Avg Response</p>
+          <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatMs(system?.avgResponseTimeMs)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Avg Response</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatPercent(system?.errorRate, 2)}</p>
-            <p className="text-xs text-gray-500 mt-1">Error Rate</p>
+          <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatPercent(system?.errorRate, 2)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Error Rate</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatBytes(system?.usedStorageBytes)}</p>
-            <p className="text-xs text-gray-500 mt-1">Storage Used</p>
+          <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatBytes(system?.usedStorageBytes)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Storage Used</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatNumber(system?.activeConnections)}</p>
-            <p className="text-xs text-gray-500 mt-1">Active Connections</p>
+          <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatNumber(system?.activeConnections)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Active Connections</p>
           </div>
-          <div className="text-center p-4 bg-gray-50 rounded-lg">
-            <p className="text-2xl font-bold text-gray-900">{formatNumber(system?.queuedJobs)}</p>
-            <p className="text-xs text-gray-500 mt-1">Queued Jobs</p>
+          <div className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{formatNumber(system?.queuedJobs)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Queued Jobs</p>
           </div>
         </div>
       </Card>
@@ -839,10 +839,10 @@ const AnalyticsDashboardPage: React.FC = () => {
       <Card title="Bolgesel Dagilim">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           {Object.entries(tenants?.byRegion ?? {}).map(([region, count]) => (
-            <div key={region} className="text-center p-4 bg-gray-50 rounded-lg">
-              <p className="text-3xl font-bold text-gray-900">{count}</p>
-              <p className="text-sm text-gray-500 mt-1">{region}</p>
-              <p className="text-xs text-gray-500">
+            <div key={region} className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+              <p className="text-3xl font-bold text-gray-900 dark:text-gray-100">{count}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{region}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {tenants && tenants.total > 0
                   ? formatPercent((count / tenants.total) * 100, 1)
                   : UNKNOWN}
@@ -853,7 +853,7 @@ const AnalyticsDashboardPage: React.FC = () => {
       </Card>
 
       {/* Footer */}
-      <div className="text-center text-sm text-gray-500">
+      <div className="text-center text-sm text-gray-500 dark:text-gray-400">
         Last updated: {new Date(data.generatedAt).toLocaleString('en-US')}
       </div>
     </div>

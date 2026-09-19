@@ -16,7 +16,6 @@ import {
   Droplets,
   Gauge,
   Activity,
-  Loader2,
   CheckCircle,
   RefreshCw,
 } from 'lucide-react';
@@ -26,6 +25,7 @@ import {
   AlertThresholds,
   getSensorTypeLabel,
 } from '../hooks/useSensorThresholds';
+import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Components
@@ -45,195 +45,12 @@ const TypeIcon: React.FC<{ type: string }> = ({ type }) => {
     water_level: <Activity className="w-5 h-5 text-indigo-500" />,
   };
 
-  return <>{icons[normalized] || <Activity className="w-5 h-5 text-gray-500" />}</>;
+  return <>{icons[normalized] || <Activity className="w-5 h-5 text-gray-500 dark:text-gray-400" />}</>;
 };
 
 // ============================================================================
 // Threshold Edit Row
 // ============================================================================
-
-interface ThresholdRowProps {
-  threshold: SensorThreshold;
-  onUpdate: (sensorId: string, thresholds: AlertThresholds) => Promise<void>;
-  updating: boolean;
-}
-
-const ThresholdRow: React.FC<ThresholdRowProps> = ({ threshold, onUpdate, updating }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState<AlertThresholds>(threshold.alertThresholds);
-  const [saving, setSaving] = useState(false);
-
-  // BUG-011: sync editData when prop changes from external refetch (only when not actively editing)
-  React.useEffect(() => {
-    if (!isEditing) {
-      setEditData(threshold.alertThresholds);
-    }
-  }, [threshold.alertThresholds, isEditing]);
-
-  const handleEdit = () => {
-    setEditData(threshold.alertThresholds);
-    setIsEditing(true);
-  };
-
-  const handleCancel = () => {
-    setEditData(threshold.alertThresholds);
-    setIsEditing(false);
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await onUpdate(threshold.sensorId, editData);
-      setIsEditing(false);
-    } catch (error) {
-      console.error('Failed to save thresholds:', error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateValue = (
-    level: 'warning' | 'critical',
-    bound: 'low' | 'high',
-    value: string
-  ) => {
-    setEditData((prev) => ({
-      ...prev,
-      [level]: {
-        ...prev[level],
-        [bound]: value ? parseFloat(value) : undefined,
-      },
-    }));
-  };
-
-  return (
-    <tr className="hover:bg-gray-50 transition-colors">
-      {/* Sensor Name */}
-      <td className="px-4 py-3">
-        <div>
-          <span className="font-medium text-gray-900">{threshold.sensorName}</span>
-          {threshold.dataPath && (
-            <p className="text-xs text-gray-500 font-mono">{threshold.dataPath}</p>
-          )}
-        </div>
-      </td>
-
-      {/* Warning Low */}
-      <td className="px-4 py-3 text-center">
-        {isEditing ? (
-          <input
-            type="number"
-            step="0.1"
-            value={editData.warning?.low ?? ''}
-            onChange={(e) => updateValue('warning', 'low', e.target.value)}
-            className="w-20 px-2 py-1 border border-yellow-300 rounded text-center text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-            placeholder="-"
-          />
-        ) : (
-          <span className="text-sm text-gray-700">
-            {threshold.alertThresholds.warning?.low ?? '-'}
-          </span>
-        )}
-      </td>
-
-      {/* Warning High */}
-      <td className="px-4 py-3 text-center">
-        {isEditing ? (
-          <input
-            type="number"
-            step="0.1"
-            value={editData.warning?.high ?? ''}
-            onChange={(e) => updateValue('warning', 'high', e.target.value)}
-            className="w-20 px-2 py-1 border border-yellow-300 rounded text-center text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500"
-            placeholder="-"
-          />
-        ) : (
-          <span className="text-sm text-gray-700">
-            {threshold.alertThresholds.warning?.high ?? '-'}
-          </span>
-        )}
-      </td>
-
-      {/* Critical Low */}
-      <td className="px-4 py-3 text-center">
-        {isEditing ? (
-          <input
-            type="number"
-            step="0.1"
-            value={editData.critical?.low ?? ''}
-            onChange={(e) => updateValue('critical', 'low', e.target.value)}
-            className="w-20 px-2 py-1 border border-red-300 rounded text-center text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-            placeholder="-"
-          />
-        ) : (
-          <span className="text-sm text-gray-700">
-            {threshold.alertThresholds.critical?.low ?? '-'}
-          </span>
-        )}
-      </td>
-
-      {/* Critical High */}
-      <td className="px-4 py-3 text-center">
-        {isEditing ? (
-          <input
-            type="number"
-            step="0.1"
-            value={editData.critical?.high ?? ''}
-            onChange={(e) => updateValue('critical', 'high', e.target.value)}
-            className="w-20 px-2 py-1 border border-red-300 rounded text-center text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500"
-            placeholder="-"
-          />
-        ) : (
-          <span className="text-sm text-gray-700">
-            {threshold.alertThresholds.critical?.high ?? '-'}
-          </span>
-        )}
-      </td>
-
-      {/* Unit */}
-      <td className="px-4 py-3 text-center text-gray-500 text-sm">
-        {threshold.unit}
-      </td>
-
-      {/* Actions */}
-      <td className="px-4 py-3 text-right">
-        {isEditing ? (
-          <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
-              title="Kaydet"
-            >
-              {saving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Save className="w-4 h-4" />
-              )}
-            </button>
-            <button
-              onClick={handleCancel}
-              disabled={saving}
-              className="p-1.5 text-gray-500 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-              title="İptal"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <button
-            onClick={handleEdit}
-            disabled={updating}
-            className="p-1.5 text-gray-500 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
-            title="Düzenle"
-          >
-            <Edit className="w-4 h-4" />
-          </button>
-        )}
-      </td>
-    </tr>
-  );
-};
 
 // ============================================================================
 // Sensor Type Group
@@ -252,53 +69,163 @@ const SensorTypeGroup: React.FC<SensorTypeGroupProps> = ({
   onUpdate,
   updating,
 }) => {
+  // One row edits at a time; its draft lives here so the rows are plain columns.
+  const [editing, setEditing] = useState<{ sensorId: string; data: AlertThresholds } | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+
+  const startEdit = (threshold: SensorThreshold): void =>
+    setEditing({ sensorId: threshold.sensorId, data: threshold.alertThresholds });
+  const cancelEdit = (): void => setEditing(null);
+  const updateValue = (level: 'warning' | 'critical', bound: 'low' | 'high', value: string): void =>
+    setEditing((prev) =>
+      prev
+        ? {
+            ...prev,
+            data: {
+              ...prev.data,
+              [level]: { ...prev.data[level], [bound]: value ? parseFloat(value) : undefined },
+            },
+          }
+        : prev,
+    );
+  const saveEdit = async (threshold: SensorThreshold): Promise<void> => {
+    if (!editing || editing.sensorId !== threshold.sensorId) return;
+    setSavingId(threshold.sensorId);
+    try {
+      await onUpdate(threshold.sensorId, editing.data);
+      setEditing(null);
+    } catch {
+      // The hook reports the failure; the row stays in edit mode for a retry.
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const boundInput = (
+    threshold: SensorThreshold,
+    level: 'warning' | 'critical',
+    bound: 'low' | 'high',
+  ): React.ReactNode => {
+    // Full class strings: Tailwind only emits utilities it can read literally.
+    const inputClass =
+      level === 'warning'
+        ? 'w-20 px-2 py-1 border border-yellow-300 rounded text-center text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500'
+        : 'w-20 px-2 py-1 border border-red-300 rounded text-center text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500';
+    return editing?.sensorId === threshold.sensorId ? (
+      <input
+        type="number"
+        step="0.1"
+        value={editing.data[level]?.[bound] ?? ''}
+        onChange={(e) => updateValue(level, bound, e.target.value)}
+        className={inputClass}
+        placeholder="-"
+      />
+    ) : (
+      <span className="text-sm text-gray-700 dark:text-gray-300">{threshold.alertThresholds[level]?.[bound] ?? '-'}</span>
+    );
+  };
+
+  const thresholdColumns: DataTableColumn<SensorThreshold>[] = [
+    {
+      key: 'sensorName',
+      header: 'Sensör',
+      render: (_value, threshold) => (
+        <div>
+          <span className="font-medium text-gray-900 dark:text-gray-100">{threshold.sensorName}</span>
+          {threshold.dataPath && <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{threshold.dataPath}</p>}
+        </div>
+      ),
+    },
+    {
+      key: 'warningLow',
+      header: 'Uyarı Min',
+      headerRender: <span className="text-yellow-600">Uyarı Min</span>,
+      align: 'center',
+      render: (_value, threshold) => boundInput(threshold, 'warning', 'low'),
+    },
+    {
+      key: 'warningHigh',
+      header: 'Uyarı Max',
+      headerRender: <span className="text-yellow-600">Uyarı Max</span>,
+      align: 'center',
+      render: (_value, threshold) => boundInput(threshold, 'warning', 'high'),
+    },
+    {
+      key: 'criticalLow',
+      header: 'Kritik Min',
+      headerRender: <span className="text-red-600">Kritik Min</span>,
+      align: 'center',
+      render: (_value, threshold) => boundInput(threshold, 'critical', 'low'),
+    },
+    {
+      key: 'criticalHigh',
+      header: 'Kritik Max',
+      headerRender: <span className="text-red-600">Kritik Max</span>,
+      align: 'center',
+      render: (_value, threshold) => boundInput(threshold, 'critical', 'high'),
+    },
+    {
+      key: 'unit',
+      header: 'Birim',
+      align: 'center',
+      render: (_value, threshold) => <span className="text-gray-500 dark:text-gray-400">{threshold.unit}</span>,
+    },
+    {
+      key: 'actions',
+      header: 'İşlemler',
+      align: 'right',
+      render: (_value, threshold) =>
+        editing?.sensorId === threshold.sensorId ? (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => void saveEdit(threshold)}
+              disabled={savingId === threshold.sensorId}
+              className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg transition-colors disabled:opacity-50"
+              title="Kaydet"
+            >
+              {savingId === threshold.sensorId ? <Spinner size="sm" color="inherit" /> : <Save className="w-4 h-4" />}
+            </button>
+            <button
+              onClick={cancelEdit}
+              disabled={savingId === threshold.sensorId}
+              className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+              title="İptal"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => startEdit(threshold)}
+            disabled={updating}
+            className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg transition-colors"
+            title="Düzenle"
+          >
+            <Edit className="w-4 h-4" />
+          </button>
+        ),
+    },
+  ];
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       {/* Header */}
-      <div className="p-4 bg-gray-50 border-b border-gray-100 flex items-center gap-3">
+      <div className="p-4 bg-gray-50 dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 flex items-center gap-3">
         <TypeIcon type={type} />
-        <h3 className="font-semibold text-gray-900">{getSensorTypeLabel(type)}</h3>
-        <span className="text-sm text-gray-500">({thresholds.length} sensör)</span>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">{getSensorTypeLabel(type)}</h3>
+        <span className="text-sm text-gray-500 dark:text-gray-400">({thresholds.length} sensör)</span>
       </div>
 
-      {/* Table */}
-      <table className="w-full">
-        <thead className="bg-gray-50 border-b border-gray-100">
-          <tr>
-            <th className="text-left px-4 py-3 text-sm font-medium text-gray-500">
-              Sensör
-            </th>
-            <th className="text-center px-4 py-3 text-sm font-medium text-yellow-600">
-              Uyarı Min
-            </th>
-            <th className="text-center px-4 py-3 text-sm font-medium text-yellow-600">
-              Uyarı Max
-            </th>
-            <th className="text-center px-4 py-3 text-sm font-medium text-red-600">
-              Kritik Min
-            </th>
-            <th className="text-center px-4 py-3 text-sm font-medium text-red-600">
-              Kritik Max
-            </th>
-            <th className="text-center px-4 py-3 text-sm font-medium text-gray-500">
-              Birim
-            </th>
-            <th className="text-right px-4 py-3 text-sm font-medium text-gray-500">
-              İşlemler
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100">
-          {thresholds.map((threshold) => (
-            <ThresholdRow
-              key={threshold.sensorId}
-              threshold={threshold}
-              onUpdate={onUpdate}
-              updating={updating}
-            />
-          ))}
-        </tbody>
-      </table>
+      <DataTable<SensorThreshold>
+        data={thresholds}
+        columns={thresholdColumns}
+        keyExtractor={(threshold) => threshold.sensorId}
+        emptyMessage="Eşik değeri yok"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        className="border-0 rounded-none shadow-none"
+      />
     </div>
   );
 };
@@ -330,8 +257,8 @@ const ThresholdsPage: React.FC = () => {
     return (
       <div className="p-6 flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <Loader2 className="w-8 h-8 text-cyan-500 animate-spin mx-auto mb-3" />
-          <p className="text-gray-500">Eşik değerleri yükleniyor...</p>
+          <Spinner size="lg" block className="mb-3" />
+          <p className="text-gray-500 dark:text-gray-400">Eşik değerleri yükleniyor...</p>
         </div>
       </div>
     );
@@ -358,20 +285,20 @@ const ThresholdsPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Eşik Değerleri</h1>
-          <p className="text-gray-500 mt-1">Sensör uyarı limitlerini yönetin</p>
-        </div>
-        <button
-          onClick={() => refetch()}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Yenile
-        </button>
-      </div>
+      <PageHeader
+        title="Eşik Değerleri"
+        description="Sensör uyarı limitlerini yönetin"
+        actions={
+          <button
+            onClick={() => refetch()}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Yenile
+          </button>
+        }
+      />
 
       {/* Info Card */}
       <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
@@ -390,10 +317,10 @@ const ThresholdsPage: React.FC = () => {
 
       {/* Empty State */}
       {sensorTypes.length === 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-          <Activity className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-700 mb-2">Henüz Sensör Yok</h3>
-          <p className="text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-12 text-center">
+          <Activity className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-2">Henüz Sensör Yok</h3>
+          <p className="text-gray-500 dark:text-gray-400">
             Eşik değerlerini düzenlemek için önce sensör kaydetmeniz gerekiyor.
           </p>
         </div>
@@ -412,9 +339,9 @@ const ThresholdsPage: React.FC = () => {
 
       {/* Success Toast (optional) */}
       {updating && (
-        <div className="fixed bottom-4 right-4 bg-white border border-gray-200 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
-          <Loader2 className="w-5 h-5 text-cyan-500 animate-spin" />
-          <span className="text-sm text-gray-700">Kaydediliyor...</span>
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg px-4 py-3 flex items-center gap-3">
+          <Spinner size="md" />
+          <span className="text-sm text-gray-700 dark:text-gray-300">Kaydediliyor...</span>
         </div>
       )}
     </div>

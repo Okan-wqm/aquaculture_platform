@@ -35,6 +35,19 @@ function walkSources(dir: string, out: string[] = []): string[] {
   return out;
 }
 
+function walkSpecs(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    if (statSync(full).isDirectory()) {
+      if (entry === 'node_modules' || entry === 'generated') continue;
+      walkSpecs(full, out);
+    } else if (/\.spec\.(tsx|ts)$/.test(entry)) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 function countOccurrences(pattern: RegExp): number {
   let count = 0;
   for (const file of walkSources(SRC_DIR)) {
@@ -119,5 +132,74 @@ describe('field-ergonomics invariant (MOB-MEDIUM-009)', () => {
       offenders,
       `touch targets below the 44px floor — use IconButton (min-h-touch min-w-touch):\n${offenders.join('\n')}`,
     ).toEqual([]);
+  });
+
+  it('names every icon-only button — a raw <button> whose only child is an icon adopts IconButton with aria-label', () => {
+    // FE-MEDIUM-091: IconButton (the 44px floor + a required accessible name) had
+    // three consumers against 170 raw <button>s; six of them were unlabeled
+    // icon-only targets (dismiss, back, search). A raw icon-only button without a
+    // name fails here so the primitive is the default, not the exception.
+    const ICON_ONLY = /<button\b((?:(?!>)[\s\S])*?)>\s*<[A-Z][A-Za-z0-9]*\b[^>]*?\/>\s*<\/button>/g;
+    const offenders: string[] = [];
+    for (const file of walkSources(SRC_DIR)) {
+      const source = readFileSync(file, 'utf8');
+      for (const match of source.matchAll(ICON_ONLY)) {
+        if (!/aria-label/.test(match[1] ?? '')) {
+          offenders.push(`${file.replace(SRC_DIR, 'src')}:${source.slice(0, match.index).split('\n').length}`);
+        }
+      }
+    }
+    expect(offenders, `icon-only buttons with no accessible name — use IconButton with aria-label:\n${offenders.join('\n')}`).toEqual([]);
+  });
+
+  it('has one component vocabulary — no konsta import, no global !important focus rule, gray-400 assigned per theme', () => {
+    // FE-MEDIUM-091: Konsta survived in 8 files beside 62 hand-rolled files (two
+    // vocabularies on one screen, a postinstall patch of node_modules to keep it
+    // importable); a global input:focus !important rule outranked every field
+    // state; gray-400 was Tailwind's #9ca3af (2.85:1) in 355 uses of body copy.
+    const konstaImports = walkSources(SRC_DIR).filter((file) => /from ['"]konsta/.test(readFileSync(file, 'utf8')));
+    expect(konstaImports.map((file) => file.replace(SRC_DIR, 'src'))).toEqual([]);
+    // Specs stubbed the kit too; a stub of a package nobody imports is dead
+    // weight that keeps the old vocabulary in the tree.
+    const konstaMocks = walkSpecs(SRC_DIR).filter((file) => /vi\.mock\(['"]konsta/.test(readFileSync(file, 'utf8')));
+    expect(konstaMocks.map((file) => file.replace(SRC_DIR, 'src'))).toEqual([]);
+    expect(readFileSync(join(APP_DIR, 'vite.config.ts'), 'utf8')).not.toContain('konsta');
+    expect(readFileSync(join(APP_DIR, '../../../infrastructure/docker/Dockerfile.aquamobil'), 'utf8')).not.toContain('konsta');
+    const pkg = readFileSync(join(APP_DIR, 'package.json'), 'utf8');
+    expect(pkg).not.toContain('"konsta"');
+    expect(pkg).not.toContain('patch-konsta');
+    const css = readFileSync(join(SRC_DIR, 'styles/main.css'), 'utf8');
+    expect(css).not.toMatch(/:focus[^{]*\{[^}]*!important/);
+    expect(css).toMatch(/:root\s*\{[^}]*--am-gray-400:\s*107 114 128/);
+    expect(css).toMatch(/\.dark\s*\{[^}]*--am-gray-400:\s*156 163 175/);
+    const config = readFileSync(join(APP_DIR, 'tailwind.config.js'), 'utf8');
+    expect(config).toContain("400: 'rgb(var(--am-gray-400) / <alpha-value>)'");
+    expect(config).not.toContain('konsta');
+  });
+
+  it('clears the fixed tab bar in one place — the layout, on the nav tokens; no page spacer, no raw bottom offset', () => {
+    // FE-MEDIUM-091: nav clearance was written in four values (h-24, h-20,
+    // pb-24, pb-28) across 30 sites plus bottom-20/bottom-24 on floating
+    // elements, and the one pull-to-refresh lived inside a single page.
+    const config = readFileSync(join(APP_DIR, 'tailwind.config.js'), 'utf8');
+    expect(config).toMatch(/nav: 'calc\(4rem \+ env\(safe-area-inset-bottom\)\)'/);
+    expect(config).toMatch(/'nav-gap': 'calc\(5\.5rem \+ env\(safe-area-inset-bottom\)\)'/);
+    expect(config).toMatch(/'screen-nav': 'calc\(100dvh - 5\.5rem - env\(safe-area-inset-bottom\)\)'/);
+
+    const layout = readFileSync(join(SRC_DIR, 'layouts/MobileLayout.tsx'), 'utf8');
+    expect(layout).toContain('pb-nav-gap');
+    expect(layout).toContain('usePullToRefresh(');
+    expect(layout).toContain('<PullToRefreshIndicator');
+
+    const offenders: string[] = [];
+    for (const file of walkSources(SRC_DIR)) {
+      const source = readFileSync(file, 'utf8');
+      const rel = file.replace(SRC_DIR, 'src');
+      if (/className="h-2[04]"\s*\/>/.test(source)) offenders.push(`${rel}: spacer div`);
+      if (/\bpb-2[48]\b/.test(source)) offenders.push(`${rel}: pb-24/pb-28`);
+      if (/className="[^"]*\bfixed\b[^"]*\bbottom-(?:16|20|24|28)\b/.test(source)) offenders.push(`${rel}: fixed bottom-N`);
+      if (/(?<![-\w])h-screen(?![-\w])/.test(source)) offenders.push(`${rel}: h-screen (h-screen-nav ends above the tab bar)`);
+    }
+    expect(offenders, `nav clearance belongs to MobileLayout:\n${offenders.join('\n')}`).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Badge, formatRelativeTime } from '@aquaculture/shared-ui';
+import { Card, Badge, chartChrome, colors, formatRelativeTime } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -88,9 +88,9 @@ const statusConfig: Record<
     badgeVariant: 'error',
   },
   UNKNOWN: {
-    color: 'text-gray-600',
-    bgColor: 'bg-gray-50',
-    borderColor: 'border-gray-200',
+    color: 'text-gray-600 dark:text-gray-400',
+    bgColor: 'bg-gray-50 dark:bg-gray-800',
+    borderColor: 'border-gray-200 dark:border-gray-700',
     label: 'Bilinmiyor',
     badgeVariant: 'default',
   },
@@ -215,11 +215,11 @@ const CircularGauge: React.FC<CircularGaugeProps> = ({ value, status, size = 80 
   const strokeDashoffset = circumference - (percent / 100) * circumference;
 
   const strokeColor = {
-    OPTIMAL: '#22c55e',
-    ACCEPTABLE: '#3b82f6',
-    WARNING: '#eab308',
-    CRITICAL: '#ef4444',
-    UNKNOWN: '#9ca3af',
+    OPTIMAL: colors.success[500],
+    ACCEPTABLE: colors.info[500],
+    WARNING: colors.warning[500],
+    CRITICAL: colors.error[500],
+    UNKNOWN: colors.neutral[400],
   }[status];
 
   return (
@@ -230,7 +230,7 @@ const CircularGauge: React.FC<CircularGaugeProps> = ({ value, status, size = 80 
         cy={size / 2}
         r={radius}
         fill="none"
-        stroke="#e5e7eb"
+        stroke={chartChrome.grid}
         strokeWidth={strokeWidth}
       />
       {/* Progress circle */}
@@ -301,13 +301,13 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="animate-pulse">
-          <div className="h-4 bg-gray-200 rounded w-1/3 mb-4"></div>
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-4"></div>
           <div className="flex justify-center mb-4">
-            <div className="w-20 h-20 bg-gray-200 rounded-full"></div>
+            <div className="w-20 h-20 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
           </div>
           <div className="grid grid-cols-5 gap-2">
             {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-16 bg-gray-200 rounded"></div>
+              <div key={i} className="h-16 bg-gray-200 dark:bg-gray-700 rounded"></div>
             ))}
           </div>
         </div>
@@ -325,7 +325,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
-          <p className="text-sm text-gray-600">{error}</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{error}</p>
         </div>
       </Card>
     );
@@ -336,13 +336,13 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
     return (
       <Card className={`p-4 ${className}`}>
         <div className="text-center py-8">
-          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-gray-100 flex items-center justify-center">
-            <svg className="w-6 h-6 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+            <svg className="w-6 h-6 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
             </svg>
           </div>
-          <p className="text-sm text-gray-500">Su kalitesi verisi yok</p>
-          <p className="text-xs text-gray-500 mt-1">Henüz ölçüm yapılmamış</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Su kalitesi verisi yok</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Henüz ölçüm yapılmamış</p>
         </div>
       </Card>
     );
@@ -356,11 +356,11 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-medium text-gray-900">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
             {tankName || data.tankName || 'Su Kalitesi'}
           </h3>
           {data.measuredAt && (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {formatRelativeTime(new Date(data.measuredAt))}
             </p>
           )}
@@ -395,7 +395,7 @@ export const WaterQualityGauge: React.FC<WaterQualityGaugeProps> = ({
             key={param.key}
             className={`text-center p-2 rounded-lg ${statusConfig[param.status].bgColor}`}
           >
-            <div className="text-xs text-gray-500 mb-1">{param.label}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">{param.label}</div>
             <div className={`text-sm font-semibold ${statusConfig[param.status].color}`}>
               {param.displayValue}
             </div>

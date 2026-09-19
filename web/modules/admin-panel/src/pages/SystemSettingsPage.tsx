@@ -12,7 +12,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Select, Alert } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Select, Alert, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import {
   usePlatformSettings,
@@ -153,9 +153,9 @@ const CheckboxField: React.FC<CheckboxFieldProps> = ({ label, checked, onChange,
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
       disabled={disabled}
-      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+      className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
     />
-    <span className="text-sm text-gray-700">{label}</span>
+    <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
   </label>
 );
 
@@ -168,8 +168,8 @@ const InfoGrid: React.FC<InfoGridProps> = ({ data, columns = 4 }) => (
   <div className={`grid grid-cols-2 md:grid-cols-${columns} gap-4`}>
     {Object.entries(data).map(([key, value]) => (
       <div key={key}>
-        <p className="text-xs text-gray-500 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
-        <p className="font-medium text-gray-900 text-sm break-all">{String(value)}</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+        <p className="font-medium text-gray-900 dark:text-gray-100 text-sm break-all">{String(value)}</p>
       </div>
     ))}
   </div>
@@ -312,7 +312,7 @@ const SecurityTab: React.FC<SecurityTabProps> = ({ config, onChange, onSave, sav
       />
     </div>
     <div className="space-y-3">
-      <p className="text-sm font-medium text-gray-700">Password Requirements</p>
+      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Password Requirements</p>
       <div className="flex flex-wrap gap-4">
         <CheckboxField
           label="Uppercase letter"
@@ -433,7 +433,7 @@ interface SystemInfoTabProps {
 const SystemInfoTab: React.FC<SystemInfoTabProps> = ({ info, onRefresh }) => {
   if (!info) {
     return (
-      <Card className="p-6 text-center text-gray-500">
+      <Card className="p-6 text-center text-gray-500 dark:text-gray-400">
         System information not available
       </Card>
     );
@@ -602,7 +602,7 @@ const SystemSettingsPage: React.FC = () => {
   if (isLoading && !settings) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -610,24 +610,24 @@ const SystemSettingsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">System Settings</h1>
-          <p className="mt-1 text-sm text-gray-500">Platform configuration and settings</p>
-        </div>
-        <Button
-          variant="outline"
-          onClick={() => {
-            refetch();
-          }}
-          disabled={isLoading}
-        >
-          <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          Refresh
-        </Button>
-      </div>
+      <PageHeader
+        title="System Settings"
+        description="Platform configuration and settings"
+        actions={
+          <Button
+            variant="outline"
+            onClick={() => {
+              refetch();
+            }}
+            disabled={isLoading}
+          >
+            <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Refresh
+          </Button>
+        }
+      />
 
       {/* Alerts */}
       {loadError && (
@@ -647,7 +647,7 @@ const SystemSettingsPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex space-x-4 overflow-x-auto">
           {TABS.map((tab) => (
             <button
@@ -656,7 +656,7 @@ const SystemSettingsPage: React.FC = () => {
               className={`flex items-center px-4 py-2 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
                 activeTab === tab.id
                   ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
               }`}
             >
               <TabIcon name={tab.icon} className="w-4 h-4 mr-2" />

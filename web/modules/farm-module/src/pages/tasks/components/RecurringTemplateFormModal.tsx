@@ -137,37 +137,43 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
         <div className="space-y-4">
           {/* Title */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Şablon Adı *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Şablon Adı *
+            </label>
             <input
               type="text"
               value={formData.title}
               onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               required
             />
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Açıklama
+            </label>
             <textarea
               value={formData.description}
               onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
 
           {/* Category + Priority */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Kategori *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Kategori *
+              </label>
               <select
                 value={formData.category}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, category: e.target.value as TaskCategory }))
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 {Object.entries(CATEGORY_CONFIG).map(([key, val]) => (
                   <option key={key} value={key}>
@@ -177,13 +183,15 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Öncelik *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Öncelik *
+              </label>
               <select
                 value={formData.priority}
                 onChange={(e) =>
                   setFormData((prev) => ({ ...prev, priority: e.target.value as TaskPriority }))
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 {Object.entries(PRIORITY_CONFIG).map(([key, val]) => (
                   <option key={key} value={key}>
@@ -197,7 +205,9 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
           {/* Frequency + Frequency Detail */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Sıklık *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Sıklık *
+              </label>
               <select
                 value={formData.frequency}
                 onChange={(e) =>
@@ -206,7 +216,7 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
                     frequency: e.target.value as RecurrenceFrequency,
                   }))
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 {Object.entries(FREQUENCY_CONFIG).map(([key, val]) => (
                   <option key={key} value={key}>
@@ -217,7 +227,7 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
             </div>
             {formData.frequency === 'CUSTOM' && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Saat cinsinden interval
                 </label>
                 <input
@@ -227,7 +237,7 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
                     setFormData((prev) => ({ ...prev, frequencyDetail: e.target.value }))
                   }
                   placeholder="Örn: 8 (8 saatte bir)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             )}
@@ -235,11 +245,13 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
 
           {/* Assignee */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Atanan Kişi *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Atanan Kişi *
+            </label>
             <select
               value={formData.assignedTo}
               onChange={(e) => handleAssigneeChange(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               required
             >
               <option value="">{users.length === 0 ? 'Yükleniyor...' : 'Seçin...'}</option>
@@ -254,17 +266,19 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
           {/* Location + Estimated Minutes */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Konum</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Konum
+              </label>
               <input
                 type="text"
                 value={formData.location}
                 onChange={(e) => setFormData((prev) => ({ ...prev, location: e.target.value }))}
                 placeholder="Kafes 1, Tank 2..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Tahmini Süre (dk)
               </label>
               <input
@@ -277,17 +291,19 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
                   }))
                 }
                 min={0}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
           {/* Checklist */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Kontrol Listesi</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Kontrol Listesi
+            </label>
             {formData.checklistItems.map((item) => (
               <div key={item.id} className="flex items-center gap-2 mb-1">
-                <span className="flex-1 text-sm text-gray-700 bg-gray-50 px-3 py-1.5 rounded">
+                <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 px-3 py-1.5 rounded">
                   {item.text}
                 </span>
                 <button
@@ -306,12 +322,12 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
                 onChange={(e) => setNewChecklistItem(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addChecklistItem())}
                 placeholder="Yeni madde ekle..."
-                className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
               />
               <button
                 type="button"
                 onClick={addChecklistItem}
-                className="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200"
+                className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
               >
                 Ekle
               </button>
@@ -320,18 +336,20 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
 
           {/* Tags */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Etiketler</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Etiketler
+            </label>
             <div className="flex flex-wrap gap-1 mb-2">
               {formData.tags.map((tag) => (
                 <span
                   key={tag}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700"
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300"
                 >
                   {tag}
                   <button
                     type="button"
                     onClick={() => removeTag(tag)}
-                    className="text-gray-400 hover:text-gray-600"
+                    className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300"
                   >
                     &times;
                   </button>
@@ -345,12 +363,12 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
                 onChange={(e) => setNewTag(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
                 placeholder="Etiket ekle..."
-                className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
               />
               <button
                 type="button"
                 onClick={addTag}
-                className="px-3 py-1.5 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200"
+                className="px-3 py-1.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-sm rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
               >
                 Ekle
               </button>
@@ -359,11 +377,11 @@ export const RecurringTemplateFormModal: React.FC<RecurringTemplateFormModalProp
         </div>
 
         {/* Footer */}
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-100"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             İptal
           </button>

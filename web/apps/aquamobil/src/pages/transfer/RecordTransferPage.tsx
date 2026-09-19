@@ -1,10 +1,13 @@
-import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
+import { ArrowLeftRight, AlertCircle, ChevronRight } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useEffect, ChangeEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { SectionTitle, Select, Input, Textarea } from '../../components/ui';
+
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import { useTanks } from '@/hooks/useTanks';
 import type { QueuedPayload } from '@/types';
@@ -140,17 +143,12 @@ export function RecordTransferPage(): JSX.Element {
     const qty = parseInt(quantity, 10);
     return (
       <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
-        <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-          <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-            <button onClick={() => setStep('entry')} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <ArrowLeftRight size={22} />
-              <h1 className="text-lg font-bold">Confirm Transfer</h1>
-            </div>
-          </div>
-        </div>
+        <PageHeader
+          tone="blue"
+          icon={ArrowLeftRight}
+          title="Confirm Transfer"
+          back={() => setStep('entry')}
+        />
 
         <div className="px-4 mt-5">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-800 overflow-hidden">
@@ -159,11 +157,11 @@ export function RecordTransferPage(): JSX.Element {
             </div>
             <div className="p-4 space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">From</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">From</span>
                 <span className="font-semibold text-gray-900 dark:text-white">{sourceTank?.name}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Batch</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Batch</span>
                 <span className="font-semibold text-gray-900 dark:text-white">{sourceMetrics?.batchNumber ?? '--'}</span>
               </div>
               <div className="flex justify-center">
@@ -172,19 +170,19 @@ export function RecordTransferPage(): JSX.Element {
                 </div>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">To</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">To</span>
                 <span className="font-semibold text-gray-900 dark:text-white">
                   {destTank?.name}{!destTank?.batchMetrics ? ' (Empty)' : ''}
                 </span>
               </div>
               <div className="h-px bg-gray-100 dark:bg-gray-800" />
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-500">Quantity</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">Quantity</span>
                 <span className="text-2xl font-bold text-blue-600">{qty.toLocaleString()} pcs</span>
               </div>
               {avgWeightG && (
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-500">Avg weight</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">Avg weight</span>
                   <span className="font-semibold text-gray-900 dark:text-white">{parseFloat(avgWeightG).toFixed(1)} g/fish</span>
                 </div>
               )}
@@ -192,7 +190,7 @@ export function RecordTransferPage(): JSX.Element {
                 <>
                   <div className="h-px bg-gray-100 dark:bg-gray-800" />
                   <div>
-                    <span className="text-sm text-gray-500">Reason</span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Reason</span>
                     <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{transferReason}</p>
                   </div>
                 </>
@@ -208,7 +206,7 @@ export function RecordTransferPage(): JSX.Element {
           </div>
         )}
 
-        <div className="px-4 mt-6 space-y-3 pb-28">
+        <div className="px-4 mt-6 space-y-3">
           <button
             onClick={() => { void handleSubmit(); }}
             disabled={isSubmitting}
@@ -216,7 +214,7 @@ export function RecordTransferPage(): JSX.Element {
           >
             {isSubmitting ? (
               <>
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
                 Saving...
               </>
             ) : (
@@ -246,17 +244,11 @@ export function RecordTransferPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <ArrowLeftRight size={22} />
-            <h1 className="text-lg font-bold">Transfer Record</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        tone="blue"
+        icon={ArrowLeftRight}
+        title="Transfer Record"
+      />
 
       {/* Source tank info */}
       {sourceTank && sourceMetrics && (
@@ -267,7 +259,7 @@ export function RecordTransferPage(): JSX.Element {
             </div>
             <div>
               <h3 className="font-semibold text-gray-900 dark:text-white">{sourceTank.name}</h3>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 {sourceMetrics.batchNumber ?? '--'} &middot; {(sourceMetrics.pieces ?? 0).toLocaleString()} pcs
               </p>
             </div>
@@ -287,10 +279,11 @@ export function RecordTransferPage(): JSX.Element {
       {/* WHY: Source must have an active batch — you can only transfer fish that exist in a batch context */}
       {!tankId && (
         <>
-          <BlockTitle>Source Tank</BlockTitle>
-          <List strongIos insetIos>
-            <ListInput
-              type="select"
+          <SectionTitle>Source Tank</SectionTitle>
+          <div className="px-4">
+            <Select
+              label="Source tank"
+              hideLabel
               value={sourceTankId}
               onChange={(e: ChangeEvent<HTMLSelectElement>) => {
                 setSourceTankId(e.target.value);
@@ -312,9 +305,8 @@ export function RecordTransferPage(): JSX.Element {
                   {t.name} (No active batch)
                 </option>
               ))}
-            </ListInput>
-          </List>
-          {errors.sourceTank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.sourceTank}</p>}
+            </Select>
+          </div>
           {/* FIX: Inform user when all tanks lack active batches — prevents confusion when
               every dropdown option is disabled and no selection is possible. */}
           {tanks && tanks.length > 0 && tanks.every((t) => !t.batchMetrics) && (
@@ -333,10 +325,11 @@ export function RecordTransferPage(): JSX.Element {
       {/* Destination tank selector */}
       {/* WHY: Destination tanks are sorted — empty tanks first (ideal transfer targets), then tanks with
           batches. The source tank is excluded to prevent self-transfer. Capacity info helps users choose. */}
-      <BlockTitle>Destination Tank</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="select"
+      <SectionTitle>Destination Tank</SectionTitle>
+      <div className="px-4">
+        <Select
+          label="Destination tank"
+          hideLabel
           value={destinationTankId}
           onChange={(e: ChangeEvent<HTMLSelectElement>) => {
             setDestinationTankId(e.target.value);
@@ -357,54 +350,58 @@ export function RecordTransferPage(): JSX.Element {
               {t.name} - {t.batchMetrics?.batchNumber} ({(t.batchMetrics?.pieces ?? 0).toLocaleString()} fish)
             </option>
           ))}
-        </ListInput>
-      </List>
-      {errors.destinationTank && <p className="text-red-500 text-sm px-4 -mt-2">{errors.destinationTank}</p>}
+        </Select>
+      </div>
 
       {/* Quantity */}
-      <BlockTitle>Quantity</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
+      <SectionTitle>Quantity</SectionTitle>
+      <div className="px-4">
+        <Input
+          label="Quantity"
+          hideLabel
           type="number"
+          inputMode="numeric"
           placeholder="Number of pieces to transfer"
           value={quantity}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => {
+          onChange={(e: ChangeEvent<HTMLInputElement>) => {
             setQuantity(e.target.value);
             setErrors((prev) => ({ ...prev, quantity: undefined }));
           }}
           error={errors.quantity}
         />
-      </List>
-      {errors.quantity && <p className="text-red-500 text-sm px-4 -mt-2">{errors.quantity}</p>}
+      </div>
 
       {/* Average weight per fish (grams) */}
       {/* WHY: the backend derives total biomass from quantity x avgWeightG, so we
           ask for average weight, not total biomass. Pre-filled from the source
           batch average; override only if the transferred fish differ in size. */}
-      <BlockTitle>Average Weight (g/fish) - Optional</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
+      <SectionTitle>Average Weight (g/fish) - Optional</SectionTitle>
+      <div className="px-4">
+        <Input
+          label="Average weight (g/fish)"
+          hideLabel
           type="number"
+          inputMode="decimal"
           placeholder="Average weight per fish in grams"
           value={avgWeightG}
-          onInput={(e: ChangeEvent<HTMLInputElement>) => setAvgWeightG(e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setAvgWeightG(e.target.value)}
         />
-      </List>
+      </div>
 
       {/* Transfer reason */}
-      <BlockTitle>Transfer Reason (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
+      <SectionTitle>Transfer Reason (Optional)</SectionTitle>
+      <div className="px-4">
+        <Textarea
+          label="Transfer reason"
+          hideLabel
           placeholder="Transfer reason..."
           value={transferReason}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setTransferReason(e.target.value)}
-          inputClassName="!h-20"
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setTransferReason(e.target.value)}
         />
-      </List>
+      </div>
 
       {/* WHY: "Review" button triggers confirmation step — transfer operations affect two tanks simultaneously */}
-      <div className="px-4 pb-28">
+      <div className="px-4">
         <button
           onClick={handleReview}
           disabled={!sourceTankId || !destinationTankId || !quantity}

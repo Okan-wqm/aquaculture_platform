@@ -10,7 +10,8 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Upload, X, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { Upload, CheckCircle, AlertCircle } from 'lucide-react';
 
 import { graphqlFetch } from '../../config/api';
 import { AUTOMATION_PROGRAMS_QUERY, DEPLOY_PROGRAM_MUTATION } from '../../graphql/automation.queries';
@@ -103,23 +104,18 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md mx-4">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-            <Upload className="w-5 h-5 text-indigo-600" />
-            Deploy Automation
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-            aria-label="Close"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="sm"
+      bodyClassName=""
+      title={
+        <span className="flex items-center gap-2">
+          <Upload className="w-5 h-5 text-indigo-600" />
+          Deploy Automation
+        </span>
+      }
+    >
 
         {/* Content */}
         <div className="p-4 space-y-4">
@@ -147,17 +143,17 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
 
           {/* Program selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Automation Program</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Automation Program</label>
             {loading ? (
-              <div className="flex items-center gap-2 py-2 text-gray-500">
-                <Loader2 className="w-4 h-4 animate-spin" />
+              <div className="flex items-center gap-2 py-2 text-gray-500 dark:text-gray-400">
+                <Spinner size="sm" color="inherit" />
                 <span className="text-sm">Loading programs...</span>
               </div>
             ) : (
               <select
                 value={selectedProgramId}
                 onChange={(e) => setSelectedProgramId(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
                 <option value="">Select program...</option>
                 {programs.map((p) => (
@@ -168,7 +164,7 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
               </select>
             )}
             {!loading && programs.length === 0 && (
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 No approved programs found. Create and approve a program first.
               </p>
             )}
@@ -176,11 +172,11 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
 
           {/* Target device selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Target Device</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target Device</label>
             <select
               value={selectedDeviceId}
               onChange={(e) => setSelectedDeviceId(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
             >
               <option value="">Select device...</option>
               {boundDevices.map((d) => (
@@ -190,7 +186,7 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
               ))}
             </select>
             {boundDevices.length === 0 && (
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 No devices bound to this process. Bind edge devices to equipment nodes first.
               </p>
             )}
@@ -198,10 +194,10 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-gray-200 flex justify-end gap-2 bg-gray-50 rounded-b-lg">
+        <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-2 bg-gray-50 dark:bg-gray-800 rounded-b-lg">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {deployResult?.success ? 'Close' : 'Cancel'}
           </button>
@@ -217,7 +213,7 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
             >
               {deploying ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Spinner size="sm" color="inherit" />
                   Deploying...
                 </>
               ) : (
@@ -229,8 +225,7 @@ export const DeployAutomationModal: React.FC<DeployAutomationModalProps> = ({
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

@@ -9,6 +9,7 @@
 import React, { memo, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 // SVG sanitizasyon konfigurasyonu -- XSS vektorlerini engeller
 // Security config: foreignObject, script, iframe gibi tehlikeli tag'lar yasakli
@@ -50,8 +51,8 @@ const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
     return (
       <div style={{
         width, height, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#f8fafc', border: '2px dashed #d1d5db', borderRadius: 8,
-        color: '#9ca3af', fontSize: 11, textAlign: 'center', padding: 8,
+        background: colors.neutral[50], border: `2px dashed ${themeColors.neutral[300]}`, borderRadius: 8,
+        color: colors.neutral[400], fontSize: 11, textAlign: 'center', padding: 8,
       }}>
         No SVG uploaded
       </div>
@@ -76,13 +77,13 @@ const CustomSvgRenderer: React.FC<WidgetRendererProps> = ({
   return (
     <div style={style}>
       <div
-        style={{ width: '100%', height: '100%' }}
+        className="w-full h-full"
         dangerouslySetInnerHTML={{ __html: safeSvg }}
       />
       {label && (
         <div style={{
           position: 'absolute', bottom: 2, left: 0, right: 0,
-          textAlign: 'center', fontSize: 10, color: '#6b7280',
+          textAlign: 'center', fontSize: 10, color: colors.gray[400],
         }}>
           {label}
         </div>

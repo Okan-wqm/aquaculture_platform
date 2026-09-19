@@ -75,15 +75,15 @@ export const ConnectionPointContextMenu: React.FC<ConnectionPointContextMenuProp
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 bg-white rounded-lg shadow-lg border border-gray-200 py-1 min-w-[160px]"
+      className="fixed z-50 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
       style={{
         left: position.x,
         top: position.y,
       }}
     >
       {/* Header */}
-      <div className="px-3 py-2 border-b border-gray-100">
-        <span className="text-xs font-medium text-gray-500">
+      <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700">
+        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
           {positionLabels[connectionPointId]} Bağlantı Noktası
         </span>
       </div>
@@ -94,8 +94,8 @@ export const ConnectionPointContextMenu: React.FC<ConnectionPointContextMenuProp
           onClick={handleSetInput}
           className={`
             w-full px-3 py-2 text-left text-sm flex items-center gap-2
-            hover:bg-gray-50 transition-colors
-            ${currentType === 'input' ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}
+            hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
+            ${currentType === 'input' ? 'bg-blue-50 text-blue-700' : 'text-gray-700 dark:text-gray-300'}
           `}
         >
           <span
@@ -114,8 +114,8 @@ export const ConnectionPointContextMenu: React.FC<ConnectionPointContextMenuProp
           onClick={handleSetOutput}
           className={`
             w-full px-3 py-2 text-left text-sm flex items-center gap-2
-            hover:bg-gray-50 transition-colors
-            ${currentType === 'output' ? 'bg-green-50 text-green-700' : 'text-gray-700'}
+            hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors
+            ${currentType === 'output' ? 'bg-green-50 text-green-700' : 'text-gray-700 dark:text-gray-300'}
           `}
         >
           <span

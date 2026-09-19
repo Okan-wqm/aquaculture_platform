@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, LayoutGrid, Activity, Settings } from 'lucide-react';
-import { useAuth, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import { useAuth, tenantScopedStorageKey, Spinner } from '@aquaculture/shared-ui';
 import { GridStackDashboard, DashboardLayout } from '../components/dashboard/GridStackDashboard';
 
 // ============================================================================
@@ -61,32 +61,32 @@ const WidgetDashboardPage: React.FC = () => {
 
   if (!layoutLoaded) {
     return (
-      <div className="h-screen flex items-center justify-center bg-gray-100">
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
+      <div className="h-screen flex items-center justify-center bg-gray-100 dark:bg-gray-800">
+        <Spinner size="lg" />
       </div>
     );
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-100">
+    <div className="h-screen flex flex-col bg-gray-100 dark:bg-gray-800">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3">
+      <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
         <div className="flex items-center justify-between">
           {/* Left: Back and title */}
           <div className="flex items-center gap-4">
             <Link
               to="/sensor"
-              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+              className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
             >
               <ArrowLeft size={20} />
               <span className="text-sm">SCADA</span>
             </Link>
-            <div className="h-8 w-px bg-gray-200" />
+            <div className="h-8 w-px bg-gray-200 dark:bg-gray-700" />
             <div className="flex items-center gap-2">
               <LayoutGrid size={24} className="text-cyan-600" />
               <div>
-                <h1 className="text-xl font-bold text-gray-900">Widget Dashboard</h1>
-                <p className="text-xs text-gray-500">
+                <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Widget Dashboard</h1>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Sürükle-bırak özelleştirilebilir sensör gösterge paneli
                 </p>
               </div>
@@ -97,14 +97,14 @@ const WidgetDashboardPage: React.FC = () => {
           <div className="flex items-center gap-3">
             <Link
               to="/sensor/scada"
-              className="flex items-center gap-2 px-3 py-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
               <Activity size={16} />
               <span className="text-sm">SCADA Görünümü</span>
             </Link>
             <Link
               to="/sensor/devices"
-              className="flex items-center gap-2 px-3 py-1.5 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-3 py-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
             >
               <Settings size={16} />
               <span className="text-sm">Cihazlar</span>

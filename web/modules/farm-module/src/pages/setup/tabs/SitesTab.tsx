@@ -10,6 +10,7 @@ import {
   AffectedItemGroup,
   useCanMutate,
   useToast,
+  Spinner,
 } from '@aquaculture/shared-ui';
 import { SiteFormModal, type SiteFormData } from '../components/SiteFormModal';
 import {
@@ -26,7 +27,7 @@ import {
 const statusColors: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
   MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  INACTIVE: 'bg-gray-100 text-gray-800',
+  INACTIVE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   CLOSED: 'bg-blue-100 text-blue-800',
 };
 
@@ -317,10 +318,10 @@ export const SitesTab: React.FC = () => {
             placeholder="Search sites..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           />
           <svg
-            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+            className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -354,7 +355,7 @@ export const SitesTab: React.FC = () => {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
@@ -374,27 +375,29 @@ export const SitesTab: React.FC = () => {
           {filteredSites.map((site) => (
             <div
               key={site.id}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow"
+              className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow"
             >
               <div className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-lg font-semibold text-gray-900">{site.name}</h3>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                        {site.name}
+                      </h3>
                       <span
                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[site.status]}`}
                       >
                         {site.status}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500 mt-1">{site.code}</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{site.code}</p>
                   </div>
                   {(canUpdateSite || canDeleteSite) && (
                     <div className="flex items-center space-x-2">
                       {canUpdateSite && (
                         <button
                           onClick={() => handleEdit(site)}
-                          className="p-1 text-gray-400 hover:text-blue-600 transition-colors"
+                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-blue-600 transition-colors"
                           title="Edit"
                         >
                           <svg
@@ -415,7 +418,7 @@ export const SitesTab: React.FC = () => {
                       {canDeleteSite && (
                         <button
                           onClick={() => handleDelete(site)}
-                          className="p-1 text-gray-400 hover:text-red-600 transition-colors"
+                          className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600 transition-colors"
                           title="Delete"
                         >
                           <svg
@@ -438,9 +441,9 @@ export const SitesTab: React.FC = () => {
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  <div className="flex items-center text-sm text-gray-600">
+                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                     <svg
-                      className="w-4 h-4 mr-2 text-gray-400"
+                      className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -460,9 +463,9 @@ export const SitesTab: React.FC = () => {
                     </svg>
                     {site.region}, {site.country}
                   </div>
-                  <div className="flex items-center text-sm text-gray-600">
+                  <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                     <svg
-                      className="w-4 h-4 mr-2 text-gray-400"
+                      className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -477,9 +480,9 @@ export const SitesTab: React.FC = () => {
                     {site.totalArea?.toLocaleString()} m²
                   </div>
                   {site.contactEmail && (
-                    <div className="flex items-center text-sm text-gray-600">
+                    <div className="flex items-center text-sm text-gray-600 dark:text-gray-400">
                       <svg
-                        className="w-4 h-4 mr-2 text-gray-400"
+                        className="w-4 h-4 mr-2 text-gray-400 dark:text-gray-500"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -497,8 +500,8 @@ export const SitesTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 rounded-b-lg">
-                <div className="flex justify-between items-center text-xs text-gray-500">
+              <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg">
+                <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
                   <span>Created: {new Date(site.createdAt).toLocaleDateString()}</span>
                   <button
                     className="text-blue-600 hover:text-blue-800 font-medium"
@@ -517,7 +520,7 @@ export const SitesTab: React.FC = () => {
       {!isLoading && !error && filteredSites.length === 0 && (
         <div className="text-center py-12">
           <svg
-            className="mx-auto h-12 w-12 text-gray-400"
+            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -529,8 +532,10 @@ export const SitesTab: React.FC = () => {
               d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"
             />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No sites found</h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+            No sites found
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             {searchTerm
               ? 'Try adjusting your search terms.'
               : 'Get started by creating a new site.'}

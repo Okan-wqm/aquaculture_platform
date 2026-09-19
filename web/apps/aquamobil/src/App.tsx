@@ -4,6 +4,7 @@ import { Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { InstallPrompt } from './components/InstallPrompt';
 import { MultiFeatureRoute } from './components/MultiFeatureRoute';
+import { UpdatePrompt } from './components/UpdatePrompt';
 import { useAuth } from './hooks/useAuth';
 import { MobilePermissionsProvider, useMobilePermissions, type MobileFeature } from './hooks/useMobilePermissions';
 import { useSwNavigation } from './hooks/useSwNavigation';
@@ -12,6 +13,8 @@ import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { isFeatureAccessible } from './utils/feature-access';
+
+import { Spinner } from '@/components/ui/Spinner';
 
 /**
  * BUG-16: Redirect component that captures :tankId param and forwards it to /cull/record/:tankId.
@@ -149,7 +152,7 @@ const StaffHubPage = lazy(() =>
 function PageLoader(): ReactElement {
   return (
     <div className="flex items-center justify-center min-h-[50vh]">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-aqua-500" />
+      <Spinner size="lg" />
     </div>
   );
 }
@@ -160,7 +163,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }): ReactEleme
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-aqua-500" />
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -210,6 +213,7 @@ export function App(): ReactElement {
   return (
     <>
       <InstallPrompt />
+      <UpdatePrompt />
       {/* PERF-03: MobilePermissionsProvider wraps all protected routes so permissions
           are fetched exactly once and shared to all consumers via context. */}
       <MobilePermissionsProvider>

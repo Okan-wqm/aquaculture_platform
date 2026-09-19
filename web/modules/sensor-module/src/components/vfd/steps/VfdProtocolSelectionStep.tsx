@@ -5,6 +5,7 @@ import {
   VFD_PROTOCOL_NAMES,
   VFD_PROTOCOL_DESCRIPTIONS,
 } from '../../../types/vfd.types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 interface VfdProtocolSelectionStepProps {
   brand: VfdBrandInfo;
@@ -29,8 +30,8 @@ const PROTOCOL_CONFIG: Record<
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
       </svg>
     ),
-    color: '#F59E0B',
-    bgColor: '#FEF3C7',
+    color: themeColors.warning[500],
+    bgColor: themeColors.warning[100],
     connectionType: 'serial',
     speed: 'low',
   },
@@ -40,8 +41,8 @@ const PROTOCOL_CONFIG: Record<
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
       </svg>
     ),
-    color: '#3B82F6',
-    bgColor: '#DBEAFE',
+    color: themeColors.info[500],
+    bgColor: themeColors.info[100],
     connectionType: 'ethernet',
     speed: 'medium',
   },
@@ -51,8 +52,8 @@ const PROTOCOL_CONFIG: Record<
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
       </svg>
     ),
-    color: '#8B5CF6',
-    bgColor: '#EDE9FE',
+    color: themeColors.primary[700],
+    bgColor: themeColors.primary[50],
     connectionType: 'fieldbus',
     speed: 'high',
   },
@@ -62,8 +63,8 @@ const PROTOCOL_CONFIG: Record<
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
       </svg>
     ),
-    color: '#10B981',
-    bgColor: '#D1FAE5',
+    color: themeColors.success[500],
+    bgColor: themeColors.success[100],
     connectionType: 'ethernet',
     speed: 'high',
   },
@@ -73,8 +74,8 @@ const PROTOCOL_CONFIG: Record<
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
       </svg>
     ),
-    color: '#EC4899',
-    bgColor: '#FCE7F3',
+    color: themeColors.accent[500],
+    bgColor: themeColors.error[50],
     connectionType: 'ethernet',
     speed: 'high',
   },
@@ -84,8 +85,8 @@ const PROTOCOL_CONFIG: Record<
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
       </svg>
     ),
-    color: '#6366F1',
-    bgColor: '#E0E7FF',
+    color: themeColors.primary[500],
+    bgColor: themeColors.info[100],
     connectionType: 'fieldbus',
     speed: 'medium',
   },
@@ -95,8 +96,8 @@ const PROTOCOL_CONFIG: Record<
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
       </svg>
     ),
-    color: '#14B8A6',
-    bgColor: '#CCFBF1',
+    color: themeColors.secondary[600],
+    bgColor: themeColors.success[100],
     connectionType: 'ethernet',
     speed: 'medium',
   },
@@ -106,8 +107,8 @@ const PROTOCOL_CONFIG: Record<
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
       </svg>
     ),
-    color: '#0D9488',
-    bgColor: '#CCFBF1',
+    color: themeColors.success[600],
+    bgColor: themeColors.success[100],
     connectionType: 'serial',
     speed: 'low',
   },
@@ -144,11 +145,11 @@ export function VfdProtocolSelectionStep({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-medium text-gray-900 mb-2">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
           İletişim Protokolü Seçin
         </h3>
-        <p className="text-sm text-gray-500">
-          <span className="font-medium text-gray-700">{brand.name}</span> cihazınız için
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          <span className="font-medium text-gray-700 dark:text-gray-300">{brand.name}</span> cihazınız için
           desteklenen iletişim protokollerinden birini seçin.
         </p>
       </div>
@@ -220,18 +221,18 @@ export function VfdProtocolSelectionStep({
               {PROTOCOL_CONFIG[selectedProtocol]?.icon}
             </div>
             <div>
-              <h4 className="font-semibold text-gray-900">
+              <h4 className="font-semibold text-gray-900 dark:text-gray-100">
                 {VFD_PROTOCOL_NAMES[selectedProtocol]}
               </h4>
-              <p className="text-sm text-gray-600 mt-1">
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                 {VFD_PROTOCOL_DESCRIPTIONS[selectedProtocol]}
               </p>
               <div className="mt-2 flex items-center gap-3 text-xs">
-                <span className="flex items-center px-2 py-1 bg-white rounded border border-blue-200">
+                <span className="flex items-center px-2 py-1 bg-white dark:bg-gray-900 rounded border border-blue-200">
                   {CONNECTION_TYPE_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.connectionType]?.icon}{' '}
                   {CONNECTION_TYPE_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.connectionType]?.label}
                 </span>
-                <span className={`flex items-center px-2 py-1 bg-white rounded border border-blue-200 ${SPEED_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.speed]?.color}`}>
+                <span className={`flex items-center px-2 py-1 bg-white dark:bg-gray-900 rounded border border-blue-200 ${SPEED_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.speed]?.color}`}>
                   Hız: {SPEED_LABELS[PROTOCOL_CONFIG[selectedProtocol]?.speed]?.label}
                 </span>
               </div>
@@ -267,7 +268,7 @@ function ProtocolGroup({
       <div className="flex items-center mb-3">
         <span className="text-lg mr-2">{icon}</span>
         <div>
-          <h4 className="text-sm font-medium text-gray-700 flex items-center">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center">
             {title}
             {recommended && (
               <span className="ml-2 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
@@ -275,7 +276,7 @@ function ProtocolGroup({
               </span>
             )}
           </h4>
-          <p className="text-xs text-gray-500">{description}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">{description}</p>
         </div>
       </div>
 
@@ -291,7 +292,7 @@ function ProtocolGroup({
               className={`relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md ${
                 isSelected
                   ? 'border-blue-500 bg-blue-50 shadow-md'
-                  : 'border-gray-200 bg-white hover:border-gray-300'
+                  : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500'
               }`}
             >
               <div className="flex items-start">
@@ -302,10 +303,10 @@ function ProtocolGroup({
                   {config?.icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h5 className="font-medium text-gray-900 text-sm">
+                  <h5 className="font-medium text-gray-900 dark:text-gray-100 text-sm">
                     {VFD_PROTOCOL_NAMES[protocol]}
                   </h5>
-                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">
                     {VFD_PROTOCOL_DESCRIPTIONS[protocol]}
                   </p>
                 </div>

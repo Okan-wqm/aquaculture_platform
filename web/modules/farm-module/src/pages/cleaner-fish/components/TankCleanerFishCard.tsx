@@ -39,10 +39,10 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6 animate-pulse">
-        <div className="h-4 bg-gray-200 rounded w-3/4 mb-4" />
-        <div className="h-8 bg-gray-200 rounded w-1/2 mb-4" />
-        <div className="h-20 bg-gray-200 rounded" />
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 animate-pulse">
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4 mb-4" />
+        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-4" />
+        <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded" />
       </div>
     );
   }
@@ -52,11 +52,11 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
   // card and surfaces a non-blocking strip below (stale-on-error).
   if (isBlockingError(error, Boolean(tankInfo))) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="font-medium text-gray-900">{tankName}</h3>
-            <p className="text-sm text-gray-500">{tankCode}</p>
+            <h3 className="font-medium text-gray-900 dark:text-gray-100">{tankName}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{tankCode}</p>
           </div>
         </div>
         <p className="text-sm text-red-500">Failed to load cleaner fish info</p>
@@ -67,7 +67,7 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
   const hasCleanerFish = tankInfo && tankInfo.cleanerFishQuantity > 0;
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
+    <div className="bg-white dark:bg-gray-900 rounded-lg shadow overflow-hidden">
       {/* Non-blocking refresh error — keeps the last-loaded card visible. */}
       {error && (
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2">
@@ -84,11 +84,11 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
       )}
 
       {/* Header */}
-      <div className="px-4 py-4 border-b border-gray-200">
+      <div className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-medium text-gray-900">{tankName}</h3>
-            <p className="text-sm text-gray-500">{tankCode}</p>
+            <h3 className="font-medium text-gray-900 dark:text-gray-100">{tankName}</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{tankCode}</p>
           </div>
           <div className="text-right">
             {hasCleanerFish ? (
@@ -96,10 +96,10 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
                 <p className="text-2xl font-bold text-blue-600">
                   {tankInfo.cleanerFishQuantity.toLocaleString()}
                 </p>
-                <p className="text-xs text-gray-500">fish</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">fish</p>
               </>
             ) : (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
                 No cleaner fish
               </span>
             )}
@@ -109,17 +109,17 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
 
       {/* Summary Stats */}
       {hasCleanerFish && (
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-500">Biomass:</span>{' '}
-              <span className="font-medium text-gray-900">
+              <span className="text-gray-500 dark:text-gray-400">Biomass:</span>{' '}
+              <span className="font-medium text-gray-900 dark:text-gray-100">
                 {tankInfo.cleanerFishBiomassKg.toFixed(1)} kg
               </span>
             </div>
             <div>
-              <span className="text-gray-500">Ratio:</span>{' '}
-              <span className="font-medium text-gray-900">
+              <span className="text-gray-500 dark:text-gray-400">Ratio:</span>{' '}
+              <span className="font-medium text-gray-900 dark:text-gray-100">
                 {(tankInfo.cleanerFishRatio * 100).toFixed(1)}%
               </span>
             </div>
@@ -129,25 +129,25 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
 
       {/* Details List */}
       {hasCleanerFish && (
-        <div className="divide-y divide-gray-100">
+        <div className="divide-y divide-gray-100 dark:divide-gray-700">
           {tankInfo.details.map((detail) => (
             <div key={detail.batchId} className="px-4 py-3">
               <div className="flex items-center justify-between mb-2">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900">{detail.speciesName}</h4>
-                  <p className="text-xs text-gray-500">{detail.batchNumber}</p>
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">{detail.speciesName}</h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{detail.batchNumber}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold text-gray-900">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">
                     {detail.quantity.toLocaleString()}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
                     {detail.biomassKg.toFixed(1)} kg
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
+              <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-2">
                 <span>
                   Deployed: {formatDate(detail.deployedAt)}
                 </span>
@@ -210,10 +210,10 @@ export const TankCleanerFishCard: React.FC<TankCleanerFishCardProps> = ({
               d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"
             />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             No cleaner fish deployed
           </p>
-          <p className="text-xs text-gray-400">
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             Deploy cleaner fish from the Batches tab
           </p>
         </div>

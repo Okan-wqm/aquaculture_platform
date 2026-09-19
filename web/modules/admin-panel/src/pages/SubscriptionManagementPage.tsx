@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   SubscriptionOverview,
@@ -66,6 +66,18 @@ const SubscriptionManagementPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const closeCancelModal = (): void => {
+    setShowCancelModal(false);
+    setSelectedSubscription(null);
+    setCancelReason('');
+  };
+
+  const closeExtendTrialModal = (): void => {
+    setShowExtendTrialModal(false);
+    setSelectedSubscription(null);
+    setTrialDays(7);
   };
 
   const handleCancelSubscription = async () => {
@@ -153,57 +165,140 @@ const SubscriptionManagementPage: React.FC = () => {
     );
   }
 
+  const subscriptionColumns: DataTableColumn<SubscriptionOverview>[] = [
+    {
+      key: 'tenantName',
+      header: 'Tenant',
+      render: (_value, sub) => (
+        <>
+          <div className="font-medium text-gray-900 dark:text-gray-100">{sub.tenantName}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{sub.tenantId.substring(0, 8)}...</div>
+        </>
+      ),
+    },
+    {
+      key: 'planName',
+      header: 'Plan',
+      render: (_value, sub) => (
+        <>
+          <div className="font-medium">{sub.planName}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{sub.planTier}</div>
+        </>
+      ),
+    },
+    { key: 'status', header: 'Status', render: (_value, sub) => getStatusBadge(sub.status) },
+    {
+      key: 'monthlyPrice',
+      header: 'Billing',
+      render: (_value, sub) => (
+        <>
+          <div>{formatCurrency(sub.monthlyPrice)}/mo</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{sub.billingCycle}</div>
+        </>
+      ),
+    },
+    {
+      key: 'currentPeriodEnd',
+      header: 'Period End',
+      render: (_value, sub) => <span className="text-sm text-gray-500 dark:text-gray-400">{formatDate(sub.currentPeriodEnd)}</span>,
+    },
+    {
+      key: 'autoRenew',
+      header: 'Auto Renew',
+      render: (_value, sub) => (sub.autoRenew ? <Badge variant="success">Yes</Badge> : <Badge variant="default">No</Badge>),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, sub) => (
+        <div className="flex gap-2 justify-end">
+          {sub.status === SubscriptionStatus.TRIAL && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSelectedSubscription(sub);
+                setShowExtendTrialModal(true);
+              }}
+            >
+              Extend Trial
+            </Button>
+          )}
+          {sub.status === SubscriptionStatus.CANCELLED && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleReactivate(sub.tenantId)}
+            >
+              Reactivate
+            </Button>
+          )}
+          {(sub.status === SubscriptionStatus.ACTIVE ||
+            sub.status === SubscriptionStatus.TRIAL) && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => {
+                setSelectedSubscription(sub);
+                setShowCancelModal(true);
+              }}
+            >
+              Cancel
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Subscription Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage tenant subscriptions, billing cycles, and plan changes
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Subscription Management"
+        description="Manage tenant subscriptions, billing cycles, and plan changes"
+      />
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">MRR</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">MRR</div>
             <div className="mt-1 text-2xl font-bold text-green-600">
               {formatCurrency(stats.mrr)}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               ARR: {formatCurrency(stats.arr)}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Total Subscriptions</div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Subscriptions</div>
+            <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {stats.totalSubscriptions}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Active: {stats.byStatus[SubscriptionStatus.ACTIVE] || 0}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Churn Rate</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Churn Rate</div>
             <div className="mt-1 text-2xl font-bold text-orange-600">
               {stats.churnRate.toFixed(1)}%
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Trial Conversion: {stats.trialConversionRate.toFixed(1)}%
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Attention Needed</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Attention Needed</div>
             <div className="mt-1 text-2xl font-bold text-red-600">
               {stats.pastDueCount}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Expiring this month: {stats.expiringThisMonth}
             </div>
           </Card>
@@ -218,7 +313,7 @@ const SubscriptionManagementPage: React.FC = () => {
             {Object.entries(stats.byStatus).map(([status, count]) => (
               <div
                 key={status}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg"
+                className="flex items-center gap-2 px-4 py-2 bg-gray-50 dark:bg-gray-800 rounded-lg"
               >
                 {getStatusBadge(status as SubscriptionStatus)}
                 <span className="font-semibold">{count}</span>
@@ -243,7 +338,7 @@ const SubscriptionManagementPage: React.FC = () => {
           </div>
 
           <select
-            className="px-3 py-2 border border-gray-300 rounded-lg"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value as SubscriptionStatus | '');
@@ -259,7 +354,7 @@ const SubscriptionManagementPage: React.FC = () => {
           </select>
 
           <select
-            className="px-3 py-2 border border-gray-300 rounded-lg"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
             value={planFilter}
             onChange={(e) => {
               setPlanFilter(e.target.value as PlanTier | '');
@@ -277,222 +372,94 @@ const SubscriptionManagementPage: React.FC = () => {
       </Card>
 
       {/* Subscriptions Table */}
-      <Card>
-        {loading ? (
-          <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Tenant
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Plan
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Billing
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Period End
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Auto Renew
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {subscriptions.map((sub) => (
-                  <tr key={sub.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium text-gray-900">{sub.tenantName}</div>
-                      <div className="text-sm text-gray-500">{sub.tenantId.substring(0, 8)}...</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="font-medium">{sub.planName}</div>
-                      <div className="text-sm text-gray-500">{sub.planTier}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getStatusBadge(sub.status)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div>{formatCurrency(sub.monthlyPrice)}/mo</div>
-                      <div className="text-sm text-gray-500">{sub.billingCycle}</div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {formatDate(sub.currentPeriodEnd)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {sub.autoRenew ? (
-                        <Badge variant="success">Yes</Badge>
-                      ) : (
-                        <Badge variant="default">No</Badge>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <div className="flex gap-2 justify-end">
-                        {sub.status === SubscriptionStatus.TRIAL && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedSubscription(sub);
-                              setShowExtendTrialModal(true);
-                            }}
-                          >
-                            Extend Trial
-                          </Button>
-                        )}
-                        {sub.status === SubscriptionStatus.CANCELLED && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleReactivate(sub.tenantId)}
-                          >
-                            Reactivate
-                          </Button>
-                        )}
-                        {(sub.status === SubscriptionStatus.ACTIVE ||
-                          sub.status === SubscriptionStatus.TRIAL) && (
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedSubscription(sub);
-                              setShowCancelModal(true);
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
-              Showing {(page - 1) * limit + 1} to {Math.min(page * limit, total)} of {total} results
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page === 1}
-                onClick={() => setPage(page - 1)}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page === totalPages}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        )}
-      </Card>
+      <DataTable<SubscriptionOverview>
+        data={subscriptions}
+        columns={subscriptionColumns}
+        keyExtractor={(sub) => sub.id}
+        loading={loading}
+        loadingMessage="Loading subscriptions..."
+        emptyMessage="No subscriptions found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        pagination={{ page, limit, total, totalPages }}
+        onPageChange={setPage}
+      />
 
       {/* Cancel Modal */}
       {showCancelModal && selectedSubscription && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Cancel Subscription</h3>
-            <p className="text-gray-600 mb-4">
-              Are you sure you want to cancel the subscription for{' '}
-              <strong>{selectedSubscription.tenantName}</strong>?
-            </p>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Cancellation Reason
-              </label>
-              <textarea
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                rows={3}
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Enter the reason for cancellation..."
-              />
-            </div>
-            <div className="flex gap-3 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowCancelModal(false);
-                  setSelectedSubscription(null);
-                  setCancelReason('');
-                }}
-              >
+        <Modal
+          isOpen
+          onClose={closeCancelModal}
+          size="sm"
+          title="Cancel Subscription"
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeCancelModal}>
                 Cancel
               </Button>
-              <Button
-                variant="danger"
-                onClick={handleCancelSubscription}
-                disabled={!cancelReason}
-              >
+              <Button variant="danger" onClick={handleCancelSubscription} disabled={!cancelReason}>
                 Confirm Cancellation
               </Button>
-            </div>
-          </Card>
-        </div>
+            </>
+          }
+        >
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            Are you sure you want to cancel the subscription for{' '}
+            <strong>{selectedSubscription.tenantName}</strong>?
+          </p>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Cancellation Reason
+            </label>
+            <textarea
+              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+              rows={3}
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Enter the reason for cancellation..."
+            />
+          </div>
+        </Modal>
       )}
 
       {/* Extend Trial Modal */}
       {showExtendTrialModal && selectedSubscription && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-md p-6">
-            <h3 className="text-lg font-semibold mb-4">Extend Trial Period</h3>
-            <p className="text-gray-600 mb-4">
-              Extend the trial period for{' '}
-              <strong>{selectedSubscription.tenantName}</strong>
-            </p>
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Additional Days
-              </label>
-              <Input
-                type="number"
-                min={1}
-                max={90}
-                value={trialDays}
-                onChange={(e) => setTrialDays(parseInt(e.target.value, 10) || 0)}
-              />
-            </div>
-            <div className="flex gap-3 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowExtendTrialModal(false);
-                  setSelectedSubscription(null);
-                  setTrialDays(7);
-                }}
-              >
+        <Modal
+          isOpen
+          onClose={closeExtendTrialModal}
+          size="sm"
+          title="Extend Trial Period"
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeExtendTrialModal}>
                 Cancel
               </Button>
               <Button onClick={handleExtendTrial} disabled={trialDays <= 0}>
                 Extend Trial
               </Button>
-            </div>
-          </Card>
-        </div>
+            </>
+          }
+        >
+          <p className="text-gray-600 dark:text-gray-400 mb-4">
+            Extend the trial period for{' '}
+            <strong>{selectedSubscription.tenantName}</strong>
+          </p>
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Additional Days
+            </label>
+            <Input
+              type="number"
+              min={1}
+              max={90}
+              value={trialDays}
+              onChange={(e) => setTrialDays(parseInt(e.target.value, 10) || 0)}
+            />
+          </div>
+        </Modal>
       )}
     </div>
   );

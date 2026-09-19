@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useProtocolConnectionTest } from '../../../hooks/useConnectionTest';
 import { ConnectionTestResult } from '../../../types/registration.types';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface ConnectionTestStepProps {
   protocolCode: string;
@@ -63,10 +64,7 @@ export function ConnectionTestStep({
           >
             {loading ? (
               <span className="flex items-center">
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                </svg>
+                <Spinner size="md" color="white" className="-ml-1 mr-3" />
                 Testing Connection...
               </span>
             ) : (
@@ -79,9 +77,9 @@ export function ConnectionTestStep({
       {/* Test in progress */}
       {loading && !currentResult && (
         <div className="text-center py-8">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Testing connection to sensor...</p>
-          <p className="text-sm text-gray-500 mt-2">This may take up to 15 seconds</p>
+          <Spinner size="xl" block />
+          <p className="mt-4 text-gray-600 dark:text-gray-400">Testing connection to sensor...</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">This may take up to 15 seconds</p>
         </div>
       )}
 
@@ -126,17 +124,17 @@ export function ConnectionTestStep({
           {/* Details */}
           <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <span className="text-sm font-medium text-gray-500">Protocol</span>
-              <p className="text-gray-900">{protocolCode}</p>
+              <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Protocol</span>
+              <p className="text-gray-900 dark:text-gray-100">{protocolCode}</p>
             </div>
             <div>
-              <span className="text-sm font-medium text-gray-500">Tested At</span>
-              <p className="text-gray-900">{new Date(currentResult.testedAt).toLocaleString()}</p>
+              <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Tested At</span>
+              <p className="text-gray-900 dark:text-gray-100">{new Date(currentResult.testedAt).toLocaleString()}</p>
             </div>
             {currentResult.latencyMs !== undefined && (
               <div>
-                <span className="text-sm font-medium text-gray-500">Latency</span>
-                <p className="text-gray-900">{currentResult.latencyMs} ms</p>
+                <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Latency</span>
+                <p className="text-gray-900 dark:text-gray-100">{currentResult.latencyMs} ms</p>
               </div>
             )}
           </div>
@@ -152,9 +150,9 @@ export function ConnectionTestStep({
 
           {/* Sample data */}
           {currentResult.sampleData && Object.keys(currentResult.sampleData).length > 0 && (
-            <div className="bg-white rounded-md p-3 border border-gray-200">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Sample Data Received</h4>
-              <pre className="text-xs text-gray-600 overflow-auto max-h-32">
+            <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-gray-200 dark:border-gray-700">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sample Data Received</h4>
+              <pre className="text-xs text-gray-600 dark:text-gray-400 overflow-auto max-h-32">
                 {JSON.stringify(currentResult.sampleData, null, 2)}
               </pre>
             </div>

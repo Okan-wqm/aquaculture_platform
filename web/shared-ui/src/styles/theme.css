@@ -18,6 +18,55 @@
  * tenant-admin layers its own @theme (tenant/dark palettes) ON TOP of this.
  * aquamobil stays on Tailwind 3 (Konsta preset) and does NOT import this file.
  */
+/* ============================================================================
+   Dark variant — keyed on the shell's `data-theme` (FE-MEDIUM-072)
+   ============================================================================
+   WHAT: `dark:` utilities fire under any `[data-theme='dark']` ancestor and
+   nowhere else. The shell resolves the user's preference (light / dark /
+   system, `web/shell/src/utils/theme.ts`) onto `<html data-theme>`, so a
+   `dark:` class follows the product's theme toggle rather than the OS alone.
+   A surface that is always dark (the ST editor and its dialogs) pins the same
+   attribute on its own root — shared-ui's `Modal` and `Drawer` do this for
+   `theme="dark"` — and renders the same `dark:`-aware markup as a page.
+
+   WHY not Tailwind's default `prefers-color-scheme` variant: the shell's
+   toggle and the OS scheme disagreed — a user who chose "light" still saw
+   the hr and sensor pages go dark with the OS — and no component could force
+   its own palette. One selector, defined once here (every CSS entry imports
+   this file first), means the same thing in the shell and in every remote;
+   a remote that redefined it would fork what `dark:` means. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Form controls under the dark theme — a default any utility overrides.
+   WHY the base layer and :where(): specificity stays at the attribute selector
+   alone and the base layer sits under utilities, so `dark:bg-gray-700` on a
+   field still wins; a control that carries no dark class of its own reads on a
+   dark page instead of glaring white. The shell used to force this with
+   !important on every input, which no utility could override (FE-MEDIUM-072).
+   Checkboxes, radios, ranges, files and colour pickers keep their native
+   rendering, which `color-scheme: dark` on <html> already darkens. */
+@layer base {
+  [data-theme='dark'] :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']), select, textarea) {
+    @apply bg-gray-800 text-gray-100 border-gray-600;
+  }
+  [data-theme='dark'] :where(input, textarea)::placeholder {
+    @apply text-gray-500;
+  }
+  [data-theme='dark'] :where(input:disabled, select:disabled, textarea:disabled) {
+    @apply bg-gray-900 text-gray-500;
+  }
+}
+
+/* FE-MEDIUM-024 darkens `--color-gray-400` below for light surfaces (4.6:1 on
+   white). Utilities resolve the variable at paint time, so on dark surfaces the
+   same value would fall to 3.7:1 on gray-900 and 3.0:1 on gray-800 — the dark
+   theme restores Tailwind's default (6.9:1 / 5.5:1). One token, one contrast
+   answer per theme; `tests/invariants/web-theme-token-parity.spec.ts` asserts
+   both ratios. */
+[data-theme='dark'] {
+  --color-gray-400: #9ca3af;
+}
+
 @theme {
   /* ============================ Colors ============================ */
   /* WCAG 2.1 AA (FE-MEDIUM-024): darken default gray-400 (#9ca3af, 2.9:1) to
@@ -75,27 +124,47 @@
   /* Semantic */
   --color-success-50: #ecfdf5;
   --color-success-100: #d1fae5;
+  --color-success-200: #a7f3d0;
+  --color-success-300: #6ee7b7;
+  --color-success-400: #34d399;
   --color-success-500: #10b981;
   --color-success-600: #059669;
   --color-success-700: #047857;
+  --color-success-800: #065f46;
+  --color-success-900: #064e3b;
 
   --color-warning-50: #fffbeb;
   --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-300: #fcd34d;
+  --color-warning-400: #fbbf24;
   --color-warning-500: #f59e0b;
   --color-warning-600: #d97706;
   --color-warning-700: #b45309;
+  --color-warning-800: #92400e;
+  --color-warning-900: #78350f;
 
   --color-error-50: #fef2f2;
   --color-error-100: #fee2e2;
+  --color-error-200: #fecaca;
+  --color-error-300: #fca5a5;
+  --color-error-400: #f87171;
   --color-error-500: #ef4444;
   --color-error-600: #dc2626;
   --color-error-700: #b91c1c;
+  --color-error-800: #991b1b;
+  --color-error-900: #7f1d1d;
 
   --color-info-50: #eff6ff;
   --color-info-100: #dbeafe;
+  --color-info-200: #bfdbfe;
+  --color-info-300: #93c5fd;
+  --color-info-400: #60a5fa;
   --color-info-500: #3b82f6;
   --color-info-600: #2563eb;
   --color-info-700: #1d4ed8;
+  --color-info-800: #1e40af;
+  --color-info-900: #1e3a8a;
 
   /* ============================ Fonts ============================ */
   --font-sans: Inter, system-ui, -apple-system, sans-serif;

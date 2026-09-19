@@ -136,7 +136,7 @@ const HmiWidgetPanel: React.FC = () => {
   return (
     <div className="flex flex-col h-full">
       {/* Tab Header */}
-      <div className="flex border-b border-gray-200">
+      <div className="flex border-b border-gray-200 dark:border-gray-700">
         {HMI_TABS.map((tab) => {
           const Icon = tab.icon;
           return (
@@ -146,7 +146,7 @@ const HmiWidgetPanel: React.FC = () => {
               className={`flex-1 flex items-center justify-center gap-1 px-2 py-2.5 text-xs font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'text-cyan-700 border-b-2 border-cyan-600 bg-cyan-50'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800'
               }`}
             >
               <Icon className="w-3.5 h-3.5" />
@@ -163,7 +163,7 @@ const HmiWidgetPanel: React.FC = () => {
           <>
             {ConfigComponent ? (
               <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3 capitalize">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 capitalize">
                   {(widgetType || '').replace(/([A-Z])/g, ' $1').trim()}
                 </h4>
                 <ConfigComponent
@@ -173,8 +173,8 @@ const HmiWidgetPanel: React.FC = () => {
                 />
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 py-12">
-                <Settings className="w-10 h-10 mb-3 text-gray-500" />
+              <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 dark:text-gray-400 py-12">
+                <Settings className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
                 <p className="text-sm">Bilinmeyen widget tipi</p>
                 <p className="text-xs mt-1">{widgetType || 'Tip belirtilmemis'}</p>
               </div>
@@ -185,8 +185,8 @@ const HmiWidgetPanel: React.FC = () => {
         {/* ===== Tag Binding Tab ===== */}
         {activeTab === 'tags' && (
           <div className="space-y-3">
-            <h4 className="text-sm font-medium text-gray-700">Tag Baglama</h4>
-            <p className="text-xs text-gray-500">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Tag Baglama</h4>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               Widget'a veri kaynagi olarak bir tag secin.
             </p>
             <TagBrowser
@@ -208,7 +208,7 @@ const HmiWidgetPanel: React.FC = () => {
         {activeTab === 'alarms' && (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium text-gray-700">Alarm Kurallari</h4>
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Alarm Kurallari</h4>
               <button
                 onClick={handleAddAlarm}
                 className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
@@ -219,11 +219,11 @@ const HmiWidgetPanel: React.FC = () => {
             </div>
 
             {alarmRules.length === 0 && (
-              <p className="text-xs text-gray-500 py-4 text-center">Henuz alarm kurali yok</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 py-4 text-center">Henuz alarm kurali yok</p>
             )}
 
             {alarmRules.map((rule) => (
-              <div key={rule.id} className="p-3 bg-gray-50 rounded-lg space-y-2 border border-gray-100">
+              <div key={rule.id} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 border border-gray-100 dark:border-gray-700">
                 <div className="flex items-center justify-between">
                   <select
                     value={rule.severity}
@@ -258,13 +258,13 @@ const HmiWidgetPanel: React.FC = () => {
                   value={rule.tag}
                   onChange={(e) => storeUpdateAlarmRule(rule.id, { tag: e.target.value })}
                   placeholder="Tag"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
                 <div className="flex gap-1">
                   <select
                     value={rule.condition}
                     onChange={(e) => storeUpdateAlarmRule(rule.id, { condition: e.target.value })}
-                    className="w-16 px-1 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-16 px-1 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     {CONDITIONS.map((c) => (
                       <option key={c} value={c}>
@@ -276,7 +276,7 @@ const HmiWidgetPanel: React.FC = () => {
                     type="number"
                     value={rule.value}
                     onChange={(e) => storeUpdateAlarmRule(rule.id, { value: Number(e.target.value) })}
-                    className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
                 </div>
                 <input
@@ -284,7 +284,7 @@ const HmiWidgetPanel: React.FC = () => {
                   value={rule.message}
                   onChange={(e) => storeUpdateAlarmRule(rule.id, { message: e.target.value })}
                   placeholder="Alarm mesaji"
-                  className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                 />
               </div>
             ))}
@@ -294,9 +294,9 @@ const HmiWidgetPanel: React.FC = () => {
         {/* ===== Trend Tab ===== */}
         {activeTab === 'trend' && (
           <div className="space-y-3">
-            <h4 className="text-sm font-medium text-gray-700">Trend Ayarlari</h4>
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Trend Ayarlari</h4>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Saklama Suresi (gun)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Saklama Suresi (gun)</label>
               <input
                 type="number"
                 min={1}
@@ -304,11 +304,11 @@ const HmiWidgetPanel: React.FC = () => {
                 onChange={(e) =>
                   updateTrendConfig({ ...trendConfig, retentionDays: Number(e.target.value) })
                 }
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-500 mb-1">Ornekleme Araligi (sn)</label>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Ornekleme Araligi (sn)</label>
               <input
                 type="number"
                 min={1}
@@ -316,12 +316,12 @@ const HmiWidgetPanel: React.FC = () => {
                 onChange={(e) =>
                   updateTrendConfig({ ...trendConfig, sampleIntervalSec: Number(e.target.value) })
                 }
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs text-gray-500">Tag'ler</label>
+                <label className="text-xs text-gray-500 dark:text-gray-400">Tag'ler</label>
                 <button
                   onClick={handleAddTrendTag}
                   className="text-xs text-cyan-600 hover:text-cyan-700"
@@ -337,7 +337,7 @@ const HmiWidgetPanel: React.FC = () => {
                       value={tag}
                       onChange={(e) => handleUpdateTrendTag(i, e.target.value)}
                       placeholder="sensor.temperature"
-                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                      className="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     />
                     <button
                       onClick={() => handleRemoveTrendTag(i)}
@@ -348,7 +348,7 @@ const HmiWidgetPanel: React.FC = () => {
                   </div>
                 ))}
                 {trendConfig.tags.length === 0 && (
-                  <p className="text-xs text-gray-500 text-center py-2">Henuz tag eklenmedi</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-2">Henuz tag eklenmedi</p>
                 )}
               </div>
             </div>
@@ -365,51 +365,51 @@ const HmiWidgetPanel: React.FC = () => {
 
 const PlcPanel: React.FC = () => (
   <div className="p-4 space-y-4">
-    <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
       <Cpu className="w-4 h-4" />
       PLC Degiskenleri
     </h3>
-    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-      <p className="text-xs text-gray-500 font-medium mb-2">Variable Listesi</p>
-      <p className="text-xs text-gray-500">PLC degisken tarayici burada gorunecek.</p>
+    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Variable Listesi</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">PLC degisken tarayici burada gorunecek.</p>
     </div>
-    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-      <p className="text-xs text-gray-500 font-medium mb-2">I/O Mapping</p>
-      <p className="text-xs text-gray-500">Fiziksel I/O eslemesi burada yapilacak.</p>
+    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">I/O Mapping</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">Fiziksel I/O eslemesi burada yapilacak.</p>
     </div>
   </div>
 );
 
 const RuntimePanel: React.FC = () => (
   <div className="p-4 space-y-4">
-    <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
       <Eye className="w-4 h-4" />
       Canli Degerler
     </h3>
-    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-      <p className="text-xs text-gray-500 font-medium mb-2">Tag Degerleri</p>
-      <p className="text-xs text-gray-500">Canli tag degerleri tablosu burada gorunecek.</p>
+    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Tag Degerleri</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">Canli tag degerleri tablosu burada gorunecek.</p>
     </div>
-    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-      <p className="text-xs text-gray-500 font-medium mb-2">Aktif Alarmlar</p>
-      <p className="text-xs text-gray-500">Aktif alarm listesi burada gorunecek.</p>
+    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Aktif Alarmlar</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">Aktif alarm listesi burada gorunecek.</p>
     </div>
   </div>
 );
 
 const DebugPanel: React.FC = () => (
   <div className="p-4 space-y-4">
-    <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
+    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
       <Bug className="w-4 h-4" />
       Debug
     </h3>
-    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-      <p className="text-xs text-gray-500 font-medium mb-2">Watch Degiskenleri</p>
-      <p className="text-xs text-gray-500">Izlenen degiskenler burada gorunecek.</p>
+    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Watch Degiskenleri</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">Izlenen degiskenler burada gorunecek.</p>
     </div>
-    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-      <p className="text-xs text-gray-500 font-medium mb-2">Force Value</p>
-      <p className="text-xs text-gray-500">Degisken zorla atama dialogu burada olacak.</p>
+    <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Force Value</p>
+      <p className="text-xs text-gray-500 dark:text-gray-400">Degisken zorla atama dialogu burada olacak.</p>
     </div>
   </div>
 );
@@ -423,8 +423,8 @@ const EmptyState: React.FC<{ icon: React.FC<{ className?: string }>; title: stri
   title,
   subtitle,
 }) => (
-  <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 p-6">
-    <Icon className="w-10 h-10 mb-3 text-gray-500" />
+  <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 dark:text-gray-400 p-6">
+    <Icon className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
     <p className="text-sm font-medium">{title}</p>
     <p className="text-xs mt-1">{subtitle}</p>
   </div>
@@ -451,7 +451,7 @@ export const UnifiedPropertiesPanel: React.FC = () => {
   const isPidNode = selectedNode != null && !isScadaWidget;
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full bg-white dark:bg-gray-900">
       {/* ===== P&ID Mode ===== */}
       {mode === 'pid' && <PidPropertiesPanel />}
 

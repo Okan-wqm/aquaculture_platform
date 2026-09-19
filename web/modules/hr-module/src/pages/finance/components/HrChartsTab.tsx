@@ -4,7 +4,7 @@
  * Chart discipline (dataviz): single y-axis, fixed series hues (payroll
  * = indigo, expenses = amber), legend present for the two-series trend.
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, chartChrome, colors } from '@aquaculture/shared-ui';
 import React from 'react';
 import {
   Bar,
@@ -21,8 +21,8 @@ import {
 
 import { useHrFinanceSummary, type HrFinanceGranularity } from '../../../hooks/useHrFinance';
 
-const PAYROLL_COLOR = '#4f46e5'; // indigo-600
-const EXPENSE_COLOR = '#d97706'; // amber-600
+const PAYROLL_COLOR = colors.primary[600]; // indigo-600
+const EXPENSE_COLOR = colors.warning[600]; // amber-600
 
 interface HrChartsTabProps {
   period: { from: string; to: string; granularity: HrFinanceGranularity };
@@ -71,7 +71,7 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period, canViewSalary 
         </h2>
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={trendData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
             <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} />
             <Tooltip />
@@ -99,7 +99,7 @@ export const HrChartsTab: React.FC<HrChartsTabProps> = ({ period, canViewSalary 
               layout="vertical"
               margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 12 }} />
               <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 12 }} />
               <Tooltip />

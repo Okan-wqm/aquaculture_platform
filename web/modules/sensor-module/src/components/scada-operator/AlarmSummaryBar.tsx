@@ -22,6 +22,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 
+import { Drawer, severityClasses } from '@aquaculture/shared-ui';
 import type { AlarmStatusSummary } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
 import { AlarmPanel } from './AlarmPanel';
@@ -141,14 +142,12 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
   return (
     <>
       {/* ── Summary Bar ──────────────────────────────────────────── */}
-      <div
-        role="button"
-        tabIndex={0}
+      <button
+        type="button"
         onClick={handleBarClick}
-        onKeyDown={(e) => e.key === 'Enter' && handleBarClick()}
-        title="Click to open Alarm Panel"
+        aria-label="Open alarm panel"
         className={`
-          flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none
+          w-full text-left flex items-center gap-2 px-3 py-1.5 cursor-pointer select-none
           bg-gray-900 dark:bg-gray-950 border-t-2
           ${hasNewCritical ? 'border-red-600 alarm-critical-blink' : 'border-gray-700'}
           transition-all duration-300
@@ -164,7 +163,7 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
               ? 'text-orange-400'
               : warningCount > 0
               ? 'text-yellow-400'
-              : 'text-gray-500'
+              : 'text-gray-500 dark:text-gray-400'
           }`}
         />
 
@@ -173,32 +172,32 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           count={criticalCount}
           label="Critical"
           icon={<AlertCircle className="h-3.5 w-3.5" />}
-          activeClass="bg-red-700 text-white"
-          mutedClass="bg-gray-800 text-gray-500"
+          activeClass={severityClasses('critical', 'solid')}
+          mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
         <SeverityChip
           count={highCount}
           label="High"
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
-          activeClass="bg-orange-600 text-white"
-          mutedClass="bg-gray-800 text-gray-500"
+          activeClass={severityClasses('high', 'solid')}
+          mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
         <SeverityChip
           count={warningCount}
           label="Warning"
           icon={<AlertTriangle className="h-3.5 w-3.5" />}
-          activeClass="bg-yellow-500 text-gray-900"
-          mutedClass="bg-gray-800 text-gray-500"
+          activeClass={severityClasses('warning', 'solid')}
+          mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
         <SeverityChip
           count={infoCount}
           label="Info"
           icon={<Info className="h-3.5 w-3.5" />}
-          activeClass="bg-blue-600 text-white"
-          mutedClass="bg-gray-800 text-gray-500"
+          activeClass={severityClasses('info', 'solid')}
+          mutedClass="bg-gray-800 text-gray-500 dark:text-gray-400"
         />
 
         {/* Total badge (muted when zero) */}
@@ -206,40 +205,34 @@ export const AlarmSummaryBar = memo(({ alwaysVisible = true, className = '' }: A
           className={`ml-1 px-2 py-0.5 rounded text-xs font-bold ${
             totalActive > 0
               ? 'bg-red-600 text-white'
-              : 'bg-gray-700 text-gray-500'
+              : 'bg-gray-700 text-gray-500 dark:text-gray-400'
           }`}
         >
           {totalActive} active
         </div>
 
         {/* Expand indicator */}
-        <div className="ml-auto flex items-center gap-1 text-gray-500 text-xs">
+        <div className="ml-auto flex items-center gap-1 text-gray-500 dark:text-gray-400 text-xs">
           <ChevronUp className="h-4 w-4" />
           <span className="hidden sm:inline">Alarms</span>
         </div>
-      </div>
+      </button>
 
-      {/* ── AlarmPanel modal ─────────────────────────────────────── */}
-      {panelOpen && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-stretch pointer-events-none"
-          style={{ paddingBottom: '2.5rem' }} // leave room above the bar
-        >
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/40 pointer-events-auto"
-            onClick={handlePanelClose}
-          />
-
-          {/* Panel */}
-          <div className="relative w-full pointer-events-auto px-4 pb-2">
-            <AlarmPanel
-              onClose={handlePanelClose}
-              className="w-full"
-            />
-          </div>
-        </div>
-      )}
+      {/* ── AlarmPanel drawer — rises above the bar; the panel keeps its own
+          header (counts, ACK all, export, close), the Drawer supplies the
+          backdrop, Escape, focus trap and the accessible name. ── */}
+      <Drawer
+        isOpen={panelOpen}
+        onClose={handlePanelClose}
+        side="bottom"
+        size="lg"
+        ariaLabel="Alarm Management"
+        showCloseButton={false}
+        className="bg-transparent shadow-none"
+        bodyClassName="flex-1 min-h-0 overflow-y-auto px-4 pb-10"
+      >
+        <AlarmPanel onClose={handlePanelClose} className="w-full" />
+      </Drawer>
     </>
   );
 });

@@ -25,7 +25,7 @@ export const SiteLocalitySelector: React.FC<SiteLocalitySelectorProps> = ({
     <select
       value={effectiveSiteId ?? ''}
       onChange={(e) => onChange(e.target.value || undefined)}
-      className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white"
+      className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900"
       aria-label="Site"
     >
       {siteMappings.map((m) => (

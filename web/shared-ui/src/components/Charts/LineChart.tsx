@@ -128,7 +128,7 @@ export const LineChart: React.FC<LineChartProps> = ({
   if (!datasets || datasets.length === 0) {
     return (
       <div className={`flex items-center justify-center ${className}`} style={{ width, height }}>
-        <span className="text-gray-500 text-sm">No data available</span>
+        <span className="text-gray-500 dark:text-gray-400 text-sm">No data available</span>
       </div>
     );
   }
@@ -144,7 +144,7 @@ export const LineChart: React.FC<LineChartProps> = ({
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: dataset.color || defaultColors[i % defaultColors.length] }}
               />
-              <span className="text-gray-600">{dataset.label}</span>
+              <span className="text-gray-600 dark:text-gray-400">{dataset.label}</span>
             </div>
           ))}
         </div>
@@ -174,7 +174,7 @@ export const LineChart: React.FC<LineChartProps> = ({
         )}
 
         {/* Y axis labels */}
-        <g className="text-gray-500 text-xs">
+        <g className="text-gray-500 dark:text-gray-400 text-xs">
           {yTicks.map((tick, i) => (
             <text
               key={i}
@@ -191,7 +191,7 @@ export const LineChart: React.FC<LineChartProps> = ({
 
         {/* X axis labels */}
         {showLabels && (
-          <g className="text-gray-500 text-xs">
+          <g className="text-gray-500 dark:text-gray-400 text-xs">
             {labels.map((label, i) => (
               (labels.length <= 7 || i % Math.ceil(labels.length / 7) === 0) && (
                 <text

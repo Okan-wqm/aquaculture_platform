@@ -316,21 +316,21 @@ const BasicInfoStep: React.FC<BasicInfoStepProps> = ({ formData, onChange, siteN
   <div className="space-y-4">
     <div className="grid grid-cols-2 gap-4">
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Site</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Site</label>
         <input
           type="text"
           value={siteName}
           disabled
-          className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-gray-700"
+          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Report Period</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Report Period</label>
         <input
           type="text"
           value={getMonthLabel(formData.month, formData.year)}
           disabled
-          className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-gray-700"
+          className="w-full px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300"
         />
       </div>
     </div>
@@ -492,11 +492,11 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
             Current Biomass by Species
             <SectionProvenance prefill={prefill} path="/currentBiomass" />
           </h4>
-          <p className="text-xs text-gray-500">End of month standing stock</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">End of month standing stock</p>
         </div>
         <div className="flex items-center gap-2">
           {prefill && !biomassFromRecords && (
@@ -559,7 +559,7 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
       </div>
 
       {formData.currentBiomass.bySpecies.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <svg
             className="w-12 h-12 mx-auto text-gray-300"
             fill="none"
@@ -573,8 +573,8 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
               d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
             />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">No species added</p>
-          <p className="text-xs text-gray-400">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No species added</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             {prefill
               ? 'Click "Load from System" to auto-populate from batch records, or "Add Species" to enter manually'
               : 'Click "Add Species" to enter biomass data'}
@@ -585,10 +585,10 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
           {formData.currentBiomass.bySpecies.map((species, index) => (
             <div
               key={species.speciesId}
-              className="p-4 bg-gray-50 border border-gray-200 rounded-lg"
+              className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg"
             >
               <div className="flex items-start justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700">Species #{index + 1}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Species #{index + 1}</span>
                 {!biomassFromRecords && (
                   <button
                     type="button"
@@ -608,20 +608,20 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="col-span-2 md:col-span-1">
-                  <label className="block text-xs text-gray-500 mb-1">Species Name</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species Name</label>
                   <input
                     type="text"
                     value={species.speciesName}
                     onChange={(e) => updateSpecies(index, { speciesName: e.target.value })}
                     disabled={biomassFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      biomassFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                      biomassFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., Atlantic Salmon"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Fish Count</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Fish Count</label>
                   <input
                     type="number"
                     min="0"
@@ -631,13 +631,13 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
                     }
                     disabled={biomassFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      biomassFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                      biomassFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Biomass (kg)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Biomass (kg)</label>
                   <input
                     type="number"
                     min="0"
@@ -647,18 +647,18 @@ export const BiomassStep: React.FC<BiomassStepProps> = ({ formData, onChange, pr
                     }
                     disabled={biomassFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      biomassFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                      biomassFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Avg Weight (g)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
                   <input
                     type="text"
                     value={species.avgWeightG.toFixed(0)}
                     disabled
-                    className="w-full px-2 py-1.5 text-sm bg-gray-100 border border-gray-300 rounded-md text-gray-600"
+                    className="w-full px-2 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-600 dark:text-gray-400"
                   />
                 </div>
               </div>
@@ -711,11 +711,11 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
             <span>Stocking Records</span>
             <SectionProvenance prefill={prefill} path="/stockings" />
           </h4>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             Fish arrivals during the reporting period (required by Fiskeridirektoratet)
           </p>
         </div>
@@ -741,7 +741,7 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
       </div>
 
       {formData.stockings.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <svg
             className="w-12 h-12 mx-auto text-gray-300"
             fill="none"
@@ -755,8 +755,8 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
               d="M12 4v16m8-8H4"
             />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">No stocking records</p>
-          <p className="text-xs text-gray-400">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No stocking records</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             Click "+ Add Stocking Record" if fish were received this period
           </p>
         </div>
@@ -766,9 +766,9 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
           className={`space-y-3 border-0 p-0 m-0 ${stockingsFromRecords ? 'opacity-75' : ''}`}
         >
           {formData.stockings.map((record, index) => (
-            <div key={record.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div key={record.id} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex items-start justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700">Stocking #{index + 1}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Stocking #{index + 1}</span>
                 {!stockingsFromRecords && (
                   <button
                     type="button"
@@ -788,26 +788,26 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Date</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
                   <input
                     type="date"
                     value={record.date}
                     onChange={(e) => updateStockingRecord(index, { date: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Species</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
                   <input
                     type="text"
                     value={record.speciesName}
                     onChange={(e) => updateStockingRecord(index, { speciesName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="e.g., Atlantic Salmon"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Quantity</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
                   <input
                     type="number"
                     min="0"
@@ -815,12 +815,12 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
                     onChange={(e) =>
                       updateStockingRecord(index, { quantity: parseInt(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Avg Weight (g)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Weight (g)</label>
                   <input
                     type="number"
                     min="0"
@@ -829,27 +829,27 @@ export const StockingStep: React.FC<StockingStepProps> = ({ formData, onChange, 
                     onChange={(e) =>
                       updateStockingRecord(index, { avgWeightG: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Supplier</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Supplier</label>
                   <input
                     type="text"
                     value={record.supplier}
                     onChange={(e) => updateStockingRecord(index, { supplier: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="e.g., SalmoBreed"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Batch Number</label>
                   <input
                     type="text"
                     value={record.batchNumber}
                     onChange={(e) => updateStockingRecord(index, { batchNumber: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="e.g., B-2024-001"
                   />
                 </div>
@@ -934,11 +934,11 @@ export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
             Mortality by Cause
             <SectionProvenance prefill={prefill} path="/mortality" />
           </h4>
-          <p className="text-xs text-gray-500">Record fish losses during the reporting period</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Record fish losses during the reporting period</p>
         </div>
         {prefill && !mortalityFromRecords && (
           <button
@@ -970,7 +970,7 @@ export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange
       </div>
 
       {mortalityFromRecords && (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           Aggregated per cause from mortality records; corrections go to the source records, not the
           report.
         </p>
@@ -979,8 +979,8 @@ export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange
       {/* Cause Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {MORTALITY_CAUSES.map((cause) => (
-          <div key={cause} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-            <label className="block text-xs font-medium text-gray-600 mb-2">{cause}</label>
+          <div key={cause} className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-2">{cause}</label>
             <input
               type="number"
               min="0"
@@ -989,8 +989,8 @@ export const MortalityStep: React.FC<MortalityStepProps> = ({ formData, onChange
               disabled={mortalityFromRecords}
               className={`w-full px-2 py-1.5 text-sm border rounded-md ${
                 mortalityFromRecords
-                  ? 'border-gray-200 bg-gray-100 text-gray-700'
-                  : 'border-gray-300'
+                  ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
+                  : 'border-gray-300 dark:border-gray-600'
               }`}
               placeholder="0"
             />
@@ -1075,11 +1075,11 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
             Feed Consumption
             <SectionProvenance prefill={prefill} path="/feedConsumption" />
           </h4>
-          <p className="text-xs text-gray-500">Total feed used during the reporting period</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Total feed used during the reporting period</p>
         </div>
         <div className="flex items-center gap-2">
           {prefill && !feedFromRecords && (
@@ -1142,7 +1142,7 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
       </div>
 
       {formData.feedConsumption.byFeedType.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <svg
             className="w-12 h-12 mx-auto text-gray-300"
             fill="none"
@@ -1156,8 +1156,8 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
               d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
             />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">No feed records added</p>
-          <p className="text-xs text-gray-400">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No feed records added</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             {prefill
               ? 'Click "Load from System" to load feeding-record sums, or "Add Feed Type" to enter manually'
               : 'Click "Add Feed Type" to enter feed data'}
@@ -1166,9 +1166,9 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
       ) : (
         <div className="space-y-3">
           {formData.feedConsumption.byFeedType.map((feed, index) => (
-            <div key={index} className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+            <div key={index} className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex items-start justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700">Feed #{index + 1}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Feed #{index + 1}</span>
                 {!feedFromRecords && (
                   <button
                     type="button"
@@ -1188,33 +1188,33 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Feed Name</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Feed Name</label>
                   <input
                     type="text"
                     value={feed.feedName}
                     onChange={(e) => updateFeedType(index, { feedName: e.target.value })}
                     disabled={feedFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      feedFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                      feedFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., Grower 2mm"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Brand</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Brand</label>
                   <input
                     type="text"
                     value={feed.brandName}
                     onChange={(e) => updateFeedType(index, { brandName: e.target.value })}
                     disabled={feedFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      feedFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                      feedFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="e.g., Skretting"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Quantity (kg)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity (kg)</label>
                   <input
                     type="number"
                     min="0"
@@ -1224,7 +1224,7 @@ export const FeedStep: React.FC<FeedStepProps> = ({ formData, onChange, prefill 
                     }
                     disabled={feedFromRecords}
                     className={`w-full px-2 py-1.5 text-sm border rounded-md ${
-                      feedFromRecords ? 'border-gray-200 bg-gray-100 text-gray-700' : 'border-gray-300'
+                      feedFromRecords ? 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' : 'border-gray-300 dark:border-gray-600'
                     }`}
                     placeholder="0"
                   />
@@ -1284,11 +1284,11 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700 flex items-center gap-2">
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2">
             <span>Transfers</span>
             <SectionProvenance prefill={prefill} path="/transfers" />
           </h4>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             Record fish transfers in and out during the reporting period
           </p>
         </div>
@@ -1320,7 +1320,7 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
       </div>
 
       {formData.transfers.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <svg
             className="w-12 h-12 mx-auto text-gray-300"
             fill="none"
@@ -1334,8 +1334,8 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
               d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
             />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">No transfers recorded</p>
-          <p className="text-xs text-gray-400">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No transfers recorded</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             Click "+ Add Transfer" if fish were transferred this period
           </p>
         </div>
@@ -1345,10 +1345,10 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
           className={`space-y-3 border-0 p-0 m-0 ${transfersFromRecords ? 'opacity-75' : ''}`}
         >
           {formData.transfers.map((transfer, index) => (
-            <div key={transfer.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div key={transfer.id} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-700">Transfer #{index + 1}</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Transfer #{index + 1}</span>
                   <span
                     className={`px-2 py-0.5 text-xs rounded-full ${
                       transfer.direction === 'incoming'
@@ -1378,7 +1378,7 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Direction</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Direction</label>
                   <select
                     value={transfer.direction}
                     onChange={(e) =>
@@ -1386,33 +1386,33 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
                         direction: e.target.value as 'incoming' | 'outgoing',
                       })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                   >
                     <option value="incoming">Incoming</option>
                     <option value="outgoing">Outgoing</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Date</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
                   <input
                     type="date"
                     value={transfer.date}
                     onChange={(e) => updateTransfer(index, { date: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Species</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
                   <input
                     type="text"
                     value={transfer.speciesName}
                     onChange={(e) => updateTransfer(index, { speciesName: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="e.g., Atlantic Salmon"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Quantity</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
                   <input
                     type="number"
                     min="0"
@@ -1420,12 +1420,12 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
                     onChange={(e) =>
                       updateTransfer(index, { quantity: parseInt(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Biomass (kg)</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Biomass (kg)</label>
                   <input
                     type="number"
                     min="0"
@@ -1433,39 +1433,39 @@ export const TransfersStep: React.FC<TransfersStepProps> = ({ formData, onChange
                     onChange={(e) =>
                       updateTransfer(index, { biomassKg: parseFloat(e.target.value) || 0 })
                     }
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
                     {transfer.direction === 'incoming' ? 'From Site' : 'To Site'}
                   </label>
                   <input
                     type="text"
                     value={transfer.fromToSite}
                     onChange={(e) => updateTransfer(index, { fromToSite: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="Site name"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Batch Number</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Batch Number</label>
                   <input
                     type="text"
                     value={transfer.batchNumber}
                     onChange={(e) => updateTransfer(index, { batchNumber: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="e.g., B-2024-001"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Reason</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Reason</label>
                   <input
                     type="text"
                     value={transfer.reason}
                     onChange={(e) => updateTransfer(index, { reason: e.target.value })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="e.g., Production move"
                   />
                 </div>
@@ -1513,41 +1513,41 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
           <div className="text-2xl font-bold text-green-600">
             {formatWeight(formData.currentBiomass.totalKg)}
           </div>
-          <div className="text-xs text-gray-500">Total Biomass</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Total Biomass</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
           <div className="text-2xl font-bold text-red-600">
             {formatNumber(formData.mortality.totalCount)}
           </div>
-          <div className="text-xs text-gray-500">Total Mortality</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Total Mortality</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
           <div className="text-2xl font-bold text-orange-600">
             {formatWeight(formData.feedConsumption.totalKg)}
           </div>
-          <div className="text-xs text-gray-500">Feed Used</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Feed Used</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4 text-center">
           <div className="text-2xl font-bold text-blue-600">{fcrDisplay}</div>
-          <div className="text-xs text-gray-500">Estimated FCR</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Estimated FCR</div>
         </div>
       </div>
 
       {/* Species Breakdown */}
       {formData.currentBiomass.bySpecies.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Biomass by Species</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Biomass by Species</h5>
           <div className="space-y-2">
             {formData.currentBiomass.bySpecies.map((s, i) => (
               <div key={i} className="flex items-center justify-between text-sm">
-                <span className="text-gray-700">{s.speciesName || 'Unknown'}</span>
+                <span className="text-gray-700 dark:text-gray-300">{s.speciesName || 'Unknown'}</span>
                 <div className="text-right">
-                  <span className="font-medium text-gray-900">{formatWeight(s.biomassKg)}</span>
-                  <span className="text-gray-500 ml-2">({formatNumber(s.fishCount)} fish)</span>
+                  <span className="font-medium text-gray-900 dark:text-gray-100">{formatWeight(s.biomassKg)}</span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-2">({formatNumber(s.fishCount)} fish)</span>
                 </div>
               </div>
             ))}
@@ -1557,8 +1557,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Stocking Records */}
       {formData.stockings.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Stocking Records</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Stocking Records</h5>
           <div className="space-y-2">
             {formData.stockings.map((s, i) => (
               <div
@@ -1566,15 +1566,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                 className="flex items-center justify-between text-sm bg-indigo-50 rounded p-2"
               >
                 <div>
-                  <span className="text-gray-700">{s.speciesName || 'Unknown'}</span>
-                  {s.date && <span className="text-gray-400 ml-2 text-xs">{s.date}</span>}
+                  <span className="text-gray-700 dark:text-gray-300">{s.speciesName || 'Unknown'}</span>
+                  {s.date && <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">{s.date}</span>}
                 </div>
                 <div className="text-right">
                   <span className="font-medium text-indigo-700">
                     {formatNumber(s.quantity)} fish
                   </span>
                   {s.avgWeightG > 0 && (
-                    <span className="text-gray-500 ml-2">({s.avgWeightG.toFixed(0)}g avg)</span>
+                    <span className="text-gray-500 dark:text-gray-400 ml-2">({s.avgWeightG.toFixed(0)}g avg)</span>
                   )}
                 </div>
               </div>
@@ -1585,15 +1585,15 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Mortality Breakdown */}
       {formData.mortality.byCause.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Mortality by Cause</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Mortality by Cause</h5>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             {formData.mortality.byCause.map((c, i) => (
               <div
                 key={i}
                 className="flex items-center justify-between text-sm bg-red-50 rounded p-2"
               >
-                <span className="text-gray-700">{c.cause}</span>
+                <span className="text-gray-700 dark:text-gray-300">{c.cause}</span>
                 <span className="font-medium text-red-700">{formatNumber(c.count)}</span>
               </div>
             ))}
@@ -1603,8 +1603,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Feed Breakdown */}
       {formData.feedConsumption.byFeedType.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Feed Consumption</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Feed Consumption</h5>
           <div className="space-y-2">
             {formData.feedConsumption.byFeedType.map((f, i) => (
               <div
@@ -1612,9 +1612,9 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                 className="flex items-center justify-between text-sm bg-orange-50 rounded p-2"
               >
                 <div>
-                  <span className="text-gray-700">{f.feedName || 'Unknown'}</span>
+                  <span className="text-gray-700 dark:text-gray-300">{f.feedName || 'Unknown'}</span>
                   {f.brandName && (
-                    <span className="text-gray-400 ml-2 text-xs">({f.brandName})</span>
+                    <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">({f.brandName})</span>
                   )}
                 </div>
                 <span className="font-medium text-orange-700">{formatWeight(f.quantityKg)}</span>
@@ -1626,8 +1626,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Transfers */}
       {formData.transfers.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Transfers</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Transfers</h5>
           {incomingTransfers.length > 0 && (
             <div className="mb-3">
               <p className="text-xs font-medium text-blue-600 mb-1">Incoming</p>
@@ -1638,16 +1638,16 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     className="flex items-center justify-between text-sm bg-blue-50 rounded p-2"
                   >
                     <div>
-                      <span className="text-gray-700">{t.speciesName || 'Unknown'}</span>
+                      <span className="text-gray-700 dark:text-gray-300">{t.speciesName || 'Unknown'}</span>
                       {t.fromToSite && (
-                        <span className="text-gray-400 ml-2 text-xs">from {t.fromToSite}</span>
+                        <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">from {t.fromToSite}</span>
                       )}
                     </div>
                     <div className="text-right">
                       <span className="font-medium text-blue-700">
                         {formatNumber(t.quantity)} fish
                       </span>
-                      <span className="text-gray-500 ml-2">({formatWeight(t.biomassKg)})</span>
+                      <span className="text-gray-500 dark:text-gray-400 ml-2">({formatWeight(t.biomassKg)})</span>
                     </div>
                   </div>
                 ))}
@@ -1664,16 +1664,16 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
                     className="flex items-center justify-between text-sm bg-purple-50 rounded p-2"
                   >
                     <div>
-                      <span className="text-gray-700">{t.speciesName || 'Unknown'}</span>
+                      <span className="text-gray-700 dark:text-gray-300">{t.speciesName || 'Unknown'}</span>
                       {t.fromToSite && (
-                        <span className="text-gray-400 ml-2 text-xs">to {t.fromToSite}</span>
+                        <span className="text-gray-400 dark:text-gray-500 ml-2 text-xs">to {t.fromToSite}</span>
                       )}
                     </div>
                     <div className="text-right">
                       <span className="font-medium text-purple-700">
                         {formatNumber(t.quantity)} fish
                       </span>
-                      <span className="text-gray-500 ml-2">({formatWeight(t.biomassKg)})</span>
+                      <span className="text-gray-500 dark:text-gray-400 ml-2">({formatWeight(t.biomassKg)})</span>
                     </div>
                   </div>
                 ))}
@@ -1694,8 +1694,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       </div>
 
       {/* Submission Notice — honest manual-Altinn channel (RPT-001) */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <p className="text-sm text-gray-600">
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           Saving stores this report as a draft. Biomass reports are submitted to Fiskeridirektoratet
           manually via Altinn (FD-0001): after saving, mark the report ready, download the FD-0001
           export, transcribe it into the Altinn form, then confirm the submission with the Altinn
@@ -2003,8 +2003,8 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Biomass Reports</h2>
-          <p className="text-sm text-gray-500">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Biomass Reports</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Monthly reports for Fiskeridirektoratet - Due 7th of each month
           </p>
         </div>
@@ -2013,7 +2013,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
             <select
               value={effectiveSiteId ?? ''}
               onChange={(e) => setSelectedSiteId(e.target.value || undefined)}
-              className="px-3 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white"
+              className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900"
               aria-label="Site"
             >
               {siteMappings.map((m) => (
@@ -2051,7 +2051,7 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
       {/* Altinn manual-submission panel for the target period's saved report */}
       {periodRow && (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-gray-700">
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
             {getMonthLabel(targetPeriod.month, targetPeriod.year)} — Fiskeridirektoratet submission
           </p>
           <BiomassAltinnPanel report={periodRow} />
@@ -2060,36 +2060,36 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
 
       {/* Stats Cards — real persisted rows */}
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Reports</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Reports</div>
         </div>
-        <div className="bg-white rounded-lg border border-amber-200 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-amber-200 p-4">
           <div className="text-2xl font-bold text-amber-600">{stats.inProgress}</div>
-          <div className="text-sm text-gray-500">In Progress</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">In Progress</div>
         </div>
-        <div className="bg-white rounded-lg border border-green-200 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-green-200 p-4">
           <div className="text-2xl font-bold text-green-600">{stats.submitted}</div>
-          <div className="text-sm text-gray-500">Submitted</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Submitted</div>
         </div>
       </div>
 
       {/* Report History (FARM-HIGH-125) */}
       {!effectiveSiteId ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border border-gray-200">
-          <p className="text-sm text-gray-500">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Configure site–locality mappings in Report Settings to list biomass reports.
           </p>
         </div>
       ) : reportsLoading ? (
-        <p className="text-sm text-gray-500 py-8 text-center">Loading report history…</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">Loading report history…</p>
       ) : reportsError ? (
         <div className="text-center py-8 bg-red-50 rounded-lg border border-red-200">
           <p className="text-sm text-red-700">Failed to load report history. Please retry.</p>
         </div>
       ) : biomassReports.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <p className="mt-2 text-sm text-gray-500">No reports found</p>
+        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No reports found</p>
           <button
             onClick={() => handleOpenWizard()}
             className="mt-4 px-4 py-2 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
@@ -2098,12 +2098,12 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
           </button>
         </div>
       ) : (
-        <ul className="divide-y divide-gray-200 bg-white rounded-lg border border-gray-200">
+        <ul className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           {biomassReports.map((row) => (
             <li key={row.id} className="p-4 flex items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-900">
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                     {getMonthLabel(row.reportMonth - 1, row.reportYear)}
                   </span>
                   <span
@@ -2114,11 +2114,11 @@ export const BiomassReportTab: React.FC<BiomassReportTabProps> = ({ siteId }) =>
                     {biomassStatusChip(row.status).label}
                   </span>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   {formatWeight(Number(row.totalBiomassKg))} total biomass
                 </p>
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {row.submittedAt ? formatDate(new Date(row.submittedAt)) : '—'}
               </p>
             </li>

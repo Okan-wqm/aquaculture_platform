@@ -14,7 +14,7 @@ import {
   XCircle,
   Eye,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, Modal, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   useLeaveRequests,
   usePendingLeaveApprovals,
@@ -23,8 +23,8 @@ import {
   useRejectLeaveRequest,
   useCurrentEmployeeId,
 } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
-import type { Column } from '../../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import type { LeaveRequest, LeaveRequestFilterInput, LeaveRequestStatus, PaginationInput } from '../../types';
 import { LEAVE_STATUS_CONFIG, LEAVE_CATEGORY_CONFIG } from '../../types';
 // SEC-006: sanitize API-sourced color codes before use in inline styles
@@ -60,12 +60,11 @@ export function LeavesPage() {
   const isLoading = activeTab === 'pending' ? loadingPending : loadingAll;
 
   // PERF-004: memoize columns — they only change when activeTab or mutation state changes
-  const columns: Column<LeaveRequest>[] = useMemo(() => [
+  const columns: DataTableColumn<LeaveRequest>[] = useMemo(() => [
     {
       key: 'employee',
       header: 'Employee',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           {row.employee && (
             <>
@@ -78,7 +77,7 @@ export function LeavesPage() {
                 <p className="font-medium text-gray-900 dark:text-white">
                   {row.employee.firstName} {row.employee.lastName}
                 </p>
-                <p className="text-sm text-gray-500">{row.requestNumber}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{row.requestNumber}</p>
               </div>
             </>
           )}
@@ -88,7 +87,7 @@ export function LeavesPage() {
     {
       key: 'leaveType',
       header: 'Leave Type',
-      accessor: (row) => {
+      render: (_value, row) => {
         const config = row.leaveType?.category
           ? LEAVE_CATEGORY_CONFIG[row.leaveType.category]
           : null;
@@ -107,13 +106,12 @@ export function LeavesPage() {
     {
       key: 'dates',
       header: 'Dates',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="text-sm">
           <p className="text-gray-900 dark:text-white">
             {new Date(row.startDate).toLocaleDateString()} - {new Date(row.endDate).toLocaleDateString()}
           </p>
-          <p className="text-gray-500">
+          <p className="text-gray-500 dark:text-gray-400">
             {row.totalDays} day{row.totalDays !== 1 ? 's' : ''}
             {row.isHalfDayStart && ' (half-day start)'}
             {row.isHalfDayEnd && ' (half-day end)'}
@@ -124,8 +122,7 @@ export function LeavesPage() {
     {
       key: 'status',
       header: 'Status',
-      sortable: true,
-      accessor: (row) => {
+      render: (_value, row) => {
         const config = LEAVE_STATUS_CONFIG[row.status];
         return <StatusBadge label={config.label} variant={config.variant} size="sm" />;
       },
@@ -135,7 +132,7 @@ export function LeavesPage() {
       header: '',
       width: '150px',
       align: 'right',
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center justify-end gap-2">
           {row.status === ('PENDING' as LeaveRequestStatus) && activeTab === 'pending' && (
             <>
@@ -199,6 +196,11 @@ export function LeavesPage() {
     });
   };
 
+  const closeRejectModal = (): void => {
+    setRejectingId(null);
+    setRejectReason('');
+  };
+
   const handleConfirmReject = () => {
     if (rejectingId && rejectReason.trim()) {
       rejectMutation.mutate(
@@ -212,26 +214,20 @@ export function LeavesPage() {
     <div className="space-y-6 p-6">
       {/* Rejection reason modal — replaces prompt() */}
       {rejectingId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-sm rounded-xl border border-gray-200 bg-white p-6 shadow-xl dark:border-gray-700 dark:bg-gray-800">
-            <h3 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white">
-              Reject Leave Request
-            </h3>
-            <label htmlFor="leave-reject-reason" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
-              Reason <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              id="leave-reject-reason"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-              rows={3}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-hidden focus:ring-1 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-              placeholder="Enter the reason for rejection..."
-              autoFocus
-            />
-            <div className="mt-4 flex justify-end gap-3">
+        <Modal
+          isOpen
+          onClose={closeRejectModal}
+          size="sm"
+          title="Reject Leave Request"
+          showCloseButton={!rejectMutation.isPending}
+          closeOnEscape={!rejectMutation.isPending}
+          closeOnOverlayClick={!rejectMutation.isPending}
+          bodyClassName="p-6"
+          footer={
+            <>
               <button
-                onClick={() => { setRejectingId(null); setRejectReason(''); }}
+                type="button"
+                onClick={closeRejectModal}
                 className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-300 dark:ring-gray-600"
               >
                 Cancel
@@ -242,27 +238,38 @@ export function LeavesPage() {
                 className="flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {rejectMutation.isPending && (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <Spinner size="sm" color="white" />
                 )}
                 Confirm Rejection
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <label htmlFor="leave-reject-reason" className="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Reason <span className="text-red-500">*</span>
+          </label>
+          <textarea
+            id="leave-reject-reason"
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.target.value)}
+            rows={3}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-red-500 focus:outline-hidden focus:ring-1 focus:ring-red-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            placeholder="Enter the reason for rejection..."
+            autoFocus
+          />
+        </Modal>
       )}
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Leave Management</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Track and manage employee leave requests
-          </p>
-        </div>
-        <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto">
-          <Plus className="h-4 w-4" />
-          New Request
-        </button>
-      </div>
+      <PageHeader
+        title="Leave Management"
+        description="Track and manage employee leave requests"
+        actions={
+          <button className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto">
+            <Plus className="h-4 w-4" />
+            New Request
+          </button>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex gap-4 overflow-x-auto border-b border-gray-200 dark:border-gray-700">
@@ -272,7 +279,7 @@ export function LeavesPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'all'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           All Requests
@@ -283,7 +290,7 @@ export function LeavesPage() {
             'flex items-center gap-2 border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'pending'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Pending Approvals
@@ -299,7 +306,7 @@ export function LeavesPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'mine'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           My Requests
@@ -310,7 +317,7 @@ export function LeavesPage() {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
           <label htmlFor="leave-search" className="sr-only">Search leave requests</label>
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             id="leave-search"
             type="text"
@@ -418,16 +425,21 @@ export function LeavesPage() {
           BUG-007: the pending tab returns a flat array (no server-side pagination),
           so omit total/onPageChange for that tab to avoid a broken pagination UI. */}
       <div className="overflow-x-auto -mx-6 px-6">
-        <DataTable
+        <DataTable<LeaveRequest>
           data={requests || []}
           columns={columns}
           keyExtractor={leaveKeyExtractor}
-          isLoading={isLoading}
+          loading={isLoading}
           emptyMessage="No leave requests found"
-          total={activeTab === 'pending' ? undefined : allRequests?.total}
-          page={activeTab === 'pending' ? 1 : (pagination.page || 1)}
-          pageSize={pagination.limit || 20}
+          pagination={
+            activeTab !== 'pending' && allRequests
+              ? derivePaginationMetadataV1(allRequests.total, pagination.page || 1, pagination.limit || 20)
+              : undefined
+          }
           onPageChange={activeTab === 'pending' ? undefined : handlePageChange}
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
         />
       </div>
     </div>

@@ -9,17 +9,19 @@
 
 import React, { Suspense, useMemo, Component, ErrorInfo } from 'react';
 import type { AnimationState } from '../../engine/animation/types';
+import { colors, colors as themeColors, severityColor } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Shared severity color palette for alarm widgets                    */
 /* ------------------------------------------------------------------ */
 
 export const ALARM_SEVERITY_COLORS = {
-  critical: { bg: '#ef4444', text: '#ffffff' },
-  high:     { bg: '#f97316', text: '#ffffff' },
-  medium:   { bg: '#eab308', text: '#000000' },
-  low:      { bg: '#3b82f6', text: '#ffffff' },
-  info:     { bg: '#6b7280', text: '#ffffff' },
+  critical: severityColor('critical'),
+  high: severityColor('high'),
+  medium: severityColor('medium'),
+  warning: severityColor('warning'),
+  low: severityColor('low'),
+  info: severityColor('info'),
 } as const;
 
 /* ------------------------------------------------------------------ */
@@ -122,15 +124,15 @@ const Skeleton: React.FC<{ width: number; height: number }> = ({ width, height }
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#f8fafc',
+        background: colors.neutral[50],
       }}
     >
       <div
         style={{
           width: 24,
           height: 24,
-          border: '3px solid #e2e8f0',
-          borderTopColor: '#06b6d4',
+          border: `3px solid ${themeColors.neutral[200]}`,
+          borderTopColor: colors.primary[400],
           borderRadius: '50%',
           animation: 'widgetSpin 0.7s linear infinite',
         }}
@@ -206,17 +208,17 @@ class WidgetErrorBoundary extends Component<WidgetErrorBoundaryProps, WidgetErro
         <div style={{
           width: this.props.width, height: this.props.height,
           display: 'flex', flexDirection: 'column' as const, alignItems: 'center',
-          justifyContent: 'center', background: '#fef2f2', color: '#991b1b',
+          justifyContent: 'center', background: colors.error[50], color: colors.error[700],
           fontSize: 11, gap: 6, padding: 8, textAlign: 'center' as const,
         }}>
-          <span style={{ fontSize: 18 }}>&#9888;</span>
+          <span className="text-lg">&#9888;</span>
           <span>Widget error: {this.props.widgetType}</span>
           {canRetry ? (
             <button
               onClick={this.handleRetry}
               style={{
                 marginTop: 4, padding: '3px 10px', fontSize: 10, fontWeight: 600,
-                background: '#fff', color: '#991b1b', border: '1px solid #fca5a5',
+                background: '#fff', color: colors.error[700], border: `1px solid ${themeColors.error[100]}`,
                 borderRadius: 4, cursor: 'pointer',
               }}
             >
@@ -225,7 +227,7 @@ class WidgetErrorBoundary extends Component<WidgetErrorBoundaryProps, WidgetErro
           ) : (
             /* 3 deneme sonrası kalıcı hata — sayfa yenilenmeli */
             /* After 3 retries, permanent failure — page must be refreshed */
-            <span style={{ fontSize: 9, color: '#b91c1c', marginTop: 2 }}>
+            <span style={{ fontSize: 9, color: colors.error[700], marginTop: 2 }}>
               Widget could not recover — please refresh
             </span>
           )}
@@ -253,8 +255,8 @@ const UnknownWidget: React.FC<{ widgetType: string; width: number; height: numbe
       flexDirection: 'column',
       alignItems: 'center',
       justifyContent: 'center',
-      background: '#fef2f2',
-      color: '#991b1b',
+      background: colors.error[50],
+      color: colors.error[700],
       fontSize: 12,
       fontWeight: 500,
       gap: 4,
@@ -262,7 +264,7 @@ const UnknownWidget: React.FC<{ widgetType: string; width: number; height: numbe
       textAlign: 'center',
     }}
   >
-    <span style={{ fontSize: 20 }}>?</span>
+    <span className="text-xl">?</span>
     <span>Unknown widget: {widgetType}</span>
   </div>
 );

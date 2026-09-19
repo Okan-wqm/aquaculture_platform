@@ -36160,6 +36160,18 @@
     {
       "class": "canonical_docs",
       "owner": "docs",
+      "path": "docs/reviews/frontend-expert/2026-09-18-design-system-adoption-ratchet.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/frontend-expert/2026-09-19-design-rescan.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
       "path": "docs/reviews/hr-expert/2026-04-10-full-repo-audit.md",
       "prettier_managed": true
     },
@@ -36851,6 +36863,12 @@
       "class": "canonical_docs",
       "owner": "docs",
       "path": "docs/reviews/supply-chain-auditor/2026-09-09-npm-audit-root-advisories.md",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_docs",
+      "owner": "docs",
+      "path": "docs/reviews/supply-chain-auditor/2026-09-19-adm-zip-uncontrolled-allocation.md",
       "prettier_managed": true
     },
     {
@@ -44127,7 +44145,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "eb770c61143111b60d27bacf9b257f3100fd1a91569a37318e9af1c558005730",
+      "content_sha256": "e7a9cbeb1036dc45782cd8fbd9d2476f7ba419d597f0cf82e3edd1b0ecb265f0",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "package-lock.json",
@@ -47829,6 +47847,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "tests/invariants/web-design-system-ratchet.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "tests/invariants/web-no-createtenantquerykey-in-invalidate.spec.ts",
       "prettier_managed": true
     },
@@ -47854,6 +47878,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "tests/invariants/web-shared-ui-singleton-imports.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "tests/invariants/web-theme-token-parity.spec.ts",
       "prettier_managed": true
     },
     {
@@ -49665,7 +49695,7 @@
     },
     {
       "class": "generated",
-      "content_sha256": "6b17a4b468a273a0d6d58ef2e6ce94155ce22b3a948fd2b9af15e6d68628d4c2",
+      "content_sha256": "2433b7ee39a667efa4ee75fe8957f96e76c0148327a2c5d10cd1081f6a0d231d",
       "hash_policy": "sha256",
       "owner": "node-package-lock",
       "path": "web/apps/aquamobil/package-lock.json",
@@ -49696,12 +49726,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/public/sw.js",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/scripts/patch-konsta.cjs",
       "prettier_managed": true
     },
     {
@@ -49750,6 +49774,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/__tests__/PhotoCaptureField.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/__tests__/UpdatePrompt.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -49851,12 +49881,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/apps/aquamobil/src/components/hub/HubHeader.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/apps/aquamobil/src/components/hub/index.ts",
       "prettier_managed": true
     },
@@ -49888,6 +49912,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/InstallPrompt.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/LeaveTypeSwatch.tsx",
       "prettier_managed": true
     },
     {
@@ -49930,12 +49960,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/components/messaging/ChannelListItem.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/apps/aquamobil/src/components/messaging/ConfirmDialog.tsx",
       "prettier_managed": true
     },
     {
@@ -50061,13 +50085,121 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/BottomSheet.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/ConfirmSheet.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/EmptyState.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/Field.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/__tests__/IconButton.spec.tsx",
       "prettier_managed": true
     },
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/__tests__/PageHeader.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/BottomSheet.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Button.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ConfirmSheet.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/EmptyState.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Field.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/components/ui/IconButton.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/ListRow.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/PageHeader.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/PullToRefreshIndicator.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/SectionTitle.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Spinner.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/ui/Switch.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/components/UpdatePrompt.tsx",
       "prettier_managed": true
     },
     {
@@ -50282,6 +50414,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/__tests__/usePullToRefresh.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/__tests__/useSentimentTrends.spec.tsx",
       "prettier_managed": true
     },
@@ -50384,6 +50522,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/useDialogBehavior.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useEditMessage.ts",
       "prettier_managed": true
     },
@@ -50475,6 +50619,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/hooks/useOfflineQueue.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/hooks/usePullToRefresh.ts",
       "prettier_managed": true
     },
     {
@@ -50978,6 +51128,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/__tests__/update-available.spec.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/graphql-replay-error.ts",
       "prettier_managed": true
     },
@@ -51003,6 +51159,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/pwa/sw-replay.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/src/pwa/update-available.ts",
       "prettier_managed": true
     },
     {
@@ -51219,6 +51381,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/apps/aquamobil/src/vite-env.d.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/apps/aquamobil/tailwind.config.d.ts",
       "prettier_managed": true
     },
     {
@@ -54319,12 +54487,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/hr-module/src/components/common/DataTable.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/hr-module/src/components/common/DepartmentBadge.tsx",
       "prettier_managed": true
     },
@@ -54890,12 +55052,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/hydroponics-module/src/components/solution/FertilizerOptionRow.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/hydroponics-module/src/components/solution/ParameterRow.tsx",
       "prettier_managed": true
     },
     {
@@ -57570,6 +57726,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/modules/sensor-module/src/components/scada-operator/__tests__/AlarmAnnouncer.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/modules/sensor-module/src/components/scada-operator/AlarmAnnouncer.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/modules/sensor-module/src/components/scada-operator/AlarmPanel.tsx",
       "prettier_managed": true
     },
@@ -59706,12 +59874,6 @@
     {
       "class": "canonical_source",
       "owner": "source",
-      "path": "web/modules/tenant-admin/src/components/common/DeleteConfirmModal.tsx",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
       "path": "web/modules/tenant-admin/src/components/common/index.ts",
       "prettier_managed": true
     },
@@ -60031,12 +60193,6 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/modules/tenant-admin/src/hooks/useDevicePolling.ts",
-      "prettier_managed": true
-    },
-    {
-      "class": "canonical_source",
-      "owner": "source",
-      "path": "web/modules/tenant-admin/src/hooks/useFocusTrap.ts",
       "prettier_managed": true
     },
     {
@@ -60390,6 +60546,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/a11y/SkipToContent.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/a11y/VisuallyHidden.tsx",
       "prettier_managed": true
     },
@@ -60534,6 +60696,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/DataTable/__tests__/DataTable.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/DataTable/DataTable.tsx",
       "prettier_managed": true
     },
@@ -60541,6 +60709,42 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/DataTable/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Drawer/__tests__/Drawer.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Drawer/Drawer.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Drawer/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/__tests__/EmptyState.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/EmptyState.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/EmptyState/index.ts",
       "prettier_managed": true
     },
     {
@@ -60559,6 +60763,12 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Form/__tests__/PasswordInput.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Form/__tests__/required.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60672,6 +60882,12 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/__tests__/PageHeader.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Header.tsx",
       "prettier_managed": true
     },
@@ -60684,7 +60900,19 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Layout/PageHeader.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Layout/Sidebar.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Loading/__tests__/Spinner.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60702,7 +60930,37 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/__tests__/Menu.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/Menu.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Menu/Popover.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Modal/__tests__/ConfirmModal.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Modal/__tests__/Modal.spec.tsx",
       "prettier_managed": true
     },
     {
@@ -60726,6 +60984,30 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Modal/useDialogBehavior.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/__tests__/QualityIndicator.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Quality/QualityIndicator.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/SandboxedHtmlPreview/__tests__/SandboxedHtmlPreview.spec.tsx",
       "prettier_managed": true
     },
@@ -60744,6 +61026,24 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/__tests__/Severity.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Severity/Severity.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/components/Table/index.ts",
       "prettier_managed": true
     },
@@ -60751,6 +61051,42 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/components/Table/Table.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/__tests__/Tabs.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tabs/Tabs.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/__tests__/Tooltip.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/index.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/components/Tooltip/Tooltip.tsx",
       "prettier_managed": true
     },
     {
@@ -60803,6 +61139,18 @@
     {
       "class": "canonical_source",
       "owner": "source",
+      "path": "web/shared-ui/src/hooks/__tests__/useClickOutside.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/__tests__/useConfirm.spec.tsx",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
       "path": "web/shared-ui/src/hooks/__tests__/useErrorMessage.spec.ts",
       "prettier_managed": true
     },
@@ -60822,6 +61170,18 @@
       "class": "canonical_source",
       "owner": "source",
       "path": "web/shared-ui/src/hooks/useAuth.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/useClickOutside.ts",
+      "prettier_managed": true
+    },
+    {
+      "class": "canonical_source",
+      "owner": "source",
+      "path": "web/shared-ui/src/hooks/useConfirm.tsx",
       "prettier_managed": true
     },
     {

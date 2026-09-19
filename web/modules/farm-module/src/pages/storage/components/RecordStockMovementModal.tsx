@@ -360,12 +360,14 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Movement Type — determines which fields are visible and required */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Movement Type *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Movement Type *
+            </label>
             <select
               value={movementType}
               onChange={(e) => handleMovementTypeChange(e.target.value as MovementType)}
               disabled={!!defaultMovementType}
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
             >
               {MOVEMENT_TYPE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>
@@ -377,7 +379,9 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Item Type — determines which item list is loaded */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Item Type *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Item Type *
+            </label>
             <div className="mt-1 grid grid-cols-4 gap-2">
               {ITEM_TYPE_OPTIONS.map((opt) => (
                 <button
@@ -388,7 +392,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
                   className={`px-3 py-2 text-sm rounded-lg border transition-colors ${
                     itemType === opt.value
                       ? 'bg-blue-50 border-blue-500 text-blue-700'
-                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                      : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
                   } disabled:opacity-60 disabled:cursor-not-allowed`}
                 >
                   {opt.label}
@@ -399,12 +403,14 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Item selection — populated from the appropriate list hook based on item type */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Item *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Item *
+            </label>
             <select
               value={selectedItemId}
               onChange={(e) => setSelectedItemId(e.target.value)}
               disabled={!!defaultItemId}
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 disabled:cursor-not-allowed"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm disabled:bg-gray-100 dark:disabled:bg-gray-800 disabled:cursor-not-allowed"
             >
               <option value="">Select item...</option>
               {itemOptions.map((opt) => (
@@ -417,7 +423,9 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Quantity — minimum 0.01 enforced client-side; backend also validates */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Quantity *</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Quantity *
+            </label>
             <input
               type="number"
               min="0.01"
@@ -425,7 +433,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               placeholder="0.00"
-              className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full max-w-xs border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
@@ -433,11 +441,13 @@ export const RecordStockMovementModal: React.FC<Props> = ({
           <div className="grid grid-cols-2 gap-4">
             {showFromLocation && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">From Location *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  From Location *
+                </label>
                 <select
                   value={fromLocationId}
                   onChange={(e) => setFromLocationId(e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 >
                   <option value="">Select location...</option>
                   {locations.map((loc) => (
@@ -450,11 +460,13 @@ export const RecordStockMovementModal: React.FC<Props> = ({
             )}
             {showToLocation && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">To Location *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  To Location *
+                </label>
                 <select
                   value={toLocationId}
                   onChange={(e) => setToLocationId(e.target.value)}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
                 >
                   <option value="">Select location...</option>
                   {locations.map((loc) => (
@@ -469,7 +481,7 @@ export const RecordStockMovementModal: React.FC<Props> = ({
 
           {/* Lot Number — required for FEED and CHEMICAL per EU 178/2002 traceability */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Lot Number {isLotNumberRequired ? '*' : ''}
             </label>
             <input
@@ -479,56 +491,60 @@ export const RecordStockMovementModal: React.FC<Props> = ({
               placeholder={
                 isLotNumberRequired ? 'Required for traceability (EU 178/2002)' : 'Optional'
               }
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           {/* Expiry Date — required for FEED and HEALTHCARE per HACCP food safety */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Expiry Date {isExpiryDateRequired ? '*' : ''}
             </label>
             <input
               type="date"
               value={expiryDate}
               onChange={(e) => setExpiryDate(e.target.value)}
-              className="mt-1 block w-full max-w-xs border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full max-w-xs border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
 
           {/* Reason — required for WASTE and ADJUSTMENT for ISO 22000 audit trail */}
           {isReasonRequired && (
             <div>
-              <label className="block text-sm font-medium text-gray-700">Reason *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Reason *
+              </label>
               <textarea
                 rows={2}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Document the reason for this movement (audit trail)"
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
               />
             </div>
           )}
 
           {/* Reference — optional link to external documents (delivery note, PO number) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700">Reference</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+              Reference
+            </label>
             <input
               type="text"
               value={reference}
               onChange={(e) => setReference(e.target.value)}
               placeholder="PO number, delivery note, etc. (optional)"
-              className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500 text-sm"
             />
           </div>
         </div>
 
         {/* Footer with cancel/submit actions */}
-        <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>

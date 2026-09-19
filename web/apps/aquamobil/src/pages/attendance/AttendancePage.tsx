@@ -1,10 +1,11 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
+import { MapPin, Clock, AlertCircle, LogIn, LogOut } from 'lucide-react';
 import type { JSX } from 'react';
 import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { useMyAttendanceRecords, useMyAttendanceSummary, useTodaysAttendance } from '@/hooks/useAttendance';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { GeoLocation, AttendanceRecord } from '@/types';
@@ -33,7 +34,6 @@ function formatMinutes(mins: number): string {
 }
 
 export function AttendancePage(): JSX.Element {
-  const navigate = useNavigate();
   const { addToQueue, isOnline } = useOfflineQueue();
 
   // WHY React Query hooks accept params directly instead of imperative fetch():
@@ -142,24 +142,9 @@ export function AttendancePage(): JSX.Element {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className={clsx(
-        'text-white',
-        isClockedIn
-          ? 'bg-gradient-to-r from-green-600 to-green-500'
-          : 'bg-gradient-to-r from-ocean-600 to-ocean-500',
-      )}>
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <MapPin size={22} />
-            <h1 className="text-lg font-bold">Attendance</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader tone={isClockedIn ? 'green' : 'ocean'} icon={MapPin} title="Attendance" />
 
       {/* Clock In/Out Button */}
       <div className="px-4 mt-5">
@@ -167,7 +152,7 @@ export function AttendancePage(): JSX.Element {
           <div className="text-4xl font-bold text-gray-900 dark:text-white tabular-nums mb-2">
             {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>
-          <p className="text-sm text-gray-500 mb-5">
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-5">
             {new Date().toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
 
@@ -186,7 +171,7 @@ export function AttendancePage(): JSX.Element {
             >
               {isSubmitting || isGettingLocation ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   {isGettingLocation ? 'Getting location...' : 'Recording...'}
                 </>
               ) : (
@@ -204,7 +189,7 @@ export function AttendancePage(): JSX.Element {
             >
               {isSubmitting || isGettingLocation ? (
                 <>
-                  <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                  <Spinner size="md" color="white" />
                   {isGettingLocation ? 'Getting location...' : 'Recording...'}
                 </>
               ) : (
@@ -223,7 +208,7 @@ export function AttendancePage(): JSX.Element {
           )}
 
           {location && (
-            <p className="text-xs text-gray-400 mt-2">
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
               GPS: {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)}
               {location.accuracy && ` (±${Math.round(location.accuracy)}m)`}
             </p>
@@ -235,18 +220,18 @@ export function AttendancePage(): JSX.Element {
       {todayRecord && (
         <div className="px-4 mt-4">
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card p-4 border border-gray-100 dark:border-gray-800">
-            <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Today</h3>
+            <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Today</h3>
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
-                <p className="text-xs text-gray-400">Clock In</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Clock In</p>
                 <p className="font-semibold text-gray-900 dark:text-white">{formatTime(todayRecord.clockIn)}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Clock Out</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Clock Out</p>
                 <p className="font-semibold text-gray-900 dark:text-white">{formatTime(todayRecord.clockOut)}</p>
               </div>
               <div>
-                <p className="text-xs text-gray-400">Worked</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500">Worked</p>
                 <p className="font-semibold text-gray-900 dark:text-white">
                   {todayRecord.workedMinutes > 0 ? formatMinutes(todayRecord.workedMinutes) : '--'}
                 </p>
@@ -262,22 +247,22 @@ export function AttendancePage(): JSX.Element {
       {/* Monthly Summary */}
       {summary && (
         <div className="px-4 mt-4">
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">This Month</h3>
+          <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">This Month</h3>
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400">Total Worked</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Total Worked</p>
               <p className="text-lg font-bold text-gray-900 dark:text-white">{formatMinutes(summary.totalWorkedMinutes)}</p>
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400">Overtime</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Overtime</p>
               <p className="text-lg font-bold text-orange-600">{formatMinutes(summary.totalOvertimeMinutes)}</p>
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400">Present Days</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Present Days</p>
               <p className="text-lg font-bold text-green-600">{summary.presentDays}/{summary.totalWorkingDays}</p>
             </div>
             <div className="bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-              <p className="text-xs text-gray-400">Attendance</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Attendance</p>
               <p className="text-lg font-bold text-ocean-600">{summary.attendanceRate}%</p>
             </div>
           </div>
@@ -286,7 +271,7 @@ export function AttendancePage(): JSX.Element {
 
       {/* Recent Records */}
       <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Recent (7 Days)</h3>
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Recent (7 Days)</h3>
         <div className="space-y-2">
           {(recentRecords ?? []).map((record: AttendanceRecord) => (
             <div
@@ -297,18 +282,18 @@ export function AttendancePage(): JSX.Element {
                 <p className="text-sm font-medium text-gray-900 dark:text-white">
                   {new Date(record.date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
                 </p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-400 dark:text-gray-500">
                   {formatTime(record.clockIn)} - {formatTime(record.clockOut)}
                   {record.workedMinutes > 0 && ` · ${formatMinutes(record.workedMinutes)}`}
                 </p>
               </div>
-              <span className={clsx('px-2 py-0.5 rounded-full text-xs font-semibold', STATUS_COLORS[record.status] || 'bg-gray-100 text-gray-600')}>
+              <span className={clsx('px-2 py-0.5 rounded-full text-xs font-semibold', STATUS_COLORS[record.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400')}>
                 {record.status.replace('_', ' ')}
               </span>
             </div>
           ))}
           {(!recentRecords || recentRecords.length === 0) && (
-            <div className="text-center py-6 text-gray-400">
+            <div className="text-center py-6 text-gray-400 dark:text-gray-500">
               <Clock size={32} className="mx-auto mb-2 opacity-50" />
               <p className="text-sm">No recent records</p>
             </div>

@@ -7,6 +7,7 @@ import {
   VFD_MODEL_SERIES,
 } from '../../../types/vfd.types';
 import { useVfdBrands } from '../../../hooks/useVfdBrands';
+import { colors } from '@aquaculture/shared-ui';
 
 interface VfdBrandSelectionStepProps {
   selectedBrand?: VfdBrandInfo;
@@ -15,14 +16,14 @@ interface VfdBrandSelectionStepProps {
 
 // Brand logos/icons (using text placeholders - can be replaced with actual logos)
 const BRAND_LOGOS: Record<VfdBrand, { color: string; bgColor: string }> = {
-  [VfdBrand.DANFOSS]: { color: '#E30613', bgColor: '#FEE2E2' },
-  [VfdBrand.ABB]: { color: '#FF000F', bgColor: '#FEE2E2' },
-  [VfdBrand.SIEMENS]: { color: '#009999', bgColor: '#D1FAE5' },
-  [VfdBrand.SCHNEIDER]: { color: '#3DCD58', bgColor: '#D1FAE5' },
-  [VfdBrand.YASKAWA]: { color: '#0066B3', bgColor: '#DBEAFE' },
-  [VfdBrand.DELTA]: { color: '#003399', bgColor: '#DBEAFE' },
-  [VfdBrand.MITSUBISHI]: { color: '#E60012', bgColor: '#FEE2E2' },
-  [VfdBrand.ROCKWELL]: { color: '#C8102E', bgColor: '#FEE2E2' },
+  [VfdBrand.DANFOSS]: { color: colors.error[600], bgColor: colors.error[100] },
+  [VfdBrand.ABB]: { color: colors.error[600], bgColor: colors.error[100] },
+  [VfdBrand.SIEMENS]: { color: colors.success[500], bgColor: colors.success[100] },
+  [VfdBrand.SCHNEIDER]: { color: colors.success[500], bgColor: colors.success[100] },
+  [VfdBrand.YASKAWA]: { color: colors.primary[600], bgColor: colors.info[100] },
+  [VfdBrand.DELTA]: { color: colors.primary[700], bgColor: colors.info[100] },
+  [VfdBrand.MITSUBISHI]: { color: colors.error[600], bgColor: colors.error[100] },
+  [VfdBrand.ROCKWELL]: { color: colors.error[700], bgColor: colors.error[100] },
 };
 
 // Popular brands to highlight
@@ -42,8 +43,8 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-medium text-gray-900 mb-2">VFD Markası Seçin</h3>
-        <p className="text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">VFD Markası Seçin</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           Frekans konvertörünüzün markasını seçin. Marka seçimi, register mapping ve
           varsayılan ayarları otomatik olarak yapılandıracaktır.
         </p>
@@ -51,7 +52,7 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
 
       {/* Popular brands */}
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 flex items-center">
           <svg className="w-4 h-4 mr-1 text-yellow-500" fill="currentColor" viewBox="0 0 20 20">
             <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
           </svg>
@@ -72,7 +73,7 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
 
       {/* Other brands */}
       <div>
-        <h4 className="text-sm font-medium text-gray-700 mb-3">Diğer Markalar</h4>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Diğer Markalar</h4>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {otherBrands.map((brand) => (
             <BrandCard
@@ -91,39 +92,39 @@ export function VfdBrandSelectionStep({ selectedBrand, onSelect }: VfdBrandSelec
           <div className="flex items-start">
             <div
               className="w-12 h-12 rounded-lg flex items-center justify-center text-white font-bold text-lg mr-4"
-              style={{ backgroundColor: BRAND_LOGOS[selectedBrand.code]?.color || '#6366F1' }}
+              style={{ backgroundColor: BRAND_LOGOS[selectedBrand.code]?.color || colors.primary[500] }}
             >
               {selectedBrand.name.substring(0, 2).toUpperCase()}
             </div>
             <div className="flex-1">
-              <h4 className="font-semibold text-gray-900">{selectedBrand.name}</h4>
-              <p className="text-sm text-gray-600 mt-1">{selectedBrand.description}</p>
+              <h4 className="font-semibold text-gray-900 dark:text-gray-100">{selectedBrand.name}</h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{selectedBrand.description}</p>
 
               <div className="mt-3 flex flex-wrap gap-2">
-                <div className="text-xs bg-white px-2 py-1 rounded border border-blue-200">
-                  <span className="text-gray-500">Protokoller:</span>{' '}
+                <div className="text-xs bg-white dark:bg-gray-900 px-2 py-1 rounded border border-blue-200">
+                  <span className="text-gray-500 dark:text-gray-400">Protokoller:</span>{' '}
                   <span className="font-medium">{selectedBrand.supportedProtocols.length}</span>
                 </div>
-                <div className="text-xs bg-white px-2 py-1 rounded border border-blue-200">
-                  <span className="text-gray-500">Model Serisi:</span>{' '}
+                <div className="text-xs bg-white dark:bg-gray-900 px-2 py-1 rounded border border-blue-200">
+                  <span className="text-gray-500 dark:text-gray-400">Model Serisi:</span>{' '}
                   <span className="font-medium">{selectedBrand.modelSeries.length}</span>
                 </div>
               </div>
 
               {/* Model series preview */}
               <div className="mt-3">
-                <p className="text-xs text-gray-500 mb-1">Desteklenen Model Serileri:</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Desteklenen Model Serileri:</p>
                 <div className="flex flex-wrap gap-1">
                   {selectedBrand.modelSeries.slice(0, 5).map((model) => (
                     <span
                       key={model.code}
-                      className="text-xs bg-white px-2 py-0.5 rounded border border-gray-200"
+                      className="text-xs bg-white dark:bg-gray-900 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700"
                     >
                       {model.code}
                     </span>
                   ))}
                   {selectedBrand.modelSeries.length > 5 && (
-                    <span className="text-xs text-gray-500">
+                    <span className="text-xs text-gray-500 dark:text-gray-400">
                       +{selectedBrand.modelSeries.length - 5} daha
                     </span>
                   )}
@@ -145,7 +146,7 @@ interface BrandCardProps {
 }
 
 function BrandCard({ brand, isSelected, isPopular, onSelect }: BrandCardProps) {
-  const { color, bgColor } = BRAND_LOGOS[brand.code] || { color: '#6366F1', bgColor: '#E0E7FF' };
+  const { color, bgColor } = BRAND_LOGOS[brand.code] || { color: colors.primary[500], bgColor: colors.info[100] };
 
   return (
     <button
@@ -153,7 +154,7 @@ function BrandCard({ brand, isSelected, isPopular, onSelect }: BrandCardProps) {
       className={`relative p-4 rounded-lg border-2 transition-all text-left hover:shadow-md ${
         isSelected
           ? 'border-blue-500 bg-blue-50 shadow-md'
-          : 'border-gray-200 bg-white hover:border-gray-300'
+          : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-gray-300 dark:hover:border-gray-500'
       }`}
     >
       {isPopular && (
@@ -169,9 +170,9 @@ function BrandCard({ brand, isSelected, isPopular, onSelect }: BrandCardProps) {
         {brand.name.substring(0, 2).toUpperCase()}
       </div>
 
-      <h4 className="font-medium text-gray-900 text-sm">{brand.name}</h4>
+      <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm">{brand.name}</h4>
 
-      <div className="mt-2 flex items-center text-xs text-gray-500">
+      <div className="mt-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
           <path
             fillRule="evenodd"

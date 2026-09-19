@@ -23,6 +23,7 @@ import {
   distributeV,
 } from '../../store/scada/alignmentUtils';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
+import { Tooltip } from '@aquaculture/shared-ui';
 
 type WidgetRect = { id: string; position: WidgetPosition };
 type AlignFn = (widgets: WidgetRect[]) => Map<string, WidgetPosition>;
@@ -73,111 +74,129 @@ export const AlignmentToolbar: React.FC = () => {
   const canDistribute = selectedWidgetIds.length >= 3;
 
   return (
-    <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 bg-white rounded-lg shadow-lg border border-gray-200 px-2 py-1">
+    <div role="toolbar" aria-label="Alignment" className="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-0.5 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 px-2 py-1">
       {/* Count badge */}
-      <span className="text-xs text-gray-500 mr-1.5 select-none whitespace-nowrap">
+      <span className="text-xs text-gray-500 dark:text-gray-400 mr-1.5 select-none whitespace-nowrap">
         {selectedWidgetIds.length} selected
       </span>
 
       {/* Align Left */}
+      <Tooltip content="Align Left">
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Align Left"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+        aria-label="Align Left"
         onClick={() => handleAlign(alignLeft)}
       >
         <AlignStartVertical className="w-4 h-4" />
       </button>
+      </Tooltip>
 
       {/* Align Center Horizontal */}
+      <Tooltip content="Align Center Horizontally">
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Align Center Horizontally"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+        aria-label="Align Center Horizontally"
         onClick={() => handleAlign(alignCenterH)}
       >
         <AlignCenterVertical className="w-4 h-4" />
       </button>
+      </Tooltip>
 
       {/* Align Right */}
+      <Tooltip content="Align Right">
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Align Right"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+        aria-label="Align Right"
         onClick={() => handleAlign(alignRight)}
       >
         <AlignEndVertical className="w-4 h-4" />
       </button>
+      </Tooltip>
 
       {/* Separator */}
-      <div className="w-px h-5 bg-gray-200 mx-1" />
+      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
       {/* Align Top */}
+      <Tooltip content="Align Top">
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Align Top"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+        aria-label="Align Top"
         onClick={() => handleAlign(alignTop)}
       >
         <AlignStartHorizontal className="w-4 h-4" />
       </button>
+      </Tooltip>
 
       {/* Align Center Vertical */}
+      <Tooltip content="Align Center Vertically">
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Align Center Vertically"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+        aria-label="Align Center Vertically"
         onClick={() => handleAlign(alignCenterV)}
       >
         <AlignCenterHorizontal className="w-4 h-4" />
       </button>
+      </Tooltip>
 
       {/* Align Bottom */}
+      <Tooltip content="Align Bottom">
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Align Bottom"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+        aria-label="Align Bottom"
         onClick={() => handleAlign(alignBottom)}
       >
         <AlignEndHorizontal className="w-4 h-4" />
       </button>
+      </Tooltip>
 
       {/* Separator */}
-      <div className="w-px h-5 bg-gray-200 mx-1" />
+      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
       {/* Distribute Horizontal */}
+      <Tooltip content="Distribute Horizontally">
       <button
         className={`p-1.5 rounded ${
           canDistribute
-            ? 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
-            : 'text-gray-500 cursor-not-allowed'
+            ? 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+            : 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
         }`}
-        title="Distribute Horizontally"
+        aria-label="Distribute Horizontally"
         disabled={!canDistribute}
         onClick={() => handleAlign(distributeH)}
       >
         <GripHorizontal className="w-4 h-4" />
       </button>
+      </Tooltip>
 
       {/* Distribute Vertical */}
+      <Tooltip content="Distribute Vertically">
       <button
         className={`p-1.5 rounded ${
           canDistribute
-            ? 'hover:bg-gray-100 text-gray-600 hover:text-gray-900'
-            : 'text-gray-500 cursor-not-allowed'
+            ? 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+            : 'text-gray-500 dark:text-gray-400 cursor-not-allowed'
         }`}
-        title="Distribute Vertically"
+        aria-label="Distribute Vertically"
         disabled={!canDistribute}
         onClick={() => handleAlign(distributeV)}
       >
         <GripVertical className="w-4 h-4" />
       </button>
+      </Tooltip>
 
       {/* Separator */}
-      <div className="w-px h-5 bg-gray-200 mx-1" />
+      <div className="w-px h-5 bg-gray-200 dark:bg-gray-700 mx-1" />
 
       {/* Zoom to Selection */}
+      <Tooltip content="Focus on Selection">
       <button
-        className="p-1.5 rounded hover:bg-gray-100 text-gray-600 hover:text-gray-900"
-        title="Focus on Selection"
+        className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100"
+        aria-label="Focus on Selection"
         onClick={handleZoomToSelection}
       >
         <Focus className="w-4 h-4" />
       </button>
+      </Tooltip>
     </div>
   );
 };

@@ -25,13 +25,13 @@ const statusColors: Record<SensorStatus, { bg: string; text: string; border: str
   normal: { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
   warning: { bg: 'bg-yellow-50', text: 'text-yellow-700', border: 'border-yellow-200' },
   critical: { bg: 'bg-red-50', text: 'text-red-700', border: 'border-red-200' },
-  offline: { bg: 'bg-gray-50', text: 'text-gray-500', border: 'border-gray-200' },
+  offline: { bg: 'bg-gray-50 dark:bg-gray-800', text: 'text-gray-500 dark:text-gray-400', border: 'border-gray-200 dark:border-gray-700' },
 };
 
 const trendColors = {
   up: 'text-green-500',
   down: 'text-red-500',
-  stable: 'text-gray-500',
+  stable: 'text-gray-500 dark:text-gray-400',
 };
 
 export const NumericWidget: React.FC<NumericWidgetProps> = ({
@@ -57,7 +57,7 @@ export const NumericWidget: React.FC<NumericWidgetProps> = ({
     >
       {/* Label */}
       {showLabel && (
-        <div className={`${config.labelSize} text-gray-500 mb-1 capitalize`}>
+        <div className={`${config.labelSize} text-gray-500 dark:text-gray-400 mb-1 capitalize`}>
           {reading.type.replace('_', ' ')}
         </div>
       )}
@@ -67,7 +67,7 @@ export const NumericWidget: React.FC<NumericWidgetProps> = ({
         <span className={`${config.valueSize} font-bold ${colors.text}`}>
           {reading.value.toFixed(1)}
         </span>
-        <span className={`${config.unitSize} text-gray-500`}>{reading.unit}</span>
+        <span className={`${config.unitSize} text-gray-500 dark:text-gray-400`}>{reading.unit}</span>
         {showTrend && (
           <TrendIcon
             size={config.iconSize}

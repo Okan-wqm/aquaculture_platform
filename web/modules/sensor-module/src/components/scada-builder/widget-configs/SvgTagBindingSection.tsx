@@ -53,11 +53,11 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
   }, [onChange]);
 
   return (
-    <div className="border-t border-gray-100 pt-2" data-testid="svg-tag-binding-section">
+    <div className="border-t border-gray-100 dark:border-gray-700 pt-2" data-testid="svg-tag-binding-section">
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 uppercase tracking-wide hover:text-gray-700"
+        className="flex items-center justify-between w-full text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide hover:text-gray-700 dark:hover:text-gray-100"
         aria-expanded={open}
         aria-label="Data binding settings"
       >
@@ -80,7 +80,7 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
       {open && (
         <div className="space-y-2 mt-2">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Tag</label>
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tag</label>
             <TagBrowser
               deviceId={deviceId ?? null}
               value={tagName}
@@ -94,7 +94,7 @@ export const SvgTagBindingSection: React.FC<SvgTagBindingSectionProps> = ({
             <button
               type="button"
               onClick={handleClear}
-              className="w-full py-1 text-[10px] text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-lg transition-colors"
+              className="w-full py-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-red-500 border border-gray-200 dark:border-gray-700 hover:border-red-200 rounded-lg transition-colors"
               aria-label="Clear tag binding"
               data-testid="clear-tag-binding"
             >

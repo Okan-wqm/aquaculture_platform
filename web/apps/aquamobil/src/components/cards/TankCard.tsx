@@ -72,7 +72,7 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
         </div>
         <div className="flex items-center gap-2.5">
           {hasBatch && (
-            <span className="text-xs font-bold text-white bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-lg">
+            <span className="text-xs font-bold text-white bg-white/20 dark:bg-gray-900/20 backdrop-blur-sm px-2.5 py-1 rounded-lg">
               {metrics.batchNumber}
             </span>
           )}
@@ -101,20 +101,20 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
               <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
                 {formatNumber(metrics.pieces ?? 0)}
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Fish</div>
+              <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider">Fish</div>
             </div>
             <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
               <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
                 {(metrics.avgWeight ?? 0).toFixed(0)}g
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Avg Wt</div>
+              <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider">Avg Wt</div>
             </div>
             <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-2.5 text-center">
               <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
                 {(metrics.biomass ?? tank.currentBiomass ?? 0).toFixed(0)}
-                <span className="text-xs text-gray-400 font-medium">kg</span>
+                <span className="text-xs text-gray-400 dark:text-gray-500 font-medium">kg</span>
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">Biomass</div>
+              <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider">Biomass</div>
             </div>
           </div>
 
@@ -123,7 +123,7 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
           {capacityPercent > 0 && (
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Capacity</span>
+                <span className="text-[10px] font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">Capacity</span>
                 <span className={clsx(
                   'text-[10px] font-bold',
                   capacityPercent > 90 ? 'text-red-500' : capacityPercent > 70 ? 'text-amber-500' : 'text-emerald-500',
@@ -147,7 +147,7 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
               <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
                 {tank.currentBiomass > 0 ? `${tank.currentBiomass.toFixed(0)}kg` : '--'}
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+              <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider">
                 {tank.currentBiomass > 0 ? 'Biomass' : 'Not configured'}
               </div>
             </div>
@@ -155,7 +155,7 @@ export function TankCard({ tank }: TankCardProps): ReactElement {
               <div className="text-lg font-bold text-gray-900 dark:text-white tabular-nums">
                 {tank.maxBiomass > 0 ? `${formatNumber(tank.maxBiomass)}kg` : '--'}
               </div>
-              <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+              <div className="text-[10px] text-gray-400 dark:text-gray-500 font-semibold uppercase tracking-wider">
                 {tank.maxBiomass > 0 ? 'Max Cap' : 'Not configured'}
               </div>
             </div>

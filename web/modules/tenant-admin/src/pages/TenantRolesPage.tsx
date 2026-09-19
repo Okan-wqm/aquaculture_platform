@@ -5,22 +5,12 @@
  * Allows creating, editing, and deleting roles with granular permission control.
  */
 
-import React, { useState, useCallback, useMemo, memo, useId } from 'react';
-import {
-  Shield,
-  Plus,
-  Trash2,
-  RefreshCw,
-  AlertCircle,
-  X,
-  Check,
-  Star,
-  Palette,
-} from 'lucide-react';
+import React, { useState, useCallback, useMemo, memo } from 'react';
+import { Modal, PageHeader } from '@aquaculture/shared-ui';
+import { Shield, Plus, Trash2, RefreshCw, AlertCircle, Check, Star, Palette } from 'lucide-react';
 import { useAuth } from '@aquaculture/shared-ui';
 import { PermissionCheckboxGroup } from '../components/permissions';
 import { RoleCard as SharedRoleCard } from '../components/roles/RoleCard';
-import { useFocusTrap } from '../hooks';
 import {
   useTenantRoles,
   usePermissionCategories,
@@ -34,7 +24,7 @@ import {
   type PanelPermissions,
 } from '../hooks/useTenantRoles';
 import { logError } from '../utils/error-handling';
-import { ROLE_COLORS } from '../lib/constants';
+import { DEFAULT_ROLE_COLOR, ROLE_COLORS } from '../lib/constants';
 
 // ============================================================================
 // Sub-Components
@@ -47,7 +37,7 @@ const RoleBadge = memo<{ role: TenantRole }>(({ role }) => {
   return (
     <span
       className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium text-white"
-      style={{ backgroundColor: role.color || '#6366F1' }}
+      style={{ backgroundColor: role.color || DEFAULT_ROLE_COLOR }}
     >
       <Shield className="w-3 h-3" />
       {role.name}
@@ -128,24 +118,13 @@ const RoleModal = memo<RoleModalProps>(({
 }) => {
   const isEditing = !!role;
 
-  // Generate unique IDs for ARIA attributes
-  const titleId = useId();
-  const descriptionId = useId();
 
-  // Focus trap for accessibility
-  const { containerRef, handleKeyDown } = useFocusTrap({
-    isOpen,
-    onClose,
-    closeOnEscape: true,
-    autoFocus: true,
-    restoreFocus: true,
-  });
 
   // Memoize initial form data to avoid recreating on each render
   const initialFormData = useMemo<RoleFormData>(() => ({
     name: role?.name || '',
     description: role?.description || '',
-    color: role?.color || '#6366F1',
+    color: role?.color || DEFAULT_ROLE_COLOR,
     icon: role?.icon || 'shield',
     level: role?.level || 50,
     isDefault: role?.isDefault || false,
@@ -199,47 +178,15 @@ const RoleModal = memo<RoleModalProps>(({
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="presentation"
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="xl"
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title={isEditing ? 'Edit Role' : 'Create New Role'}
+      description={isEditing ? `Editing "${role.name}" role` : 'Define a new role with custom permissions'}
     >
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-
-      {/* Modal */}
-      <div
-        ref={containerRef}
-        onKeyDown={handleKeyDown}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gradient-to-r from-tenant-50 to-white">
-          <div>
-            <h2 id={titleId} className="text-xl font-bold text-gray-900">
-              {isEditing ? 'Edit Role' : 'Create New Role'}
-            </h2>
-            <p id={descriptionId} className="text-sm text-gray-500 mt-0.5">
-              {isEditing
-                ? `Editing "${role.name}" role`
-                : 'Define a new role with custom permissions'}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
 
         {/* Content */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
@@ -247,7 +194,7 @@ const RoleModal = memo<RoleModalProps>(({
             {/* Basic Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Role Name *
                 </label>
                 <input
@@ -257,12 +204,12 @@ const RoleModal = memo<RoleModalProps>(({
                   placeholder="e.g., Supervisor, Technician"
                   required
                   disabled={role?.isSystem}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 disabled:bg-gray-100"
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 dark:disabled:bg-gray-800"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                   Priority Level
                 </label>
                 <input
@@ -271,16 +218,16 @@ const RoleModal = memo<RoleModalProps>(({
                   max="100"
                   value={formData.level}
                   onChange={handleLevelChange}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500"
+                  className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500"
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   Higher = more authority (1-100)
                 </p>
               </div>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 Description
               </label>
               <textarea
@@ -288,13 +235,13 @@ const RoleModal = memo<RoleModalProps>(({
                 onChange={handleDescriptionChange}
                 placeholder="Describe what this role is for..."
                 rows={2}
-                className="w-full px-4 py-2 rounded-lg border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-tenant-500 resize-none"
+                className="w-full px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 focus:outline-hidden focus:ring-2 focus:ring-green-500 resize-none"
               />
             </div>
 
             {/* Color Selection */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
                 <Palette className="w-4 h-4 inline mr-1" />
                 Role Color
               </label>
@@ -311,13 +258,13 @@ const RoleModal = memo<RoleModalProps>(({
                 id="isDefault"
                 checked={formData.isDefault}
                 onChange={handleIsDefaultChange}
-                className="rounded border-gray-300 text-tenant-600 focus:ring-tenant-500"
+                className="rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500"
               />
               <label htmlFor="isDefault" className="flex-1">
-                <span className="text-sm font-medium text-gray-900">
+                <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                   Set as default role
                 </span>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   New users will be assigned this role by default
                 </p>
               </label>
@@ -326,7 +273,7 @@ const RoleModal = memo<RoleModalProps>(({
 
             {/* Permissions */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                 Permissions
               </label>
               {categories.length > 0 ? (
@@ -338,9 +285,9 @@ const RoleModal = memo<RoleModalProps>(({
                   readOnly={role?.isSystem}
                 />
               ) : (
-                <div className="p-8 text-center bg-gray-50 rounded-xl">
-                  <RefreshCw className="w-6 h-6 animate-spin text-gray-500 mx-auto" />
-                  <p className="mt-2 text-sm text-gray-500">
+                <div className="p-8 text-center bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <RefreshCw className="w-6 h-6 animate-spin text-gray-500 dark:text-gray-400 mx-auto" />
+                  <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
                     Loading permission categories...
                   </p>
                 </div>
@@ -349,7 +296,7 @@ const RoleModal = memo<RoleModalProps>(({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between">
+          <div className="px-6 py-4 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
             {role?.isSystem && (
               <p className="text-xs text-amber-600">
                 System roles cannot be modified
@@ -359,14 +306,14 @@ const RoleModal = memo<RoleModalProps>(({
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={isSubmitDisabled}
-                className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                className="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isLoading ? (
                   <>
@@ -383,8 +330,7 @@ const RoleModal = memo<RoleModalProps>(({
             </div>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 });
 RoleModal.displayName = 'RoleModal';
@@ -410,18 +356,7 @@ const DeleteModal = memo<DeleteModalProps>(({
   isLoading,
   errorMessage,
 }) => {
-  // Generate unique IDs for ARIA attributes
-  const titleId = useId();
-  const descriptionId = useId();
 
-  // Focus trap for accessibility
-  const { containerRef, handleKeyDown } = useFocusTrap({
-    isOpen: isOpen && !!role,
-    onClose,
-    closeOnEscape: true,
-    autoFocus: true,
-    restoreFocus: true,
-  });
 
   if (!isOpen || !role) return null;
 
@@ -432,35 +367,20 @@ const DeleteModal = memo<DeleteModalProps>(({
   const hasActiveHolders = (role.userCount ?? 0) > 0;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="presentation"
+    <Modal
+      isOpen={isOpen && !!role}
+      onClose={onClose}
+      size="sm"
+      title={
+        <span className="flex items-center gap-3">
+          <span className="p-2 rounded-full bg-red-100" aria-hidden="true">
+            <Trash2 className="w-5 h-5 text-red-600" />
+          </span>
+          Delete Role
+        </span>
+      }
+      description={`Are you sure you want to delete "${role.name}"?`}
     >
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-        onClick={onClose}
-        aria-hidden="true"
-      />
-      <div
-        ref={containerRef}
-        onKeyDown={handleKeyDown}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6"
-      >
-        <div className="flex items-center gap-4">
-          <div className="p-3 rounded-full bg-red-100" aria-hidden="true">
-            <Trash2 className="w-6 h-6 text-red-600" />
-          </div>
-          <div>
-            <h3 id={titleId} className="text-lg font-bold text-gray-900">Delete Role</h3>
-            <p id={descriptionId} className="text-sm text-gray-500">
-              Are you sure you want to delete "{role.name}"?
-            </p>
-          </div>
-        </div>
 
         {hasActiveHolders && (
           <div className="mt-4 p-3 bg-amber-50 rounded-lg border border-amber-100">
@@ -485,7 +405,7 @@ const DeleteModal = memo<DeleteModalProps>(({
         <div className="mt-6 flex items-center justify-end gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>
@@ -504,8 +424,7 @@ const DeleteModal = memo<DeleteModalProps>(({
             )}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 });
 DeleteModal.displayName = 'DeleteModal';
@@ -620,7 +539,7 @@ const TenantRolesPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-8 h-8 animate-spin text-tenant-600" />
+        <RefreshCw className="w-8 h-8 animate-spin text-green-600" />
       </div>
     );
   }
@@ -628,52 +547,50 @@ const TenantRolesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Roles & Permissions</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Define custom roles with granular permission control
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          {/* RBAC-HIGH-004: seed + create require the roles:create capability.
-              RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
-              on a query error `roles` is just the [] default, and offering a
-              seed there invites a duplicate seed against unknown server state. */}
-          {canCreateRoles && (
-            <>
-              {!error && roles.length === 0 && (
+      <PageHeader
+        title="Roles & Permissions"
+        description="Define custom roles with granular permission control"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRefresh}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </button>
+            {/* RBAC-HIGH-004: seed + create require the roles:create capability.
+                RBAC-M14: the seed offer only renders on a CONFIRMED empty list —
+                on a query error `roles` is just the [] default, and offering a
+                seed there invites a duplicate seed against unknown server state. */}
+            {canCreateRoles && (
+              <>
+                {!error && roles.length === 0 && (
+                  <button
+                    onClick={handleSeedRoles}
+                    disabled={seedMutation.isPending}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  >
+                    {seedMutation.isPending ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Shield className="w-4 h-4" />
+                    )}
+                    Seed Default Roles
+                  </button>
+                )}
                 <button
-                  onClick={handleSeedRoles}
-                  disabled={seedMutation.isPending}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  onClick={handleOpenCreate}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
                 >
-                  {seedMutation.isPending ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Shield className="w-4 h-4" />
-                  )}
-                  Seed Default Roles
+                  <Plus className="w-4 h-4" />
+                  Create Role
                 </button>
-              )}
-              <button
-                onClick={handleOpenCreate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                Create Role
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+              </>
+            )}
+          </div>
+        }
+      />
 
       {/* Error Message */}
       {error && (
@@ -711,12 +628,12 @@ const TenantRolesPage: React.FC = () => {
         </div>
       ) : error ? null : (
         // Empty State (confirmed empty — the query succeeded with zero roles)
-        <div className="bg-white rounded-xl border border-gray-100 py-16 text-center">
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 py-16 text-center">
           <Shield className="w-16 h-16 text-gray-200 mx-auto" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">
+          <h3 className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">
             No roles defined
           </h3>
-          <p className="mt-2 text-sm text-gray-500 max-w-md mx-auto">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 max-w-md mx-auto">
             Create custom roles to manage user permissions. You can also seed
             default roles to get started quickly.
           </p>
@@ -726,7 +643,7 @@ const TenantRolesPage: React.FC = () => {
               <button
                 onClick={handleSeedRoles}
                 disabled={seedMutation.isPending}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
                 {seedMutation.isPending ? (
                   <RefreshCw className="w-4 h-4 animate-spin" />
@@ -737,7 +654,7 @@ const TenantRolesPage: React.FC = () => {
               </button>
               <button
                 onClick={handleOpenCreate}
-                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors"
               >
                 <Plus className="w-4 h-4" />
                 Create Role

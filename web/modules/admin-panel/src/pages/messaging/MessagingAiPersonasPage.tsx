@@ -17,10 +17,47 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/adminApi';
 import type { AiPersonaDefinition } from '../../services/api/messaging';
 import type { ApiError } from '../../services/http-client';
+
+/** The hard limits the runtime enforces on an autonomous persona; the reference table lists them. */
+interface ActuationPolicyField {
+  field: string;
+  type: string;
+  description: string;
+  impact: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+}
+
+const ACTUATION_POLICY_FIELDS: ActuationPolicyField[] = [
+  { field: 'maxDosingKg', type: 'number (nullable)', description: 'Maximum reagent dosing per actuation in kilograms', impact: 'CRITICAL' },
+  { field: 'phRange', type: '{ min, max } (nullable)', description: 'Allowed pH range for autonomous adjustments', impact: 'CRITICAL' },
+  { field: 'temperatureRange', type: '{ min, max } (nullable)', description: 'Allowed temperature range for autonomous adjustments', impact: 'CRITICAL' },
+  { field: 'autonomousActionsEnabled', type: 'boolean', description: 'Master switch for autonomous AI actions', impact: 'HIGH' },
+  { field: 'proactiveMonitoringEnabled', type: 'boolean', description: 'Whether AI proactively monitors sensor data', impact: 'MEDIUM' },
+];
+
+const IMPACT_BADGE: Record<ActuationPolicyField['impact'], 'error' | 'warning' | 'info'> = {
+  CRITICAL: 'error',
+  HIGH: 'warning',
+  MEDIUM: 'info',
+};
+
+const actuationPolicyColumns: DataTableColumn<ActuationPolicyField>[] = [
+  { key: 'field', header: 'Field', render: (_value, row) => <span className="font-mono text-gray-700 dark:text-gray-300">{row.field}</span> },
+  { key: 'type', header: 'Type', render: (_value, row) => <span className="text-gray-500 dark:text-gray-400">{row.type}</span> },
+  { key: 'description', header: 'Description', render: (_value, row) => <span className="text-gray-600 dark:text-gray-400">{row.description}</span> },
+  {
+    key: 'impact',
+    header: 'Safety Impact',
+    render: (_value, row) => (
+      <Badge variant={IMPACT_BADGE[row.impact]} size="sm">
+        {row.impact}
+      </Badge>
+    ),
+  },
+];
 
 // ============================================================================
 // Types
@@ -66,17 +103,15 @@ const ACTUATION_POLICY_INFO: Record<string, { label: string; color: string; desc
   },
 };
 
-// ============================================================================
-// PersonaRow Component
-// ============================================================================
-
-/** Row for a single persona in the configuration table. */
-function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactElement {
-  const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
-
-  return (
-    <tr className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50">
-      <td className="px-4 py-3">
+/** Columns of the persona configuration table (FE-HIGH-069). The persona
+ *  colour drives both the icon tile and the capability chips. */
+const personaColumns: DataTableColumn<AiPersonaDefinition>[] = [
+  {
+    key: 'name',
+    header: 'Persona',
+    render: (_value, persona) => {
+      const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
+      return (
         <div className="flex items-center gap-3">
           <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-xs font-bold ${colorClass}`}>
             {persona.icon.charAt(0).toUpperCase()}
@@ -90,13 +125,24 @@ function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactE
             </p>
           </div>
         </div>
-      </td>
-      <td className="px-4 py-3">
-        <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono text-gray-600 dark:text-gray-400">
-          {persona.id ?? 'general'}
-        </code>
-      </td>
-      <td className="px-4 py-3">
+      );
+    },
+  },
+  {
+    key: 'id',
+    header: 'ID',
+    render: (_value, persona) => (
+      <code className="text-xs bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded font-mono text-gray-600 dark:text-gray-300">
+        {persona.id ?? 'general'}
+      </code>
+    ),
+  },
+  {
+    key: 'capabilities',
+    header: 'Capabilities',
+    render: (_value, persona) => {
+      const colorClass = COLOR_CLASSES[persona.color] ?? COLOR_CLASSES['purple'];
+      return (
         <div className="flex flex-wrap gap-1">
           {persona.capabilities.slice(0, 3).map((cap) => (
             <span
@@ -107,15 +153,15 @@ function PersonaRow({ persona }: { persona: AiPersonaDefinition }): React.ReactE
             </span>
           ))}
           {persona.capabilities.length > 3 && (
-            <span className="text-[10px] text-gray-400">
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">
               +{persona.capabilities.length - 3} more
             </span>
           )}
         </div>
-      </td>
-    </tr>
-  );
-}
+      );
+    },
+  },
+];
 
 // ============================================================================
 // Main Component
@@ -157,17 +203,15 @@ function MessagingAiPersonasPage(): React.ReactElement {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            AI Personas Configuration
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      <PageHeader
+        title="AI Personas Configuration"
+        description={
+          <>
             View AI assistant personas from the backend registry.
             Each persona maps to a specialized ai-service profile with real actuation policies.
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* LIFE-SAFETY Warning */}
       <Card className="p-4 bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800">
@@ -246,8 +290,8 @@ function MessagingAiPersonasPage(): React.ReactElement {
         <Card>
           <div className="flex items-center justify-center py-16">
             <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">Loading personas from backend...</p>
+              <Spinner size="lg" block className="mb-3" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">Loading personas from backend...</p>
             </div>
           </div>
         </Card>
@@ -255,33 +299,15 @@ function MessagingAiPersonasPage(): React.ReactElement {
 
       {/* Personas table -- only shown when data is loaded */}
       {!loadState.loading && !loadState.error && personas.length > 0 && (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead className="bg-gray-50 dark:bg-gray-800/50 border-b border-gray-200 dark:border-gray-700">
-                <tr>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Persona
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    ID
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                    Capabilities
-                  </th>
-                  <th className="px-4 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-center">
-                    Scope
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {personas.map((persona) => (
-                  <PersonaRow key={persona.id ?? 'general'} persona={persona} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+        <DataTable<AiPersonaDefinition>
+          data={personas}
+          columns={personaColumns}
+          keyExtractor={(persona) => persona.id ?? 'general'}
+          emptyMessage="No personas"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* No personas loaded yet (initial state) */}
@@ -292,7 +318,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
               <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
-              <p className="text-sm text-gray-500">Enter a Tenant ID and click "Load Personas" to view the AI persona configuration from the backend.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Enter a Tenant ID and click "Load Personas" to view the AI persona configuration from the backend.</p>
             </div>
           </div>
         </Card>
@@ -318,7 +344,7 @@ function MessagingAiPersonasPage(): React.ReactElement {
               >
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs font-bold">{info.label}</span>
-                  <code className="text-[10px] bg-white/50 px-1.5 py-0.5 rounded font-mono">
+                  <code className="text-[10px] bg-white/50 dark:bg-gray-900/50 px-1.5 py-0.5 rounded font-mono">
                     actuationPolicy: &apos;{key}&apos;
                   </code>
                 </div>
@@ -340,60 +366,15 @@ function MessagingAiPersonasPage(): React.ReactElement {
             the AI operates within these hard limits enforced by the platform runtime.
             Values exceeding these limits trigger automatic escalation to human operators.
           </p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-gray-50 dark:bg-gray-800/50">
-                <tr>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Field</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Type</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Description</th>
-                  <th className="px-3 py-2 font-semibold text-gray-500 uppercase tracking-wider">Safety Impact</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">maxDosingKg</td>
-                  <td className="px-3 py-2 text-gray-500">number (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Maximum reagent dosing per actuation in kilograms</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">phRange</td>
-                  <td className="px-3 py-2 text-gray-500">{'{ min, max }'} (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Allowed pH range for autonomous adjustments</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">temperatureRange</td>
-                  <td className="px-3 py-2 text-gray-500">{'{ min, max }'} (nullable)</td>
-                  <td className="px-3 py-2 text-gray-600">Allowed temperature range for autonomous adjustments</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="error" size="sm">CRITICAL</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">autonomousActionsEnabled</td>
-                  <td className="px-3 py-2 text-gray-500">boolean</td>
-                  <td className="px-3 py-2 text-gray-600">Master switch for autonomous AI actions</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="warning" size="sm">HIGH</Badge>
-                  </td>
-                </tr>
-                <tr>
-                  <td className="px-3 py-2 font-mono text-gray-700">proactiveMonitoringEnabled</td>
-                  <td className="px-3 py-2 text-gray-500">boolean</td>
-                  <td className="px-3 py-2 text-gray-600">Whether AI proactively monitors sensor data</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="info" size="sm">MEDIUM</Badge>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ActuationPolicyField>
+            data={ACTUATION_POLICY_FIELDS}
+            columns={actuationPolicyColumns}
+            keyExtractor={(field) => field.field}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+            compact
+          />
         </div>
       </Card>
 

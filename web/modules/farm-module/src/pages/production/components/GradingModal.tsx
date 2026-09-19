@@ -188,17 +188,17 @@ export const GradingModal: React.FC<GradingModalProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-purple-600 uppercase font-medium">Source Tank</p>
-              <h3 className="font-medium text-gray-900">{tank.tankName}</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="font-medium text-gray-900 dark:text-gray-100">{tank.tankName}</h3>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Batch: {selectedBatchNumber || 'No batch assigned'}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-sm text-gray-500">Current Stock</p>
-              <p className="text-lg font-semibold text-gray-900">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Current Stock</p>
+              <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                 {availableQuantity.toLocaleString()} fish
               </p>
-              <p className="text-sm text-gray-500">{availableBiomassKg.toFixed(1)} kg</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{availableBiomassKg.toFixed(1)} kg</p>
             </div>
           </div>
         </div>
@@ -214,7 +214,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
         {/* Output rows */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium text-gray-700">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Grading Outputs ({rows.length}/{MAX_OUTPUTS})
             </h4>
             <button
@@ -230,11 +230,11 @@ export const GradingModal: React.FC<GradingModalProps> = ({
           {rows.map((row, index) => (
             <div
               key={index}
-              className="border border-gray-200 rounded-lg p-3 space-y-2"
+              className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2"
               data-testid={`grading-output-${index}`}
             >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-gray-500 uppercase">
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
                   Output {index + 1}
                 </span>
                 <button
@@ -251,18 +251,18 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                 <div className="col-span-2">
                   <label
                     htmlFor={`grading-destination-${index}`}
-                    className="block text-xs font-medium text-gray-700"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
                     Destination Tank <span className="text-purple-500">*</span>
                   </label>
                   {tanksLoading ? (
-                    <div className="mt-1 text-sm text-gray-500">Loading tanks...</div>
+                    <div className="mt-1 text-sm text-gray-500 dark:text-gray-400">Loading tanks...</div>
                   ) : (
                     <select
                       id={`grading-destination-${index}`}
                       value={row.destinationTankId}
                       onChange={(e) => updateRow(index, { destinationTankId: e.target.value })}
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                      className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
                     >
                       <option value="">Select destination tank...</option>
                       {destinationTanks.map((t: AvailableTank) => {
@@ -283,7 +283,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                 <div>
                   <label
                     htmlFor={`grading-quantity-${index}`}
-                    className="block text-xs font-medium text-gray-700"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
                     Quantity <span className="text-purple-500">*</span>
                   </label>
@@ -294,7 +294,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                     max={availableQuantity}
                     value={row.quantity || ''}
                     onChange={(e) => updateRow(index, { quantity: parseInt(e.target.value) || 0 })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
                     placeholder="Fish count"
                   />
                 </div>
@@ -302,7 +302,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                 <div>
                   <label
                     htmlFor={`grading-avgweight-${index}`}
-                    className="block text-xs font-medium text-gray-700"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
                     Avg Weight (g) <span className="text-purple-500">*</span>
                   </label>
@@ -315,7 +315,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                     onChange={(e) =>
                       updateRow(index, { avgWeightG: parseFloat(e.target.value) || 0 })
                     }
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
                     placeholder="Measured size-class weight"
                   />
                 </div>
@@ -323,7 +323,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                 <div className="col-span-2">
                   <label
                     htmlFor={`grading-sizeclass-${index}`}
-                    className="block text-xs font-medium text-gray-700"
+                    className="block text-xs font-medium text-gray-700 dark:text-gray-300"
                   >
                     Size Class
                   </label>
@@ -333,14 +333,14 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                     maxLength={64}
                     value={row.sizeClass}
                     onChange={(e) => updateRow(index, { sizeClass: e.target.value })}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+                    className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
                     placeholder="e.g. Small / Medium / Large or >250g"
                   />
                 </div>
               </div>
 
               {row.quantity > 0 && row.avgWeightG > 0 && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   Biomass: {((row.quantity * row.avgWeightG) / 1000).toFixed(2)} kg
                 </p>
               )}
@@ -351,7 +351,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
         {/* Date + Notes */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label htmlFor="gradedAt" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="gradedAt" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Grading Date
             </label>
             <input
@@ -360,11 +360,11 @@ export const GradingModal: React.FC<GradingModalProps> = ({
               value={gradedAt}
               max={new Date().toISOString().split('T')[0]}
               onChange={(e) => setGradedAt(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
             />
           </div>
           <div>
-            <label htmlFor="gradingNotes" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="gradingNotes" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               Notes
             </label>
             <input
@@ -373,7 +373,7 @@ export const GradingModal: React.FC<GradingModalProps> = ({
               maxLength={2000}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-purple-500 focus:ring-purple-500 sm:text-sm"
               placeholder="Optional operation notes"
             />
           </div>
@@ -391,14 +391,14 @@ export const GradingModal: React.FC<GradingModalProps> = ({
                 <p className="text-xs text-purple-600">{totalBiomassKg.toFixed(1)} kg</p>
               </div>
               <div>
-                <p className="text-xs text-gray-500 uppercase">Source Before</p>
-                <p className="text-lg font-bold text-gray-700">
+                <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Source Before</p>
+                <p className="text-lg font-bold text-gray-700 dark:text-gray-300">
                   {availableQuantity.toLocaleString()} fish
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500 uppercase">Source After</p>
-                <p className="text-lg font-bold text-gray-700">
+                <p className="text-xs text-gray-500 dark:text-gray-400 uppercase">Source After</p>
+                <p className="text-lg font-bold text-gray-700 dark:text-gray-300">
                   {remainingInSource.toLocaleString()} fish
                 </p>
               </div>

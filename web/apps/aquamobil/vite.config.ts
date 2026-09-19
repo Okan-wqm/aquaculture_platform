@@ -2,11 +2,50 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'path';
+import resolveConfig from 'tailwindcss/resolveConfig';
+
+import tailwindConfig from './tailwind.config.js';
+
+// WHY: the browser chrome shows the brand twice — the PWA manifest's
+// theme_color and the theme-color meta tag (light and dark). Both read the
+// Tailwind palette here, so tailwind.config.js is the one record of the ocean
+// blue and the dark surface; index.html carries placeholders this config fills.
+const palette: unknown = resolveConfig(tailwindConfig).theme.colors;
+
+function isRecord(value: unknown): value is Record<string | number, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function paletteHex(scale: string, step?: number): string {
+  const entry = isRecord(palette) ? palette[scale] : undefined;
+  const value = step === undefined ? entry : isRecord(entry) ? entry[step] : undefined;
+  if (typeof value !== 'string') {
+    throw new Error(`tailwind palette has no ${scale}${step === undefined ? '' : `-${step}`}`);
+  }
+  return value;
+}
+
+const THEME_COLOR = {
+  light: paletteHex('ocean', 600),
+  dark: paletteHex('gray', 950),
+  surface: paletteHex('white'),
+};
 
 export default defineConfig({
   base: '/mobile/',
   plugins: [
     react(),
+    {
+      name: 'aquamobil-theme-color',
+      transformIndexHtml: {
+        order: 'pre',
+        handler(html: string): string {
+          return html
+            .replace(/%THEME_COLOR_LIGHT%/g, THEME_COLOR.light)
+            .replace(/%THEME_COLOR_DARK%/g, THEME_COLOR.dark);
+        },
+      },
+    },
     VitePWA({
       // FE-CRITICAL-050-SW: injectManifest makes the HAND-WRITTEN service worker
       // (src/pwa/messaging-sw.ts) the DEPLOYED dist/messaging-sw.js (filename:
@@ -27,8 +66,8 @@ export default defineConfig({
         name: 'AquaMobil',
         short_name: 'AquaMobil',
         description: 'Aquaculture Mobile Data Entry - Offline First',
-        theme_color: '#0073e6',
-        background_color: '#ffffff',
+        theme_color: THEME_COLOR.light,
+        background_color: THEME_COLOR.surface,
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/mobile/',
@@ -117,9 +156,6 @@ export default defineConfig({
     //   path again.
     dedupe: ['react', 'react-dom'],
   },
-  optimizeDeps: {
-    include: ['konsta/react'],
-  },
   server: {
     port: 8090,
     strictPort: true,
@@ -151,8 +187,6 @@ export default defineConfig({
           query: ['@tanstack/react-query'],
         },
       },
-      // Force konsta/react resolution
-      external: [],
     },
   },
 });

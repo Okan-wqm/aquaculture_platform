@@ -13,7 +13,8 @@
  * alarm panel in the shell when clicked.
  */
 
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
+import { useClickOutside } from '@aquaculture/shared-ui';
 import { useShallow } from 'zustand/react/shallow';
 import {
   Menu,
@@ -94,10 +95,10 @@ const LiveClock = memo(() => {
       className="flex items-center gap-1.5 text-gray-300 select-none"
       aria-label={`Current date and time: ${date} ${time}`}
     >
-      <Clock size={14} className="text-gray-400 shrink-0" aria-hidden="true" />
+      <Clock size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
       <span className="text-xs font-mono tabular-nums">
         {date}
-        <span className="mx-1 text-gray-600" aria-hidden="true">|</span>
+        <span className="mx-1 text-gray-600 dark:text-gray-400" aria-hidden="true">|</span>
         {time}
       </span>
     </div>
@@ -222,7 +223,7 @@ const AlarmBadge = memo(() => {
       className={`
         relative flex items-center justify-center w-8 h-8 rounded transition-colors
         focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-500
-        ${alarmPanelOpen ? 'bg-gray-600 text-gray-100' : 'text-gray-400 hover:text-gray-100 hover:bg-gray-700'}
+        ${alarmPanelOpen ? 'bg-gray-600 text-gray-100' : 'text-gray-400 dark:text-gray-500 hover:text-gray-100 hover:bg-gray-700'}
       `}
     >
       {badge ? (
@@ -265,10 +266,12 @@ const UserRoleMenu = memo(() => {
   );
 
   const [open, setOpen] = useState(false);
+  const roleMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(roleMenuRef, () => setOpen(false), open);
   const roleClass = ROLE_BADGE[currentUserRole] ?? ROLE_BADGE.viewer;
 
   return (
-    <div className="relative">
+    <div className="relative" ref={roleMenuRef}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -281,63 +284,55 @@ const UserRoleMenu = memo(() => {
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <User size={14} className="text-gray-400 shrink-0" aria-hidden="true" />
+        <User size={14} className="text-gray-400 dark:text-gray-500 shrink-0" aria-hidden="true" />
         <span
           className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${roleClass}`}
           title={`Current role: ${currentUserRole}`}
         >
           {currentUserRole}
         </span>
-        <ChevronDown size={12} className="text-gray-500 shrink-0" aria-hidden="true" />
+        <ChevronDown size={12} className="text-gray-500 dark:text-gray-400 shrink-0" aria-hidden="true" />
       </button>
 
       {open && (
-        <>
-          {/* Dismiss backdrop */}
-          <div
-            className="fixed inset-0 z-50"
-            onClick={() => setOpen(false)}
-            aria-hidden="true"
-          />
-          <ul
-            className="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl z-50 overflow-hidden py-1"
-            role="listbox"
-            aria-label="Switch HMI role"
-          >
-            <li className="px-3 pt-2 pb-1">
-              <span className="text-[10px] text-gray-500 uppercase font-semibold tracking-wider">
-                Switch Role
-              </span>
+        <ul
+          className="absolute right-0 top-full mt-1 w-44 bg-gray-800 border border-gray-700 rounded-lg shadow-2xl z-50 overflow-hidden py-1"
+          role="listbox"
+          aria-label="Switch HMI role"
+        >
+          <li className="px-3 pt-2 pb-1">
+            <span className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-semibold tracking-wider">
+              Switch Role
+            </span>
+          </li>
+          {ALL_ROLES.map((role) => (
+            <li key={role} role="option" aria-selected={role === currentUserRole}>
+              <button
+                type="button"
+                onClick={() => {
+                  setCurrentUserRole(role);
+                  setOpen(false);
+                }}
+                className={`
+                  w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors
+                  ${role === currentUserRole
+                    ? 'bg-gray-700 text-gray-100'
+                    : 'text-gray-300 hover:bg-gray-700/60 hover:text-gray-100'}
+                `}
+              >
+                <Shield
+                  size={12}
+                  className={`shrink-0 ${ROLE_BADGE[role].split(' ')[1] ?? 'text-gray-400 dark:text-gray-500'}`}
+                  aria-hidden="true"
+                />
+                <span className="capitalize flex-1">{role}</span>
+                {role === currentUserRole && (
+                  <span className="text-[10px] text-blue-400" aria-hidden="true">active</span>
+                )}
+              </button>
             </li>
-            {ALL_ROLES.map((role) => (
-              <li key={role} role="option" aria-selected={role === currentUserRole}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentUserRole(role);
-                    setOpen(false);
-                  }}
-                  className={`
-                    w-full flex items-center gap-2 px-3 py-2 text-xs text-left transition-colors
-                    ${role === currentUserRole
-                      ? 'bg-gray-700 text-gray-100'
-                      : 'text-gray-300 hover:bg-gray-700/60 hover:text-gray-100'}
-                  `}
-                >
-                  <Shield
-                    size={12}
-                    className={`shrink-0 ${ROLE_BADGE[role].split(' ')[1] ?? 'text-gray-400'}`}
-                    aria-hidden="true"
-                  />
-                  <span className="capitalize flex-1">{role}</span>
-                  {role === currentUserRole && (
-                    <span className="text-[10px] text-blue-400" aria-hidden="true">active</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
+          ))}
+        </ul>
       )}
     </div>
   );

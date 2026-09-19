@@ -14,7 +14,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft,
   Search,
   Users,
   Check,
@@ -32,6 +31,8 @@ import {
 import { useState, useCallback, useMemo, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { AVAILABLE_AI_PERSONAS } from '@/graphql/messaging-operations';
 import { useAuth } from '@/hooks/useAuth';
 import { useCreateChannel } from '@/hooks/useCreateChannel';
@@ -344,27 +345,22 @@ export function NewChatPage(): JSX.Element {
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button
-            onClick={() => navigate('/messages')}
-            className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback"
-          >
-            <ArrowLeft size={22} />
-          </button>
-          <h1 className="text-lg font-bold flex-1">
-            {showGroupNameInput ? 'Name Your Group' : 'New Message'}
-          </h1>
-          {isGroupMode && !showGroupNameInput && (
-            <button
-              onClick={handleToggleGroupMode}
-              className="text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        title={showGroupNameInput ? 'Name Your Group' : 'New Message'}
+        back={() => navigate('/messages')}
+        actions={
+          <>
+            {isGroupMode && !showGroupNameInput && (
+              <button
+                onClick={handleToggleGroupMode}
+                className="text-sm font-medium bg-white/20 dark:bg-gray-900/20 px-3 py-1.5 rounded-lg touch-feedback"
+              >
+                Cancel
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Group name input panel */}
       {showGroupNameInput ? (
@@ -372,7 +368,7 @@ export function NewChatPage(): JSX.Element {
           <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card border border-gray-100 dark:border-gray-800 p-4">
             <label
               htmlFor="new-group-name"
-              className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 block"
+              className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 block"
             >
               Group Name
             </label>
@@ -416,7 +412,7 @@ export function NewChatPage(): JSX.Element {
               className="flex-1 py-3.5 bg-gradient-to-r from-ocean-600 to-ocean-500 text-white font-semibold rounded-2xl shadow-lg shadow-ocean-500/25 disabled:opacity-50 touch-feedback transition-all text-sm flex items-center justify-center gap-2"
             >
               {isCreating ? (
-                <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+                <Spinner size="md" color="white" />
               ) : (
                 <>
                   <UserPlus size={18} />
@@ -433,7 +429,7 @@ export function NewChatPage(): JSX.Element {
             <div className="relative">
               <Search
                 size={18}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
               />
               <input
                 type="text"
@@ -447,7 +443,7 @@ export function NewChatPage(): JSX.Element {
                   onClick={() => setSearchQuery('')}
                   className="absolute right-3 top-1/2 -translate-y-1/2 p-1"
                 >
-                  <X size={16} className="text-gray-400" />
+                  <X size={16} className="text-gray-400 dark:text-gray-500" />
                 </button>
               )}
             </div>
@@ -535,7 +531,7 @@ export function NewChatPage(): JSX.Element {
                   size={40}
                   className="mx-auto mb-3 text-gray-300 opacity-60"
                 />
-                <p className="text-sm text-gray-500">{errorMsg}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{errorMsg}</p>
               </div>
             ) : filteredUsers.length === 0 ? (
               <div className="text-center py-12 px-4">
@@ -553,7 +549,13 @@ export function NewChatPage(): JSX.Element {
                 )}
               </div>
             ) : (
-              <div className="divide-y divide-gray-100 dark:divide-gray-800/50">
+              <div
+                className={clsx(
+                  'divide-y divide-gray-100 dark:divide-gray-800/50',
+                  isCreating && 'pointer-events-none opacity-60',
+                )}
+                aria-busy={isCreating}
+              >
                 {filteredUsers.map((u) => (
                   <UserRow
                     key={u.id}
@@ -569,20 +571,22 @@ export function NewChatPage(): JSX.Element {
         </>
       )}
 
-      {/* Loading overlay for channel creation */}
+      {/* Creation in flight — announced, not veiled: the list above is inert
+          while it runs and this is a live region. A full-screen veil is
+          invisible to assistive tech and blocks nothing it cannot see. */}
       {isCreating && !showGroupNameInput && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-          <div className="bg-white dark:bg-gray-900 rounded-2xl p-6 flex flex-col items-center gap-3 shadow-xl">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ocean-500" />
-            <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-              Creating conversation...
-            </p>
-          </div>
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-x-4 bottom-nav-gap z-40 flex items-center justify-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-xl dark:bg-gray-900"
+        >
+          <Spinner size="md" />
+          <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            Creating conversation...
+          </p>
         </div>
       )}
 
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

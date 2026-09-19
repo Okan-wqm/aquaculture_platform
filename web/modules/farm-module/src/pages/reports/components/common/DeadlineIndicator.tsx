@@ -92,11 +92,11 @@ const urgencyConfig: Record<
   },
   submitted: {
     label: 'Submitted',
-    bgColor: 'bg-gray-50',
-    textColor: 'text-gray-600',
-    borderColor: 'border-gray-200',
+    bgColor: 'bg-gray-50 dark:bg-gray-800',
+    textColor: 'text-gray-600 dark:text-gray-400',
+    borderColor: 'border-gray-200 dark:border-gray-700',
     icon: (
-      <svg className="w-4 h-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <svg className="w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
       </svg>
     ),

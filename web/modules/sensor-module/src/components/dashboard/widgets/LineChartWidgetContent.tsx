@@ -41,13 +41,14 @@ function formatTimeSince(dateInput: Date | string): string {
 import { WidgetConfig } from '../types';
 import { useWidgetData } from '../../../hooks/useWidgetData';
 import { downsampleChartData, MAX_CHART_POINTS } from '../../../utils/downsample';
+import { colors, colors as themeColors, Spinner } from '@aquaculture/shared-ui';
 
 interface LineChartWidgetContentProps {
   config: WidgetConfig;
 }
 
 // Color palette for multiple sensors
-const COLORS = ['#0EA5E9', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const COLORS = [colors.primary[400], colors.success[500], colors.warning[500], colors.error[500], colors.primary[700], colors.accent[500]];
 
 // PERF-004: isolated timer — only this leaf re-renders every second
 const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) => {
@@ -59,7 +60,7 @@ const TimeSinceUpdate: React.FC<{ timestamp: Date | null }> = ({ timestamp }) =>
   if (!timestamp) return null;
   const diffSec = Math.floor((Date.now() - timestamp.getTime()) / 1000);
   const label = diffSec < 60 ? `${diffSec}s ago` : `${Math.floor(diffSec / 60)}m ago`;
-  return <span className="text-xs text-gray-500">{label}</span>;
+  return <span className="text-xs text-gray-500 dark:text-gray-400">{label}</span>;
 };
 
 export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
@@ -70,14 +71,14 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full" />
+        <Spinner size="lg" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         {error}
       </div>
     );
@@ -140,7 +141,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
 
   if (finalChartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-gray-500 dark:text-gray-400 text-sm">
         No historical data
       </div>
     );
@@ -167,18 +168,18 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
             margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
           >
             {config.settings?.showGrid !== false && (
-              <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+              <CartesianGrid strokeDasharray="3 3" stroke={colors.neutral[200]} />
             )}
             <XAxis
               dataKey="time"
-              tick={{ fontSize: 10, fill: '#6B7280' }}
-              tickLine={{ stroke: '#E5E7EB' }}
-              axisLine={{ stroke: '#E5E7EB' }}
+              tick={{ fontSize: 10, fill: colors.gray[400] }}
+              tickLine={{ stroke: colors.neutral[200] }}
+              axisLine={{ stroke: colors.neutral[200] }}
             />
             <YAxis
-              tick={{ fontSize: 10, fill: '#6B7280' }}
-              tickLine={{ stroke: '#E5E7EB' }}
-              axisLine={{ stroke: '#E5E7EB' }}
+              tick={{ fontSize: 10, fill: colors.gray[400] }}
+              tickLine={{ stroke: colors.neutral[200] }}
+              axisLine={{ stroke: colors.neutral[200] }}
               width={yAxisConfig?.label ? 60 : 40}
               domain={yAxisDomain}
               label={
@@ -187,7 +188,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
                       value: yAxisConfig.label,
                       angle: -90,
                       position: 'insideLeft',
-                      style: { fontSize: 10, fill: '#6B7280' },
+                      style: { fontSize: 10, fill: colors.gray[400] },
                     }
                   : undefined
               }
@@ -196,11 +197,11 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
             <Tooltip
               contentStyle={{
                 backgroundColor: 'white',
-                border: '1px solid #E5E7EB',
+                border: `1px solid ${themeColors.neutral[200]}`,
                 borderRadius: '8px',
                 fontSize: '12px',
               }}
-              labelStyle={{ color: '#374151', fontWeight: 'bold' }}
+              labelStyle={{ color: colors.neutral[700], fontWeight: 'bold' }}
             />
             {config.settings?.showLegend !== false && sensorNames.length > 1 && (
               <Legend
@@ -225,7 +226,7 @@ export const LineChartWidgetContent: React.FC<LineChartWidgetContentProps> = ({
       </div>
       {/* Last update time — only TimeSinceUpdate re-renders every second (PERF-004) */}
       {latestTimestamp && (
-        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 pt-1 border-t border-gray-100">
+        <div className="flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-gray-400 pt-1 border-t border-gray-100 dark:border-gray-700">
           <Clock size={10} />
           <span>Last update: </span>
           <TimeSinceUpdate timestamp={latestTimestamp} />

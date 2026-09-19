@@ -66,7 +66,7 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700">Alarm Rules</h4>
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Alarm Rules</h4>
         <button
           onClick={addAlarmRule}
           className="flex items-center gap-1 text-xs text-cyan-600 hover:text-cyan-700"
@@ -77,11 +77,11 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
       </div>
 
       {alarmRules.length === 0 && (
-        <p className="text-xs text-gray-500 py-4 text-center">No alarm rules yet</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 py-4 text-center">No alarm rules yet</p>
       )}
 
       {alarmRules.map((rule) => (
-        <div key={rule.id} className="p-3 bg-gray-50 rounded-lg space-y-2 border border-gray-100">
+        <div key={rule.id} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg space-y-2 border border-gray-100 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <select
               value={rule.severity}
@@ -110,13 +110,13 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
             value={rule.tag}
             onChange={(e) => updateAlarmRule(rule.id, 'tag', e.target.value)}
             placeholder="Tag"
-            className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
           <div className="flex gap-1">
             <select
               value={rule.condition}
               onChange={(e) => updateAlarmRule(rule.id, 'condition', e.target.value)}
-              className="w-16 px-1 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="w-16 px-1 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             >
               {CONDITIONS.map((c) => (
                 <option key={c} value={c}>{c}</option>
@@ -126,7 +126,7 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
               type="number"
               value={rule.value}
               onChange={(e) => updateAlarmRule(rule.id, 'value', Number(e.target.value))}
-              className="flex-1 px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+              className="flex-1 px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
             />
           </div>
           <input
@@ -134,11 +134,11 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
             value={rule.message}
             onChange={(e) => updateAlarmRule(rule.id, 'message', e.target.value)}
             placeholder="Alarm message"
-            className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+            className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
           />
           <div className="flex gap-1">
             <div className="flex-1">
-              <label className="block text-[11px] text-gray-600 mb-0.5">Deadband</label>
+              <label className="block text-[11px] text-gray-600 dark:text-gray-400 mb-0.5">Deadband</label>
               <input
                 type="number"
                 value={rule.deadband ?? ''}
@@ -146,11 +146,11 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
                 placeholder="Hysteresis value"
                 min={0}
                 step={0.1}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
             </div>
             <div className="flex-1">
-              <label className="block text-[11px] text-gray-600 mb-0.5">Delay (sec)</label>
+              <label className="block text-[11px] text-gray-600 dark:text-gray-400 mb-0.5">Delay (sec)</label>
               <input
                 type="number"
                 value={rule.delay ?? ''}
@@ -158,7 +158,7 @@ export const PropertiesAlarmTab: React.FC<PropertiesAlarmTabProps> = ({
                 placeholder="Seconds"
                 min={0}
                 step={1}
-                className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
               />
             </div>
           </div>

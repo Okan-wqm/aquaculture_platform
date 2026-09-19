@@ -11,13 +11,20 @@ import {
   Worker,
   CreateWorkerInput,
 } from '../../../hooks/useWorkers';
-import { Modal } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useConfirm,
+  useToast,
+  DataTable,
+  type DataTableColumn,
+  Spinner,
+} from '@aquaculture/shared-ui';
 
 const statusColors: Record<string, string> = {
   active: 'bg-green-100 text-green-800',
   on_leave: 'bg-yellow-100 text-yellow-800',
   terminated: 'bg-red-100 text-red-800',
-  suspended: 'bg-gray-100 text-gray-800',
+  suspended: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<string, string> = {
@@ -91,13 +98,22 @@ export const WorkersTab: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  const confirm = useConfirm();
+  const { toast } = useToast();
   const handleDelete = async (id: string) => {
-    if (confirm('Are you sure you want to delete this worker?')) {
+    if (
+      await confirm({
+        title: 'Delete this worker?',
+        confirmText: 'Delete',
+        cancelText: 'Cancel',
+        variant: 'danger',
+      })
+    ) {
       try {
         await deleteWorkerMutation.mutateAsync(id);
       } catch (err) {
         console.error('Failed to delete worker:', err);
-        alert('Failed to delete worker. Please try again.');
+        toast({ title: 'Failed to delete worker. Please try again.', variant: 'error' });
       }
     }
   };
@@ -105,7 +121,10 @@ export const WorkersTab: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.position) {
-      alert('First name, last name, email, and position are required.');
+      toast({
+        title: 'First name, last name, email, and position are required.',
+        variant: 'warning',
+      });
       return;
     }
 
@@ -138,11 +157,70 @@ export const WorkersTab: React.FC = () => {
       setEditingId(null);
     } catch (err) {
       console.error('Failed to save worker:', err);
-      alert('Failed to save worker. Please try again.');
+      toast({ title: 'Failed to save worker. Please try again.', variant: 'error' });
     } finally {
       setIsSaving(false);
     }
   };
+
+  type ItemRow = (typeof filtered)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {item.firstName} {item.lastName}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{item.employeeNumber}</div>
+        </>
+      ),
+    },
+    {
+      key: 'email',
+      header: 'Email',
+      render: (_value, item) => item.email,
+    },
+    {
+      key: 'phone',
+      header: 'Phone',
+      render: (_value, item) => item.phone || '-',
+    },
+    {
+      key: 'position',
+      header: 'Position',
+      render: (_value, item) => item.position,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {statusLabels[item.status] || item.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          <button onClick={() => openEdit(item)} className="text-blue-600 hover:text-blue-900 mr-3">
+            Edit
+          </button>
+          <button onClick={() => handleDelete(item.id)} className="text-red-600 hover:text-red-900">
+            Delete
+          </button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div>
@@ -155,10 +233,10 @@ export const WorkersTab: React.FC = () => {
               placeholder="Search workers..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -191,7 +269,7 @@ export const WorkersTab: React.FC = () => {
       {/* Loading */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
@@ -207,77 +285,20 @@ export const WorkersTab: React.FC = () => {
 
       {/* Table */}
       {!isLoading && !error && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Email
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Phone
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Position
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filtered.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">
-                      {item.firstName} {item.lastName}
-                    </div>
-                    <div className="text-sm text-gray-500">{item.employeeNumber}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {item.email}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {item.phone || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {item.position}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[item.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {statusLabels[item.status] || item.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => openEdit(item)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(item.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <DataTable<ItemRow>
+            data={filtered}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
           {filtered.length === 0 && (
             <div className="text-center py-12">
               <svg
-                className="mx-auto h-12 w-12 text-gray-400"
+                className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -289,8 +310,12 @@ export const WorkersTab: React.FC = () => {
                   d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
                 />
               </svg>
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No workers found</h3>
-              <p className="mt-1 text-sm text-gray-500">Add workers to manage your farm team.</p>
+              <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+                No workers found
+              </h3>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Add workers to manage your farm team.
+              </p>
             </div>
           )}
         </div>
@@ -307,54 +332,64 @@ export const WorkersTab: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">First Name *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  First Name *
+                </label>
                 <input
                   type="text"
                   required
                   value={formData.firstName}
                   onChange={(e) => setFormData((prev) => ({ ...prev, firstName: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Last Name *</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Last Name *
+                </label>
                 <input
                   type="text"
                   required
                   value={formData.lastName}
                   onChange={(e) => setFormData((prev) => ({ ...prev, lastName: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Email *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Email *
+              </label>
               <input
                 type="email"
                 required
                 value={formData.email}
                 onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Phone</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Phone
+              </label>
               <input
                 type="text"
                 value={formData.phone}
                 onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Position *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                Position *
+              </label>
               <input
                 type="text"
                 required
                 value={formData.position}
                 onChange={(e) => setFormData((prev) => ({ ...prev, position: e.target.value }))}
                 placeholder="e.g., Farm Technician, Feed Operator"
-                className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
             <div>
@@ -365,16 +400,16 @@ export const WorkersTab: React.FC = () => {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, isVeterinarian: e.target.checked }))
                   }
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-600 rounded"
                 />
-                <span className="text-sm font-medium text-gray-700">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Veterinarian (can be attributed to treatments)
                 </span>
               </label>
             </div>
             {formData.isVeterinarian && (
               <div>
-                <label className="block text-sm font-medium text-gray-700">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   Veterinary licence number
                 </label>
                 <input
@@ -388,16 +423,16 @@ export const WorkersTab: React.FC = () => {
                     }))
                   }
                   placeholder="Professional licence / registration number"
-                  className="mt-1 block w-full border border-gray-300 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
+                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md py-2 px-3 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             )}
           </div>
-          <div className="mt-4 pt-4 border-t border-gray-200 flex justify-end gap-3">
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-3">
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>

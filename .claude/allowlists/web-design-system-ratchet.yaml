@@ -1,0 +1,209 @@
+# Design-system adoption ratchet for the web tree (FE-HIGH-065, FE-HIGH-066,
+# FE-MEDIUM-067). Consumed by tests/invariants/web-design-system-ratchet.spec.ts.
+#
+# September 2026 survey: shared-ui is a real design system (61 colour tokens,
+# Modal / ConfirmModal / Drawer with one shared dialog behaviour, Button, form
+# fields) that the product mostly does not use. Three things were measured and
+# are pinned here so they can only shrink:
+#
+#   overlays    — files outside shared-ui that carry their own `fixed inset-0`
+#                 overlay. Keyed by FILE; every listed file must still contain
+#                 one, so a migrated file cannot stay listed. Batches:
+#                   dialog  → shared-ui Modal / ConfirmModal
+#                   drawer  → shared-ui Drawer
+#                   mobile  → bottom sheet (aquamobil)
+#                   runtime → a genuine full-screen surface, not a dialog;
+#                             re-evaluated at expiry, not migrated blindly
+#   rawHex      — `#rrggbb` occurrences outside theme.css, per package. The
+#                 tokens they should use live in web/shared-ui/src/styles/theme.css
+#                 (primary/secondary/accent/success/warning/error/info/neutral/gray).
+#   rawPalette  — colour utilities on Tailwind's raw hues (bg-blue-600,
+#                 text-red-400, ring-indigo-500) instead of the theme scales,
+#                 per package. shared-ui is never granted a ceiling: the
+#                 primitives paint from primary / secondary / accent / success /
+#                 warning / error / info / neutral.
+#   inlineStyle — `style={{` occurrences, per package.
+#   rawSpinner  — hand-rolled loading spinners (a lucide loader icon or an
+#                 inline <svg> spun by animate-spin, or a bordered ring spun
+#                 the same way), per package. shared-ui Spinner (aquamobil:
+#                 components/ui/Spinner) is the loading indicator.
+#   rawPageTitle — hand-written page titles (an h1 in text-2xl/text-xl/text-lg
+#                 bold or semibold), per package. shared-ui PageHeader is the
+#                 title row; AquaMobil's components/ui/PageHeader is the band.
+#   darkSurface — light-only surfaces (a class string painting bg-white,
+#                 bg-gray-50 or bg-gray-100 with no `dark:` sibling), per
+#                 package, shared-ui included. theme.css keys `dark:` on the
+#                 shell's data-theme; a surface is dark-aware when every light
+#                 class it paints has a dark counterpart.
+#
+# Per-package ceilings are EXACT live counts (the spec rejects slack), so the
+# workflow is: remove occurrences, run the spec, lower the ceiling to the number
+# it reports. Keyed by package/file, never by line number.
+version: 1
+overlays:
+  ceiling: 6
+  entries:
+    - site: web/apps/aquamobil/src/components/BarcodeScanButton.tsx
+      batch: runtime
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-065
+      reason: camera viewfinder overlay for barcode scanning, not a dialog
+    - site: web/apps/aquamobil/src/components/messaging/ImagePreview.tsx
+      batch: runtime
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-065
+      reason: full-screen media viewer, not a dialog
+    - site: web/apps/aquamobil/src/pages/messaging/MediaViewerPage.tsx
+      batch: runtime
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-065
+      reason: full-screen media viewer page, not a dialog
+    - site: web/modules/sensor-module/src/components/scada-operator/KioskMode.tsx
+      batch: runtime
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-065
+      reason: kiosk full-screen runtime surface for the operator console, not a dialog
+    - site: web/modules/sensor-module/src/components/scada-operator/ViewOverlayManager.tsx
+      batch: runtime
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-065
+      reason: SCADA popup-view layer driven by screen navigation; nests operator views, not a dialog
+    - site: web/modules/sensor-module/src/engine/views/ModalDialog.tsx
+      batch: dialog
+      owner: okan
+      expiry: 2027-03-31
+      findingId: FE-HIGH-065
+      reason: hand-rolled centred dialog duplicating Modal (backdrop, Escape, focus trap, close button a11y); move to shared-ui Modal / ConfirmModal
+rawHex:
+  entries: []
+rawTable:
+  entries:
+    - package: web/modules/farm-module
+      ceiling: 5
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 3
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 5
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-HIGH-069
+      reason: hand-rolled <table> re-implements what shared-ui DataTable owns (header semantics, sorting, selection, pagination, empty and loading states, export); render each list through DataTable and lower this ceiling
+rawSpinner:
+  entries: []
+rawPageTitle:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 5
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: the home and account heroes (decorated bands with stats and an avatar), the channel list whose title row swaps into a search field, and the error boundary fallback — not the page band PageHeader draws
+    - package: web/modules/hr-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: the HR module load-failure state — a centred message, not a page header
+    - package: web/modules/hydroponics-module
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: the pH/EC dosing simulator strip — the title is one control in a dense tool layout, compact by design
+    - package: web/modules/sensor-module
+      ceiling: 5
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: toolbars of full-screen tools (SCADA view, widget dashboard, water-chemistry monitor, VFD programming, tag registry) — the title is one control in a dense strip, compact by design; a page header would break the strip
+    - package: web/shell
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-071
+      reason: the 404 page — a centred message, not a page header
+darkSurface:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 1
+      owner: okan
+      expiry: 2027-06-30
+      findingId: FE-MEDIUM-072
+      reason: light-only surfaces (bg-white, bg-gray-50 or bg-gray-100 with no dark counterpart in the same class string) keep their light colour under the shell dark theme; pair each with its dark variant and lower this ceiling
+rawPalette:
+  entries:
+    - package: web/apps/aquamobil
+      ceiling: 1452
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/admin-panel
+      ceiling: 1483
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/dashboard
+      ceiling: 80
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/farm-module
+      ceiling: 4318
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/hr-module
+      ceiling: 1036
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/hydroponics-module
+      ceiling: 107
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/messaging-module
+      ceiling: 10
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/sensor-module
+      ceiling: 4181
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/modules/tenant-admin
+      ceiling: 878
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+    - package: web/shell
+      ceiling: 113
+      owner: okan
+      expiry: 2026-12-31
+      findingId: FE-HIGH-078
+      reason: colour utilities on raw Tailwind hues instead of the theme scales; paint through a shared-ui primitive or a primary/success/warning/error/info scale and lower this ceiling
+inlineStyle:
+  entries: []

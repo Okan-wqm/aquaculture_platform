@@ -3,6 +3,7 @@ import type { EquipmentSymbolProps } from '../types';
 import { EQUIPMENT_STATE_COLORS } from '../types';
 import { CONNECTION_POINTS } from '../types';
 import { ConnectionPoints } from '../shared';
+import { colors as themeColors, chartChrome } from '@aquaculture/shared-ui';
 
 const CheckValveSymbol: React.FC<EquipmentSymbolProps> = ({
   state,
@@ -27,11 +28,11 @@ const CheckValveSymbol: React.FC<EquipmentSymbolProps> = ({
         {/* Pipe stubs */}
         <line
           x1={0} y1={40} x2={25} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          stroke={chartChrome.axis} strokeWidth={3} strokeLinecap="round"
         />
         <line
           x1={75} y1={40} x2={100} y2={40}
-          stroke="#6b7280" strokeWidth={3} strokeLinecap="round"
+          stroke={chartChrome.axis} strokeWidth={3} strokeLinecap="round"
         />
 
         {/* Flow direction triangle — pointing right */}
@@ -105,7 +106,7 @@ const CheckValveSymbol: React.FC<EquipmentSymbolProps> = ({
           <text
             x={50} y={75}
             textAnchor="middle" fontSize={9}
-            fill="#374151" fontFamily="sans-serif"
+            fill={themeColors.neutral[700]} fontFamily="sans-serif"
           >
             {label}
           </text>

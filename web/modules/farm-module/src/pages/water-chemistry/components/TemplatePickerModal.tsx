@@ -6,7 +6,7 @@
  * Includes an overwrite checkbox to control whether existing params are replaced.
  */
 import React, { useState } from 'react';
-import { Modal } from '@aquaculture/shared-ui';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
 import { useParameterTemplates, ParameterTemplate } from '../../../hooks/useParameterConfigs';
 
 // ============================================================================
@@ -65,7 +65,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
       {/* Content */}
       {isLoading && (
         <div className="flex items-center justify-center h-48">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+          <Spinner size="xl" />
         </div>
       )}
 
@@ -76,7 +76,9 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
       )}
 
       {!isLoading && !error && templates && templates.length === 0 && (
-        <div className="text-center py-12 text-gray-500">No templates available.</div>
+        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+          No templates available.
+        </div>
       )}
 
       {!isLoading && !error && templates && templates.length > 0 && (
@@ -91,11 +93,13 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                 className={`text-left border-2 rounded-lg p-4 transition-colors ${
                   isSelected
                     ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-500 bg-white dark:bg-gray-900'
                 }`}
               >
                 <div className="flex items-start justify-between mb-2">
-                  <h4 className="text-sm font-semibold text-gray-900">{tpl.name}</h4>
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                    {tpl.name}
+                  </h4>
                   {isSelected && (
                     <svg
                       className="w-5 h-5 text-blue-600 flex-shrink-0"
@@ -110,7 +114,9 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                     </svg>
                   )}
                 </div>
-                <p className="text-xs text-gray-500 mb-3 line-clamp-2">{tpl.description}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3 line-clamp-2">
+                  {tpl.description}
+                </p>
 
                 {/* Species Badges */}
                 {tpl.species && tpl.species.length > 0 && (
@@ -127,7 +133,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
                 )}
 
                 {/* Parameter Count */}
-                <div className="text-xs text-gray-400">
+                <div className="text-xs text-gray-400 dark:text-gray-500">
                   {tpl.parameterCount} parameter{tpl.parameterCount !== 1 ? 's' : ''}
                 </div>
               </button>
@@ -143,9 +149,11 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
             type="checkbox"
             checked={overwrite}
             onChange={(e) => setOverwrite(e.target.checked)}
-            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            className="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
           />
-          <span className="text-sm text-gray-700">Replace existing parameters</span>
+          <span className="text-sm text-gray-700 dark:text-gray-300">
+            Replace existing parameters
+          </span>
         </label>
       </div>
 
@@ -154,7 +162,7 @@ export const TemplatePickerModal: React.FC<TemplatePickerModalProps> = ({
         <button
           type="button"
           onClick={onClose}
-          className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+          className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
         >
           Cancel
         </button>

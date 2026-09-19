@@ -30,9 +30,11 @@ import {
   DeletePreviewData,
   AffectedItemGroup,
   useToast,
+  Spinner,
 } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 import { SubEquipmentSection } from '../components/SubEquipmentSection';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // Equipment categories for two-stage selection.
 // Values match GraphQL enum wire values; normalizeCategory accepts legacy
@@ -60,13 +62,13 @@ const statusColors: Record<string, string> = {
   REPAIR: 'bg-orange-100 text-orange-800',
   STANDBY: 'bg-blue-100 text-blue-800',
   OUT_OF_SERVICE: 'bg-red-100 text-red-800',
-  DECOMMISSIONED: 'bg-gray-100 text-gray-800',
+  DECOMMISSIONED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   // Tank-specific statuses
   ACTIVE: 'bg-green-100 text-green-800',
   PREPARING: 'bg-blue-100 text-blue-800',
   CLEANING: 'bg-cyan-100 text-cyan-800',
   HARVESTING: 'bg-purple-100 text-purple-800',
-  FALLOW: 'bg-gray-200 text-gray-700',
+  FALLOW: 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
   QUARANTINE: 'bg-red-100 text-red-800',
 };
 
@@ -104,8 +106,12 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
       if (typeof value === 'boolean') {
         return [
           <div key={key} className="flex justify-between text-sm">
-            <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
-            <span className={`font-medium ${value ? 'text-green-600' : 'text-gray-500'}`}>
+            <span className="text-gray-500 dark:text-gray-400 capitalize">
+              {camelCaseToLabel(key)}:
+            </span>
+            <span
+              className={`font-medium ${value ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'}`}
+            >
               {value ? 'Yes' : 'No'}
             </span>
           </div>,
@@ -116,7 +122,7 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
         return [
           <div
             key={`${key}-header`}
-            className="text-sm font-semibold text-gray-700 mt-1 capitalize"
+            className="text-sm font-semibold text-gray-700 dark:text-gray-300 mt-1 capitalize"
           >
             {camelCaseToLabel(key)}
           </div>,
@@ -124,8 +130,10 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
             .filter(([, v]) => v != null)
             .map(([subKey, subValue]) => (
               <div key={`${key}-${subKey}`} className="flex justify-between text-sm pl-2">
-                <span className="text-gray-500 capitalize">{camelCaseToLabel(subKey)}:</span>
-                <span className="text-gray-900 font-medium">
+                <span className="text-gray-500 dark:text-gray-400 capitalize">
+                  {camelCaseToLabel(subKey)}:
+                </span>
+                <span className="text-gray-900 dark:text-gray-100 font-medium">
                   {typeof subValue === 'boolean'
                     ? subValue
                       ? 'Yes'
@@ -140,8 +148,10 @@ function renderSpecifications(specs: Record<string, unknown>): React.ReactNode[]
       }
       return [
         <div key={key} className="flex justify-between text-sm">
-          <span className="text-gray-500 capitalize">{camelCaseToLabel(key)}:</span>
-          <span className="text-gray-900 font-medium">{String(value)}</span>
+          <span className="text-gray-500 dark:text-gray-400 capitalize">
+            {camelCaseToLabel(key)}:
+          </span>
+          <span className="text-gray-900 dark:text-gray-100 font-medium">{String(value)}</span>
         </div>,
       ];
     });
@@ -612,6 +622,134 @@ export const EquipmentTab: React.FC = () => {
     setEquipmentToDelete(null);
   };
 
+  type EqRow = (typeof filteredEquipment)[number];
+  const eqRowColumns: DataTableColumn<EqRow>[] = [
+    {
+      key: 'equipment',
+      header: 'Equipment',
+      render: (_value, eq) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{eq.name}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{eq.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, eq) => eq.equipmentType?.name || '-',
+    },
+    {
+      key: 'location',
+      header: 'Location',
+      render: (_value, eq) => eq.department?.name || '-',
+    },
+    {
+      key: 'systems',
+      header: 'Systems',
+      render: (_value, eq) => (
+        <>
+          {(eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0) ? (
+            <span className="text-gray-500 dark:text-gray-400">
+              {eq.systems?.map((s) => s.systemName).join(', ') ||
+                `${eq.systemIds?.length || 0} system(s)`}
+            </span>
+          ) : (
+            <span className="flex items-center text-red-600">
+              <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                />
+              </svg>
+              Not associated
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'hierarchy',
+      header: 'Hierarchy',
+      render: (_value, eq) => (
+        <>
+          {eq.parentEquipment ? (
+            <span
+              className="flex items-center text-blue-600"
+              title={`Parent: ${eq.parentEquipment.name}`}
+            >
+              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 10l7-7m0 0l7 7m-7-7v18"
+                />
+              </svg>
+              {eq.parentEquipment.code}
+            </span>
+          ) : (eq.subEquipmentCount || 0) > 0 ? (
+            <span
+              className="flex items-center text-green-600"
+              title={`${eq.subEquipmentCount} sub-equipment`}
+            >
+              <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                />
+              </svg>
+              {eq.subEquipmentCount}
+            </span>
+          ) : (
+            <span className="text-gray-400 dark:text-gray-500">-</span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, eq) => (
+        <>
+          <span
+            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
+          >
+            {eq.status}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'model',
+      header: 'Model',
+      render: (_value, eq) => (
+        <>
+          {eq.manufacturer || ''} {eq.model || '-'}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, eq) => (
+        <>
+          <button onClick={() => handleEdit(eq)} className="text-blue-600 hover:text-blue-900 mr-3">
+            Edit
+          </button>
+          <button onClick={() => handleDelete(eq)} className="text-red-600 hover:text-red-900">
+            Delete
+          </button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div>
       {/* Toolbar */}
@@ -623,10 +761,10 @@ export const EquipmentTab: React.FC = () => {
               placeholder="Search equipment..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             <svg
-              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400"
+              className="absolute left-3 top-2.5 w-5 h-5 text-gray-400 dark:text-gray-500"
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -642,7 +780,7 @@ export const EquipmentTab: React.FC = () => {
           <select
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Types</option>
             {types.map((type) => (
@@ -654,7 +792,7 @@ export const EquipmentTab: React.FC = () => {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="all">All Status</option>
             <optgroup label="Equipment">
@@ -674,21 +812,21 @@ export const EquipmentTab: React.FC = () => {
               <option value="QUARANTINE">Quarantine</option>
             </optgroup>
           </select>
-          <label className="flex items-center text-sm text-gray-600 ml-2">
+          <label className="flex items-center text-sm text-gray-600 dark:text-gray-400 ml-2">
             <input
               type="checkbox"
               checked={showOrphanedOnly}
               onChange={(e) => setShowOrphanedOnly(e.target.checked)}
-              className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="mr-2 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
             />
             Orphaned only
           </label>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+          <div className="flex rounded-lg border border-gray-300 dark:border-gray-600 overflow-hidden">
             <button
               onClick={() => setViewMode('grid')}
-              className={`px-3 py-2 ${viewMode === 'grid' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
+              className={`px-3 py-2 ${viewMode === 'grid' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
@@ -701,7 +839,7 @@ export const EquipmentTab: React.FC = () => {
             </button>
             <button
               onClick={() => setViewMode('table')}
-              className={`px-3 py-2 ${viewMode === 'table' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}
+              className={`px-3 py-2 ${viewMode === 'table' ? 'bg-blue-50 text-blue-600' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'}`}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
@@ -737,7 +875,7 @@ export const EquipmentTab: React.FC = () => {
       {/* Loading State */}
       {isLoading && (
         <div className="flex items-center justify-center py-12">
-          <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
+          <Spinner size="lg" />
         </div>
       )}
 
@@ -781,7 +919,7 @@ export const EquipmentTab: React.FC = () => {
               key={eq.id}
               className={`rounded-lg shadow-sm border-2 hover:shadow-md transition-shadow ${
                 (eq.systemIds && eq.systemIds.length > 0) || (eq.systems && eq.systems.length > 0)
-                  ? 'bg-white border-blue-500'
+                  ? 'bg-white dark:bg-gray-900 border-blue-500'
                   : 'bg-red-50 border-red-500'
               }`}
             >
@@ -808,31 +946,33 @@ export const EquipmentTab: React.FC = () => {
                       </svg>
                     </div>
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">{eq.name}</h3>
-                      <p className="text-sm text-gray-500">{eq.code}</p>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                        {eq.name}
+                      </h3>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">{eq.code}</p>
                     </div>
                   </div>
                   <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                   >
                     {eq.status}
                   </span>
                 </div>
 
                 <div className="space-y-2 text-sm mb-4">
-                  <div className="flex items-center text-gray-600">
-                    <span className="text-gray-400 w-24">Type:</span>
+                  <div className="flex items-center text-gray-600 dark:text-gray-400">
+                    <span className="text-gray-400 dark:text-gray-500 w-24">Type:</span>
                     <span className="font-medium">{eq.equipmentType?.name || '-'}</span>
                   </div>
-                  <div className="flex items-center text-gray-600">
-                    <span className="text-gray-400 w-24">Location:</span>
+                  <div className="flex items-center text-gray-600 dark:text-gray-400">
+                    <span className="text-gray-400 dark:text-gray-500 w-24">Location:</span>
                     <span>{eq.department?.name || '-'}</span>
                   </div>
                   {/* System Association */}
                   {(eq.systemIds && eq.systemIds.length > 0) ||
                   (eq.systems && eq.systems.length > 0) ? (
-                    <div className="flex items-center text-gray-600">
-                      <span className="text-gray-400 w-24">Systems:</span>
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
+                      <span className="text-gray-400 dark:text-gray-500 w-24">Systems:</span>
                       <span className="text-sm">
                         {eq.systems?.map((s) => s.systemName).join(', ') ||
                           `${eq.systemIds?.length || 0} system(s)`}
@@ -856,16 +996,16 @@ export const EquipmentTab: React.FC = () => {
                       <span className="text-sm font-medium">Not associated with any system</span>
                     </div>
                   )}
-                  <div className="flex items-center text-gray-600">
-                    <span className="text-gray-400 w-24">Model:</span>
+                  <div className="flex items-center text-gray-600 dark:text-gray-400">
+                    <span className="text-gray-400 dark:text-gray-500 w-24">Model:</span>
                     <span>
                       {eq.manufacturer || ''} {eq.model || '-'}
                     </span>
                   </div>
                   {/* Parent Equipment */}
                   {eq.parentEquipment && (
-                    <div className="flex items-center text-gray-600">
-                      <span className="text-gray-400 w-24">Parent:</span>
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
+                      <span className="text-gray-400 dark:text-gray-500 w-24">Parent:</span>
                       <span className="flex items-center">
                         <svg
                           className="w-3 h-3 mr-1 text-blue-500"
@@ -895,8 +1035,8 @@ export const EquipmentTab: React.FC = () => {
                     )}
                   {/* Sub Equipment Count */}
                   {(eq.subEquipmentCount || 0) > 0 && (
-                    <div className="flex items-center text-gray-600">
-                      <span className="text-gray-400 w-24">Sub-equip:</span>
+                    <div className="flex items-center text-gray-600 dark:text-gray-400">
+                      <span className="text-gray-400 dark:text-gray-500 w-24">Sub-equip:</span>
                       <span className="flex items-center text-blue-600">
                         <svg
                           className="w-3 h-3 mr-1"
@@ -919,8 +1059,8 @@ export const EquipmentTab: React.FC = () => {
 
                 {/* Specifications */}
                 {eq.specifications && Object.keys(eq.specifications).length > 0 && (
-                  <div className="border-t border-gray-200 pt-4">
-                    <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">
                       Specifications
                     </h4>
                     <div className="space-y-1">{renderSpecifications(eq.specifications)}</div>
@@ -928,8 +1068,8 @@ export const EquipmentTab: React.FC = () => {
                 )}
               </div>
 
-              <div className="px-6 py-3 bg-gray-50 border-t border-gray-200 rounded-b-lg flex justify-between items-center">
-                <span className="text-xs text-gray-500">
+              <div className="px-6 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 rounded-b-lg flex justify-between items-center">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   {eq.warrantyEndDate
                     ? `Warranty: ${new Date(eq.warrantyEndDate).toLocaleDateString()}`
                     : 'No warranty info'}
@@ -956,164 +1096,22 @@ export const EquipmentTab: React.FC = () => {
 
       {/* Equipment Table View */}
       {!isLoading && !error && viewMode === 'table' && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Equipment
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Location
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Systems
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Hierarchy
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Model
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredEquipment.map((eq) => (
-                <tr
-                  key={eq.id}
-                  className={`${
-                    (eq.systemIds && eq.systemIds.length > 0) ||
-                    (eq.systems && eq.systems.length > 0)
-                      ? 'hover:bg-blue-50 border-l-4 border-l-blue-500'
-                      : 'bg-red-50 border-l-4 border-l-red-500'
-                  }`}
-                >
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{eq.name}</div>
-                    <div className="text-sm text-gray-500">{eq.code}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.equipmentType?.name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.department?.name || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    {(eq.systemIds && eq.systemIds.length > 0) ||
-                    (eq.systems && eq.systems.length > 0) ? (
-                      <span className="text-gray-500">
-                        {eq.systems?.map((s) => s.systemName).join(', ') ||
-                          `${eq.systemIds?.length || 0} system(s)`}
-                      </span>
-                    ) : (
-                      <span className="flex items-center text-red-600">
-                        <svg
-                          className="w-4 h-4 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                          />
-                        </svg>
-                        Not associated
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.parentEquipment ? (
-                      <span
-                        className="flex items-center text-blue-600"
-                        title={`Parent: ${eq.parentEquipment.name}`}
-                      >
-                        <svg
-                          className="w-3 h-3 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M5 10l7-7m0 0l7 7m-7-7v18"
-                          />
-                        </svg>
-                        {eq.parentEquipment.code}
-                      </span>
-                    ) : (eq.subEquipmentCount || 0) > 0 ? (
-                      <span
-                        className="flex items-center text-green-600"
-                        title={`${eq.subEquipmentCount} sub-equipment`}
-                      >
-                        <svg
-                          className="w-3 h-3 mr-1"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 14l-7 7m0 0l-7-7m7 7V3"
-                          />
-                        </svg>
-                        {eq.subEquipmentCount}
-                      </span>
-                    ) : (
-                      <span className="text-gray-400">-</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${statusColors[eq.status] || 'bg-gray-100 text-gray-800'}`}
-                    >
-                      {eq.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {eq.manufacturer || ''} {eq.model || '-'}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <button
-                      onClick={() => handleEdit(eq)}
-                      className="text-blue-600 hover:text-blue-900 mr-3"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(eq)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<EqRow>
+          data={filteredEquipment}
+          columns={eqRowColumns}
+          keyExtractor={(eq) => eq.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {/* Empty State */}
       {!isLoading && !error && filteredEquipment.length === 0 && (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
+        <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           <svg
-            className="mx-auto h-12 w-12 text-gray-400"
+            className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -1125,8 +1123,10 @@ export const EquipmentTab: React.FC = () => {
               d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
             />
           </svg>
-          <h3 className="mt-2 text-sm font-medium text-gray-900">No equipment found</h3>
-          <p className="mt-1 text-sm text-gray-500">
+          <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
+            No equipment found
+          </h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Get started by adding equipment to your farm.
           </p>
         </div>
@@ -1144,28 +1144,32 @@ export const EquipmentTab: React.FC = () => {
             <div className="space-y-6">
               {/* General Information Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   General Information
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Name *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Name *
+                    </label>
                     <input
                       type="text"
                       required
                       value={formData.name}
                       onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Code *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Code *
+                    </label>
                     <input
                       type="text"
                       required
                       value={formData.code}
                       onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1173,11 +1177,13 @@ export const EquipmentTab: React.FC = () => {
                 {/* Two-stage type selection */}
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Category *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Category *
+                    </label>
                     <select
                       value={formData.selectedCategory}
                       onChange={(e) => handleCategoryChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       required
                     >
                       <option value="">Select Category...</option>
@@ -1189,11 +1195,13 @@ export const EquipmentTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Type *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Type *
+                    </label>
                     <select
                       value={formData.equipmentTypeId}
                       onChange={(e) => handleTypeChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       required
                       disabled={!formData.selectedCategory}
                     >
@@ -1211,11 +1219,13 @@ export const EquipmentTab: React.FC = () => {
 
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Status *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Status *
+                    </label>
                     <select
                       value={formData.status}
                       onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
                       <optgroup label="General">
                         <option value="OPERATIONAL">Operational</option>
@@ -1238,13 +1248,15 @@ export const EquipmentTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Supplier</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Supplier
+                    </label>
                     <select
                       value={formData.supplierId}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     >
                       <option value="">Select Supplier...</option>
                       {suppliers.map((sup) => (
@@ -1259,16 +1271,18 @@ export const EquipmentTab: React.FC = () => {
 
               {/* Location Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Location
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Site *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Site *
+                    </label>
                     <select
                       value={formData.siteId}
                       onChange={(e) => handleSiteChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       required
                     >
                       <option value="">Select Site...</option>
@@ -1280,11 +1294,13 @@ export const EquipmentTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Department *</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Department *
+                    </label>
                     <select
                       value={formData.departmentId}
                       onChange={(e) => handleDepartmentChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                       required
                       disabled={!formData.siteId}
                     >
@@ -1311,24 +1327,26 @@ export const EquipmentTab: React.FC = () => {
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Systems *{' '}
-                    <span className="text-gray-400 text-xs font-normal">
+                    <span className="text-gray-400 dark:text-gray-500 text-xs font-normal">
                       (Select all systems this equipment serves)
                     </span>
                   </label>
                   {!formData.siteId ? (
-                    <p className="text-sm text-gray-500 italic">Select a site first...</p>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                      Select a site first...
+                    </p>
                   ) : systems.length === 0 ? (
-                    <p className="text-sm text-gray-500 italic">
+                    <p className="text-sm text-gray-500 dark:text-gray-400 italic">
                       No systems available for this site
                     </p>
                   ) : (
-                    <div className="max-h-32 overflow-y-auto border border-gray-300 rounded-md p-2 space-y-1">
+                    <div className="max-h-32 overflow-y-auto border border-gray-300 dark:border-gray-600 rounded-md p-2 space-y-1">
                       {systems.map((sys) => (
                         <label
                           key={sys.id}
-                          className={`flex items-center p-2 rounded cursor-pointer hover:bg-gray-50 ${
+                          className={`flex items-center p-2 rounded cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 ${
                             formData.systemIds.includes(sys.id)
                               ? 'bg-blue-50 border border-blue-200'
                               : ''
@@ -1338,10 +1356,14 @@ export const EquipmentTab: React.FC = () => {
                             type="checkbox"
                             checked={formData.systemIds.includes(sys.id)}
                             onChange={() => handleSystemToggle(sys.id)}
-                            className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                            className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
                           />
-                          <span className="ml-2 text-sm text-gray-700">{sys.name}</span>
-                          <span className="ml-auto text-xs text-gray-400">{sys.code}</span>
+                          <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">
+                            {sys.name}
+                          </span>
+                          <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
+                            {sys.code}
+                          </span>
                         </label>
                       ))}
                     </div>
@@ -1356,11 +1378,11 @@ export const EquipmentTab: React.FC = () => {
 
               {/* Hierarchy Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Hierarchy
                 </h4>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Parent Equipment
                   </label>
                   <select
@@ -1368,7 +1390,7 @@ export const EquipmentTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">None (Root Equipment)</option>
                     {availableParentEquipment.map((eq) => (
@@ -1377,7 +1399,7 @@ export const EquipmentTab: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Optional. Select if this equipment is a sub-component of another equipment.
                   </p>
                 </div>
@@ -1386,10 +1408,10 @@ export const EquipmentTab: React.FC = () => {
                 {editingId &&
                 equipment.find((eq) => eq.id === editingId)?.childEquipment?.length ? (
                   <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Sub-Equipment
                     </label>
-                    <div className="border border-gray-200 rounded-md p-3 bg-gray-50">
+                    <div className="border border-gray-200 dark:border-gray-700 rounded-md p-3 bg-gray-50 dark:bg-gray-800">
                       <div className="space-y-2">
                         {equipment
                           .find((eq) => eq.id === editingId)
@@ -1400,7 +1422,7 @@ export const EquipmentTab: React.FC = () => {
                             >
                               <span className="flex items-center">
                                 <svg
-                                  className="w-4 h-4 text-gray-400 mr-2"
+                                  className="w-4 h-4 text-gray-400 dark:text-gray-500 mr-2"
                                   fill="none"
                                   viewBox="0 0 24 24"
                                   stroke="currentColor"
@@ -1415,14 +1437,14 @@ export const EquipmentTab: React.FC = () => {
                                 {child.name} ({child.code})
                               </span>
                               <span
-                                className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 text-gray-800'}`}
+                                className={`px-2 py-0.5 text-xs rounded-full ${statusColors[child.status] || 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'}`}
                               >
                                 {child.status}
                               </span>
                             </div>
                           ))}
                       </div>
-                      <p className="mt-2 text-xs text-gray-500">
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
                         To add sub-equipment, edit or create equipment and set this equipment as
                         their parent.
                       </p>
@@ -1442,56 +1464,64 @@ export const EquipmentTab: React.FC = () => {
 
               {/* Details Section */}
               <div>
-                <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Details
                 </h4>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Manufacturer</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Manufacturer
+                    </label>
                     <input
                       type="text"
                       value={formData.manufacturer}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, manufacturer: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Model</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Model
+                    </label>
                     <input
                       type="text"
                       value={formData.model}
                       onChange={(e) => setFormData((prev) => ({ ...prev, model: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Serial Number</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Serial Number
+                    </label>
                     <input
                       type="text"
                       value={formData.serialNumber}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, serialNumber: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mt-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">Purchase Date</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      Purchase Date
+                    </label>
                     <input
                       type="date"
                       value={formData.purchaseDate}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, purchaseDate: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Warranty Expiry
                     </label>
                     <input
@@ -1500,7 +1530,7 @@ export const EquipmentTab: React.FC = () => {
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, warrantyEndDate: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                     />
                   </div>
                 </div>
@@ -1509,7 +1539,7 @@ export const EquipmentTab: React.FC = () => {
               {/* Technical Specifications Section */}
               {formData.equipmentTypeId && specificationSchema && (
                 <div>
-                  <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-4">
+                  <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                     Technical Specifications - {selectedEquipmentType?.name}
                   </h4>
                   <DynamicSpecificationForm
@@ -1528,7 +1558,7 @@ export const EquipmentTab: React.FC = () => {
                   tank's feed-rate calculation. */}
               {TANK_CATEGORIES.includes(formData.selectedCategory) && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                     Temperature Sensor
                   </label>
                   <select
@@ -1536,7 +1566,7 @@ export const EquipmentTab: React.FC = () => {
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, temperatureSensorId: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
+                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="">No sensor</option>
                     {sensors.map((sensor) => (
@@ -1545,7 +1575,7 @@ export const EquipmentTab: React.FC = () => {
                       </option>
                     ))}
                   </select>
-                  <p className="mt-1 text-xs text-gray-500">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Optional. Links a sensor whose live temperature drives this tank&apos;s
                     feed-rate calculation.
                   </p>
@@ -1561,15 +1591,18 @@ export const EquipmentTab: React.FC = () => {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, isVisibleInSensor: e.target.checked }))
                   }
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  className="w-4 h-4 text-blue-600 border-gray-300 dark:border-gray-600 rounded focus:ring-blue-500"
                 />
-                <label htmlFor="isVisibleInSensor" className="text-sm text-gray-700">
+                <label
+                  htmlFor="isVisibleInSensor"
+                  className="text-sm text-gray-700 dark:text-gray-300"
+                >
                   Show in Sensor Module (Process Editor)
                 </label>
               </div>
             </div>
           </div>
-          <div className="mt-4 pt-4 border-t border-gray-200 sm:flex sm:flex-row-reverse">
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 sm:flex sm:flex-row-reverse">
             <button
               type="submit"
               className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:ml-3 sm:w-auto sm:text-sm"
@@ -1579,7 +1612,7 @@ export const EquipmentTab: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
-              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+              className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-900 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
             >
               Cancel
             </button>

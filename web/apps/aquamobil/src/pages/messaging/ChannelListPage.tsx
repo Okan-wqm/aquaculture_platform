@@ -24,6 +24,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
+import { IconButton } from '../../components/ui';
+
 import { ChannelAvatar } from '@/components/messaging/ChannelAvatar';
 import { VirtualList } from '@/components/VirtualList';
 import { useAuth } from '@/hooks/useAuth';
@@ -277,25 +279,22 @@ export function ChannelListPage(): ReactElement {
     // MOB-MEDIUM-012: bounded flex column (matching NotificationsPage) so the
     // channel list virtualizes inside its own scroll region instead of paging
     // the whole document — the header stays put while a large membership scrolls.
-    <div className="h-screen overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col">
+    <div className="h-screen-nav overflow-hidden bg-gray-50 dark:bg-gray-950 flex flex-col">
       {/* Header */}
       <div className="bg-gradient-to-r from-ocean-600 to-ocean-500 text-white">
         <div className="px-4 py-4 pt-safe-top">
           {isSearchOpen ? (
             <div className="flex items-center gap-3">
-              <button
-                onClick={handleCloseSearch}
-                className="min-w-[48px] min-h-[48px] p-3 -ml-2 rounded-xl hover:bg-white/10 touch-feedback flex items-center justify-center"
-              >
+              <IconButton size="lg" onClick={handleCloseSearch} aria-label="Close search" className="-ml-2 rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10">
                 <X size={22} />
-              </button>
+              </IconButton>
               <input
                 ref={searchInputRef}
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search conversations..."
-                className="flex-1 bg-white/20 text-white placeholder-white/60 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white/30 transition-colors"
+                className="flex-1 bg-white/20 dark:bg-gray-900/20 text-white placeholder-white/60 rounded-xl px-4 py-2.5 text-sm outline-none focus:bg-white/30 dark:focus:bg-gray-800/30 transition-colors"
               />
             </div>
           ) : (
@@ -304,12 +303,9 @@ export function ChannelListPage(): ReactElement {
                 <MessageSquare size={22} />
                 <h1 className="text-lg font-bold">Messages</h1>
               </div>
-              <button
-                onClick={handleOpenSearch}
-                className="min-w-[48px] min-h-[48px] p-3 rounded-xl hover:bg-white/10 touch-feedback flex items-center justify-center"
-              >
+              <IconButton size="lg" onClick={handleOpenSearch} aria-label="Search messages" className="rounded-xl hover:bg-white/10 dark:hover:bg-gray-800/10">
                 <Search size={20} />
-              </button>
+              </IconButton>
             </div>
           )}
         </div>
@@ -349,7 +345,7 @@ export function ChannelListPage(): ReactElement {
             <p className="font-medium text-gray-600 dark:text-gray-300">
               Could not load messages
             </p>
-            <p className="text-sm text-gray-400 mt-1">{errorMsg}</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">{errorMsg}</p>
             <button
               onClick={() => {
                 void handleRefresh();
@@ -407,15 +403,13 @@ export function ChannelListPage(): ReactElement {
       {!loading && !errorMsg && (
         <button
           onClick={handleNewChat}
-          className="fixed bottom-24 right-5 w-14 h-14 bg-gradient-to-br from-ocean-500 to-ocean-600 text-white rounded-full shadow-lg shadow-ocean-500/30 flex items-center justify-center touch-feedback transition-transform active:scale-95 z-40"
+          className="fixed bottom-nav-gap right-5 w-14 h-14 bg-gradient-to-br from-ocean-500 to-ocean-600 text-white rounded-full shadow-lg shadow-ocean-500/30 flex items-center justify-center touch-feedback transition-transform active:scale-95 z-40"
           aria-label="New message"
         >
           <Plus size={24} />
         </button>
       )}
 
-      {/* Bottom spacer for tab bar */}
-      <div className="h-24" />
     </div>
   );
 }

@@ -17,6 +17,7 @@
 
 import React, { memo, useState, useMemo, useCallback } from 'react';
 import type { WidgetRendererProps } from '../WidgetRenderer';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -137,10 +138,10 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
   const pageSize = (config.pageSize ?? 10) as number;
   const showPagination = (config.showPagination ?? true) as boolean;
   const showHeader = (config.showHeader ?? true) as boolean;
-  const headerBgColor = (config.headerBgColor ?? '#1e293b') as string;
-  const headerTextColor = (config.headerTextColor ?? '#ffffff') as string;
-  const rowBgColor = (config.rowBgColor ?? '#ffffff') as string;
-  const alternateRowColor = (config.alternateRowColor ?? '#f8fafc') as string;
+  const headerBgColor = (config.headerBgColor ?? themeColors.neutral[800]) as string;
+  const headerTextColor = (config.headerTextColor ?? themeColors.white) as string;
+  const rowBgColor = (config.rowBgColor ?? themeColors.white) as string;
+  const alternateRowColor = (config.alternateRowColor ?? themeColors.neutral[50]) as string;
   const fontSize = (config.fontSize ?? 12) as number;
   const rowColorRules = (config.rowColorRules ?? []) as RowColorRule[];
 
@@ -195,11 +196,11 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#9ca3af',
+          color: themeColors.neutral[400],
           fontSize: 13,
           fontFamily: 'sans-serif',
-          background: '#f9fafb',
-          border: '1px dashed #d1d5db',
+          background: themeColors.neutral[50],
+          border: `1px dashed ${themeColors.neutral[300]}`,
           borderRadius: 6,
         }}
       >
@@ -223,20 +224,16 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize,
         overflow: 'hidden',
-        border: '1px solid #e2e8f0',
+        border: `1px solid ${themeColors.neutral[200]}`,
         borderRadius: 4,
         background: rowBgColor,
       }}
       data-testid="data-table-widget"
     >
       {/* Table container */}
-      <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+      <div className="flex-1 overflow-auto min-h-0">
         <table
-          style={{
-            width: '100%',
-            borderCollapse: 'collapse',
-            tableLayout: 'fixed',
-          }}
+          className="w-full border-collapse table-fixed"
         >
           {/* Column widths */}
           <colgroup>
@@ -260,7 +257,7 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
                       textAlign: 'left',
                       fontWeight: 600,
                       fontSize: fontSize - 1,
-                      borderBottom: '2px solid #cbd5e1',
+                      borderBottom: `2px solid ${themeColors.neutral[300]}`,
                       cursor: col.sortable ? 'pointer' : 'default',
                       userSelect: 'none',
                       whiteSpace: 'nowrap',
@@ -302,12 +299,12 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
                         key={ci}
                         style={{
                           padding: '4px 8px',
-                          borderBottom: '1px solid #f1f5f9',
+                          borderBottom: `1px solid ${themeColors.neutral[100]}`,
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           height: rowHeight,
-                          color: ruleColor ? '#ffffff' : '#374151',
+                          color: ruleColor ? themeColors.white : themeColors.neutral[700],
                         }}
                       >
                         {formatCellValue(row[key], col.format)}
@@ -329,10 +326,10 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '4px 8px',
-            borderTop: '1px solid #e2e8f0',
-            background: '#f9fafb',
+            borderTop: `1px solid ${themeColors.neutral[200]}`,
+            background: themeColors.neutral[50],
             fontSize: fontSize - 2,
-            color: '#6b7280',
+            color: themeColors.gray[400],
             flexShrink: 0,
           }}
           data-testid="pagination-controls"
@@ -340,17 +337,17 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
           <span>
             Page {safeCurrentPage + 1} of {totalPages}
           </span>
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div className="flex gap-1">
             <button
               onClick={() => setCurrentPage(Math.max(0, safeCurrentPage - 1))}
               disabled={safeCurrentPage === 0}
               style={{
                 padding: '2px 8px',
-                border: '1px solid #d1d5db',
+                border: `1px solid ${themeColors.neutral[300]}`,
                 borderRadius: 3,
-                background: safeCurrentPage === 0 ? '#f3f4f6' : '#ffffff',
+                background: safeCurrentPage === 0 ? themeColors.neutral[100] : themeColors.white,
                 cursor: safeCurrentPage === 0 ? 'not-allowed' : 'pointer',
-                color: safeCurrentPage === 0 ? '#9ca3af' : '#374151',
+                color: safeCurrentPage === 0 ? themeColors.neutral[400] : themeColors.neutral[700],
                 fontSize: fontSize - 2,
               }}
               data-testid="page-prev"
@@ -362,11 +359,11 @@ const DataTableRenderer: React.FC<WidgetRendererProps> = ({
               disabled={safeCurrentPage >= totalPages - 1}
               style={{
                 padding: '2px 8px',
-                border: '1px solid #d1d5db',
+                border: `1px solid ${themeColors.neutral[300]}`,
                 borderRadius: 3,
-                background: safeCurrentPage >= totalPages - 1 ? '#f3f4f6' : '#ffffff',
+                background: safeCurrentPage >= totalPages - 1 ? themeColors.neutral[100] : themeColors.white,
                 cursor: safeCurrentPage >= totalPages - 1 ? 'not-allowed' : 'pointer',
-                color: safeCurrentPage >= totalPages - 1 ? '#9ca3af' : '#374151',
+                color: safeCurrentPage >= totalPages - 1 ? themeColors.neutral[400] : themeColors.neutral[700],
                 fontSize: fontSize - 2,
               }}
               data-testid="page-next"

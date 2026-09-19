@@ -67,15 +67,17 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
   }
 
   const currency = data.currency;
+  // A label/value ledger, not a data grid: a definition list carries the
+  // semantics without a header-less grid.
   const line = (label: string, value: number | string, strong = false) => (
-    <tr className={strong ? 'bg-gray-50 dark:bg-gray-900/40' : ''}>
-      <td className={`px-5 py-3 text-sm ${strong ? 'font-semibold' : ''} text-gray-900 dark:text-gray-100`}>
-        {label}
-      </td>
-      <td className={`px-5 py-3 text-right text-sm ${strong ? 'font-semibold' : 'font-medium'} text-gray-900 dark:text-gray-100`}>
-        {formatMoney(value, currency)}
-      </td>
-    </tr>
+    <div
+      className={`flex items-center justify-between gap-4 px-5 py-3 text-sm text-gray-900 dark:text-gray-100 ${
+        strong ? 'bg-gray-50 font-semibold dark:bg-gray-900/40' : ''
+      }`}
+    >
+      <dt>{label}</dt>
+      <dd className={strong ? 'font-semibold' : 'font-medium'}>{formatMoney(value, currency)}</dd>
+    </div>
   );
 
   return (
@@ -85,16 +87,14 @@ export const LabourCostTab: React.FC<LabourCostTabProps> = ({ data, isLoading })
         <div className="border-b border-gray-100 px-5 py-4 dark:border-gray-700">
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">Labour Cost</h2>
         </div>
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+        <dl className="divide-y divide-gray-100 dark:divide-gray-700">
             {line('Annual salaries', data.annualSalaryTotalDecimal)}
             {line(`Pension fund (${settingsQuery.data?.pensionFundPct ?? 0}%)`, data.pensionFundDecimal)}
             {line(`Social insurance fund (${settingsQuery.data?.socialInsurancePct ?? 0}%)`, data.socialInsuranceFundDecimal)}
             {line(`Compulsory medical insurance fund (${settingsQuery.data?.medicalInsurancePct ?? 0}%)`, data.medicalInsuranceFundDecimal)}
             {line(`Other cost (${settingsQuery.data?.otherCostPct ?? 5}% of annual salaries)`, data.otherCostDecimal)}
             {line('Total Payroll', data.totalPayrollDecimal, true)}
-          </tbody>
-        </table>
+        </dl>
         <div className="border-t border-gray-100 px-5 py-3 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
           Actual gross pay booked this year: {formatMoney(data.actualGrossPayYtdDecimal, currency)} ·
           HR expenses: {formatMoney(data.hrExpensesYtdDecimal, currency)}

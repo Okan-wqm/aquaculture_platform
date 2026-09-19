@@ -74,9 +74,9 @@ const TrendIndicator: React.FC<{
   isPercentage?: boolean;
 }> = ({ value, direction, label, isPercentage = true }) => {
   const colors = {
-    up: 'text-green-600 bg-green-50',
-    down: 'text-red-600 bg-red-50',
-    neutral: 'text-gray-600 bg-gray-50',
+    up: 'text-success-600 bg-success-50',
+    down: 'text-error-600 bg-error-50',
+    neutral: 'text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800',
   };
 
   const icons = {
@@ -105,7 +105,7 @@ const TrendIndicator: React.FC<{
         {Math.abs(value)}
         {isPercentage ? '%' : ''}
       </span>
-      {label && <span className="text-gray-500 ml-1">{label}</span>}
+      {label && <span className="text-gray-500 dark:text-gray-400 ml-1">{label}</span>}
     </div>
   );
 };
@@ -168,21 +168,21 @@ const ProgressBar: React.FC<{
   const percentage = Number.isFinite(rawRatio) ? Math.min(Math.max(Math.round(rawRatio * 100), 0), 100) : 0;
 
   const colors = {
-    default: 'bg-blue-500',
-    primary: 'bg-blue-600',
-    success: 'bg-green-500',
-    warning: 'bg-yellow-600',
-    danger: 'bg-red-500',
-    info: 'bg-cyan-500',
+    default: 'bg-primary-500',
+    primary: 'bg-primary-600',
+    success: 'bg-success-500',
+    warning: 'bg-warning-600',
+    danger: 'bg-error-500',
+    info: 'bg-info-500',
   };
 
   return (
     <div className="mt-3">
-      <div className="flex justify-between text-xs text-gray-500 mb-1">
+      <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
         <span>{label || 'Progress'}</span>
         {showPercentage && <span>{percentage}%</span>}
       </div>
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
         <div
           className={`h-full ${colors[variant]} rounded-full transition-all duration-500 ease-out`}
           style={{ width: `${percentage}%` }}
@@ -201,9 +201,9 @@ const LoadingSkeleton: React.FC<{ size: CardSize }> = ({ size }) => {
 
   return (
     <div className="animate-pulse">
-      <div className="h-3 bg-gray-200 rounded w-1/3 mb-2" />
-      <div className={`${heights[size]} bg-gray-200 rounded w-2/3 mb-2`} />
-      <div className="h-3 bg-gray-200 rounded w-1/2" />
+      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/3 mb-2" />
+      <div className={`${heights[size]} bg-gray-200 dark:bg-gray-700 rounded w-2/3 mb-2`} />
+      <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
     </div>
   );
 };
@@ -224,7 +224,7 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
   sparklineData,
   progress,
   icon,
-  iconBackground = 'bg-blue-100',
+  iconBackground = 'bg-primary-100',
   variant = 'default',
   size = 'md',
   className = '',
@@ -258,34 +258,34 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
 
   const variantColors = {
     default: {
-      border: 'border-gray-200',
+      border: 'border-gray-200 dark:border-gray-700',
       iconBg: iconBackground,
-      iconText: 'text-gray-600',
+      iconText: 'text-gray-600 dark:text-gray-400',
     },
     primary: {
-      border: 'border-blue-200',
-      iconBg: 'bg-blue-100',
-      iconText: 'text-blue-600',
+      border: 'border-primary-200',
+      iconBg: 'bg-primary-100',
+      iconText: 'text-primary-600',
     },
     success: {
-      border: 'border-green-200',
-      iconBg: 'bg-green-100',
-      iconText: 'text-green-600',
+      border: 'border-success-200',
+      iconBg: 'bg-success-100',
+      iconText: 'text-success-600',
     },
     warning: {
-      border: 'border-yellow-200',
-      iconBg: 'bg-yellow-100',
-      iconText: 'text-yellow-600',
+      border: 'border-warning-200',
+      iconBg: 'bg-warning-100',
+      iconText: 'text-warning-600',
     },
     danger: {
-      border: 'border-red-200',
-      iconBg: 'bg-red-100',
-      iconText: 'text-red-600',
+      border: 'border-error-200',
+      iconBg: 'bg-error-100',
+      iconText: 'text-error-600',
     },
     info: {
-      border: 'border-cyan-200',
-      iconBg: 'bg-cyan-100',
-      iconText: 'text-cyan-600',
+      border: 'border-info-200',
+      iconBg: 'bg-info-100',
+      iconText: 'text-info-600',
     },
   };
 
@@ -295,9 +295,9 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
   return (
     <div
       className={`
-        bg-white rounded-xl shadow-sm border ${colors.border}
+        bg-white dark:bg-gray-900 rounded-xl shadow-sm border ${colors.border}
         ${sizes.padding}
-        ${onClick ? 'cursor-pointer hover:shadow-md hover:border-blue-300 transition-all duration-200' : ''}
+        ${onClick ? 'cursor-pointer hover:shadow-md hover:border-primary-300 transition-all duration-200' : ''}
         ${className}
       `}
       onClick={onClick}
@@ -309,10 +309,10 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
-              <h3 className={`${sizes.title} font-medium text-gray-500 truncate`}>{title}</h3>
+              <h3 className={`${sizes.title} font-medium text-gray-500 dark:text-gray-400 truncate`}>{title}</h3>
               <div className="flex items-baseline gap-2 mt-1">
-                <span className={`${sizes.value} font-bold text-gray-900`}>{value}</span>
-                {subtitle && <span className={`${sizes.subtitle} text-gray-500`}>{subtitle}</span>}
+                <span className={`${sizes.value} font-bold text-gray-900 dark:text-gray-100`}>{value}</span>
+                {subtitle && <span className={`${sizes.subtitle} text-gray-500 dark:text-gray-400`}>{subtitle}</span>}
               </div>
             </div>
 
@@ -340,7 +340,7 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
           </div>
 
           {/* Description */}
-          {description && <p className="mt-2 text-xs text-gray-500">{description}</p>}
+          {description && <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">{description}</p>}
 
           {/* Trend & Comparison */}
           {(trend || comparison) && (
@@ -354,8 +354,8 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
                 />
               )}
               {comparison && (
-                <span className="text-xs text-gray-500">
-                  <span className="font-medium text-gray-700">{comparison.value}</span> {comparison.label}
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+                  <span className="font-medium text-gray-700 dark:text-gray-300">{comparison.value}</span> {comparison.label}
                 </span>
               )}
             </div>
@@ -373,7 +373,7 @@ const KpiCardInner: React.FC<KpiCardProps> = ({
           )}
 
           {/* Footer */}
-          {footer && <div className="mt-3 pt-3 border-t border-gray-100">{footer}</div>}
+          {footer && <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">{footer}</div>}
         </>
       )}
     </div>

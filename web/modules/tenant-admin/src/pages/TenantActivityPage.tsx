@@ -37,6 +37,7 @@ import {
 } from '../hooks/useTenantActivity';
 import { formatRelativeTime } from '../utils/date-utils';
 import { UserAvatar } from '../components/ui/UserAvatar';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Utilities
@@ -45,13 +46,13 @@ import { UserAvatar } from '../components/ui/UserAvatar';
 function getDeviceIcon(deviceType: string | null): React.ReactNode {
   switch (deviceType?.toLowerCase()) {
     case 'mobile':
-      return <Smartphone className="w-4 h-4 text-gray-500" />;
+      return <Smartphone className="w-4 h-4 text-gray-500 dark:text-gray-400" />;
     case 'tablet':
-      return <Tablet className="w-4 h-4 text-gray-500" />;
+      return <Tablet className="w-4 h-4 text-gray-500 dark:text-gray-400" />;
     case 'desktop':
-      return <Monitor className="w-4 h-4 text-gray-500" />;
+      return <Monitor className="w-4 h-4 text-gray-500 dark:text-gray-400" />;
     default:
-      return <Globe className="w-4 h-4 text-gray-500" />;
+      return <Globe className="w-4 h-4 text-gray-500 dark:text-gray-400" />;
   }
 }
 
@@ -78,13 +79,13 @@ const StatCard: React.FC<{
   color: string;
   subtext?: string;
 }> = ({ label, value, icon, color, subtext }) => (
-  <div className="bg-white rounded-xl border border-gray-100 p-5">
+  <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5">
     <div className="flex items-center gap-4">
       <div className={`p-3 rounded-xl ${color}`}>{icon}</div>
       <div>
-        <p className="text-xs font-medium text-gray-500 uppercase">{label}</p>
-        <p className="text-2xl font-bold text-gray-900">{value}</p>
-        {subtext && <p className="text-xs text-gray-500">{subtext}</p>}
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">{label}</p>
+        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+        {subtext && <p className="text-xs text-gray-500 dark:text-gray-400">{subtext}</p>}
       </div>
     </div>
   </div>
@@ -97,15 +98,15 @@ const PeriodSelector: React.FC<{
   value: ActivityPeriod;
   onChange: (p: ActivityPeriod) => void;
 }> = ({ value, onChange }) => (
-  <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5">
+  <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 p-0.5">
     {(['7d', '30d'] as ActivityPeriod[]).map((p) => (
       <button
         key={p}
         onClick={() => onChange(p)}
         className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
           value === p
-            ? 'bg-white text-tenant-700 shadow-sm'
-            : 'text-gray-500 hover:text-gray-700'
+            ? 'bg-white dark:bg-gray-900 text-green-700 shadow-sm'
+            : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
         }`}
       >
         {p === '7d' ? 'Last 7 Days' : 'Last 30 Days'}
@@ -122,7 +123,7 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
 
   if (data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-40 text-sm text-gray-500">
+      <div className="flex items-center justify-center h-40 text-sm text-gray-500 dark:text-gray-400">
         No activity data available
       </div>
     );
@@ -139,18 +140,18 @@ const DailyActiveUsersChart: React.FC<{ data: DailyActiveUsers[] }> = ({ data })
         return (
           <div key={day.date} className="flex-1 flex flex-col items-center gap-1 group">
             {/* Tooltip */}
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-gray-600 whitespace-nowrap">
+            <div className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">
               {day.count}
             </div>
             {/* Bar */}
             <div
               className={`w-full rounded-t transition-all duration-200 ${
-                isToday ? 'bg-tenant-500' : 'bg-tenant-300 group-hover:bg-tenant-400'
+                isToday ? 'bg-green-500' : 'bg-green-300 group-hover:bg-green-400'
               }`}
               style={{ height: `${Math.max(heightPercent, 2)}%`, minHeight: '2px' }}
             />
             {/* Label */}
-            <span className="text-[10px] text-gray-500 transform -rotate-45 origin-top-left whitespace-nowrap hidden sm:block">
+            <span className="text-[10px] text-gray-500 dark:text-gray-400 transform -rotate-45 origin-top-left whitespace-nowrap hidden sm:block">
               {date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </span>
           </div>
@@ -168,16 +169,16 @@ const ActivitySkeleton: React.FC = () => (
   <div className="space-y-6 animate-pulse">
     <div className="flex justify-between">
       <div>
-        <div className="w-48 h-7 bg-gray-200 rounded" />
-        <div className="w-64 h-4 bg-gray-200 rounded mt-2" />
+        <div className="w-48 h-7 bg-gray-200 dark:bg-gray-700 rounded" />
+        <div className="w-64 h-4 bg-gray-200 dark:bg-gray-700 rounded mt-2" />
       </div>
     </div>
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-white rounded-xl border border-gray-100 p-5 h-24" />
+        <div key={i} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-5 h-24" />
       ))}
     </div>
-    <div className="bg-white rounded-xl border border-gray-100 p-6 h-60" />
+    <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6 h-60" />
   </div>
 );
 
@@ -218,24 +219,22 @@ const TenantActivityPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">User Activity</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Monitor user logins, sessions, and activity trends
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <PeriodSelector value={period} onChange={changePeriod} />
-          <button
-            onClick={() => refetch()}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="User Activity"
+        description="Monitor user logins, sessions, and activity trends"
+        actions={
+          <div className="flex items-center gap-3">
+            <PeriodSelector value={period} onChange={changePeriod} />
+            <button
+              onClick={() => refetch()}
+              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+            </button>
+          </div>
+        }
+      />
 
       {/* Error Message */}
       {error && (
@@ -266,8 +265,8 @@ const TenantActivityPage: React.FC = () => {
         <StatCard
           label="Unique Users"
           value={uniqueActiveUsers}
-          icon={<Users className="w-5 h-5 text-tenant-600" />}
-          color="bg-tenant-50"
+          icon={<Users className="w-5 h-5 text-green-600" />}
+          color="bg-green-50"
           subtext={`${period === '7d' ? 'Last 7 days' : 'Last 30 days'}`}
         />
         <StatCard
@@ -286,15 +285,15 @@ const TenantActivityPage: React.FC = () => {
       </div>
 
       {/* Daily Active Users Chart */}
-      <div className="bg-white rounded-xl border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Daily Active Users</h2>
-            <p className="text-sm text-gray-500">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Daily Active Users</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
               {period === '7d' ? 'Last 7 days' : 'Last 30 days'} trend
             </p>
           </div>
-          <TrendingUp className="w-5 h-5 text-gray-500" />
+          <TrendingUp className="w-5 h-5 text-gray-500 dark:text-gray-400" />
         </div>
         <DailyActiveUsersChart data={dailyActiveUsers} />
       </div>
@@ -302,24 +301,24 @@ const TenantActivityPage: React.FC = () => {
       {/* Recent Logins & User Summary - Two Column */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Logins */}
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-900">Recent Logins</h2>
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Logins</h2>
           </div>
           {recentLogins.length > 0 ? (
             <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
               {recentLogins.slice(0, 20).map((login: RecentLogin) => (
-                <div key={login.id} className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors">
+                <div key={login.id} className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                   <UserAvatar name={getUserName(login.firstName, login.lastName, login.email)} size="sm" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                       {getUserName(login.firstName, login.lastName, login.email)}
                     </p>
-                    <p className="text-xs text-gray-500 truncate">{login.email}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{login.email}</p>
                   </div>
                   <div className="hidden sm:flex items-center gap-3">
                     {getDeviceIcon(login.deviceType)}
-                    <span className="text-xs text-gray-500 font-mono">{login.ipAddress || '--'}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{login.ipAddress || '--'}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     {login.success ? (
@@ -327,7 +326,7 @@ const TenantActivityPage: React.FC = () => {
                     ) : (
                       <XCircle className="w-4 h-4 text-red-500" />
                     )}
-                    <span className="text-xs text-gray-500 whitespace-nowrap">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                       {formatRelativeTime(login.loginAt)}
                     </span>
                   </div>
@@ -336,43 +335,43 @@ const TenantActivityPage: React.FC = () => {
             </div>
           ) : (
             <div className="py-12 text-center">
-              <Activity className="w-10 h-10 text-gray-500 mx-auto" />
-              <p className="mt-3 text-sm text-gray-500">No recent login data</p>
+              <Activity className="w-10 h-10 text-gray-500 dark:text-gray-400 mx-auto" />
+              <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No recent login data</p>
             </div>
           )}
         </div>
 
         {/* User Activity Summary */}
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-900">User Activity Summary</h2>
+        <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">User Activity Summary</h2>
           </div>
           {userSummaries.length > 0 ? (
             <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
               {userSummaries.map((summary: UserActivitySummary) => (
                 <div
                   key={summary.userId}
-                  className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors"
+                  className="px-6 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                 >
                   <UserAvatar
                     name={getUserName(summary.firstName, summary.lastName, summary.email)}
                     size="sm"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
                       {getUserName(summary.firstName, summary.lastName, summary.email)}
                     </p>
-                    <p className="text-xs text-gray-500 truncate">{summary.email}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{summary.email}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-medium text-gray-900">
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                       {summary.totalActions} actions
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
                       {summary.loginCount} logins
                     </p>
                   </div>
-                  <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500">
+                  <div className="hidden sm:flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
                     <Clock className="w-3 h-3" />
                     {formatRelativeTime(summary.lastActiveAt)}
                   </div>
@@ -381,8 +380,8 @@ const TenantActivityPage: React.FC = () => {
             </div>
           ) : (
             <div className="py-12 text-center">
-              <Users className="w-10 h-10 text-gray-500 mx-auto" />
-              <p className="mt-3 text-sm text-gray-500">No user activity data</p>
+              <Users className="w-10 h-10 text-gray-500 dark:text-gray-400 mx-auto" />
+              <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">No user activity data</p>
             </div>
           )}
         </div>

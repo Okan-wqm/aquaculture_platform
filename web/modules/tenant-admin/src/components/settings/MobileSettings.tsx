@@ -14,6 +14,7 @@ import {
 import type { MobileUserSettingsData } from '../../hooks/useTenantData';
 import { logError } from '../../utils/error-handling';
 import { SmallToggle } from './Toggle';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 /** Feature columns rendered in the table header. */
 const FEATURE_COLUMNS = [
@@ -133,7 +134,7 @@ const MobileSettings: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <RefreshCw className="w-6 h-6 animate-spin text-tenant-600" />
+        <RefreshCw className="w-6 h-6 animate-spin text-green-600" />
       </div>
     );
   }
@@ -153,19 +154,71 @@ const MobileSettings: React.FC = () => {
   if (mobileUsers.length === 0) {
     return (
       <div className="py-12 text-center">
-        <Smartphone className="w-12 h-12 text-gray-500 mx-auto" />
-        <h3 className="mt-4 text-sm font-medium text-gray-900">No users found</h3>
-        <p className="mt-1 text-sm text-gray-500">
+        <Smartphone className="w-12 h-12 text-gray-500 dark:text-gray-400 mx-auto" />
+        <h3 className="mt-4 text-sm font-medium text-gray-900 dark:text-gray-100">No users found</h3>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Add users to your tenant first to configure mobile access.
         </p>
       </div>
     );
   }
 
+  type MobileUserRow = (typeof mobileUsers)[number];
+  const featureColumns: DataTableColumn<MobileUserRow>[] = FEATURE_COLUMNS.map((col) => ({
+    key: col.key,
+    header: col.label,
+    align: 'center',
+    render: (_value, user) => (
+      <SmallToggle
+        enabled={getUserSettings(user.id).allowedFeatures[col.key]}
+        onChange={(v) => updateUserMobileSetting(user.id, col.key, v)}
+      />
+    ),
+  }));
+  const mobileUserColumns: DataTableColumn<MobileUserRow>[] = [
+    {
+      key: 'user',
+      header: 'User',
+      render: (_value, user) => {
+        const name =
+          `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
+          user.email.split('@')[0];
+        return (
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-green-500 to-green-700 flex items-center justify-center text-white text-xs font-semibold">
+              {name
+                .split(' ')
+                .map((n) => n[0])
+                .join('')
+                .toUpperCase()
+                .slice(0, 2)}
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{name}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{user.email}</p>
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      key: 'mobile',
+      header: 'Mobile',
+      align: 'center',
+      render: (_value, user) => (
+        <SmallToggle
+          enabled={getUserSettings(user.id).isMobileEnabled}
+          onChange={(v) => updateUserMobileSetting(user.id, 'isMobileEnabled', v)}
+        />
+      ),
+    },
+    ...featureColumns,
+  ];
+
   return (
     <div className="space-y-4">
       {/* Bulk actions */}
-      <div className="flex items-center gap-2 text-xs text-gray-500">
+      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
         <span>Apply to all:</span>
         <button
           onClick={() => applyToAll('isMobileEnabled', true)}
@@ -182,80 +235,22 @@ const MobileSettings: React.FC = () => {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-100">
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                User
-              </th>
-              <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Mobile
-              </th>
-              {FEATURE_COLUMNS.map((col) => (
-                <th
-                  key={col.key}
-                  className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {mobileUsers.map((user) => {
-              const settings = getUserSettings(user.id);
-              const name =
-                `${user.firstName || ''} ${user.lastName || ''}`.trim() ||
-                user.email.split('@')[0];
-              const isDirty = dirtyUserIds.has(user.id);
-
-              return (
-                <tr
-                  key={user.id}
-                  className={`hover:bg-gray-50 transition-colors ${isDirty ? 'bg-tenant-50/30' : ''}`}
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tenant-500 to-tenant-700 flex items-center justify-center text-white text-xs font-medium">
-                        {name
-                          .split(' ')
-                          .map((n) => n[0])
-                          .join('')
-                          .toUpperCase()
-                          .slice(0, 2)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{name}</p>
-                        <p className="text-xs text-gray-500">{user.email}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <SmallToggle
-                      enabled={settings.isMobileEnabled}
-                      onChange={(v) => updateUserMobileSetting(user.id, 'isMobileEnabled', v)}
-                    />
-                  </td>
-                  {FEATURE_COLUMNS.map((col) => (
-                    <td key={col.key} className="px-4 py-3 text-center">
-                      <SmallToggle
-                        enabled={settings.allowedFeatures[col.key]}
-                        onChange={(v) => updateUserMobileSetting(user.id, col.key, v)}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<(typeof mobileUsers)[number]>
+        data={mobileUsers}
+        columns={mobileUserColumns}
+        keyExtractor={(user) => user.id}
+        emptyMessage="No mobile users"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        rowClassName={(user) => (dirtyUserIds.has(user.id) ? 'bg-green-50/30' : '')}
+        className="shadow-none rounded-none"
+      />
 
       {/* Dirty indicator + Save */}
       <div className="flex items-center justify-between">
         {dirtyUserIds.size > 0 && (
-          <div className="flex items-center gap-2 text-sm text-tenant-600">
+          <div className="flex items-center gap-2 text-sm text-green-600">
             <Info className="w-4 h-4" />
             <span>{dirtyUserIds.size} user(s) have unsaved changes</span>
           </div>
@@ -263,7 +258,7 @@ const MobileSettings: React.FC = () => {
         <button
           onClick={saveMobileSettings}
           disabled={mobileSaving || dirtyUserIds.size === 0}
-          className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="ml-auto inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {saved ? (
             <>

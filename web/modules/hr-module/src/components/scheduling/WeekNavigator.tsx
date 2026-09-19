@@ -73,32 +73,32 @@ export function WeekNavigator({
     <nav className={cn('flex items-center gap-2', className)} aria-label="Hafta gezinme">
       <button
         onClick={goToPrevWeek}
-        className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         aria-label="Onceki hafta"
       >
-        <ChevronLeft className="h-5 w-5 text-gray-600" aria-hidden="true" />
+        <ChevronLeft className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
       </button>
 
       <div
-        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg min-w-[280px]"
+        className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg min-w-[280px]"
         aria-live="polite"
         aria-atomic="true"
       >
         <Calendar className="h-4 w-4 text-indigo-600" aria-hidden="true" />
         <div className="flex flex-col">
-          <span className="text-sm font-semibold text-gray-900">
+          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
             Hafta {weekNumber}
           </span>
-          <span className="text-xs text-gray-500">{formatRange}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400">{formatRange}</span>
         </div>
       </div>
 
       <button
         onClick={goToNextWeek}
-        className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         aria-label="Sonraki hafta"
       >
-        <ChevronRight className="h-5 w-5 text-gray-600" aria-hidden="true" />
+        <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" aria-hidden="true" />
       </button>
 
       {!isThisWeek && (

@@ -93,13 +93,15 @@ export function formatPayload(value: unknown, indent = 0): string {
 const PayloadDetail: React.FC<{ reportId: string }> = ({ reportId }) => {
   const { data, isLoading } = useRegulatoryReport(reportId);
   if (isLoading) {
-    return <p className="text-sm text-gray-500 p-3">Loading submitted payload…</p>;
+    return (
+      <p className="text-sm text-gray-500 dark:text-gray-400 p-3">Loading submitted payload…</p>
+    );
   }
   if (!data) {
-    return <p className="text-sm text-gray-500 p-3">Payload unavailable.</p>;
+    return <p className="text-sm text-gray-500 dark:text-gray-400 p-3">Payload unavailable.</p>;
   }
   return (
-    <pre className="text-xs bg-gray-50 border border-gray-200 rounded-md p-3 overflow-x-auto max-h-72">
+    <pre className="text-xs bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md p-3 overflow-x-auto max-h-72">
       {formatPayload(data.payload)}
     </pre>
   );
@@ -149,31 +151,31 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
 
   return (
     <div className="space-y-4" data-testid={`submission-history-${reportType}`}>
-      <h3 className="text-md font-semibold text-gray-900">{title}</h3>
+      <h3 className="text-md font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
-          <div className="text-sm text-gray-500">Total Submissions</div>
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Total Submissions</div>
         </div>
-        <div className="bg-white rounded-lg border border-green-200 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-green-200 p-4">
           <div className="text-2xl font-bold text-green-600">{stats.submitted}</div>
-          <div className="text-sm text-gray-500">Submitted</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Submitted</div>
         </div>
-        <div className="bg-white rounded-lg border border-red-200 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-red-200 p-4">
           <div className="text-2xl font-bold text-red-600">{stats.failed}</div>
-          <div className="text-sm text-gray-500">Failed</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Failed</div>
         </div>
-        <div className="bg-white rounded-lg border border-yellow-200 p-4">
+        <div className="bg-white dark:bg-gray-900 rounded-lg border border-yellow-200 p-4">
           <div className="text-2xl font-bold text-yellow-600">{stats.pending}</div>
-          <div className="text-sm text-gray-500">Pending</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">Pending</div>
         </div>
       </div>
 
       {/* Status filter */}
       <div className="flex items-center gap-2">
-        <span className="text-sm text-gray-500">Filter:</span>
+        <span className="text-sm text-gray-500 dark:text-gray-400">Filter:</span>
         {(['all', 'SUBMITTED', 'QUEUED', 'FAILED', 'PENDING'] as const).map((status) => (
           <button
             key={status}
@@ -182,7 +184,7 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
             className={`px-3 py-1.5 text-sm rounded-md ${
               statusFilter === status
                 ? 'bg-blue-100 text-blue-700'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
             }`}
           >
             {status === 'all' ? 'All' : STATUS_LABELS[status]}
@@ -192,34 +194,38 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
 
       {/* Rows */}
       {isLoading ? (
-        <p className="text-sm text-gray-500 py-8 text-center">Loading submission history…</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 py-8 text-center">
+          Loading submission history…
+        </p>
       ) : error ? (
         <div className="text-center py-8 bg-red-50 rounded-lg border border-red-200">
           <p className="text-sm text-red-700">Failed to load submission history. Please retry.</p>
         </div>
       ) : visibleRows.length === 0 ? (
-        <div className="text-center py-12 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <p className="text-sm text-gray-500">No submissions recorded yet.</p>
+        <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-500 dark:text-gray-400">No submissions recorded yet.</p>
         </div>
       ) : (
-        <ul className="divide-y divide-gray-200 bg-white rounded-lg border border-gray-200">
+        <ul className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
           {visibleRows.map((row) => (
             <li key={row.id} className="p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-gray-900">{periodLabel(row)}</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {periodLabel(row)}
+                    </span>
                     <span
                       className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full ${STATUS_BADGES[row.status]}`}
                     >
                       {STATUS_LABELS[row.status]}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     Locality {row.lokalitetsnummer} · Ref {row.klientReferanse}
                   </p>
                   {row.referanse && (
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                       Mattilsynet receipt: {row.referanse}
                     </p>
                   )}
@@ -230,7 +236,9 @@ export const SubmissionHistorySection: React.FC<SubmissionHistorySectionProps> =
                   )}
                 </div>
                 <div className="text-right shrink-0">
-                  <p className="text-xs text-gray-500">{formatTimestamp(row.submittedAt)}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {formatTimestamp(row.submittedAt)}
+                  </p>
                   <button
                     type="button"
                     onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}

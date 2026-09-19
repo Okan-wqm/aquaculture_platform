@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Badge } from '@aquaculture/shared-ui';
+import { Card, Badge, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { usersApi, Permission, RoleHierarchyItem } from '../services/adminApi';
 import { adminKeys, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
@@ -76,7 +76,7 @@ const RoleManagementPage: React.FC = () => {
     if (level >= 70) return 'bg-purple-100 text-purple-800';
     if (level >= 50) return 'bg-yellow-100 text-yellow-800';
     if (level >= 30) return 'bg-blue-100 text-blue-800';
-    return 'bg-gray-100 text-gray-800';
+    return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   };
 
   const selectedRoleData = roles.find((r) => r.code === selectedRole);
@@ -84,7 +84,7 @@ const RoleManagementPage: React.FC = () => {
   if (rolesQuery.isPending && permissionsQuery.isPending) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -98,18 +98,14 @@ const RoleManagementPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent onRetry={reload} />
 
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Role Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            System roles and permissions hierarchy
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Role Management"
+        description="System roles and permissions hierarchy"
+      />
 
       {/* Role Hierarchy Visualization */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
           Role Hierarchy
         </h3>
         <div className="relative">
@@ -121,7 +117,7 @@ const RoleManagementPage: React.FC = () => {
                 className={`flex items-center p-3 rounded-lg cursor-pointer transition-all ${
                   selectedRole === role.code
                     ? 'bg-blue-50 border-2 border-blue-500'
-                    : 'bg-gray-50 border-2 border-transparent hover:bg-gray-100'
+                    : 'bg-gray-50 dark:bg-gray-800 border-2 border-transparent hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
                 style={{ marginLeft: `${(100 - role.level) * 0.3}rem` }}
                 onClick={() => setSelectedRole(role.code)}
@@ -136,7 +132,7 @@ const RoleManagementPage: React.FC = () => {
                 {/* Role Info */}
                 <div className="ml-4 flex-grow">
                   <div className="flex items-center">
-                    <span className="font-semibold text-gray-900">
+                    <span className="font-semibold text-gray-900 dark:text-gray-100">
                       {role.name}
                     </span>
                     {role.isSystem && (
@@ -145,15 +141,15 @@ const RoleManagementPage: React.FC = () => {
                       </Badge>
                     )}
                   </div>
-                  <p className="text-sm text-gray-500">{role.description}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">{role.description}</p>
                 </div>
 
                 {/* Permission Count */}
                 <div className="flex-shrink-0 text-right">
-                  <span className="text-2xl font-bold text-gray-700">
+                  <span className="text-2xl font-bold text-gray-700 dark:text-gray-300">
                     {role.permissions != null ? role.permissions.length : '\u2014'}
                   </span>
-                  <p className="text-xs text-gray-500">permissions</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">permissions</p>
                 </div>
               </div>
             ))}
@@ -164,27 +160,27 @@ const RoleManagementPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Role Details */}
         <Card className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
             Role Details
           </h3>
           {selectedRoleData ? (
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-gray-500">Name</label>
+                <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Name</label>
                 <p className="text-lg font-semibold">{selectedRoleData.name}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Code</label>
-                <p className="font-mono text-sm bg-gray-100 px-2 py-1 rounded">
+                <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Code</label>
+                <p className="font-mono text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
                   {selectedRoleData.code}
                 </p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">
+                <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
                   Hierarchy Level
                 </label>
                 <div className="flex items-center mt-1">
-                  <div className="flex-grow bg-gray-200 rounded-full h-2">
+                  <div className="flex-grow bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                     <div
                       className="bg-blue-600 h-2 rounded-full"
                       style={{ width: `${selectedRoleData.level}%` }}
@@ -196,13 +192,13 @@ const RoleManagementPage: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">
+                <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
                   Description
                 </label>
-                <p className="text-gray-700">{selectedRoleData.description}</p>
+                <p className="text-gray-700 dark:text-gray-300">{selectedRoleData.description}</p>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-500">Type</label>
+                <label className="text-sm font-medium text-gray-500 dark:text-gray-400">Type</label>
                 <p>
                   {selectedRoleData.isSystem ? (
                     <Badge variant="warning">System Role (Read-only)</Badge>
@@ -213,20 +209,20 @@ const RoleManagementPage: React.FC = () => {
               </div>
             </div>
           ) : (
-            <p className="text-gray-500">Select a role to view details</p>
+            <p className="text-gray-500 dark:text-gray-400">Select a role to view details</p>
           )}
         </Card>
 
         {/* Permission Matrix */}
         <Card className="lg:col-span-2 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">
             Permissions for {selectedRoleData?.name || 'Selected Role'}
           </h3>
           {selectedRolePermissions === undefined ? (
             /* The grant set did not load. Rendering the catalogue with every
                box unchecked would state that this role holds no permissions —
                a claim about authority, read off a request that failed. */
-            <p className="text-sm text-gray-500" role="status">
+            <p className="text-sm text-gray-500 dark:text-gray-400" role="status">
               {rolePermissionsQuery.isPending
                 ? 'Loading permissions…'
                 : 'Permissions for this role could not be loaded.'}
@@ -235,7 +231,7 @@ const RoleManagementPage: React.FC = () => {
           <div className="space-y-6 max-h-[500px] overflow-y-auto">
             {Object.entries(permissions).map(([category, perms]) => (
               <div key={category}>
-                <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center">
                   <span className="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>
                   {category}
                 </h4>
@@ -250,7 +246,7 @@ const RoleManagementPage: React.FC = () => {
                         className={`p-2 rounded border ${
                           hasPermission
                             ? 'bg-green-50 border-green-200'
-                            : 'bg-gray-50 border-gray-200'
+                            : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
                         }`}
                         title={permission.description}
                       >
@@ -279,7 +275,7 @@ const RoleManagementPage: React.FC = () => {
                             )}
                           </div>
                           <span
-                            className={`text-sm ${hasPermission ? 'text-green-800 font-medium' : 'text-gray-500'}`}
+                            className={`text-sm ${hasPermission ? 'text-green-800 font-medium' : 'text-gray-500 dark:text-gray-400'}`}
                           >
                             {permission.name}
                           </span>
@@ -312,8 +308,8 @@ const RoleManagementPage: React.FC = () => {
           below their own rank. So the rule is stated once, and the roles it
           ranks come from the hierarchy this page already fetched. */}
       <Card className="p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Role Assignment Rules</h3>
-        <p className="text-sm text-gray-600 mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Role Assignment Rules</h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
           A platform administrator may assign any role. Every other role may assign only within
           its own tenant, and only at or below its own level. The server enforces this; the
           levels below are the catalogue it enforces against.

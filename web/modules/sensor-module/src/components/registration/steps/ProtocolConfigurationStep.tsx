@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useProtocolDetails, useProtocolValidation } from '../../../hooks/useProtocols';
 import { DynamicFormRenderer } from '../DynamicFormRenderer';
 import { JSONSchema, ValidationError } from '../../../types/registration.types';
+import { Spinner } from '@aquaculture/shared-ui';
 
 interface ProtocolConfigurationStepProps {
   protocolCode: string;
@@ -65,8 +66,8 @@ export function ProtocolConfigurationStep({
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-3 text-gray-600">Loading protocol configuration...</span>
+        <Spinner size="lg" />
+        <span className="ml-3 text-gray-600 dark:text-gray-400">Loading protocol configuration...</span>
       </div>
     );
   }
@@ -123,7 +124,7 @@ export function ProtocolConfigurationStep({
           type="button"
           onClick={handleValidate}
           disabled={validating}
-          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
+          className="px-4 py-2 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-200 dark:hover:bg-gray-600 focus:outline-hidden focus:ring-2 focus:ring-gray-500"
         >
           {validating ? 'Validating...' : 'Validate Configuration'}
         </button>

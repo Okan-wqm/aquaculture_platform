@@ -33,9 +33,10 @@ interface GeneralPropertiesSectionProps {
 /* ------------------------------------------------------------------ */
 
 const INPUT_CLASS =
-  'w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
+  'w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500';
 
-const LABEL_CLASS = 'block text-[11px] text-gray-600 mb-0.5 uppercase tracking-wide';
+const LABEL_CLASS =
+  'block text-[11px] text-gray-600 dark:text-gray-400 mb-0.5 uppercase tracking-wide';
 
 /* ------------------------------------------------------------------ */
 /*  Component                                                          */
@@ -109,7 +110,10 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
   const typeLabel = widgetType.replace(/([A-Z])/g, ' $1').trim();
 
   return (
-    <div className="space-y-3 pb-3 mb-3 border-b border-gray-100" data-testid="general-properties">
+    <div
+      className="space-y-3 pb-3 mb-3 border-b border-gray-100 dark:border-gray-700"
+      data-testid="general-properties"
+    >
       {/* Widget name */}
       <div>
         <label htmlFor={`widget-name-${widgetId}`} className={LABEL_CLASS}>
@@ -215,7 +219,7 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
             className="text-cyan-600 rounded focus:ring-cyan-500"
             data-testid="widget-locked-checkbox"
           />
-          <span className="text-xs text-gray-600">Locked</span>
+          <span className="text-xs text-gray-600 dark:text-gray-400">Locked</span>
         </label>
         <label className="flex items-center gap-1.5 cursor-pointer">
           <input
@@ -225,7 +229,7 @@ export const GeneralPropertiesSection: React.FC<GeneralPropertiesSectionProps> =
             className="text-cyan-600 rounded focus:ring-cyan-500"
             data-testid="widget-visible-checkbox"
           />
-          <span className="text-xs text-gray-600">Visible</span>
+          <span className="text-xs text-gray-600 dark:text-gray-400">Visible</span>
         </label>
       </div>
     </div>

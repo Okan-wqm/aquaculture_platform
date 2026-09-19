@@ -21,7 +21,14 @@ import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 const mockHasPermission = vi.fn();
 
-vi.mock('@aquaculture/shared-ui', () => ({
+vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
+  // The dialogs under test render through the real shared-ui Modal (portal,
+  // focus trap, Escape); only the auth/session seams are faked.
+  Modal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Modal,
+  // The page opens with the real PageHeader (its h1 is what the tests read).
+  PageHeader: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).PageHeader,
+  // ROLE_COLORS / DEFAULT_ROLE_COLOR are theme tokens (FE-HIGH-066).
+  colors: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).colors,
   useAuth: () => ({
     hasPermission: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: 'TENANT_ADMIN' },

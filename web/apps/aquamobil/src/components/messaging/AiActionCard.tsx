@@ -8,8 +8,10 @@
  */
 
 import { clsx } from 'clsx';
-import { Check, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Check, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { useCallback, type ReactElement } from 'react';
+
+import { Spinner } from '@/components/ui/Spinner';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -130,7 +132,7 @@ export function AiActionCard({
             )}
           >
             {status === 'confirming' ? (
-              <Loader2 size={18} className="animate-spin" />
+              <Spinner size="md" color="inherit" />
             ) : (
               <Check size={18} />
             )}

@@ -4,7 +4,7 @@
  */
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { PieChart, LineChart, getTenantId, tenantScopedStorageKey } from '@aquaculture/shared-ui';
+import { PieChart, LineChart, getTenantId, tenantScopedStorageKey, colors } from '@aquaculture/shared-ui';
 import type { PieDataItem, LineDataset } from '@aquaculture/shared-ui';
 import type { TankWithBatch } from '../types';
 
@@ -81,14 +81,14 @@ interface TankAnalyticsData {
 // Default colors for charts
 const CHART_COLORS = {
   category: {
-    TANK: '#06B6D4',   // cyan
-    POND: '#3B82F6',   // blue
-    CAGE: '#8B5CF6',   // purple
+    TANK: colors.primary[400],   // cyan
+    POND: colors.info[500],   // blue
+    CAGE: colors.primary[700],   // purple
   },
   density: {
-    low: '#10B981',    // green (< 50%)
-    medium: '#F59E0B', // yellow (50-80%)
-    high: '#EF4444',   // red (> 80%)
+    low: colors.success[500],    // green (< 50%)
+    medium: colors.warning[500], // yellow (50-80%)
+    high: colors.error[500],   // red (> 80%)
   },
 };
 
@@ -205,7 +205,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       .map(t => ({
         label: t.code || t.name,
         value: t.totalMortality || 0,
-        color: '#EF4444', // red
+        color: colors.error[500], // red
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
@@ -218,7 +218,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       .map(t => ({
         label: t.code || t.name,
         value: t.totalCull || 0,
-        color: '#F97316', // orange
+        color: colors.accent[600], // orange
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
@@ -254,14 +254,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.mortalityCount || 0),
-      color: ['#EF4444', '#F97316', '#F59E0B', '#84CC16', '#10B981'][idx % 5],
+      color: [colors.error[500], colors.accent[600], colors.warning[500], colors.secondary[500], colors.success[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -270,14 +270,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.avgWeightG || 0),
-      color: ['#3B82F6', '#8B5CF6', '#EC4899', '#06B6D4', '#10B981'][idx % 5],
+      color: [colors.info[500], colors.primary[700], colors.accent[500], colors.primary[400], colors.success[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -286,14 +286,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.biomassKg || 0),
-      color: ['#10B981', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444'][idx % 5],
+      color: [colors.success[500], colors.info[500], colors.primary[700], colors.warning[500], colors.error[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -302,14 +302,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.fcr || 0),
-      color: ['#F59E0B', '#EF4444', '#3B82F6', '#10B981', '#8B5CF6'][idx % 5],
+      color: [colors.warning[500], colors.error[500], colors.info[500], colors.success[500], colors.primary[700]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -319,14 +319,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.feedAmountKg || 0),
-      color: ['#8B5CF6', '#EC4899', '#06B6D4', '#F59E0B', '#10B981'][idx % 5],
+      color: [colors.primary[700], colors.accent[500], colors.primary[400], colors.warning[500], colors.success[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -336,14 +336,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.densityKgM3 || 0),
-      color: ['#06B6D4', '#3B82F6', '#10B981', '#F59E0B', '#EF4444'][idx % 5],
+      color: [colors.primary[400], colors.info[500], colors.success[500], colors.warning[500], colors.error[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -353,14 +353,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.fishCount || 0),
-      color: ['#3B82F6', '#8B5CF6', '#10B981', '#EF4444', '#F59E0B'][idx % 5],
+      color: [colors.info[500], colors.primary[700], colors.success[500], colors.error[500], colors.warning[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -370,14 +370,14 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
       return [{
         label: 'No data',
         data: new Array(timeLabels.length).fill(0),
-        color: '#9CA3AF',
+        color: colors.neutral[400],
       }];
     }
 
     return analyticsData.slice(0, 5).map((tank, idx) => ({
       label: tank.tankCode,
       data: tank.dailySummaries.map(d => d.sgr || 0),
-      color: ['#10B981', '#06B6D4', '#8B5CF6', '#EC4899', '#F59E0B'][idx % 5],
+      color: [colors.success[500], colors.primary[400], colors.primary[700], colors.accent[500], colors.warning[500]][idx % 5],
     }));
   }, [analyticsData, timeLabels]);
 
@@ -386,12 +386,12 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
   // ============================================================================
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 mb-6">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 mb-6">
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
-          className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900"
+          className="flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
         >
           <svg
             className={`w-4 h-4 transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
@@ -405,7 +405,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
         </button>
         <button
           onClick={onSettingsClick}
-          className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg"
+          className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
           title="Chart Settings"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -420,7 +420,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
         <div className="p-4">
           {/* Pie Charts - All 8 in single row */}
           <div className="mb-6">
-            <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
+            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
               Distribution Charts
             </h4>
             <div className="grid grid-cols-4 lg:grid-cols-8 gap-3">
@@ -528,7 +528,7 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
             chartVisibility.feedTrend || chartVisibility.densityTrend ||
             chartVisibility.fishCountTrend || chartVisibility.sgrTrend) && (
             <div>
-              <h4 className="text-xs font-medium text-gray-500 uppercase tracking-wider mb-3">
+              <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">
                 Time Series (Last {timeRange === '7d' ? '7 days' : timeRange === '30d' ? '30 days' : '90 days'})
               </h4>
               {/* Row 1 - 4 charts */}
@@ -653,21 +653,21 @@ export const TankChartsSection: React.FC<TankChartsSectionProps> = ({
 // ============================================================================
 
 const ChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-gray-50 rounded-lg p-2">
-    <h5 className="text-[10px] font-medium text-gray-600 mb-1 text-center truncate">{title}</h5>
+  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
+    <h5 className="text-[10px] font-medium text-gray-600 dark:text-gray-400 mb-1 text-center truncate">{title}</h5>
     <div className="flex justify-center">{children}</div>
   </div>
 );
 
 const LineChartCard: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div className="bg-gray-50 rounded-lg p-4">
-    <h5 className="text-sm font-medium text-gray-700 mb-3">{title}</h5>
+  <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+    <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{title}</h5>
     {children}
   </div>
 );
 
 const EmptyChart: React.FC<{ message: string }> = ({ message }) => (
-  <div className="w-[120px] h-[120px] flex items-center justify-center text-gray-400 text-xs">
+  <div className="w-[120px] h-[120px] flex items-center justify-center text-gray-400 dark:text-gray-500 text-xs">
     {message}
   </div>
 );

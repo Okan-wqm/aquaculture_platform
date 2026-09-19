@@ -1,5 +1,5 @@
 import React from 'react';
-import { NumberInput } from '@aquaculture/shared-ui';
+import { NumberInput, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { useSolution } from '../../../context/SolutionContext';
 import type { CurrentNsFormula } from '../../../types/modes.types';
 
@@ -37,11 +37,38 @@ const CurrentNsFormulaTab: React.FC = () => {
     update({ parameters: { ...formula.parameters, [id]: value } });
   };
 
+  type ParamRow = (typeof FORMULA_PARAMS)[number];
+  const paramRowColumns: DataTableColumn<ParamRow>[] = [
+    {
+      key: 'parameter',
+      header: 'Parameter',
+      render: (_value, param) => param.label,
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      render: (_value, param) => (
+        <NumberInput
+          value={formula.parameters[param.id] ?? 0}
+          onChange={(e) => updateParam(param.id, parseFloat(e.target.value) || 0)}
+          size="sm"
+          step={0.01}
+          min={0}
+        />
+      ),
+    },
+    {
+      key: 'unit',
+      header: 'Unit',
+      render: (_value, param) => param.unit,
+    }
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-semibold text-gray-800 mb-2">Current NS Formula</h3>
-        <p className="text-xs text-gray-500 mb-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Current NS Formula</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
           Enter the nutrient solution formula currently being applied. This is used as the baseline for readjustment calculations.
         </p>
 
@@ -63,38 +90,19 @@ const CurrentNsFormulaTab: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-          <h4 className="text-xs font-semibold text-gray-500 uppercase">Formula Parameters</h4>
+      <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Formula Parameters</h4>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">
-                <th className="px-4 py-2">Parameter</th>
-                <th className="px-4 py-2">Value</th>
-                <th className="px-4 py-2">Unit</th>
-              </tr>
-            </thead>
-            <tbody>
-              {FORMULA_PARAMS.map((param) => (
-                <tr key={param.id} className="border-b border-gray-100 last:border-b-0">
-                  <td className="px-4 py-2 text-gray-700">{param.label}</td>
-                  <td className="px-4 py-2 w-32">
-                    <NumberInput
-                      value={formula.parameters[param.id] ?? 0}
-                      onChange={(e) => updateParam(param.id, parseFloat(e.target.value) || 0)}
-                      size="sm"
-                      step={0.01}
-                      min={0}
-                    />
-                  </td>
-                  <td className="px-4 py-2 text-gray-500 text-xs">{param.unit}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<ParamRow>
+          data={FORMULA_PARAMS}
+          columns={paramRowColumns}
+          keyExtractor={(param) => param.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       </div>
     </div>
   );

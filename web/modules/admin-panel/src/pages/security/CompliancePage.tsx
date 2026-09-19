@@ -13,7 +13,6 @@ import {
   Plus,
   Eye,
   Check,
-  X,
   Clock,
   AlertTriangle,
   CheckCircle2,
@@ -27,6 +26,7 @@ import {
   FileCheck,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../../hooks';
@@ -373,7 +373,7 @@ const getRequestTypeLabel = (type: DataRequestType): string => REQUEST_TYPE_LABE
 // failure by the platform rather than a decision about the request
 // (ADMIN-HIGH-115).
 const STATUS_COLORS: Record<DataRequestStatus, string> = {
-  pending: 'bg-gray-100 text-gray-800',
+  pending: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   in_progress: 'bg-blue-100 text-blue-800',
   completed: 'bg-green-100 text-green-800',
   rejected: 'bg-red-100 text-red-800',
@@ -401,9 +401,9 @@ const getComplianceStatusColor = (status: string): string => {
     case 'warning':
       return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     case 'not_applicable':
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
   }
 };
 
@@ -419,163 +419,18 @@ const DataRequestDetailModal: React.FC<{
   actionError?: string | null;
 }> = ({ request, onClose, onAction, actionLoading = false, actionError = null }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-gray-900">Data Subject Request</h2>
-              <p className="text-sm text-gray-500 mt-1">ID: {request.id}</p>
-            </div>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-        </div>
-        <div className="p-6 space-y-6">
-          {/* Status Banner */}
-          {request.isOverdue && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-              <div>
-                <p className="font-medium text-red-800">This request is overdue</p>
-                <p className="text-sm text-red-600">
-                  Due date was {formatDate(request.dueDate)}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Request Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">Request Type</span>
-              <div className="flex items-center gap-2 mt-1">
-                {getRequestTypeIcon(request.requestType)}
-                <span className="text-sm text-gray-900">
-                  {getRequestTypeLabel(request.requestType)}
-                </span>
-              </div>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Status</span>
-              <span
-                className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
-              >
-                {request.status.replace('_', ' ')}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Submitted</span>
-              <p className="text-sm text-gray-900">{formatDateTime(request.submittedAt)}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Due Date</span>
-              <p className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
-                {formatDate(request.dueDate)}
-              </p>
-            </div>
-          </div>
-
-          {/* Requester Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Requester Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex items-center gap-2">
-                <User className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.requesterName}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.requesterEmail}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Globe className="w-4 h-4 text-gray-500" />
-                <span className="text-sm text-gray-900">{request.tenantName}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {request.identityVerified ? (
-                  <CheckCircle2 className="w-4 h-4 text-green-600" />
-                ) : (
-                  <AlertTriangle className="w-4 h-4 text-yellow-600" />
-                )}
-                <span className="text-sm text-gray-900">
-                  {request.identityVerified ? 'Identity Verified' : 'Identity Not Verified'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Description */}
-          <div>
-            <span className="text-sm font-medium text-gray-500">Description</span>
-            <p className="text-sm text-gray-900 mt-1">{request.description}</p>
-          </div>
-
-          {/* Data Categories */}
-          {request.dataCategories && request.dataCategories.length > 0 && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">Data Categories</span>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {request.dataCategories.map((cat) => (
-                  <span
-                    key={cat}
-                    className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium"
-                  >
-                    {cat}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Assignment */}
-          {request.assignedTo && (
-            <div>
-              <span className="text-sm font-medium text-gray-500">Assigned To</span>
-              <p className="text-sm text-gray-900 mt-1">{request.assignedToName}</p>
-            </div>
-          )}
-
-          {/* Timeline */}
-          <div>
-            <span className="text-sm font-medium text-gray-500 mb-3 block">Timeline</span>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                  <Check className="w-4 h-4 text-green-600" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-900">Request Submitted</p>
-                  <p className="text-xs text-gray-500">{formatDateTime(request.submittedAt)}</p>
-                </div>
-              </div>
-              {request.verifiedAt && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Identity Verified</p>
-                    <p className="text-xs text-gray-500">{formatDateTime(request.verifiedAt)}</p>
-                  </div>
-                </div>
-              )}
-              {request.completedAt && (
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                    <Check className="w-4 h-4 text-green-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900">Request Completed</p>
-                    <p className="text-xs text-gray-500">{formatDateTime(request.completedAt)}</p>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="p-6 border-t border-gray-200">
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Data Subject Request"
+      description={`ID: ${request.id}`}
+      showCloseButton={!actionLoading}
+      closeOnEscape={!actionLoading}
+      closeOnOverlayClick={!actionLoading}
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <div className="w-full">
           {/* SECURITY: Show error inline so admin can retry without losing context */}
           {actionError && (
             <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center gap-2">
@@ -587,7 +442,7 @@ const DataRequestDetailModal: React.FC<{
             <button
               onClick={onClose}
               disabled={actionLoading}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
             >
               Close
             </button>
@@ -622,8 +477,150 @@ const DataRequestDetailModal: React.FC<{
             </div>
           </div>
         </div>
+      }
+    >
+      {/* Status Banner */}
+      {request.isOverdue && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-red-600" />
+          <div>
+            <p className="font-medium text-red-800">This request is overdue</p>
+            <p className="text-sm text-red-600">
+              Due date was {formatDate(request.dueDate)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Request Info */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Request Type</span>
+          <div className="flex items-center gap-2 mt-1">
+            {getRequestTypeIcon(request.requestType)}
+            <span className="text-sm text-gray-900 dark:text-gray-100">
+              {getRequestTypeLabel(request.requestType)}
+            </span>
+          </div>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Status</span>
+          <span
+            className={`inline-flex mt-1 px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
+          >
+            {request.status.replace('_', ' ')}
+          </span>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Submitted</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDateTime(request.submittedAt)}</p>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Due Date</span>
+          <p className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900 dark:text-gray-100'}`}>
+            {formatDate(request.dueDate)}
+          </p>
+        </div>
       </div>
-    </div>
+
+      {/* Requester Info */}
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Requester Information</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <span className="text-sm text-gray-900 dark:text-gray-100">{request.requesterName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <span className="text-sm text-gray-900 dark:text-gray-100">{request.requesterEmail}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Globe className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <span className="text-sm text-gray-900 dark:text-gray-100">{request.tenantName}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {request.identityVerified ? (
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-yellow-600" />
+            )}
+            <span className="text-sm text-gray-900 dark:text-gray-100">
+              {request.identityVerified ? 'Identity Verified' : 'Identity Not Verified'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Description */}
+      <div>
+        <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Description</span>
+        <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">{request.description}</p>
+      </div>
+
+      {/* Data Categories */}
+      {request.dataCategories && request.dataCategories.length > 0 && (
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Data Categories</span>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {request.dataCategories.map((cat) => (
+              <span
+                key={cat}
+                className="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium"
+              >
+                {cat}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Assignment */}
+      {request.assignedTo && (
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Assigned To</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100 mt-1">{request.assignedToName}</p>
+        </div>
+      )}
+
+      {/* Timeline */}
+      <div>
+        <span className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-3 block">Timeline</span>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+              <Check className="w-4 h-4 text-green-600" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Request Submitted</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{formatDateTime(request.submittedAt)}</p>
+            </div>
+          </div>
+          {request.verifiedAt && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Identity Verified</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{formatDateTime(request.verifiedAt)}</p>
+              </div>
+            </div>
+          )}
+          {request.completedAt && (
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                <Check className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Request Completed</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{formatDateTime(request.completedAt)}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 };
 
@@ -753,6 +750,88 @@ export const CompliancePage: React.FC = () => {
     return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
+  const dataRequestColumns: DataTableColumn<DataRequest>[] = [
+    {
+      key: 'request',
+      header: 'Request',
+      render: (_value, request) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{request.id}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{formatDate(request.submittedAt)}</div>
+        </>
+      ),
+    },
+    {
+      key: 'requester',
+      header: 'Requester',
+      render: (_value, request) => (
+        <>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{request.requesterName}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{request.requesterEmail}</div>
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, request) => (
+        <div className="flex items-center gap-2">
+          {getRequestTypeIcon(request.requestType)}
+          <span className="text-sm text-gray-900 dark:text-gray-100 capitalize">
+            {request.requestType}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, request) => (
+        <>
+          <span
+            className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
+          >
+            {request.status.replace('_', ' ')}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'dueDate',
+      header: 'Due Date',
+      render: (_value, request) => (
+        <>
+          <div className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900 dark:text-gray-100'}`}>
+            {formatDate(request.dueDate)}
+          </div>
+          {request.isOverdue && (
+            <div className="text-xs text-red-500">Overdue</div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'assignedTo',
+      header: 'Assigned To',
+      render: (_value, request) => request.assignedToName || '-',
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, request) => (
+        <>
+          <button
+            onClick={() => setSelectedRequest(request)}
+            className="text-blue-600 hover:text-blue-800"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Partial failure: the requests loaded but the reports or the framework
@@ -765,79 +844,77 @@ export const CompliancePage: React.FC = () => {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Compliance Management</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            GDPR compliance, data subject requests, and regulatory reporting
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => void loadData()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Compliance Management"
+        description="GDPR compliance, data subject requests, and regulatory reporting"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => void loadData()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
                 <FileText className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Total Requests</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.totalRequests}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Total Requests</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.totalRequests}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <Clock className="w-5 h-5 text-gray-600" />
+              <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+                <Clock className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Pending</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.pendingRequests ?? UNAVAILABLE}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Pending</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.pendingRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
                 <RefreshCw className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">In Progress</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.inProgressRequests ?? UNAVAILABLE}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">In Progress</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.inProgressRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-green-100 rounded-lg">
                 <CheckCircle2 className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Completed</p>
-                <p className="text-2xl font-bold text-gray-900">{stats.completedRequests ?? UNAVAILABLE}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Completed</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.completedRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-red-100 rounded-lg">
                 <AlertTriangle className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <p className="text-xs text-gray-500">Overdue</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Overdue</p>
                 <p className="text-2xl font-bold text-red-600">{stats.overdueRequests ?? UNAVAILABLE}</p>
               </div>
             </div>
@@ -846,7 +923,7 @@ export const CompliancePage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-8">
           {[
             { id: 'requests', label: 'Data Requests', icon: FileText },
@@ -859,7 +936,7 @@ export const CompliancePage: React.FC = () => {
               className={`flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm ${
                 activeTab === id
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -873,22 +950,22 @@ export const CompliancePage: React.FC = () => {
       {activeTab === 'requests' && (
         <div className="space-y-4">
           {/* Filters */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-4">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search by name or email..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <select
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Types</option>
                 {/* Built from the union the API sends, so an option cannot
@@ -902,7 +979,7 @@ export const CompliancePage: React.FC = () => {
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Statuses</option>
                 {/* Identity Verification and Processing used to be offered here
@@ -918,90 +995,16 @@ export const CompliancePage: React.FC = () => {
           </div>
 
           {/* Requests Table */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Request
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Requester
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Type
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Status
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Due Date
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Assigned To
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filteredRequests.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      No data requests found
-                    </td>
-                  </tr>
-                ) : (
-                  filteredRequests.map((request) => (
-                    <tr key={request.id} className={`hover:bg-gray-50 ${request.isOverdue ? 'bg-red-50' : ''}`}>
-                      <td className="px-4 py-3">
-                        <div className="text-sm font-medium text-gray-900">{request.id}</div>
-                        <div className="text-xs text-gray-500">{formatDate(request.submittedAt)}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900">{request.requesterName}</div>
-                        <div className="text-xs text-gray-500">{request.requesterEmail}</div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {getRequestTypeIcon(request.requestType)}
-                          <span className="text-sm text-gray-900 capitalize">
-                            {request.requestType}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(request.status)}`}
-                        >
-                          {request.status.replace('_', ' ')}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className={`text-sm ${request.isOverdue ? 'text-red-600 font-medium' : 'text-gray-900'}`}>
-                          {formatDate(request.dueDate)}
-                        </div>
-                        {request.isOverdue && (
-                          <div className="text-xs text-red-500">Overdue</div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">
-                        {request.assignedToName || '-'}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => setSelectedRequest(request)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <DataTable<DataRequest>
+              data={filteredRequests}
+              columns={dataRequestColumns}
+              keyExtractor={(request) => request.id}
+              emptyMessage="No data requests found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
           </div>
         </div>
       )}
@@ -1017,19 +1020,19 @@ export const CompliancePage: React.FC = () => {
 
           <div className="grid gap-4">
             {reports.length === 0 ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-500">
+              <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-500 dark:text-gray-400">
                 No compliance reports found
               </div>
             ) : (
               reports.map((report) => (
                 <div
                   key={report.id}
-                  className="bg-white rounded-lg border border-gray-200 p-6"
+                  className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6"
                 >
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-semibold text-gray-900 uppercase">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 uppercase">
                           {report.complianceType} Compliance Report
                         </h3>
                         <span
@@ -1044,38 +1047,38 @@ export const CompliancePage: React.FC = () => {
                           Score: {report.overallScore}%
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500 mt-1">
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                         Period: {formatDate(report.reportPeriodStart)} - {formatDate(report.reportPeriodEnd)}
                       </p>
                     </div>
-                    <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200">
+                    <button className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
                       <Download className="w-4 h-4" />
                       Download
                     </button>
                   </div>
 
                   <div className="mt-4 grid grid-cols-4 gap-4">
-                    <div className="bg-gray-50 rounded-lg p-3 text-center">
-                      <p className="text-2xl font-bold text-gray-900">{report.totalChecks}</p>
-                      <p className="text-xs text-gray-500">Total Checks</p>
+                    <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 text-center">
+                      <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{report.totalChecks}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Total Checks</p>
                     </div>
                     <div className="bg-green-50 rounded-lg p-3 text-center">
                       <p className="text-2xl font-bold text-green-600">{report.passedChecks}</p>
-                      <p className="text-xs text-gray-500">Passed</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Passed</p>
                     </div>
                     <div className="bg-red-50 rounded-lg p-3 text-center">
                       <p className="text-2xl font-bold text-red-600">{report.failedChecks}</p>
-                      <p className="text-xs text-gray-500">Failed</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Failed</p>
                     </div>
                     <div className="bg-yellow-50 rounded-lg p-3 text-center">
                       <p className="text-2xl font-bold text-yellow-600">{report.warnings}</p>
-                      <p className="text-xs text-gray-500">Warnings</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Warnings</p>
                     </div>
                   </div>
 
                   {report.findings.length > 0 && (
                     <div className="mt-4">
-                      <h4 className="text-sm font-medium text-gray-700 mb-2">Key Findings</h4>
+                      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Key Findings</h4>
                       <div className="space-y-2">
                         {report.findings.slice(0, 3).map((finding, idx) => (
                           <div
@@ -1104,7 +1107,7 @@ export const CompliancePage: React.FC = () => {
                     </div>
                   )}
 
-                  <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between text-sm text-gray-500">
+                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
                     <span>Generated by {report.generatedByName}</span>
                     <span>{formatDateTime(report.generatedAt)}</span>
                   </div>
@@ -1117,11 +1120,11 @@ export const CompliancePage: React.FC = () => {
 
       {activeTab === 'checks' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-lg font-semibold text-gray-900">GDPR Compliance Checklist</h3>
-                <p className="text-sm text-gray-500">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">GDPR Compliance Checklist</h3>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   Current compliance status based on latest assessments
                 </p>
               </div>
@@ -1134,14 +1137,14 @@ export const CompliancePage: React.FC = () => {
 
           <div className="space-y-3">
             {checks.length === 0 ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-500">
+              <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-500 dark:text-gray-400">
                 No compliance checks found
               </div>
             ) : (
               checks.map((check) => (
                 <div
                   key={check.id}
-                  className="bg-white rounded-lg border border-gray-200 p-4"
+                  className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
@@ -1151,27 +1154,27 @@ export const CompliancePage: React.FC = () => {
                         >
                           {check.status.replace('_', ' ')}
                         </span>
-                        <span className="text-sm font-medium text-gray-900">{check.category}</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{check.category}</span>
                       </div>
-                      <p className="text-sm text-gray-700 mt-2">{check.requirement}</p>
-                      <p className="text-sm text-gray-500 mt-1">{check.description}</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">{check.requirement}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{check.description}</p>
                       {/* The check's own verdict. The backend has always sent
                           `details`; the page discarded it and rendered only the
                           static requirement text, so the table said what was
                           being checked but never what the check found. */}
-                      <p className="text-sm text-gray-700 mt-2">{check.details}</p>
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">{check.details}</p>
                       {check.remediation && (
                         <p className="text-sm text-amber-700 mt-1">
                           Remediation: {check.remediation}
                         </p>
                       )}
                       {check.evidence && (
-                        <p className="text-xs text-gray-500 mt-2 bg-gray-50 p-2 rounded">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 bg-gray-50 dark:bg-gray-800 p-2 rounded">
                           Evidence: {check.evidence}
                         </p>
                       )}
                     </div>
-                    <div className="text-right text-xs text-gray-500 ml-4">
+                    <div className="text-right text-xs text-gray-500 dark:text-gray-400 ml-4">
                       {/* No "next review": checks run live on every request and
                           the platform has no scheduled-review concept, so the
                           column rendered "Invalid Date" from an absent field. */}

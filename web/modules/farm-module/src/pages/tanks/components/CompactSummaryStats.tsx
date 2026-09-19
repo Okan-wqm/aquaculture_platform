@@ -69,15 +69,15 @@ export const CompactSummaryStats: React.FC<CompactSummaryStatsProps> = ({ data }
   };
 
   return (
-    <div className="bg-white rounded-lg border border-gray-200 p-2 mb-4">
-      <div className="flex items-stretch divide-x divide-gray-200">
+    <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-2 mb-4">
+      <div className="flex items-stretch divide-x divide-gray-200 dark:divide-gray-700">
         {/* Total */}
         <div className="flex-1 px-3 py-1 text-center">
           <div className="flex items-center justify-center gap-1.5">
-            <span className="text-gray-400 text-sm">Total</span>
-            <span className="text-xl font-bold text-gray-900">{stats.total.count}</span>
+            <span className="text-gray-400 dark:text-gray-500 text-sm">Total</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-gray-100">{stats.total.count}</span>
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {formatBiomass(stats.total.biomass)}
           </div>
         </div>
@@ -88,7 +88,7 @@ export const CompactSummaryStats: React.FC<CompactSummaryStatsProps> = ({ data }
             <span className="text-cyan-500 text-sm">Tanks</span>
             <span className="text-xl font-bold text-cyan-600">{stats.tanks.count}</span>
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {formatBiomass(stats.tanks.biomass)}
           </div>
         </div>
@@ -99,7 +99,7 @@ export const CompactSummaryStats: React.FC<CompactSummaryStatsProps> = ({ data }
             <span className="text-blue-500 text-sm">Ponds</span>
             <span className="text-xl font-bold text-blue-600">{stats.ponds.count}</span>
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {formatBiomass(stats.ponds.biomass)}
           </div>
         </div>
@@ -110,7 +110,7 @@ export const CompactSummaryStats: React.FC<CompactSummaryStatsProps> = ({ data }
             <span className="text-purple-500 text-sm">Cages</span>
             <span className="text-xl font-bold text-purple-600">{stats.cages.count}</span>
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {formatBiomass(stats.cages.biomass)}
           </div>
         </div>
@@ -121,7 +121,7 @@ export const CompactSummaryStats: React.FC<CompactSummaryStatsProps> = ({ data }
             <span className="text-green-500 text-sm">Active</span>
             <span className="text-xl font-bold text-green-600">{stats.active.count}</span>
           </div>
-          <div className="text-xs text-gray-500">
+          <div className="text-xs text-gray-500 dark:text-gray-400">
             {stats.active.avgCapacity > 0 ? `${stats.active.avgCapacity.toFixed(0)}% cap` : '-'}
           </div>
         </div>

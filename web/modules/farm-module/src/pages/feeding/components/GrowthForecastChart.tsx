@@ -20,6 +20,7 @@ import {
   Bar,
 } from 'recharts';
 import { useGrowthSimulation, GrowthSimulationInput } from '../../../hooks/useFeeding';
+import { colors, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 interface Batch {
   id: string;
@@ -95,26 +96,70 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
 
   if (batches.length === 0) {
     return (
-      <div className="bg-white rounded-lg shadow p-6 text-center text-gray-500">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-6 text-center text-gray-500 dark:text-gray-400">
         No active batches found. Create a batch to see growth forecasts.
       </div>
     );
   }
 
+  type FeedRow = NonNullable<NonNullable<typeof simulationData>['feedRequirements']>[number];
+  const feedRowColumns: DataTableColumn<FeedRow>[] = [
+    {
+      key: 'feedType',
+      header: 'Feed Type',
+      render: (_value, feed) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{feed.feedName}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{feed.feedCode}</div>
+        </>
+      ),
+    },
+    {
+      key: 'totalRequired',
+      header: 'Total Required',
+      align: 'right',
+      render: (_value, feed) => (
+        <>
+          {feed.totalKg.toFixed(0)} kg
+        </>
+      ),
+    },
+    {
+      key: 'daysUsed',
+      header: 'Days Used',
+      align: 'right',
+      render: (_value, feed) => (
+        <>
+          {feed.daysUsed} days
+        </>
+      ),
+    },
+    {
+      key: 'period',
+      header: 'Period',
+      align: 'right',
+      render: (_value, feed) => (
+        <>
+          Day {feed.startDay} - Day {feed.endDay}
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Controls */}
-      <div className="bg-white rounded-lg shadow p-4">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Batch Selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Batch
             </label>
             <select
               value={selectedBatchId}
               onChange={(e) => setSelectedBatchId(e.target.value)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               {batches.map((batch) => (
                 <option key={batch.id} value={batch.id}>
@@ -126,13 +171,13 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
 
           {/* Projection Days */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Projection Period
             </label>
             <select
               value={projectionDays}
               onChange={(e) => setProjectionDays(Number(e.target.value))}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             >
               <option value={14}>14 days</option>
               <option value={30}>30 days</option>
@@ -144,7 +189,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
 
           {/* SGR Override */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               SGR (%) - Default: {batchSGR.toFixed(2)}%
             </label>
             <input
@@ -153,17 +198,17 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
               placeholder={`${batchSGR.toFixed(2)}`}
               value={customSGR ?? ''}
               onChange={(e) => setCustomSGR(e.target.value ? Number(e.target.value) : null)}
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
           </div>
 
           {/* Current Stats */}
-          <div className="bg-gray-50 rounded-lg p-3">
-            <p className="text-xs text-gray-500 mb-1">Current Status</p>
+          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Current Status</p>
             <p className="text-sm font-medium">
               {currentWeightG.toFixed(0)}g avg | {currentCount.toLocaleString()} fish
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
               {((currentWeightG * currentCount) / 1000).toFixed(0)} kg biomass
             </p>
           </div>
@@ -172,9 +217,9 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
 
       {/* Loading State */}
       {isLoading && (
-        <div className="bg-white rounded-lg shadow p-12 text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-500">Calculating growth projections...</p>
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center">
+          <Spinner size="xl" block />
+          <p className="mt-4 text-gray-500 dark:text-gray-400">Calculating growth projections...</p>
         </div>
       )}
 
@@ -190,9 +235,9 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-white rounded-lg shadow p-4">
-              <p className="text-sm text-gray-500">Projected Weight</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Projected Weight</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {simulationData.summary.endWeight.toFixed(0)}g
               </p>
               <p className="text-xs text-green-600">
@@ -200,38 +245,38 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                 ({(((simulationData.summary.endWeight - simulationData.summary.startWeight) / simulationData.summary.startWeight) * 100).toFixed(0)}%)
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4">
-              <p className="text-sm text-gray-500">Projected Biomass</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Projected Biomass</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {(simulationData.summary.endBiomass / 1000).toFixed(2)}t
               </p>
               <p className="text-xs text-green-600">
                 +{((simulationData.summary.endBiomass - simulationData.summary.startBiomass) / 1000).toFixed(2)}t
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4">
-              <p className="text-sm text-gray-500">Total Feed Required</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Total Feed Required</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {simulationData.summary.totalFeedKg.toFixed(0)} kg
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {(simulationData.summary.totalFeedKg / 1000).toFixed(2)}t
               </p>
             </div>
-            <div className="bg-white rounded-lg shadow p-4">
-              <p className="text-sm text-gray-500">Expected FCR</p>
-              <p className="text-2xl font-semibold text-gray-900">
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+              <p className="text-sm text-gray-500 dark:text-gray-400">Expected FCR</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-gray-100">
                 {simulationData.summary.avgFCR.toFixed(2)}
               </p>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {simulationData.summary.totalMortality} mortality
               </p>
             </div>
           </div>
 
           {/* Weight & Biomass Chart */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Weight & Biomass Projection</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Weight & Biomass Projection</h3>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData}>
@@ -245,7 +290,7 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                     yAxisId="left"
                     type="monotone"
                     dataKey="weight"
-                    stroke="#3B82F6"
+                    stroke={colors.info[500]}
                     name="Avg Weight (g)"
                     strokeWidth={2}
                   />
@@ -253,9 +298,9 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                     yAxisId="right"
                     type="monotone"
                     dataKey="biomass"
-                    fill="#10B981"
+                    fill={colors.success[500]}
                     fillOpacity={0.3}
-                    stroke="#10B981"
+                    stroke={colors.success[500]}
                     name="Biomass (kg)"
                   />
                 </ComposedChart>
@@ -264,8 +309,8 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
           </div>
 
           {/* Daily Feed Chart */}
-          <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Daily Feed Requirements</h3>
+          <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-4">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Daily Feed Requirements</h3>
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData}>
@@ -278,14 +323,14 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
                   <Bar
                     yAxisId="left"
                     dataKey="dailyFeed"
-                    fill="#F59E0B"
+                    fill={colors.warning[500]}
                     name="Daily Feed (kg)"
                   />
                   <Line
                     yAxisId="right"
                     type="monotone"
                     dataKey="cumulativeFeed"
-                    stroke="#8B5CF6"
+                    stroke={colors.primary[700]}
                     name="Cumulative Feed (kg)"
                     strokeWidth={2}
                   />
@@ -296,49 +341,19 @@ export const GrowthForecastChart: React.FC<GrowthForecastChartProps> = ({
 
           {/* Feed Requirements Summary */}
           {simulationData.feedRequirements.length > 0 && (
-            <div className="bg-white rounded-lg shadow">
-              <div className="px-4 py-3 border-b border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900">Feed Requirements by Type</h3>
+            <div className="bg-white dark:bg-gray-900 rounded-lg shadow">
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Feed Requirements by Type</h3>
               </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Feed Type
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total Required
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Days Used
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Period
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {simulationData.feedRequirements.map((feed) => (
-                      <tr key={feed.feedCode} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">{feed.feedName}</div>
-                          <div className="text-sm text-gray-500">{feed.feedCode}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                          {feed.totalKg.toFixed(0)} kg
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                          {feed.daysUsed} days
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right text-gray-500">
-                          Day {feed.startDay} - Day {feed.endDay}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <DataTable<FeedRow>
+                data={simulationData.feedRequirements}
+                columns={feedRowColumns}
+                keyExtractor={(feed) => feed.feedCode}
+                emptyMessage="No records found"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+              />
             </div>
           )}
         </>

@@ -6,7 +6,7 @@
  */
 
 import React, { useMemo } from 'react';
-import { Card, Badge, formatNumber } from '@aquaculture/shared-ui';
+import { Card, Badge, chartChrome, colors, formatNumber } from '@aquaculture/shared-ui';
 import {
   LineChart,
   Line,
@@ -56,7 +56,7 @@ const waterQualityRanges: Record<string, { min: number; max: number }> = {
 // PERF-M1: Tooltip style hoisted to module scope to avoid new object on every render
 const tooltipStyle = {
   backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
+  border: `1px solid ${chartChrome.border}`,
   borderRadius: '8px',
 };
 
@@ -68,13 +68,13 @@ const WidgetSkeleton: React.FC = () => (
   <Card className="p-4">
     <div className="animate-pulse">
       <div className="flex items-center justify-between mb-4">
-        <div className="h-4 bg-gray-200 rounded w-1/3" />
-        <div className="h-5 bg-gray-200 rounded-full w-16" />
+        <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3" />
+        <div className="h-5 bg-gray-200 dark:bg-gray-700 rounded-full w-16" />
       </div>
       <div className="space-y-3">
-        <div className="h-3 bg-gray-200 rounded w-full" />
-        <div className="h-3 bg-gray-200 rounded w-3/4" />
-        <div className="h-3 bg-gray-200 rounded w-1/2" />
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-full" />
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+        <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2" />
       </div>
     </div>
   </Card>
@@ -83,7 +83,7 @@ const WidgetSkeleton: React.FC = () => (
 const ErrorWidget: React.FC<{ title: string; onRetry: () => void }> = ({ title, onRetry }) => (
   <Card className="p-4">
     <div className="text-center py-4">
-      <h3 className="text-sm font-medium text-gray-500 mb-2">{title}</h3>
+      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{title}</h3>
       <p className="text-xs text-red-500 mb-2">Veri yuklenemedi</p>
       <button
         type="button"
@@ -99,8 +99,8 @@ const ErrorWidget: React.FC<{ title: string; onRetry: () => void }> = ({ title, 
 const EmptyWidget: React.FC<{ title: string; message: string }> = ({ title, message }) => (
   <Card className="p-4">
     <div className="text-center py-4">
-      <h3 className="text-sm font-medium text-gray-500 mb-2">{title}</h3>
-      <p className="text-xs text-gray-500">{message}</p>
+      <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">{title}</h3>
+      <p className="text-xs text-gray-500 dark:text-gray-400">{message}</p>
     </div>
   </Card>
 );
@@ -141,8 +141,8 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-sm font-medium text-gray-500">Gorev Ozeti</h3>
-          <p className="text-2xl font-bold text-gray-900">
+          <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Gorev Ozeti</h3>
+          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
             {formatNumber(stats.totalToday)} gorev
           </p>
         </div>
@@ -159,7 +159,7 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
             content={({ active, payload }) => {
               if (active && payload && payload.length) {
                 return (
-                  <div className="bg-white shadow-lg rounded-lg px-3 py-2 text-sm">
+                  <div className="bg-white dark:bg-gray-900 shadow-lg rounded-lg px-3 py-2 text-sm">
                     <p className="font-medium">{String(payload[0].payload.day)}</p>
                     <p className="text-primary-600">{payload[0].value} gorev</p>
                   </div>
@@ -171,10 +171,10 @@ const TaskStatsWidget: React.FC<TaskStatsWidgetProps> = ({ stats, isLoading, isE
           <Line
             type="monotone"
             dataKey="value"
-            stroke="#0073e6"
+            stroke={colors.primary[500]}
             strokeWidth={2}
             dot={false}
-            activeDot={{ r: 4, fill: '#0073e6' }}
+            activeDot={{ r: 4, fill: colors.primary[500] }}
           />
         </LineChart>
       </ResponsiveContainer>
@@ -243,7 +243,7 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-500">Su Kalitesi</h3>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Su Kalitesi</h3>
         <Badge variant={warningCount > 0 ? 'warning' : 'success'}>
           {warningCount > 0 ? `${warningCount} Uyari` : 'Normal'}
         </Badge>
@@ -259,12 +259,12 @@ const WaterQualityWidget: React.FC<WaterQualityWidgetProps> = ({
           return (
             <div key={key} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">{waterQualityLabels[key] ?? key}</span>
-                <span className={`font-medium ${isWarning ? 'text-yellow-600' : 'text-gray-900'}`}>
+                <span className="text-gray-500 dark:text-gray-400">{waterQualityLabels[key] ?? key}</span>
+                <span className={`font-medium ${isWarning ? 'text-yellow-600' : 'text-gray-900 dark:text-gray-100'}`}>
                   {value.toFixed(1)} {waterQualityUnits[key] ?? ''}
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
                     isWarning ? 'bg-yellow-500' : 'bg-green-500'
@@ -305,7 +305,7 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-500">Aktif Gorevler</h3>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Aktif Gorevler</h3>
         {/* BUG-M3: replaced <span> fake link with an accessible <button> */}
         <button
           type="button"
@@ -330,11 +330,11 @@ const TasksWidget: React.FC<TasksWidgetProps> = ({ tasks, isLoading, isError, re
                     : 'bg-gray-300'
                 }`}
               />
-              <span className={task.status === 'COMPLETED' ? 'text-gray-500 line-through' : 'text-gray-700'}>
+              <span className={task.status === 'COMPLETED' ? 'text-gray-500 dark:text-gray-400 line-through' : 'text-gray-700 dark:text-gray-300'}>
                 {task.title}
               </span>
             </div>
-            <span className="text-gray-500 text-xs">
+            <span className="text-gray-500 dark:text-gray-400 text-xs">
               {task.dueTime ?? task.priority}
             </span>
           </div>
@@ -371,7 +371,7 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
   return (
     <Card className="p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-500">Stok Durumu</h3>
+        <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400">Stok Durumu</h3>
         <Badge variant={overview.lowStockAlertCount > 0 ? 'error' : 'success'}>
           {overview.lowStockAlertCount > 0
             ? `${overview.lowStockAlertCount} Kritik`
@@ -388,12 +388,12 @@ const StockWidget: React.FC<StockWidgetProps> = ({ overview, isLoading, isError,
           return (
             <div key={stock.itemId} className="space-y-1">
               <div className="flex items-center justify-between text-xs">
-                <span className="text-gray-500">{stock.itemName}</span>
-                <span className={`font-medium ${isLow ? 'text-red-600' : 'text-gray-900'}`}>
+                <span className="text-gray-500 dark:text-gray-400">{stock.itemName}</span>
+                <span className={`font-medium ${isLow ? 'text-red-600' : 'text-gray-900 dark:text-gray-100'}`}>
                   {stock.currentQuantity.toFixed(0)} / {stock.minStock.toFixed(0)} {stock.unit}
                 </span>
               </div>
-              <div className="h-1.5 bg-gray-200 rounded-full overflow-hidden">
+              <div className="h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
                     isLow ? 'bg-red-500' : percentage < 150 ? 'bg-yellow-500' : 'bg-green-500'

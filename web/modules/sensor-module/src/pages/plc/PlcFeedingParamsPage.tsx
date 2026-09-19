@@ -10,11 +10,11 @@
  * - View history for a connection
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
+import { ConfirmModal, Modal, useClickOutside, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   Plus,
   Search,
-  Loader2,
   MoreVertical,
   Trash2,
   Edit,
@@ -51,12 +51,12 @@ import {
 // ============================================================================
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  DRAFT: { label: 'Taslak', color: 'bg-gray-100 text-gray-700 border-gray-200' },
+  DRAFT: { label: 'Taslak', color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700' },
   PENDING: { label: 'Bekliyor', color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
   SENT: { label: 'Gönderildi', color: 'bg-blue-100 text-blue-700 border-blue-200' },
   ACKNOWLEDGED: { label: 'Onaylandı', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
   ACTIVE: { label: 'Aktif', color: 'bg-green-100 text-green-700 border-green-200' },
-  SUPERSEDED: { label: 'Geçersiz', color: 'bg-gray-100 text-gray-500 border-gray-200' },
+  SUPERSEDED: { label: 'Geçersiz', color: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700' },
   ERROR: { label: 'Hata', color: 'bg-red-100 text-red-700 border-red-200' },
 };
 
@@ -161,279 +161,278 @@ const ParamFormModal: React.FC<ParamFormProps> = ({ parameter, connections, onSu
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="mx-4 max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {parameter ? 'Parametreyi Düzenle' : 'Yeni Besleme Parametresi'}
-          </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            {!parameter && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">PLC Bağlantı *</label>
-                <select
-                  required
-                  value={form.plcConnectionId}
-                  onChange={(e) => updateField('plcConnectionId', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                >
-                  <option value="">Bağlantı seçin...</option>
-                  {connections.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="xl"
+      title={parameter ? 'Parametreyi Düzenle' : 'Yeni Besleme Parametresi'}
+      showCloseButton={!isLoading}
+      closeOnEscape={!isLoading}
+      closeOnOverlayClick={!isLoading}
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto"
+    >
+      <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        {/* Basic Info */}
+        <div className="grid grid-cols-2 gap-4">
+          {!parameter && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Parametre Adı *</label>
-              <input
-                type="text"
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">PLC Bağlantı *</label>
+              <select
                 required
-                value={form.name}
-                onChange={(e) => updateField('name', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                placeholder="Tank-01 Yaz Parametreleri"
-              />
+                value={form.plcConnectionId}
+                onChange={(e) => updateField('plcConnectionId', e.target.value)}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="">Bağlantı seçin...</option>
+                {connections.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Versiyon</label>
-              <input
-                type="text"
-                value={form.version}
-                onChange={(e) => updateField('version', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-              />
-            </div>
-          </div>
-
+          )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Açıklama</label>
-            <textarea
-              value={form.description}
-              onChange={(e) => updateField('description', e.target.value)}
-              rows={2}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Parametre Adı *</label>
+            <input
+              type="text"
+              required
+              value={form.name}
+              onChange={(e) => updateField('name', e.target.value)}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              placeholder="Tank-01 Yaz Parametreleri"
             />
           </div>
-
-          {/* Core Parameters */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Temel Parametreler</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Biyokutle (kg)</label>
-                <input
-                  type="number"
-                  min={0} max={1000000} step={0.01}
-                  value={form.biomassKg}
-                  onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">FCR</label>
-                <input
-                  type="number"
-                  min={0.1} max={10} step={0.01}
-                  value={form.fcr}
-                  onChange={(e) => updateField('fcr', parseFloat(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Gunluk Hedef (kg)</label>
-                <input
-                  type="number"
-                  min={0} max={100000} step={0.01}
-                  value={form.targetDailyFeedKg}
-                  onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Versiyon</label>
+            <input
+              type="text"
+              value={form.version}
+              onChange={(e) => updateField('version', e.target.value)}
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Açıklama</label>
+          <textarea
+            value={form.description}
+            onChange={(e) => updateField('description', e.target.value)}
+            rows={2}
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          />
+        </div>
+
+        {/* Core Parameters */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Temel Parametreler</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Biyokutle (kg)</label>
+              <input
+                type="number"
+                min={0} max={1000000} step={0.01}
+                value={form.biomassKg}
+                onChange={(e) => updateField('biomassKg', parseFloat(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">FCR</label>
+              <input
+                type="number"
+                min={0.1} max={10} step={0.01}
+                value={form.fcr}
+                onChange={(e) => updateField('fcr', parseFloat(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Gunluk Hedef (kg)</label>
+              <input
+                type="number"
+                min={0} max={100000} step={0.01}
+                value={form.targetDailyFeedKg}
+                onChange={(e) => updateField('targetDailyFeedKg', parseFloat(e.target.value))}
+                className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              />
             </div>
           </div>
+        </div>
 
-          {/* Schedule */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-gray-900">Besleme Programı</h3>
-              <button
-                type="button"
-                onClick={addScheduleEntry}
-                className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
-              >
-                <Plus className="h-3 w-3" />
-                Ekle
-              </button>
-            </div>
-            <div className="space-y-2">
-              {form.schedule.map((entry, i) => (
-                <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-200 p-2 bg-gray-50">
-                  <input
-                    type="time"
-                    value={entry.time}
-                    onChange={(e) => updateScheduleEntry(i, 'time', e.target.value)}
-                    className="rounded border border-gray-300 px-2 py-1 text-sm"
-                  />
-                  <input
-                    type="number"
-                    min={0} step={0.1}
-                    value={entry.amountKg}
-                    onChange={(e) => updateScheduleEntry(i, 'amountKg', parseFloat(e.target.value))}
-                    className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
-                    placeholder="kg"
-                  />
-                  <span className="text-xs text-gray-400">kg</span>
-                  <input
-                    type="text"
-                    value={entry.feedType || ''}
-                    onChange={(e) => updateScheduleEntry(i, 'feedType', e.target.value)}
-                    className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm"
-                    placeholder="Yem tipi"
-                  />
-                  <input
-                    type="number"
-                    min={0} max={3600}
-                    value={entry.durationSeconds || 0}
-                    onChange={(e) => updateScheduleEntry(i, 'durationSeconds', parseInt(e.target.value))}
-                    className="w-16 rounded border border-gray-300 px-2 py-1 text-sm"
-                    placeholder="sn"
-                  />
-                  <span className="text-xs text-gray-400">sn</span>
-                  <button
-                    type="button"
-                    onClick={() => removeScheduleEntry(i)}
-                    className="text-red-400 hover:text-red-600"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Thresholds */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">Eşik Değerleri</h3>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">O2 Min (mg/L)</label>
-                <input type="number" min={0} max={20} step={0.1}
-                  value={form.thresholds.oxygenMin}
-                  onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">O2 Kritik (mg/L)</label>
-                <input type="number" min={0} max={20} step={0.1}
-                  value={form.thresholds.oxygenCritical}
-                  onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Sıcaklık Max (C)</label>
-                <input type="number" min={0} max={50} step={0.1}
-                  value={form.thresholds.tempMax}
-                  onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Sıcaklık Kritik (C)</label>
-                <input type="number" min={0} max={50} step={0.1}
-                  value={form.thresholds.tempCritical}
-                  onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">pH Min</label>
-                <input type="number" min={0} max={14} step={0.1}
-                  value={form.thresholds.phMin || 0}
-                  onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">pH Max</label>
-                <input type="number" min={0} max={14} step={0.1}
-                  value={form.thresholds.phMax || 0}
-                  onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* VFD Settings */}
-          <div>
-            <h3 className="text-sm font-semibold text-gray-900 mb-2">VFD Ayarları</h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Blower Min Hız (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.vfdSettings.blowerMinSpeed}
-                  onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Blower Max Hız (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.vfdSettings.blowerMaxSpeed}
-                  onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Doser Min Hız (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.vfdSettings.doserMinSpeed}
-                  onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Doser Max Hız (%)</label>
-                <input type="number" min={0} max={100}
-                  value={form.vfdSettings.doserMaxSpeed}
-                  onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
-                  className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Submit */}
-          <div className="flex justify-end gap-3 pt-2">
+        {/* Schedule */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Besleme Programı</h3>
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              onClick={addScheduleEntry}
+              className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
             >
-              İptal
-            </button>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {parameter ? 'Güncelle' : 'Oluştur'}
+              <Plus className="h-3 w-3" />
+              Ekle
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+          <div className="space-y-2">
+            {form.schedule.map((entry, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 p-2 bg-gray-50 dark:bg-gray-800">
+                <input
+                  type="time"
+                  value={entry.time}
+                  onChange={(e) => updateScheduleEntry(i, 'time', e.target.value)}
+                  className="rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+                />
+                <input
+                  type="number"
+                  min={0} step={0.1}
+                  value={entry.amountKg}
+                  onChange={(e) => updateScheduleEntry(i, 'amountKg', parseFloat(e.target.value))}
+                  className="w-20 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+                  placeholder="kg"
+                />
+                <span className="text-xs text-gray-400 dark:text-gray-500">kg</span>
+                <input
+                  type="text"
+                  value={entry.feedType || ''}
+                  onChange={(e) => updateScheduleEntry(i, 'feedType', e.target.value)}
+                  className="flex-1 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+                  placeholder="Yem tipi"
+                />
+                <input
+                  type="number"
+                  min={0} max={3600}
+                  value={entry.durationSeconds || 0}
+                  onChange={(e) => updateScheduleEntry(i, 'durationSeconds', parseInt(e.target.value))}
+                  className="w-16 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+                  placeholder="sn"
+                />
+                <span className="text-xs text-gray-400 dark:text-gray-500">sn</span>
+                <button
+                  type="button"
+                  onClick={() => removeScheduleEntry(i)}
+                  className="text-red-400 hover:text-red-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Thresholds */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Eşik Değerleri</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">O2 Min (mg/L)</label>
+              <input type="number" min={0} max={20} step={0.1}
+                value={form.thresholds.oxygenMin}
+                onChange={(e) => updateThreshold('oxygenMin', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">O2 Kritik (mg/L)</label>
+              <input type="number" min={0} max={20} step={0.1}
+                value={form.thresholds.oxygenCritical}
+                onChange={(e) => updateThreshold('oxygenCritical', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sıcaklık Max (C)</label>
+              <input type="number" min={0} max={50} step={0.1}
+                value={form.thresholds.tempMax}
+                onChange={(e) => updateThreshold('tempMax', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Sıcaklık Kritik (C)</label>
+              <input type="number" min={0} max={50} step={0.1}
+                value={form.thresholds.tempCritical}
+                onChange={(e) => updateThreshold('tempCritical', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">pH Min</label>
+              <input type="number" min={0} max={14} step={0.1}
+                value={form.thresholds.phMin || 0}
+                onChange={(e) => updateThreshold('phMin', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">pH Max</label>
+              <input type="number" min={0} max={14} step={0.1}
+                value={form.thresholds.phMax || 0}
+                onChange={(e) => updateThreshold('phMax', parseFloat(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* VFD Settings */}
+        <div>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">VFD Ayarları</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Blower Min Hız (%)</label>
+              <input type="number" min={0} max={100}
+                value={form.vfdSettings.blowerMinSpeed}
+                onChange={(e) => updateVfd('blowerMinSpeed', parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Blower Max Hız (%)</label>
+              <input type="number" min={0} max={100}
+                value={form.vfdSettings.blowerMaxSpeed}
+                onChange={(e) => updateVfd('blowerMaxSpeed', parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Doser Min Hız (%)</label>
+              <input type="number" min={0} max={100}
+                value={form.vfdSettings.doserMinSpeed}
+                onChange={(e) => updateVfd('doserMinSpeed', parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Doser Max Hız (%)</label>
+              <input type="number" min={0} max={100}
+                value={form.vfdSettings.doserMaxSpeed}
+                onChange={(e) => updateVfd('doserMaxSpeed', parseInt(e.target.value))}
+                className="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Submit */}
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+          >
+            İptal
+          </button>
+          <button
+            type="submit"
+            disabled={isLoading}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {isLoading && <Spinner size="sm" color="inherit" />}
+            {parameter ? 'Güncelle' : 'Oluştur'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -449,10 +448,16 @@ const PlcFeedingParamsPage: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [editingParam, setEditingParam] = useState<FeedingParameter | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const openMenuRef = useRef<HTMLDivElement>(null);
+  useClickOutside(openMenuRef, () => setMenuOpenId(null), menuOpenId !== null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [cloneDialogId, setCloneDialogId] = useState<string | null>(null);
   const [cloneName, setCloneName] = useState('');
   const [sendResult, setSendResult] = useState<{ success: boolean; error?: string; name: string } | null>(null);
+  const closeCloneDialog = (): void => {
+    setCloneDialogId(null);
+    setCloneName('');
+  };
 
   const effectiveFilter: FeedingParameterFilter = {
     search: searchTerm || undefined,
@@ -511,47 +516,183 @@ const PlcFeedingParamsPage: React.FC = () => {
     } catch (err) { console.error(err); }
   }, [cloneDialogId, cloneName, mutations.clone]);
 
+  const feedingParameterColumns: DataTableColumn<FeedingParameter>[] = [
+    {
+      key: 'parametre',
+      header: 'Parametre',
+      render: (_value, param) => (
+        <div>
+          <div className="font-medium text-gray-900 dark:text-gray-100">{param.name}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">v{param.version}</div>
+        </div>
+      ),
+    },
+    {
+      key: 'baglanti',
+      header: 'Baglanti',
+      render: (_value, param) => param.connection?.name || param.plcConnectionId.slice(0, 8),
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, param) => {
+        const statusCfg = STATUS_CONFIG[param.status] || STATUS_CONFIG.DRAFT;
+        return (
+          <>
+            <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}>
+              {statusCfg.label}
+            </span>
+            {param.errorMessage && param.status === 'ERROR' && (
+              <p className="text-xs text-red-500 mt-1 max-w-[150px] truncate" title={param.errorMessage}>
+                {param.errorMessage}
+              </p>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'biyokutle',
+      header: 'Biyokutle',
+      align: 'right',
+      render: (_value, param) => (
+        <>
+          {Number(param.biomassKg).toLocaleString()} kg
+        </>
+      ),
+    },
+    {
+      key: 'fcr',
+      header: 'FCR',
+      align: 'right',
+      render: (_value, param) => Number(param.fcr).toFixed(2),
+    },
+    {
+      key: 'hedefGun',
+      header: 'Hedef/Gun',
+      align: 'right',
+      render: (_value, param) => (
+        <>
+          {Number(param.targetDailyFeedKg).toFixed(1)} kg
+        </>
+      ),
+    },
+    {
+      key: 'program',
+      header: 'Program',
+      render: (_value, param) => (
+        <>
+          {Array.isArray(param.schedule) ? `${param.schedule.length} öğün` : '-'}
+        </>
+      ),
+    },
+    {
+      key: 'tarih',
+      header: 'Tarih',
+      render: (_value, param) => formatDate(param.createdAt),
+    },
+    {
+      key: 'islemler',
+      header: 'Islemler',
+      align: 'right',
+      render: (_value, param) => (
+        <div className="relative" ref={menuOpenId === param.id ? openMenuRef : undefined}>
+          <button
+            onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}
+            className="rounded p-1 text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </button>
+          {menuOpenId === param.id && (
+            <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white dark:bg-gray-900 py-1 shadow-lg">
+              <button
+                onClick={() => { setEditingParam(param); setShowForm(true); setMenuOpenId(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                <Edit className="h-4 w-4" />
+                Düzenle
+              </button>
+              <button
+                onClick={() => handleSendToPlc(param.id, param.name)}
+                disabled={param.status === 'ACTIVE'}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Send className="h-4 w-4" />
+                PLC&apos;ye Gönder
+              </button>
+              {param.status !== 'ACTIVE' && (
+                <button
+                  onClick={() => handleActivate(param.id)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
+                >
+                  <PlayCircle className="h-4 w-4" />
+                  Etkinleştir
+                </button>
+              )}
+              <button
+                onClick={() => { setCloneDialogId(param.id); setCloneName(param.name + ' (Kopya)'); setMenuOpenId(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                <Copy className="h-4 w-4" />
+                Klonla
+              </button>
+              <div className="border-t my-1" />
+              <button
+                onClick={() => { setDeleteConfirm(param.id); setMenuOpenId(null); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Sil
+              </button>
+            </div>
+          )}
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Besleme Parametreleri</h1>
-          <p className="mt-1 text-sm text-gray-500">Besleme parametre setlerini yönetin ve PLC&apos;ye gönderin</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => refetch()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => { setEditingParam(null); setShowForm(true); }}
-            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-          >
-            <Plus className="h-4 w-4" />
-            Yeni Parametre
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Besleme Parametreleri"
+        description="Besleme parametre setlerini yönetin ve PLC&apos;ye gönderin"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => refetch()}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => { setEditingParam(null); setShowForm(true); }}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
+            >
+              <Plus className="h-4 w-4" />
+              Yeni Parametre
+            </button>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {/* Filters */}
       <div className="mb-4 flex gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Parametre ara..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 py-2 pl-10 pr-4 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as ParameterStatus | '')}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         >
           <option value="">Tüm Durumlar</option>
           <option value="DRAFT">Taslak</option>
@@ -563,7 +704,7 @@ const PlcFeedingParamsPage: React.FC = () => {
         <select
           value={connectionFilter}
           onChange={(e) => setConnectionFilter(e.target.value)}
-          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          className="rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
         >
           <option value="">Tüm Bağlantılar</option>
           {connections?.map((c) => (
@@ -575,127 +716,23 @@ const PlcFeedingParamsPage: React.FC = () => {
       {/* Table */}
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">
-          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+          <Spinner size="lg" />
         </div>
       ) : parameters && parameters.length > 0 ? (
-        <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Parametre</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Baglanti</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Durum</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Biyokutle</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">FCR</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Hedef/Gun</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Program</th>
-                <th className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500">Tarih</th>
-                <th className="px-4 py-3 text-right text-xs font-medium uppercase text-gray-500">Islemler</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {parameters.map((param) => {
-                const statusCfg = STATUS_CONFIG[param.status] || STATUS_CONFIG.DRAFT;
-                return (
-                  <tr key={param.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div>
-                        <div className="font-medium text-gray-900">{param.name}</div>
-                        <div className="text-xs text-gray-500">v{param.version}</div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {param.connection?.name || param.plcConnectionId.slice(0, 8)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${statusCfg.color}`}>
-                        {statusCfg.label}
-                      </span>
-                      {param.errorMessage && param.status === 'ERROR' && (
-                        <p className="text-xs text-red-500 mt-1 max-w-[150px] truncate" title={param.errorMessage}>
-                          {param.errorMessage}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium text-gray-900">
-                      {Number(param.biomassKg).toLocaleString()} kg
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm text-gray-600">
-                      {Number(param.fcr).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium text-gray-900">
-                      {Number(param.targetDailyFeedKg).toFixed(1)} kg
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {Array.isArray(param.schedule) ? `${param.schedule.length} öğün` : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-500">
-                      {formatDate(param.createdAt)}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="relative">
-                        <button
-                          onClick={() => setMenuOpenId(menuOpenId === param.id ? null : param.id)}
-                          className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
-                        >
-                          <MoreVertical className="h-4 w-4" />
-                        </button>
-                        {menuOpenId === param.id && (
-                          <div className="absolute right-0 z-10 mt-1 w-52 rounded-lg border bg-white py-1 shadow-lg">
-                            <button
-                              onClick={() => { setEditingParam(param); setShowForm(true); setMenuOpenId(null); }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              <Edit className="h-4 w-4" />
-                              Düzenle
-                            </button>
-                            <button
-                              onClick={() => handleSendToPlc(param.id, param.name)}
-                              disabled={param.status === 'ACTIVE'}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                              <Send className="h-4 w-4" />
-                              PLC&apos;ye Gönder
-                            </button>
-                            {param.status !== 'ACTIVE' && (
-                              <button
-                                onClick={() => handleActivate(param.id)}
-                                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
-                              >
-                                <PlayCircle className="h-4 w-4" />
-                                Etkinleştir
-                              </button>
-                            )}
-                            <button
-                              onClick={() => { setCloneDialogId(param.id); setCloneName(param.name + ' (Kopya)'); setMenuOpenId(null); }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                            >
-                              <Copy className="h-4 w-4" />
-                              Klonla
-                            </button>
-                            <div className="border-t my-1" />
-                            <button
-                              onClick={() => { setDeleteConfirm(param.id); setMenuOpenId(null); }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                              Sil
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<FeedingParameter>
+          data={parameters}
+          columns={feedingParameterColumns}
+          keyExtractor={(param) => param.id}
+          emptyMessage="No feeding parameters"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       ) : (
-        <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
-          <BarChart3 className="mx-auto h-12 w-12 text-gray-400" />
-          <h3 className="mt-2 text-sm font-semibold text-gray-900">Besleme parametresi yok</h3>
-          <p className="mt-1 text-sm text-gray-500">İlk besleme parametre setinizi oluşturun.</p>
+        <div className="rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 p-12 text-center">
+          <BarChart3 className="mx-auto h-12 w-12 text-gray-400 dark:text-gray-500" />
+          <h3 className="mt-2 text-sm font-semibold text-gray-900 dark:text-gray-100">Besleme parametresi yok</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">İlk besleme parametre setinizi oluşturun.</p>
           <button
             onClick={() => setShowForm(true)}
             className="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
@@ -719,20 +756,21 @@ const PlcFeedingParamsPage: React.FC = () => {
 
       {/* Clone Dialog */}
       {cloneDialogId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Parametreyi Klonla</h3>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Yeni Ad</label>
-            <input
-              type="text"
-              value={cloneName}
-              onChange={(e) => setCloneName(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-            />
-            <div className="mt-4 flex gap-3">
+        <Modal
+          isOpen
+          onClose={closeCloneDialog}
+          size="sm"
+          title="Parametreyi Klonla"
+          showCloseButton={!mutations.clone.isPending}
+          closeOnEscape={!mutations.clone.isPending}
+          closeOnOverlayClick={!mutations.clone.isPending}
+          bodyClassName="p-6"
+          footer={
+            <>
               <button
-                onClick={() => { setCloneDialogId(null); setCloneName(''); }}
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                type="button"
+                onClick={closeCloneDialog}
+                className="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 İptal
               </button>
@@ -741,72 +779,68 @@ const PlcFeedingParamsPage: React.FC = () => {
                 disabled={mutations.clone.isPending}
                 className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
               >
-                {mutations.clone.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {mutations.clone.isPending && <Spinner size="sm" color="inherit" />}
                 Klonla
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Yeni Ad</label>
+          <input
+            type="text"
+            value={cloneName}
+            onChange={(e) => setCloneName(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+          />
+        </Modal>
       )}
 
       {/* Send Result */}
       {sendResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl text-center">
-            {sendResult.success ? (
-              <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
-            ) : (
-              <XCircle className="mx-auto h-12 w-12 text-red-500" />
-            )}
-            <h3 className="mt-2 text-lg font-semibold text-gray-900">{sendResult.name}</h3>
-            <p className={`text-sm font-medium ${sendResult.success ? 'text-green-600' : 'text-red-600'}`}>
-              {sendResult.success ? 'Parametreler PLC\'ye başarıyla gönderildi!' : 'Gönderme başarısız'}
-            </p>
-            {sendResult.error && (
-              <p className="mt-2 text-sm text-red-500">{sendResult.error}</p>
-            )}
+        <Modal
+          isOpen
+          onClose={() => setSendResult(null)}
+          size="sm"
+          title={sendResult.name}
+          bodyClassName="p-6 text-center"
+          footer={
             <button
+              type="button"
               onClick={() => setSendResult(null)}
-              className="mt-4 w-full rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+              className="w-full rounded-lg bg-gray-100 dark:bg-gray-800 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
             >
               Kapat
             </button>
-          </div>
-        </div>
+          }
+        >
+          {sendResult.success ? (
+            <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
+          ) : (
+            <XCircle className="mx-auto h-12 w-12 text-red-500" />
+          )}
+          <p className={`text-sm font-medium ${sendResult.success ? 'text-green-600' : 'text-red-600'}`}>
+            {sendResult.success ? 'Parametreler PLC\'ye başarıyla gönderildi!' : 'Gönderme başarısız'}
+          </p>
+          {sendResult.error && (
+            <p className="mt-2 text-sm text-red-500">{sendResult.error}</p>
+          )}
+        </Modal>
       )}
 
       {/* Delete Confirmation */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-2xl">
-            <div className="text-center">
-              <AlertTriangle className="mx-auto h-10 w-10 text-red-500" />
-              <h3 className="mt-2 text-lg font-semibold text-gray-900">Parametreyi Sil</h3>
-              <p className="mt-1 text-sm text-gray-500">Bu işlem geri alınamaz.</p>
-            </div>
-            <div className="mt-4 flex gap-3">
-              <button
-                onClick={() => setDeleteConfirm(null)}
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                İptal
-              </button>
-              <button
-                onClick={() => handleDelete(deleteConfirm)}
-                disabled={mutations.remove.isPending}
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {mutations.remove.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Sil
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Click-away handler */}
-      {menuOpenId && (
-        <div className="fixed inset-0 z-0" onClick={() => setMenuOpenId(null)} />
+        <ConfirmModal
+          isOpen
+          onClose={() => setDeleteConfirm(null)}
+          onConfirm={() => handleDelete(deleteConfirm)}
+          title="Parametreyi Sil"
+          message="Bu işlem geri alınamaz."
+          confirmText="Sil"
+          cancelText="İptal"
+          variant="danger"
+          isLoading={mutations.remove.isPending}
+          loadingText="Siliniyor..."
+        />
       )}
     </div>
   );

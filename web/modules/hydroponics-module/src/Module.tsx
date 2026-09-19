@@ -24,7 +24,7 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-48 text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-48 text-gray-500 dark:text-gray-400 text-sm">
         Checking session...
       </div>
     );

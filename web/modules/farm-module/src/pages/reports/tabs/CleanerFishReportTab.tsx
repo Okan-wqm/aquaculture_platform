@@ -29,6 +29,7 @@ import { SiteLocalitySelector } from '../components/SiteLocalitySelector';
 import { buildRegulatoryIdentity } from '../utils/regulatoryIdentity';
 import { toBackendReportMonth } from '../utils/reportPeriod';
 import { useTanksList, Tank } from '../../../hooks/useTanks';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -372,8 +373,8 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Cleaner Fish Inventory</h4>
-          <p className="text-xs text-gray-500">Current stock by species</p>
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Cleaner Fish Inventory</h4>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Current stock by species</p>
         </div>
         <div className="flex items-center gap-2">
           {tanks && tanks.some(t => (t.batchMetrics?.cleanerFishQuantity || 0) > 0) && (
@@ -416,21 +417,21 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
       </div>
 
       {formData.fishBySpecies.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z" />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">No species added</p>
-          <p className="text-xs text-gray-400">Select a species to add from the dropdown above</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No species added</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">Select a species to add from the dropdown above</p>
         </div>
       ) : (
         <div className="space-y-3">
           {formData.fishBySpecies.map((fish, index) => (
-            <div key={fish.species} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div key={fish.species} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <span className="text-sm font-medium text-gray-700">{getSpeciesLabel(fish.species)}</span>
-                  <span className="text-xs text-gray-500 ml-2">({fish.norwegianName})</span>
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{getSpeciesLabel(fish.species)}</span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({fish.norwegianName})</span>
                 </div>
                 <button
                   type="button"
@@ -444,22 +445,22 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Count</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Count</label>
                   <input
                     type="number"
                     min="0"
                     value={fish.count || ''}
                     onChange={(e) => updateSpecies(index, { count: parseInt(e.target.value) || 0 })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Source</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Source</label>
                   <select
                     value={fish.source}
                     onChange={(e) => updateSpecies(index, { source: e.target.value as 'wild_caught' | 'farmed' })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                   >
                     <option value="farmed">Farmed</option>
                     <option value="wild_caught">Wild Caught</option>
@@ -467,12 +468,12 @@ const InventoryStep: React.FC<InventoryStepProps> = ({ formData, onChange, tanks
                 </div>
                 {fish.source === 'wild_caught' && (
                   <div className="col-span-2">
-                    <label className="block text-xs text-gray-500 mb-1">Capture Location</label>
+                    <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Capture Location</label>
                     <input
                       type="text"
                       value={fish.sourceLocation || ''}
                       onChange={(e) => updateSpecies(index, { sourceLocation: e.target.value })}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                       placeholder="Location where fish were caught"
                     />
                   </div>
@@ -533,8 +534,8 @@ const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData,
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-sm font-medium text-gray-700">Detailed Mortality / Removal</h4>
-        <p className="text-xs text-gray-500">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Detailed Mortality / Removal</h4>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           Mattilsynet requires categorized removal reasons per species (RensefiskUttak)
         </p>
       </div>
@@ -555,8 +556,8 @@ const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData,
       </div>
 
       {formData.fishBySpecies.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <p className="text-sm text-gray-500">Add species inventory first to record mortality</p>
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Add species inventory first to record mortality</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -566,16 +567,16 @@ const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData,
             const rate = fish.count > 0 ? (speciesTotal / fish.count) * 100 : 0;
 
             return (
-              <div key={fish.species} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <div key={fish.species} className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div>
-                    <span className="text-sm font-medium text-gray-700">
+                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       {getSpeciesLabel(fish.species)}
                     </span>
-                    <span className="text-xs text-gray-400 ml-2">
+                    <span className="text-xs text-gray-400 dark:text-gray-500 ml-2">
                       ({getSpeciesMattilsynetCode(fish.species)})
                     </span>
-                    <span className="text-xs text-gray-500 ml-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
                       Inventory: {formatNumber(fish.count)}
                     </span>
                   </div>
@@ -583,7 +584,7 @@ const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData,
                     <span className="text-sm font-medium text-red-600">
                       {formatNumber(speciesTotal)} total
                     </span>
-                    <span className="text-xs text-gray-500 ml-2">
+                    <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
                       ({rate.toFixed(1)}%)
                     </span>
                   </div>
@@ -592,7 +593,7 @@ const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData,
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                   {MORTALITY_CATEGORIES.map((cat) => (
                     <div key={cat.key}>
-                      <label className="block text-xs text-gray-500 mb-1 truncate" title={cat.label}>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1 truncate" title={cat.label}>
                         {cat.label}
                       </label>
                       <input
@@ -602,7 +603,7 @@ const DetailedMortalityStep: React.FC<DetailedMortalityStepProps> = ({ formData,
                         onChange={(e) =>
                           updateDetailedMortality(fish.species, cat.key, parseInt(e.target.value) || 0)
                         }
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded-md"
+                        className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                         placeholder="0"
                       />
                     </div>
@@ -640,11 +641,81 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
     });
   };
 
+  type EntryRow = NonNullable<NonNullable<typeof formData>['perCageData']>[number];
+  const entryRowColumns: DataTableColumn<EntryRow>[] = [
+    {
+      key: 'cageMerdid',
+      header: 'Cage (merdId)',
+      render: (_value, entry) => (
+        <>
+          <div className="text-sm font-medium text-gray-700 dark:text-gray-300">{entry.tankName}</div>
+          <div className="text-xs text-gray-400 dark:text-gray-500">{entry.tankCode}</div>
+        </>
+      ),
+    },
+    {
+      key: 'species',
+      header: 'Species',
+      render: (_value, entry) => (
+        <>
+          <span className="text-sm text-gray-700 dark:text-gray-300">{getSpeciesLabel(entry.species)}</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500 ml-1">
+            ({getSpeciesMattilsynetCode(entry.species)})
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'openingStock',
+      header: 'Opening Stock',
+      align: 'right',
+      render: (_value, entry, index) => (
+        <input
+          type="number"
+          min="0"
+          value={entry.openingStock || ''}
+          onChange={(e) =>
+            updatePerCageEntry(index, { openingStock: parseInt(e.target.value) || 0 })
+          }
+          className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 dark:border-gray-600 rounded-md"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: 'added',
+      header: 'Added',
+      align: 'right',
+      render: (_value, entry, index) => (
+        <input
+          type="number"
+          min="0"
+          value={entry.added || ''}
+          onChange={(e) =>
+            updatePerCageEntry(index, { added: parseInt(e.target.value) || 0 })
+          }
+          className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 dark:border-gray-600 rounded-md"
+          placeholder="0"
+        />
+      ),
+    },
+    {
+      key: 'closingStock',
+      header: 'Closing Stock',
+      align: 'right',
+      render: (_value, entry) => (
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          {formatNumber(entry.closingStock)}
+        </span>
+      ),
+    }
+  ];
+
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-sm font-medium text-gray-700">Per-Cage Breakdown</h4>
-        <p className="text-xs text-gray-500">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Per-Cage Breakdown</h4>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           Mattilsynet produksjonsenheter - per-cage stock data and feed consumption
         </p>
       </div>
@@ -654,7 +725,7 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
         <h5 className="text-xs font-medium text-amber-800 uppercase mb-3">Feed Consumption (for period)</h5>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Dry feed - torrforKg</label>
+            <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Dry feed - torrforKg</label>
             <div className="relative">
               <input
                 type="number"
@@ -662,14 +733,14 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
                 step="0.1"
                 value={formData.feedConsumption.dryFeedKg || ''}
                 onChange={(e) => updateFeedConsumption('dryFeedKg', parseFloat(e.target.value) || 0)}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md pr-10"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md pr-10"
                 placeholder="0"
               />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">kg</span>
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 dark:text-gray-500">kg</span>
             </div>
           </div>
           <div>
-            <label className="block text-xs text-gray-600 mb-1">Wet feed - vatforKg</label>
+            <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">Wet feed - vatforKg</label>
             <div className="relative">
               <input
                 type="number"
@@ -677,10 +748,10 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
                 step="0.1"
                 value={formData.feedConsumption.wetFeedKg || ''}
                 onChange={(e) => updateFeedConsumption('wetFeedKg', parseFloat(e.target.value) || 0)}
-                className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md pr-10"
+                className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md pr-10"
                 placeholder="0"
               />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">kg</span>
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 dark:text-gray-500">kg</span>
             </div>
           </div>
         </div>
@@ -688,74 +759,25 @@ const PerCageStep: React.FC<PerCageStepProps> = ({ formData, onChange }) => {
 
       {/* Per-Cage Table */}
       {formData.perCageData.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <svg className="w-10 h-10 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">No per-cage data available</p>
-          <p className="text-xs text-gray-400">
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No per-cage data available</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
             Use "Load from Tanks" in the Inventory step to populate cage data
           </p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-100 text-left">
-                <th className="px-3 py-2 text-xs font-medium text-gray-500">Cage (merdId)</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500">Species</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Opening Stock</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Added</th>
-                <th className="px-3 py-2 text-xs font-medium text-gray-500 text-right">Closing Stock</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {formData.perCageData.map((entry, index) => (
-                <tr key={`${entry.tankId}-${entry.species}-${index}`} className="hover:bg-gray-50">
-                  <td className="px-3 py-2">
-                    <div className="text-sm font-medium text-gray-700">{entry.tankName}</div>
-                    <div className="text-xs text-gray-400">{entry.tankCode}</div>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className="text-sm text-gray-700">{getSpeciesLabel(entry.species)}</span>
-                    <span className="text-xs text-gray-400 ml-1">
-                      ({getSpeciesMattilsynetCode(entry.species)})
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="number"
-                      min="0"
-                      value={entry.openingStock || ''}
-                      onChange={(e) =>
-                        updatePerCageEntry(index, { openingStock: parseInt(e.target.value) || 0 })
-                      }
-                      className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 rounded-md"
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="px-3 py-2">
-                    <input
-                      type="number"
-                      min="0"
-                      value={entry.added || ''}
-                      onChange={(e) =>
-                        updatePerCageEntry(index, { added: parseInt(e.target.value) || 0 })
-                      }
-                      className="w-24 ml-auto block px-2 py-1 text-sm text-right border border-gray-300 rounded-md"
-                      placeholder="0"
-                    />
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <span className="text-sm font-medium text-gray-900">
-                      {formatNumber(entry.closingStock)}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<EntryRow>
+          data={formData.perCageData}
+          columns={entryRowColumns}
+          keyExtractor={(entry, index) => String(`${entry.tankId}-${entry.species}-${index}`)}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
     </div>
   );
@@ -799,8 +821,8 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-medium text-gray-700">Deployments to Salmon Cages</h4>
-          <p className="text-xs text-gray-500">Record cleaner fish deployments during this period</p>
+          <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Deployments to Salmon Cages</h4>
+          <p className="text-xs text-gray-500 dark:text-gray-400">Record cleaner fish deployments during this period</p>
         </div>
         <button
           type="button"
@@ -812,19 +834,19 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
       </div>
 
       {formData.deployments.length === 0 ? (
-        <div className="text-center py-8 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+        <div className="text-center py-8 bg-gray-50 dark:bg-gray-800 rounded-lg border-2 border-dashed border-gray-200 dark:border-gray-700">
           <svg className="w-12 h-12 mx-auto text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
           </svg>
-          <p className="mt-2 text-sm text-gray-500">No deployments recorded</p>
-          <p className="text-xs text-gray-400">Click "Add Deployment" to record fish transfers to salmon cages</p>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">No deployments recorded</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500">Click "Add Deployment" to record fish transfers to salmon cages</p>
         </div>
       ) : (
         <div className="space-y-3">
           {formData.deployments.map((deployment, index) => (
-            <div key={deployment.id} className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+            <div key={deployment.id} className="p-4 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
               <div className="flex items-start justify-between mb-3">
-                <span className="text-sm font-medium text-gray-700">Deployment #{index + 1}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Deployment #{index + 1}</span>
                 <button
                   type="button"
                   onClick={() => removeDeployment(index)}
@@ -837,20 +859,20 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Date</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Date</label>
                   <input
                     type="date"
                     value={deployment.date.toISOString().split('T')[0]}
                     onChange={(e) => updateDeployment(index, { date: new Date(e.target.value) })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Species</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Species</label>
                   <select
                     value={deployment.species}
                     onChange={(e) => updateDeployment(index, { species: e.target.value as CleanerFishSpecies })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                   >
                     {CLEANER_FISH_SPECIES.map((s) => (
                       <option key={s.value} value={s.value}>{s.label}</option>
@@ -858,18 +880,18 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Quantity</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Quantity</label>
                   <input
                     type="number"
                     min="0"
                     value={deployment.quantity || ''}
                     onChange={(e) => updateDeployment(index, { quantity: parseInt(e.target.value) || 0 })}
-                    className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                    className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     placeholder="0"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Target Cage/Tank</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Target Cage/Tank</label>
                   {tankOptions && tankOptions.length > 0 ? (
                     <select
                       value={deployment.targetCageId || ''}
@@ -880,7 +902,7 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
                           targetCageName: tank ? `${tank.name} (${tank.code})` : '',
                         });
                       }}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                     >
                       <option value="">Select tank...</option>
                       {tankOptions.map((t) => (
@@ -892,7 +914,7 @@ const DeploymentsStep: React.FC<DeploymentsStepProps> = ({ formData, onChange, t
                       type="text"
                       value={deployment.targetCageName}
                       onChange={(e) => updateDeployment(index, { targetCageName: e.target.value })}
-                      className="w-full px-2 py-1.5 text-sm border border-gray-300 rounded-md"
+                      className="w-full px-2 py-1.5 text-sm border border-gray-300 dark:border-gray-600 rounded-md"
                       placeholder="Cage 1"
                     />
                   )}
@@ -918,6 +940,38 @@ interface ReviewStepProps {
 const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
   const totalDeployed = formData.deployments.reduce((sum, d) => sum + d.quantity, 0);
 
+  type EntryRow = NonNullable<NonNullable<typeof formData>['perCageData']>[number];
+  const entryRowColumns: DataTableColumn<EntryRow>[] = [
+    {
+      key: 'cage',
+      header: 'Cage',
+      render: (_value, entry) => entry.tankCode,
+    },
+    {
+      key: 'species',
+      header: 'Species',
+      render: (_value, entry) => getSpeciesMattilsynetCode(entry.species),
+    },
+    {
+      key: 'opening',
+      header: 'Opening',
+      align: 'right',
+      render: (_value, entry) => formatNumber(entry.openingStock),
+    },
+    {
+      key: 'added',
+      header: 'Added',
+      align: 'right',
+      render: (_value, entry) => formatNumber(entry.added),
+    },
+    {
+      key: 'closing',
+      header: 'Closing',
+      align: 'right',
+      render: (_value, entry) => formatNumber(entry.closingStock),
+    }
+  ];
+
   return (
     <div className="space-y-6">
       {/* Summary Header */}
@@ -930,44 +984,44 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Key Metrics */}
       <div className="grid grid-cols-4 gap-3">
-        <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
           <div className="text-xl font-bold text-teal-600">{formatNumber(formData.totalCount)}</div>
-          <div className="text-xs text-gray-500">Total Inventory</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Total Inventory</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
           <div className="text-xl font-bold text-red-600">{formData.mortality.overallRate.toFixed(1)}%</div>
-          <div className="text-xs text-gray-500">Mortality Rate</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Mortality Rate</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
           <div className="text-xl font-bold text-blue-600">{formatNumber(totalDeployed)}</div>
-          <div className="text-xs text-gray-500">Deployed</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Deployed</div>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-3 text-center">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-center">
           <div className="text-xl font-bold text-purple-600">{formData.perCageData.length}</div>
-          <div className="text-xs text-gray-500">Cages</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">Cages</div>
         </div>
       </div>
 
       {/* Species Breakdown with Mattilsynet codes */}
       {formData.fishBySpecies.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Inventory by Species</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Inventory by Species</h5>
           <div className="space-y-2">
             {formData.fishBySpecies.map((fish) => (
               <div key={fish.species} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
-                  <span className="px-1.5 py-0.5 text-xs font-mono bg-gray-100 text-gray-600 rounded">
+                  <span className="px-1.5 py-0.5 text-xs font-mono bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded">
                     {getSpeciesMattilsynetCode(fish.species)}
                   </span>
-                  <span className="text-gray-700">{getSpeciesLabel(fish.species)}</span>
-                  <span className="text-xs text-gray-400">({getSpeciesNorwegian(fish.species)})</span>
+                  <span className="text-gray-700 dark:text-gray-300">{getSpeciesLabel(fish.species)}</span>
+                  <span className="text-xs text-gray-400 dark:text-gray-500">({getSpeciesNorwegian(fish.species)})</span>
                   <span className={`px-1.5 py-0.5 text-xs rounded ${
                     fish.source === 'farmed' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
                   }`}>
                     {fish.source === 'farmed' ? 'Farmed' : 'Wild'}
                   </span>
                 </div>
-                <span className="font-medium text-gray-900">{formatNumber(fish.count)}</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">{formatNumber(fish.count)}</span>
               </div>
             ))}
           </div>
@@ -976,8 +1030,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Detailed Mortality Breakdown */}
       {formData.fishBySpecies.length > 0 && formData.mortality.totalCount > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
             Detailed Mortality / Removal ({formatNumber(formData.mortality.totalCount)} total)
           </h5>
           <div className="space-y-3">
@@ -990,13 +1044,13 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
               return (
                 <div key={fish.species} className="text-sm">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-gray-700">{getSpeciesLabel(fish.species)}</span>
-                    <span className="text-xs font-mono text-gray-400">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">{getSpeciesLabel(fish.species)}</span>
+                    <span className="text-xs font-mono text-gray-400 dark:text-gray-500">
                       ({getSpeciesMattilsynetCode(fish.species)})
                     </span>
                     <span className="text-xs text-red-600">- {formatNumber(speciesTotal)} removals</span>
                   </div>
-                  <div className="grid grid-cols-4 gap-x-4 gap-y-1 pl-4 text-xs text-gray-600">
+                  <div className="grid grid-cols-4 gap-x-4 gap-y-1 pl-4 text-xs text-gray-600 dark:text-gray-400">
                     {MORTALITY_CATEGORIES.map((cat) => {
                       const val = entry[cat.key];
                       if (val === 0) return null;
@@ -1017,51 +1071,34 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Per-Cage Breakdown Summary */}
       {formData.perCageData.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
             Per-Cage Breakdown ({formData.perCageData.length} entries)
           </h5>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left border-b border-gray-100">
-                  <th className="pb-1 text-gray-500 font-medium">Cage</th>
-                  <th className="pb-1 text-gray-500 font-medium">Species</th>
-                  <th className="pb-1 text-gray-500 font-medium text-right">Opening</th>
-                  <th className="pb-1 text-gray-500 font-medium text-right">Added</th>
-                  <th className="pb-1 text-gray-500 font-medium text-right">Closing</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {formData.perCageData.map((entry, i) => (
-                  <tr key={i}>
-                    <td className="py-1 text-gray-700">{entry.tankCode}</td>
-                    <td className="py-1 text-gray-600">
-                      {getSpeciesMattilsynetCode(entry.species)}
-                    </td>
-                    <td className="py-1 text-right text-gray-700">{formatNumber(entry.openingStock)}</td>
-                    <td className="py-1 text-right text-gray-700">{formatNumber(entry.added)}</td>
-                    <td className="py-1 text-right font-medium text-gray-900">{formatNumber(entry.closingStock)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<EntryRow>
+            data={formData.perCageData}
+            columns={entryRowColumns}
+            keyExtractor={(_entry, i) => String(i)}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         </div>
       )}
 
       {/* Feed Consumption */}
       {(formData.feedConsumption.dryFeedKg > 0 || formData.feedConsumption.wetFeedKg > 0) && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">Feed Consumption</h5>
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">Feed Consumption</h5>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-600">Dry feed (torrforKg)</span>
-              <span className="font-medium text-gray-900">{formData.feedConsumption.dryFeedKg.toFixed(1)} kg</span>
+              <span className="text-gray-600 dark:text-gray-400">Dry feed (torrforKg)</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{formData.feedConsumption.dryFeedKg.toFixed(1)} kg</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-600">Wet feed (vatforKg)</span>
-              <span className="font-medium text-gray-900">{formData.feedConsumption.wetFeedKg.toFixed(1)} kg</span>
+              <span className="text-gray-600 dark:text-gray-400">Wet feed (vatforKg)</span>
+              <span className="font-medium text-gray-900 dark:text-gray-100">{formData.feedConsumption.wetFeedKg.toFixed(1)} kg</span>
             </div>
           </div>
         </div>
@@ -1069,17 +1106,17 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
 
       {/* Deployments */}
       {formData.deployments.length > 0 && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h5 className="text-xs font-medium text-gray-500 uppercase mb-3">
+        <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+          <h5 className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase mb-3">
             Deployments ({formData.deployments.length})
           </h5>
           <div className="space-y-2">
             {formData.deployments.map((d, i) => (
               <div key={i} className="flex items-center justify-between text-sm">
-                <span className="text-gray-700">
+                <span className="text-gray-700 dark:text-gray-300">
                   {formatDate(d.date)} - {getSpeciesLabel(d.species)} → {d.targetCageName || 'N/A'}
                 </span>
-                <span className="font-medium text-gray-900">{formatNumber(d.quantity)}</span>
+                <span className="font-medium text-gray-900 dark:text-gray-100">{formatNumber(d.quantity)}</span>
               </div>
             ))}
           </div>
@@ -1087,8 +1124,8 @@ const ReviewStep: React.FC<ReviewStepProps> = ({ formData, siteName }) => {
       )}
 
       {/* Submission Notice */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-        <p className="text-sm text-gray-600">
+      <div className="bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+        <p className="text-sm text-gray-600 dark:text-gray-400">
           By submitting this report, you confirm that the data is accurate and complete.
           This report will be submitted to the Norwegian Food Safety Authority (Mattilsynet)
           via the rensefisk API endpoint.
@@ -1278,8 +1315,8 @@ export const CleanerFishReportTab: React.FC<CleanerFishReportTabProps> = ({ site
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">Cleaner Fish Reports</h2>
-          <p className="text-sm text-gray-500">Monthly rensefisk reports - Due 7th of each month</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Cleaner Fish Reports</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Monthly rensefisk reports - Due 7th of each month</p>
         </div>
         <div className="flex items-center gap-3">
           <SiteLocalitySelector

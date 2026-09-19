@@ -9,10 +9,10 @@ const roleConfig: Record<string, { bg: string; text: string; label: string }> = 
   SUPER_ADMIN: { bg: 'bg-red-100', text: 'text-red-700', label: 'Super Admin' },
   TENANT_ADMIN: { bg: 'bg-purple-100', text: 'text-purple-700', label: 'Tenant Admin' },
   MODULE_MANAGER: { bg: 'bg-blue-100', text: 'text-blue-700', label: 'Module Manager' },
-  MODULE_USER: { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Module User' },
+  MODULE_USER: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', label: 'Module User' },
 };
 
-const defaultConfig = { bg: 'bg-gray-100', text: 'text-gray-700', label: 'Unknown' };
+const defaultConfig = { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-700 dark:text-gray-300', label: 'Unknown' };
 
 /**
  * Renders a role name with appropriate color badge.

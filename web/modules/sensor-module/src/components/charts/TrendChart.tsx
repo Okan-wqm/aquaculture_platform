@@ -692,7 +692,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         {/* Floating tooltip */}
         {tooltip.visible && (
           <div
-            className="pointer-events-none absolute z-10 rounded border border-gray-200 bg-white/90 px-2 py-1.5 shadow-md text-xs backdrop-blur-sm"
+            className="pointer-events-none absolute z-10 rounded border border-gray-200 dark:border-gray-700 bg-white/90 dark:bg-gray-900/90 px-2 py-1.5 shadow-md text-xs backdrop-blur-sm"
             style={{ left: tooltip.left + 12, top: tooltip.top - 8 }}
           >
             {tooltip.values.map((v) => (
@@ -701,8 +701,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                   className="inline-block h-2 w-2 rounded-full flex-shrink-0"
                   style={{ background: v.color }}
                 />
-                <span className="text-gray-600">{v.label}:</span>
-                <span className="font-mono font-medium text-gray-900">{v.value}</span>
+                <span className="text-gray-600 dark:text-gray-400">{v.label}:</span>
+                <span className="font-mono font-medium text-gray-900 dark:text-gray-100">{v.value}</span>
               </div>
             ))}
           </div>

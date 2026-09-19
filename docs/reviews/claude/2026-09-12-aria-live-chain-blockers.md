@@ -1786,3 +1786,57 @@ node_modules`) had taken the store worktree's `.git` link; a later step re-creat
   shape — link removed, registration kept, `tools/` re-created inside the workspace repository,
   git inside answering for the workspace — checks out, sets the bytes aside and discloses; red
   before with the production refusal.
+
+## ARIA-HIGH-157 — the sandbox let the CLI refresh the login and not keep it
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-25
+- **Evidence (the first production executor drain, run 35369756222, 2026-09-18 16:44Z):** the
+  pre-spawn admission read the managed session as logged in (`claude auth status --json`,
+  `managed_session_logged_in`); the first attempt (`AIR-aria-challenger-planner-2d16fdbb749e`,
+  anthropic/opus) ran ~2 minutes and ended `control_or_transport_unavailable`; the drain's only
+  line was `zai_credential_not_configured` and the claim was requeued as
+  `native_runtime_execution_unavailable`; the breaker then tripped for the route and every
+  remaining request was `drain_circuit_skip`. On the host, the runbook's own smoke as the runner
+  user — which had answered "OK" at 07:56Z — now answered `Failed to authenticate: OAuth session
+expired and could not be refreshed`. The managed spawn binds the login's one file into the
+  private config dir read-only (`wrap_managed_claude_in_sandbox`); when the access token had
+  expired the CLI refreshed it inside the sandbox, the provider rotated the refresh token, and
+  the CLI could not persist the new pair — so the run failed with the marker above and the
+  host's copy was left naming a refresh token the provider had retired. Every later run on the
+  host, sandboxed or not, fails the same way until an operator logs in again — the shape
+  ORPHAN-CRITICAL-591 recorded as "sessions expire" and made a manual credential act. And the
+  cross-provider rung, whose credential is not configured on this host, replaced the primary's
+  verdict with its own: the ledgers say "Z.ai not configured", the cause was the login.
+- **Rule:** what the runtime must write to stay authenticated is bound where it can write it;
+  a failover rung that cannot even start never replaces the primary's verdict.
+- **What is now true (2026-09-18):** the login file is bound writable (`--bind`) — still the one
+  file, still into the private config dir, nothing else of the login directory — so a refresh
+  lands where the next spawn reads it; the agent could already read the file, so writing it
+  adds nothing it could not already exfiltrate. `run_with_model_fallback` turns an unavailable
+  cross rung into a terminal `claude_auth_failure` that names the primary marker and remedy
+  first and the rung's unavailability after. Pinned in `test_managed_claude_sandbox.py`
+  (writable, the one file, the base's binds otherwise unchanged) and
+  `test_claude_auth_failure_classification.py` (the primary verdict survives the rung).
+  The host's login must be renewed once more by the operator before the next drain; after this
+  fix it is renewed by the runtime itself.
+
+## ARIA-HIGH-158 — an open route walked the whole queue, one selection at a time
+
+- **Severity:** HIGH · **Owner:** claude · **Deadline:** 2026-09-25
+- **Evidence (executor run 35369756222):** after two failed attempts opened the circuit for
+  `anthropic/opus`, the drain logged `drain_circuit_skip` for the next request every ~30 s —
+  each skip re-ran the queue selection (`agent next-pending`, a kernel subprocess over the
+  828-row request ledger with its anchor probes) and excluded one more id. The queue is ~800
+  rows; the drain budget is 21,000 s; the run was cancelled by hand at 17:20Z to free the
+  single-slot runner, which nothing else could use meanwhile (the concurrency group holds the
+  cycle lane too). The breaker's own contract — an open circuit skips without claiming — was
+  kept; what it did not say is when to stop asking.
+- **Rule:** a route that is open is a fact about the route, not about the next request; a
+  drain that learns it stops by name and leaves the queue pending, instead of spending the
+  runner proving it once per row.
+- **What is now true (2026-09-18):** `CIRCUIT_SKIP_STREAK_STOP` (5) consecutive open-circuit
+  skips with no dispatch between them end the drain with `stop_reason=circuit_open_streak`
+  and a stage line naming the open routes; a dispatch on another route resets the streak, so
+  a queue that interleaves healthy routes keeps draining. Pinned in
+  `test_executor_drain_breaker.py`: a streak stops after one dispatch and at most a handful of
+  selections; a dispatch between skips resets it.

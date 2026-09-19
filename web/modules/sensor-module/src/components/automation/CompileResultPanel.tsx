@@ -5,7 +5,8 @@
  */
 
 import React from 'react';
-import { AlertCircle, AlertTriangle, Info, CheckCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, CheckCircle } from 'lucide-react';
+import { Spinner } from '@aquaculture/shared-ui';
 
 export interface ValidationDiagnostic {
   line: number;
@@ -48,9 +49,9 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
 }) => {
   if (isValidating) {
     return (
-      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 rounded-lg border border-gray-200">
-        <Loader2 className="h-4 w-4 animate-spin text-indigo-500" />
-        <span className="text-sm text-gray-600">Validating ST code...</span>
+      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <Spinner size="sm" />
+        <span className="text-sm text-gray-600 dark:text-gray-400">Validating ST code...</span>
       </div>
     );
   }
@@ -81,7 +82,7 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
         <span className={`text-sm font-medium ${result.valid ? 'text-green-700' : 'text-red-700'}`}>
           {result.valid ? 'Validation successful' : 'Validation failed'}
         </span>
-        <span className="text-xs text-gray-500 ml-auto">
+        <span className="text-xs text-gray-500 dark:text-gray-400 ml-auto">
           {result.errors.length} errors, {result.warnings.length} warnings
           {result.parsedSymbols !== undefined && `, ${result.parsedSymbols} symbols`}
         </span>
@@ -89,22 +90,22 @@ const CompileResultPanel: React.FC<CompileResultPanelProps> = ({
 
       {/* Diagnostics List */}
       {allDiagnostics.length > 0 && (
-        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+        <div className="max-h-48 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700">
           {allDiagnostics.map((diag, idx) => (
             <button
               key={idx}
               onClick={() => onDiagnosticClick?.(diag.line, diag.column)}
-              className={`w-full flex items-start gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 transition-colors ${
+              className={`w-full flex items-start gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors ${
                 idx === 0 ? '' : ''
               }`}
             >
               {severityIcon[diag.severity]}
-              <span className="text-gray-500 font-mono text-xs min-w-[4rem]">
+              <span className="text-gray-500 dark:text-gray-400 font-mono text-xs min-w-[4rem]">
                 {diag.line}:{diag.column}
               </span>
-              <span className="text-gray-700 flex-1">{diag.message}</span>
+              <span className="text-gray-700 dark:text-gray-300 flex-1">{diag.message}</span>
               {diag.code && (
-                <span className="text-xs text-gray-500 font-mono">{diag.code}</span>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{diag.code}</span>
               )}
             </button>
           ))}

@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, Input } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Modal, useConfirm, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   DiscountCode,
@@ -79,6 +79,7 @@ function withValueBranch(draft: DiscountDraft, value: string): CreateDiscountCod
 // ============================================================================
 
 const DiscountCodePage: React.FC = () => {
+  const confirm = useConfirm();
   const [discountCodes, setDiscountCodes] = useState<readonly DiscountCode[]>([]);
   const [stats, setStats] = useState<DiscountStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -125,6 +126,12 @@ const DiscountCodePage: React.FC = () => {
     }
   };
 
+  const closeCreateModal = (): void => {
+    setShowCreateModal(false);
+    setNewCode(EMPTY_DRAFT);
+    setValueDraft('10');
+  };
+
   const handleCreateCode = async () => {
     const payload = withValueBranch(newCode, valueDraft);
     if (!payload) {
@@ -144,7 +151,7 @@ const DiscountCodePage: React.FC = () => {
   };
 
   const handleDeactivate = async (id: string) => {
-    if (!confirm('Are you sure you want to deactivate this discount code?')) return;
+    if (!(await confirm({ title: 'Deactivate this discount code?', message: 'It stops applying to new checkouts immediately.', confirmText: 'Deactivate', cancelText: 'Cancel', variant: 'warning' }))) return;
 
     try {
       await billingApi.deactivateDiscountCode(id);
@@ -201,57 +208,162 @@ const DiscountCodePage: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
 
+  const discountColumns: DataTableColumn<DiscountCode>[] = [
+    {
+      key: 'code',
+      header: 'Code',
+      render: (_value, code) => (
+        <>
+          <div className="font-mono font-medium text-gray-900 dark:text-gray-100">{code.code}</div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{code.name}</div>
+        </>
+      ),
+    },
+    {
+      key: 'discountType',
+      header: 'Discount',
+      render: (_value, code) => (
+        <>
+          <div className="text-lg font-bold text-green-600">
+            {formatDiscountValue(code)}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {getDiscountTypeLabel(code.discountType)}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'appliesTo',
+      header: 'Applies To',
+      render: (_value, code) => (
+        <Badge variant="default">
+          {code.appliesTo.replace(/_/g, ' ')}
+        </Badge>
+      ),
+    },
+    {
+      key: 'duration',
+      header: 'Duration',
+      render: (_value, code) => (
+        <Badge variant="info">
+          {code.duration}
+          {code.durationInMonths && ` (${code.durationInMonths} months)`}
+        </Badge>
+      ),
+    },
+    {
+      key: 'currentRedemptions',
+      header: 'Usage',
+      render: (_value, code) => (
+        <>
+          <div className="text-sm">
+            {code.currentRedemptions}
+            {code.maxRedemptions ? ` / ${code.maxRedemptions}` : ' / -'}
+          </div>
+          {code.maxRedemptions && (
+            <div className="w-24 h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-1">
+              <div
+                className="h-full bg-blue-600 rounded-full"
+                style={{
+                  width: `${Math.min(100, (code.currentRedemptions / code.maxRedemptions) * 100)}%`,
+                }}
+              />
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'validFrom',
+      header: 'Validity',
+      render: (_value, code) => (
+        <>
+          <div>{formatDate(code.validFrom)} -</div>
+          <div>{formatDate(code.validUntil)}</div>
+        </>
+      ),
+    },
+    {
+      key: 'isActive',
+      header: 'Status',
+      render: (_value, code) =>
+        !code.isActive ? (
+          <Badge variant="default">Inactive</Badge>
+        ) : isExpired(code) ? (
+          <Badge variant="warning">Expired</Badge>
+        ) : isMaxedOut(code) ? (
+          <Badge variant="warning">Maxed Out</Badge>
+        ) : (
+          <Badge variant="success">Active</Badge>
+        ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, code) =>
+        code.isActive && !isExpired(code) ? (
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => handleDeactivate(code.id)}
+          >
+            Deactivate
+          </Button>
+        ) : null,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Discount Codes</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage promotional codes and discounts
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0">
-          <Button onClick={() => setShowCreateModal(true)}>
-            Create Discount Code
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Discount Codes"
+        description="Manage promotional codes and discounts"
+        actions={
+          <div className="mt-4 sm:mt-0">
+            <Button onClick={() => setShowCreateModal(true)}>
+              Create Discount Code
+            </Button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Total Codes</div>
-            <div className="mt-1 text-2xl font-bold text-gray-900">
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Codes</div>
+            <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-gray-100">
               {stats.totalCodes}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-gray-500 dark:text-gray-400">
               Active: {stats.activeCodes}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Total Redemptions</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Redemptions</div>
             <div className="mt-1 text-2xl font-bold text-blue-600">
               {stats.totalRedemptions}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Total Discount Given</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Discount Given</div>
             <div className="mt-1 text-2xl font-bold text-green-600">
               ${Number(stats.totalDiscountAmount).toLocaleString()}
             </div>
           </Card>
 
           <Card className="p-4">
-            <div className="text-sm font-medium text-gray-500">Expired Codes</div>
+            <div className="text-sm font-medium text-gray-500 dark:text-gray-400">Expired Codes</div>
             <div className="mt-1 text-2xl font-bold text-orange-600">
               {stats.expiredCodes}
             </div>
@@ -265,13 +377,13 @@ const DiscountCodePage: React.FC = () => {
           <h3 className="text-lg font-semibold mb-4">Top Performing Codes</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
             {stats.topCodes.map((top, idx) => (
-              <div key={top.code} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+              <div key={top.code} className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold">
                   {idx + 1}
                 </div>
                 <div>
                   <div className="font-mono text-sm font-medium">{top.code}</div>
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">
                     {top.redemptions} uses | ${Number(top.totalDiscount).toFixed(0)}
                   </div>
                 </div>
@@ -289,7 +401,7 @@ const DiscountCodePage: React.FC = () => {
               type="checkbox"
               checked={showActive}
               onChange={(e) => setShowActive(e.target.checked)}
-              className="rounded border-gray-300"
+              className="rounded border-gray-300 dark:border-gray-600"
             />
             <span className="text-sm">Active Only</span>
           </label>
@@ -298,7 +410,7 @@ const DiscountCodePage: React.FC = () => {
               type="checkbox"
               checked={showExpired}
               onChange={(e) => setShowExpired(e.target.checked)}
-              className="rounded border-gray-300"
+              className="rounded border-gray-300 dark:border-gray-600"
             />
             <span className="text-sm">Include Expired</span>
           </label>
@@ -319,341 +431,243 @@ const DiscountCodePage: React.FC = () => {
       )}
 
       {/* Discount Codes Table */}
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Code
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Discount
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Applies To
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Usage
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Validity
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {discountCodes.map((code) => (
-                <tr key={code.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="font-mono font-medium text-gray-900">{code.code}</div>
-                    <div className="text-sm text-gray-500">{code.name}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-lg font-bold text-green-600">
-                      {formatDiscountValue(code)}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {getDiscountTypeLabel(code.discountType)}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge variant="default">
-                      {code.appliesTo.replace(/_/g, ' ')}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge variant="info">
-                      {code.duration}
-                      {code.durationInMonths && ` (${code.durationInMonths} months)`}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm">
-                      {code.currentRedemptions}
-                      {code.maxRedemptions ? ` / ${code.maxRedemptions}` : ' / -'}
-                    </div>
-                    {code.maxRedemptions && (
-                      <div className="w-24 h-1.5 bg-gray-200 rounded-full mt-1">
-                        <div
-                          className="h-full bg-blue-600 rounded-full"
-                          style={{
-                            width: `${Math.min(100, (code.currentRedemptions / code.maxRedemptions) * 100)}%`,
-                          }}
-                        />
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm">
-                    <div>{formatDate(code.validFrom)} -</div>
-                    <div>{formatDate(code.validUntil)}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {!code.isActive ? (
-                      <Badge variant="default">Inactive</Badge>
-                    ) : isExpired(code) ? (
-                      <Badge variant="warning">Expired</Badge>
-                    ) : isMaxedOut(code) ? (
-                      <Badge variant="warning">Maxed Out</Badge>
-                    ) : (
-                      <Badge variant="success">Active</Badge>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    {code.isActive && !isExpired(code) && (
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        onClick={() => handleDeactivate(code.id)}
-                      >
-                        Deactivate
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      <DataTable<DiscountCode>
+        data={discountCodes}
+        columns={discountColumns}
+        keyExtractor={(code) => code.id}
+        loading={loading}
+        loadingMessage="Loading discount codes..."
+        emptyMessage="No discount codes found"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+      />
 
       {/* Create Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <Card className="w-full max-w-lg p-6">
-            <h3 className="text-lg font-semibold mb-4">Create Discount Code</h3>
-
-            <div className="space-y-4">
-              {/* Code */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Code *
-                </label>
-                <div className="flex gap-2">
-                  <Input
-                    value={newCode.code || ''}
-                    onChange={(e) => setNewCode({ ...newCode, code: e.target.value.toUpperCase() })}
-                    placeholder="PROMO2024"
-                    className="flex-1"
-                  />
-                  <Button variant="outline" onClick={handleGenerateCode}>
-                    Generate
-                  </Button>
-                </div>
-              </div>
-
-              {/* Name */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Name *
-                </label>
-                <Input
-                  value={newCode.name || ''}
-                  onChange={(e) => setNewCode({ ...newCode, name: e.target.value })}
-                  placeholder="Summer Sale 2024"
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Description
-                </label>
-                <Input
-                  value={newCode.description || ''}
-                  onChange={(e) => setNewCode({ ...newCode, description: e.target.value })}
-                  placeholder="Special discount for summer campaign"
-                />
-              </div>
-
-              {/* Discount Type & Value */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Discount Type
-                  </label>
-                  <select
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                    value={newCode.discountType}
-                    onChange={(e) =>
-                      setNewCode({ ...newCode, discountType: e.target.value as DiscountType })
-                    }
-                  >
-                    {Object.values(DiscountType).map((type) => (
-                      <option key={type} value={type}>
-                        {getDiscountTypeLabel(type)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {VALUE_FIELD_LABEL[newCode.discountType ?? DiscountType.PERCENTAGE]}
-                  </label>
-                  {/* Kept as text: an exact decimal string is what the contract
-                      takes, and a number input would round it on the way. */}
-                  <Input
-                    type="text"
-                    inputMode="decimal"
-                    value={valueDraft}
-                    onChange={(e) => setValueDraft(e.target.value)}
-                    placeholder={
-                      VALUE_FIELD_PLACEHOLDER[newCode.discountType ?? DiscountType.PERCENTAGE]
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Applies To & Duration */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Applies To
-                  </label>
-                  <select
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                    value={newCode.appliesTo}
-                    onChange={(e) =>
-                      setNewCode({ ...newCode, appliesTo: e.target.value as DiscountAppliesTo })
-                    }
-                  >
-                    {Object.values(DiscountAppliesTo).map((type) => (
-                      <option key={type} value={type}>
-                        {type.replace(/_/g, ' ')}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Duration
-                  </label>
-                  <select
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                    value={newCode.duration}
-                    onChange={(e) =>
-                      setNewCode({ ...newCode, duration: e.target.value as DiscountDuration })
-                    }
-                  >
-                    {Object.values(DiscountDuration).map((type) => (
-                      <option key={type} value={type}>
-                        {type.charAt(0).toUpperCase() + type.slice(1)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Validity Period */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Valid From
-                  </label>
-                  <Input
-                    type="date"
-                    value={newCode.validFrom || ''}
-                    onChange={(e) => setNewCode({ ...newCode, validFrom: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Valid Until
-                  </label>
-                  <Input
-                    type="date"
-                    value={newCode.validUntil || ''}
-                    onChange={(e) => setNewCode({ ...newCode, validUntil: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              {/* Max Redemptions */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Max Total Uses
-                  </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={newCode.maxRedemptions || ''}
-                    onChange={(e) =>
-                      setNewCode({
-                        ...newCode,
-                        maxRedemptions: parseInt(e.target.value, 10) || undefined,
-                      })
-                    }
-                    placeholder="Leave empty for unlimited"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Max Per Tenant
-                  </label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={newCode.maxRedemptionsPerTenant || ''}
-                    onChange={(e) =>
-                      setNewCode({
-                        ...newCode,
-                        maxRedemptionsPerTenant: parseInt(e.target.value, 10) || undefined,
-                      })
-                    }
-                    placeholder="Leave empty for unlimited"
-                  />
-                </div>
-              </div>
-
-              {/* Campaign Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Campaign ID
-                  </label>
-                  <Input
-                    value={newCode.campaignId || ''}
-                    onChange={(e) => setNewCode({ ...newCode, campaignId: e.target.value })}
-                    placeholder="summer-2024"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Campaign Name
-                  </label>
-                  <Input
-                    value={newCode.campaignName || ''}
-                    onChange={(e) => setNewCode({ ...newCode, campaignName: e.target.value })}
-                    placeholder="Summer Campaign 2024"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-3 justify-end mt-6">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setNewCode(EMPTY_DRAFT);
-                  setValueDraft('10');
-                }}
-              >
+        <Modal
+          isOpen
+          onClose={closeCreateModal}
+          size="md"
+          title="Create Discount Code"
+          bodyClassName="p-6"
+          footer={
+            <>
+              <Button variant="outline" onClick={closeCreateModal}>
                 Cancel
               </Button>
               <Button onClick={handleCreateCode}>Create Code</Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            {/* Code */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Code *
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  value={newCode.code || ''}
+                  onChange={(e) => setNewCode({ ...newCode, code: e.target.value.toUpperCase() })}
+                  placeholder="PROMO2024"
+                  className="flex-1"
+                />
+                <Button variant="outline" onClick={handleGenerateCode}>
+                  Generate
+                </Button>
+              </div>
             </div>
-          </Card>
-        </div>
+
+            {/* Name */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Name *
+              </label>
+              <Input
+                value={newCode.name || ''}
+                onChange={(e) => setNewCode({ ...newCode, name: e.target.value })}
+                placeholder="Summer Sale 2024"
+              />
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Description
+              </label>
+              <Input
+                value={newCode.description || ''}
+                onChange={(e) => setNewCode({ ...newCode, description: e.target.value })}
+                placeholder="Special discount for summer campaign"
+              />
+            </div>
+
+            {/* Discount Type & Value */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Discount Type
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+                  value={newCode.discountType}
+                  onChange={(e) =>
+                    setNewCode({ ...newCode, discountType: e.target.value as DiscountType })
+                  }
+                >
+                  {Object.values(DiscountType).map((type) => (
+                    <option key={type} value={type}>
+                      {getDiscountTypeLabel(type)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  {VALUE_FIELD_LABEL[newCode.discountType ?? DiscountType.PERCENTAGE]}
+                </label>
+                {/* Kept as text: an exact decimal string is what the contract
+                    takes, and a number input would round it on the way. */}
+                <Input
+                  type="text"
+                  inputMode="decimal"
+                  value={valueDraft}
+                  onChange={(e) => setValueDraft(e.target.value)}
+                  placeholder={
+                    VALUE_FIELD_PLACEHOLDER[newCode.discountType ?? DiscountType.PERCENTAGE]
+                  }
+                />
+              </div>
+            </div>
+
+            {/* Applies To & Duration */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Applies To
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+                  value={newCode.appliesTo}
+                  onChange={(e) =>
+                    setNewCode({ ...newCode, appliesTo: e.target.value as DiscountAppliesTo })
+                  }
+                >
+                  {Object.values(DiscountAppliesTo).map((type) => (
+                    <option key={type} value={type}>
+                      {type.replace(/_/g, ' ')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Duration
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg"
+                  value={newCode.duration}
+                  onChange={(e) =>
+                    setNewCode({ ...newCode, duration: e.target.value as DiscountDuration })
+                  }
+                >
+                  {Object.values(DiscountDuration).map((type) => (
+                    <option key={type} value={type}>
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Validity Period */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Valid From
+                </label>
+                <Input
+                  type="date"
+                  value={newCode.validFrom || ''}
+                  onChange={(e) => setNewCode({ ...newCode, validFrom: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Valid Until
+                </label>
+                <Input
+                  type="date"
+                  value={newCode.validUntil || ''}
+                  onChange={(e) => setNewCode({ ...newCode, validUntil: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* Max Redemptions */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Max Total Uses
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={newCode.maxRedemptions || ''}
+                  onChange={(e) =>
+                    setNewCode({
+                      ...newCode,
+                      maxRedemptions: parseInt(e.target.value, 10) || undefined,
+                    })
+                  }
+                  placeholder="Leave empty for unlimited"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Max Per Tenant
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={newCode.maxRedemptionsPerTenant || ''}
+                  onChange={(e) =>
+                    setNewCode({
+                      ...newCode,
+                      maxRedemptionsPerTenant: parseInt(e.target.value, 10) || undefined,
+                    })
+                  }
+                  placeholder="Leave empty for unlimited"
+                />
+              </div>
+            </div>
+
+            {/* Campaign Info */}
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Campaign ID
+                </label>
+                <Input
+                  value={newCode.campaignId || ''}
+                  onChange={(e) => setNewCode({ ...newCode, campaignId: e.target.value })}
+                  placeholder="summer-2024"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Campaign Name
+                </label>
+                <Input
+                  value={newCode.campaignName || ''}
+                  onChange={(e) => setNewCode({ ...newCode, campaignName: e.target.value })}
+                  placeholder="Summer Campaign 2024"
+                />
+              </div>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

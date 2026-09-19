@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { useConfirm, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -20,19 +21,19 @@ import {
   User,
   LayoutTemplate,
   RefreshCw,
-  Loader2,
   AlertCircle,
 } from 'lucide-react';
 import { useActiveProcesses, useProcess, Process } from '../../hooks/useProcess';
 
 const statusConfig: Record<string, { label: string; color: string }> = {
-  draft: { label: 'Draft', color: 'bg-gray-100 text-gray-700' },
+  draft: { label: 'Draft', color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300' },
   active: { label: 'Active', color: 'bg-green-100 text-green-700' },
   inactive: { label: 'Inactive', color: 'bg-yellow-100 text-yellow-700' },
   archived: { label: 'Archived', color: 'bg-red-100 text-red-700' },
 };
 
 const ProcessListPage: React.FC = () => {
+  const confirm = useConfirm();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
@@ -83,7 +84,7 @@ const ProcessListPage: React.FC = () => {
 
   // Handle delete process
   const handleDelete = useCallback(async (process: Process) => {
-    if (!window.confirm(`Are you sure you want to delete "${process.name}"?`)) {
+    if (!(await confirm({ title: `Delete "${process.name}"?`, message: 'The process and its diagram are removed.', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' }))) {
       return;
     }
     setActionLoading(process.id);
@@ -100,7 +101,7 @@ const ProcessListPage: React.FC = () => {
     } finally {
       setActionLoading(null);
     }
-  }, [deleteProcess, refetch]);
+  }, [deleteProcess, refetch, confirm]);
 
   // Handle status change (activate/pause)
   const handleStatusChange = useCallback(async (process: Process, newStatus: 'active' | 'inactive') => {
@@ -129,8 +130,8 @@ const ProcessListPage: React.FC = () => {
       <div className="p-6">
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto" />
-            <p className="mt-2 text-sm text-gray-500">Loading processes...</p>
+            <Spinner size="lg" block />
+            <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">Loading processes...</p>
           </div>
         </div>
       </div>
@@ -144,8 +145,8 @@ const ProcessListPage: React.FC = () => {
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <AlertCircle className="w-8 h-8 text-red-500 mx-auto" />
-            <p className="mt-2 text-sm text-gray-900 font-medium">Failed to load processes</p>
-            <p className="mt-1 text-sm text-gray-500">{error}</p>
+            <p className="mt-2 text-sm text-gray-900 dark:text-gray-100 font-medium">Failed to load processes</p>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{error}</p>
             <button
               onClick={refetch}
               className="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
@@ -158,62 +159,201 @@ const ProcessListPage: React.FC = () => {
     );
   }
 
+  const processColumns: DataTableColumn<Process>[] = [
+    {
+      key: 'process',
+      header: 'Process',
+      render: (_value, process) => (
+        <>
+          <Link
+            to={`/sensor/unified-editor/${process.id}`}
+            className="block"
+          >
+            <div className="font-medium text-gray-900 dark:text-gray-100 hover:text-blue-600">
+              {process.name}
+            </div>
+            <div className="text-sm text-gray-500 dark:text-gray-400 line-clamp-1">
+              {process.description || 'No description'}
+            </div>
+          </Link>
+        </>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, process) => {
+        const config = statusConfig[status] || statusConfig.draft;
+        return (
+          <>
+            <span
+              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
+            >
+              {config.label}
+            </span>
+          </>
+        );
+      },
+    },
+    {
+      key: 'components',
+      header: 'Components',
+      render: (_value, process) => {
+        const nodeCount = Array.isArray(process.nodes) ? process.nodes.length : 0;
+        const edgeCount = Array.isArray(process.edges) ? process.edges.length : 0;
+        return (
+          <>
+            {nodeCount} nodes, {edgeCount} connections
+          </>
+        );
+      },
+    },
+    {
+      key: 'lastModified',
+      header: 'Last Modified',
+      render: (_value, process) => (
+        <>
+          <div className="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+            <Clock className="w-4 h-4" />
+            {formatDate(process.updatedAt)}
+          </div>
+          {process.createdBy && (
+            <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 mt-1">
+              <User className="w-3 h-3" />
+              {process.createdBy}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, process) => {
+        const status = process.status.toLowerCase();
+        const isActionLoading = actionLoading === process.id;
+        return (
+          <div className="relative inline-block">
+            {isActionLoading ? (
+              <Spinner size="md" color="gray" />
+            ) : (
+              <>
+                <button
+                  onClick={() =>
+                    setActiveDropdown(activeDropdown === process.id ? null : process.id)
+                  }
+                  className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                >
+                  <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                </button>
+
+                {activeDropdown === process.id && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10">
+                    <Link
+                      to={`/sensor/unified-editor/${process.id}`}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
+                      <Edit className="w-4 h-4" />
+                      Edit
+                    </Link>
+                    <button
+                      onClick={() => handleDuplicate(process)}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Duplicate
+                    </button>
+                    {status === 'active' ? (
+                      <button
+                        onClick={() => handleStatusChange(process, 'inactive')}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-yellow-700 hover:bg-yellow-50"
+                      >
+                        <Pause className="w-4 h-4" />
+                        Deactivate
+                      </button>
+                    ) : status !== 'archived' ? (
+                      <button
+                        onClick={() => handleStatusChange(process, 'active')}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-700 hover:bg-green-50"
+                      >
+                        <Play className="w-4 h-4" />
+                        Activate
+                      </button>
+                    ) : null}
+                    <hr className="my-1 border-gray-200 dark:border-gray-700" />
+                    <button
+                      onClick={() => handleDelete(process)}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      },
+    }
+  ];
+
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Process Diagrams</h1>
-          <p className="text-gray-500 mt-1">
-            Create and manage equipment connection diagrams
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={refetch}
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
-          <Link
-            to="/sensor/processes/templates"
-            className="flex items-center gap-2 px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            <LayoutTemplate className="w-4 h-4" />
-            Templates
-          </Link>
-          <Link
-            to="/sensor/unified-editor/new"
-            className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New Process
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Process Diagrams"
+        description="Create and manage equipment connection diagrams"
+        actions={
+          <div className="flex gap-3">
+            <button
+              onClick={refetch}
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Refresh
+            </button>
+            <Link
+              to="/sensor/processes/templates"
+              className="flex items-center gap-2 px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+            >
+              <LayoutTemplate className="w-4 h-4" />
+              Templates
+            </Link>
+            <Link
+              to="/sensor/unified-editor/new"
+              className="flex items-center gap-2 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              New Process
+            </Link>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {/* Filters */}
       <div className="flex gap-4 mb-6">
         {/* Search */}
         <div className="flex-1 relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
           <input
             type="text"
             placeholder="Search processes..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
           />
         </div>
 
         {/* Status Filter */}
         <div className="relative">
-          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+          <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-gray-400" />
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="pl-9 pr-8 py-2 border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 appearance-none bg-white"
+            className="pl-9 pr-8 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500 appearance-none bg-white dark:bg-gray-900"
           >
             <option value="all">All Status</option>
             <option value="draft">Draft</option>
@@ -226,10 +366,10 @@ const ProcessListPage: React.FC = () => {
 
       {/* Process List */}
       {filteredProcesses.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <FileText className="w-12 h-12 mx-auto text-gray-500 mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No processes found</h3>
-          <p className="text-gray-500 mb-4">
+        <div className="text-center py-12 bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <FileText className="w-12 h-12 mx-auto text-gray-500 dark:text-gray-400 mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">No processes found</h3>
+          <p className="text-gray-500 dark:text-gray-400 mb-4">
             {searchTerm || statusFilter !== 'all'
               ? 'Try adjusting your search or filters'
               : 'Get started by creating your first process diagram'}
@@ -243,140 +383,15 @@ const ProcessListPage: React.FC = () => {
           </Link>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Process
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Components
-                </th>
-                <th className="text-left px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Last Modified
-                </th>
-                <th className="text-right px-6 py-3 text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {filteredProcesses.map((process) => {
-                const status = process.status.toLowerCase();
-                const config = statusConfig[status] || statusConfig.draft;
-                const nodeCount = Array.isArray(process.nodes) ? process.nodes.length : 0;
-                const edgeCount = Array.isArray(process.edges) ? process.edges.length : 0;
-                const isActionLoading = actionLoading === process.id;
-
-                return (
-                  <tr key={process.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">
-                      <Link
-                        to={`/sensor/unified-editor/${process.id}`}
-                        className="block"
-                      >
-                        <div className="font-medium text-gray-900 hover:text-blue-600">
-                          {process.name}
-                        </div>
-                        <div className="text-sm text-gray-500 line-clamp-1">
-                          {process.description || 'No description'}
-                        </div>
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.color}`}
-                      >
-                        {config.label}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500">
-                      {nodeCount} nodes, {edgeCount} connections
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-1 text-sm text-gray-500">
-                        <Clock className="w-4 h-4" />
-                        {formatDate(process.updatedAt)}
-                      </div>
-                      {process.createdBy && (
-                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-                          <User className="w-3 h-3" />
-                          {process.createdBy}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="relative inline-block">
-                        {isActionLoading ? (
-                          <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
-                        ) : (
-                          <>
-                            <button
-                              onClick={() =>
-                                setActiveDropdown(activeDropdown === process.id ? null : process.id)
-                              }
-                              className="p-2 hover:bg-gray-100 rounded-lg"
-                            >
-                              <MoreVertical className="w-4 h-4 text-gray-500" />
-                            </button>
-
-                            {activeDropdown === process.id && (
-                              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-10">
-                                <Link
-                                  to={`/sensor/unified-editor/${process.id}`}
-                                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                                >
-                                  <Edit className="w-4 h-4" />
-                                  Edit
-                                </Link>
-                                <button
-                                  onClick={() => handleDuplicate(process)}
-                                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                                >
-                                  <Copy className="w-4 h-4" />
-                                  Duplicate
-                                </button>
-                                {status === 'active' ? (
-                                  <button
-                                    onClick={() => handleStatusChange(process, 'inactive')}
-                                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-yellow-700 hover:bg-yellow-50"
-                                  >
-                                    <Pause className="w-4 h-4" />
-                                    Deactivate
-                                  </button>
-                                ) : status !== 'archived' ? (
-                                  <button
-                                    onClick={() => handleStatusChange(process, 'active')}
-                                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-green-700 hover:bg-green-50"
-                                  >
-                                    <Play className="w-4 h-4" />
-                                    Activate
-                                  </button>
-                                ) : null}
-                                <hr className="my-1 border-gray-200" />
-                                <button
-                                  onClick={() => handleDelete(process)}
-                                  className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                  Delete
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<Process>
+          data={filteredProcesses}
+          columns={processColumns}
+          keyExtractor={(process) => process.id}
+          emptyMessage="No processes found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
     </div>
   );

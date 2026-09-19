@@ -14,7 +14,7 @@
  */
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Modal, useCanMutate, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import {
   useProtocolAssignments,
   useFeedingProtocolsV2,
@@ -64,7 +64,7 @@ const ASSIGNMENT_STATUS_KEY: Record<ProtocolAssignmentStatus, MessageKey> = {
 const ASSIGNMENT_STATUS_BADGE: Record<ProtocolAssignmentStatus, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
   PAUSED: 'bg-yellow-100 text-yellow-800',
-  ENDED: 'bg-gray-100 text-gray-600',
+  ENDED: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
 };
 
 const TEMP_SOURCE_KEY: Record<EffectiveTemperatureSource, MessageKey> = {
@@ -149,14 +149,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           </div>
         )}
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t('feedingV2.assignments.unit')}
           </label>
           <select
             required
             value={unitId}
             onChange={(e) => setUnitId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
           >
             <option value="">{t('feedingV2.assignments.selectUnit')}</option>
             {units.map((unit) => (
@@ -167,14 +167,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t('feedingV2.assignments.protocol')}
           </label>
           <select
             required
             value={protocolId}
             onChange={(e) => setProtocolId(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
           >
             <option value="">{t('feedingV2.assignments.selectProtocol')}</option>
             {activeProtocols.map((protocol) => (
@@ -186,14 +186,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             {t('feedingV2.assignments.effectiveFrom')}
           </label>
           <input
             type="date"
             value={effectiveFrom}
             onChange={(e) => setEffectiveFrom(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
           />
         </div>
         {needsMismatchReason && (
@@ -201,14 +201,14 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
             <p className="text-sm text-amber-800 mb-2">
               {t('feedingV2.assignments.speciesMismatch')}
             </p>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
               {t('feedingV2.assignments.speciesMismatchReason')}
             </label>
             <input
               maxLength={500}
               value={mismatchReason}
               onChange={(e) => setMismatchReason(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm text-sm"
+              className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
             />
           </div>
         )}
@@ -216,7 +216,7 @@ const AssignModal: React.FC<AssignModalProps> = ({ protocols, onClose }) => {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {t('common.cancel')}
           </button>
@@ -323,12 +323,12 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
 
         {/* Operasyonel override'lar */}
         <div>
-          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-3">
+          <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-3">
             {t('feedingV2.assignments.overrides')}
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm text-gray-600">
+              <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.offset')}
               </label>
               <input
@@ -343,11 +343,11 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                       e.target.value === '' ? undefined : Number(e.target.value),
                   }))
                 }
-                className="mt-1 w-24 rounded-md border-gray-300 shadow-sm text-sm"
+                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">
+              <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.mealsPerDayOverride')}
               </label>
               <input
@@ -361,11 +361,11 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                     mealsPerDayOverride: e.target.value === '' ? undefined : Number(e.target.value),
                   }))
                 }
-                className="mt-1 w-24 rounded-md border-gray-300 shadow-sm text-sm"
+                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
               />
             </div>
             <div>
-              <label className="block text-sm text-gray-600">
+              <label className="block text-sm text-gray-600 dark:text-gray-400">
                 {t('feedingV2.assignments.rateAdjustment')}
               </label>
               <input
@@ -381,7 +381,7 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                       e.target.value === '' ? undefined : Number(e.target.value),
                   }))
                 }
-                className="mt-1 w-24 rounded-md border-gray-300 shadow-sm text-sm"
+                className="mt-1 w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
               />
             </div>
           </div>
@@ -390,7 +390,7 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
         {/* Ünite FCR override'ları (R11) */}
         {bandFeeds.length > 0 && (
           <div>
-            <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-3">
+            <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-3">
               {t('feedingV2.assignments.fcrOverrides')}
             </h4>
             <div className="space-y-2">
@@ -398,8 +398,8 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                 const override = overrideFor(feed.feedId);
                 return (
                   <div key={feed.feedId} className="flex items-center gap-3">
-                    <span className="text-sm text-gray-700 w-56 truncate">{feed.feedName}</span>
-                    <span className="text-xs text-gray-500 w-44">
+                    <span className="text-sm text-gray-700 dark:text-gray-300 w-56 truncate">{feed.feedName}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 w-44">
                       {t('feedingV2.assignments.fcrOverride.protocolDefault', {
                         value: feed.defaultFcr,
                       })}
@@ -417,7 +417,7 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
                           e.target.value === '' ? null : Number(e.target.value),
                         )
                       }
-                      className="w-24 rounded-md border-gray-300 shadow-sm text-sm"
+                      className="w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
                     />
                     {override && (
                       <>
@@ -443,13 +443,13 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
         {/* Sıcaklık sensörü (equipment.temperatureSensorId — C-3) */}
         {canEditEquipment && (
           <div>
-            <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider border-b border-gray-200 pb-2 mb-3">
+            <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-3">
               {t('feedingV2.assignments.tempSensor')}
             </h4>
             <select
               value={sensorId}
               onChange={(e) => setSensorId(e.target.value)}
-              className="block w-full sm:w-80 rounded-md border-gray-300 shadow-sm text-sm"
+              className="block w-full sm:w-80 rounded-md border-gray-300 dark:border-gray-600 shadow-sm text-sm"
             >
               <option value="">{t('feedingV2.assignments.noSensor')}</option>
               {sensors.map((sensor) => (
@@ -461,11 +461,11 @@ const EditAssignmentModal: React.FC<EditModalProps> = ({
           </div>
         )}
 
-        <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+        <div className="flex justify-end gap-3 pt-2 border-t border-gray-200 dark:border-gray-700">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+            className="rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             {t('common.cancel')}
           </button>
@@ -551,20 +551,150 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
     });
   };
 
+  const confirm = useConfirm();
   const handleUnassign = async (assignment: ProtocolAssignment) => {
-    if (!window.confirm(t('feedingV2.assignments.unassignConfirm', { unit: assignment.unitName })))
-      return;
+    if (!(await confirm({ title: t('feedingV2.assignments.unassignConfirm', { unit: assignment.unitName }), variant: 'danger' }))) return;
     await unassign.mutateAsync(assignment.id);
   };
+
+  type AssignmentRow = (typeof assignments)[number];
+  const assignmentRowColumns: DataTableColumn<AssignmentRow>[] = [
+    {
+      key: 'tFeedingv2AssignmentsUnit',
+      header: t('feedingV2.assignments.unit'),
+      render: (_value, assignment) => (
+        <>
+          <div className="font-medium text-gray-900 dark:text-gray-100">{assignment.unitName}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {assignment.unitCode} · {t(UNIT_TYPE_KEY[assignment.unitType])}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2AssignmentsProtocol',
+      header: t('feedingV2.assignments.protocol'),
+      render: (_value, assignment) => {
+        const protocol = protocolById.get(assignment.protocolId);
+        const overrideCount = assignment.overrides?.fcrOverrides?.length ?? 0;
+        return (
+          <>
+            <div className="text-gray-900 dark:text-gray-100">{protocol?.name ?? assignment.protocolId}</div>
+            {overrideCount > 0 && (
+              <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-2 py-0.5 text-xs mt-0.5">
+                {t('feedingV2.assignments.fcrOverride.overridden')} ({overrideCount})
+              </span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'tFeedingv2Statuslabel',
+      header: t('feedingV2.statusLabel'),
+      render: (_value, assignment) => (
+        <>
+          <span
+            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ASSIGNMENT_STATUS_BADGE[assignment.status]}`}
+          >
+            {t(ASSIGNMENT_STATUS_KEY[assignment.status])}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2AssignmentsCurrentfeed',
+      header: t('feedingV2.assignments.currentFeed'),
+      render: (_value, assignment) => currentFeedName(assignment),
+    },
+    {
+      key: 'tFeedingv2AssignmentsTemperature',
+      header: t('feedingV2.assignments.temperature'),
+      render: (_value, assignment) => {
+        const temp = temperatureMap?.get(assignment.unitId);
+        return (
+          <>
+            {temp ? (
+              <div>
+                <span
+                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${TEMP_SOURCE_BADGE[temp.source]}`}
+                  title={
+                    temp.source === 'none'
+                      ? t('feedingV2.assignments.tempNoneHint')
+                      : (temp.measuredAt ?? '')
+                  }
+                >
+                  {t(TEMP_SOURCE_KEY[temp.source])}
+                  {temp.celsius != null ? ` · ${temp.celsius.toFixed(1)}°C` : ''}
+                </span>
+                {temp.source === 'none' && (
+                  <Link
+                    to="/sites/water-chemistry"
+                    className="block text-xs text-blue-600 hover:text-blue-800 mt-0.5"
+                  >
+                    {t('feedingV2.assignments.enterTemperature')}
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <span className="text-gray-400 dark:text-gray-500">—</span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, assignment) => (
+        <>
+          {canUpdate && (
+            <>
+              <button
+                onClick={() => setEditAssignment(assignment)}
+                className="text-blue-600 hover:text-blue-800 mr-3"
+              >
+                {t('common.edit')}
+              </button>
+              <button
+                onClick={() => void handleToggleStatus(assignment)}
+                className="text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100 mr-3"
+              >
+                {assignment.status === 'ACTIVE'
+                  ? t('feedingV2.assignments.pause')
+                  : t('feedingV2.assignments.resume')}
+              </button>
+            </>
+          )}
+          {canTransition && assignment.status === 'ACTIVE' && (
+            <button
+              onClick={() => setTransitionAssignment(assignment)}
+              className="text-amber-700 hover:text-amber-900 mr-3"
+            >
+              {t('feedingV2.assignments.manualTransition')}
+            </button>
+          )}
+          {canUnassign && (
+            <button
+              onClick={() => void handleUnassign(assignment)}
+              className="text-gray-500 dark:text-gray-400 hover:text-red-600"
+            >
+              {t('feedingV2.assignments.unassign')}
+            </button>
+          )}
+        </>
+      ),
+    }
+  ];
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {t('feedingV2.assignments.title')}
           </h2>
-          <p className="text-sm text-gray-500">{t('feedingV2.assignments.subtitle')}</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('feedingV2.assignments.subtitle')}</p>
         </div>
         {canAssign && (
           <button
@@ -578,127 +708,26 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
 
       {isLoading && (
         <div className="flex items-center justify-center h-40">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+          <Spinner size="xl" />
         </div>
       )}
 
       {!isLoading && assignments.length === 0 && (
-        <div className="bg-white rounded-lg shadow p-12 text-center text-sm text-gray-500">
+        <div className="bg-white dark:bg-gray-900 rounded-lg shadow p-12 text-center text-sm text-gray-500 dark:text-gray-400">
           {t('feedingV2.assignments.empty')}
         </div>
       )}
 
       {assignments.length > 0 && (
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
-              <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                <th className="px-4 py-3">{t('feedingV2.assignments.unit')}</th>
-                <th className="px-4 py-3">{t('feedingV2.assignments.protocol')}</th>
-                <th className="px-4 py-3">{t('feedingV2.statusLabel')}</th>
-                <th className="px-4 py-3">{t('feedingV2.assignments.currentFeed')}</th>
-                <th className="px-4 py-3">{t('feedingV2.assignments.temperature')}</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {assignments.map((assignment) => {
-                const protocol = protocolById.get(assignment.protocolId);
-                const temp = temperatureMap?.get(assignment.unitId);
-                const overrideCount = assignment.overrides?.fcrOverrides?.length ?? 0;
-                return (
-                  <tr key={assignment.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-gray-900">{assignment.unitName}</div>
-                      <div className="text-xs text-gray-500">
-                        {assignment.unitCode} · {t(UNIT_TYPE_KEY[assignment.unitType])}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="text-gray-900">{protocol?.name ?? assignment.protocolId}</div>
-                      {overrideCount > 0 && (
-                        <span className="inline-flex rounded-full bg-purple-100 text-purple-800 px-2 py-0.5 text-xs mt-0.5">
-                          {t('feedingV2.assignments.fcrOverride.overridden')} ({overrideCount})
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${ASSIGNMENT_STATUS_BADGE[assignment.status]}`}
-                      >
-                        {t(ASSIGNMENT_STATUS_KEY[assignment.status])}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{currentFeedName(assignment)}</td>
-                    <td className="px-4 py-3">
-                      {temp ? (
-                        <div>
-                          <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${TEMP_SOURCE_BADGE[temp.source]}`}
-                            title={
-                              temp.source === 'none'
-                                ? t('feedingV2.assignments.tempNoneHint')
-                                : (temp.measuredAt ?? '')
-                            }
-                          >
-                            {t(TEMP_SOURCE_KEY[temp.source])}
-                            {temp.celsius != null ? ` · ${temp.celsius.toFixed(1)}°C` : ''}
-                          </span>
-                          {temp.source === 'none' && (
-                            <Link
-                              to="/sites/water-chemistry"
-                              className="block text-xs text-blue-600 hover:text-blue-800 mt-0.5"
-                            >
-                              {t('feedingV2.assignments.enterTemperature')}
-                            </Link>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      {canUpdate && (
-                        <>
-                          <button
-                            onClick={() => setEditAssignment(assignment)}
-                            className="text-blue-600 hover:text-blue-800 mr-3"
-                          >
-                            {t('common.edit')}
-                          </button>
-                          <button
-                            onClick={() => void handleToggleStatus(assignment)}
-                            className="text-gray-600 hover:text-gray-800 mr-3"
-                          >
-                            {assignment.status === 'ACTIVE'
-                              ? t('feedingV2.assignments.pause')
-                              : t('feedingV2.assignments.resume')}
-                          </button>
-                        </>
-                      )}
-                      {canTransition && assignment.status === 'ACTIVE' && (
-                        <button
-                          onClick={() => setTransitionAssignment(assignment)}
-                          className="text-amber-700 hover:text-amber-900 mr-3"
-                        >
-                          {t('feedingV2.assignments.manualTransition')}
-                        </button>
-                      )}
-                      {canUnassign && (
-                        <button
-                          onClick={() => void handleUnassign(assignment)}
-                          className="text-gray-500 hover:text-red-600"
-                        >
-                          {t('feedingV2.assignments.unassign')}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<AssignmentRow>
+          data={assignments}
+          columns={assignmentRowColumns}
+          keyExtractor={(assignment) => assignment.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
       )}
 
       {assignModalOpen && (
@@ -720,29 +749,28 @@ export const AssignmentsTab: React.FC<AssignmentsTabProps> = ({ siteId }) => {
                 }
                 onClick={() => {
                   const label = `${band.feedName} (${band.feedCode})`;
-                  if (
-                    !window.confirm(
-                      t('feedingV2.assignments.manualTransitionConfirm', {
-                        unit: transitionAssignment.unitCode,
-                        feed: label,
-                      }),
-                    )
-                  ) {
-                    return;
-                  }
-                  void transitionFeed
-                    .mutateAsync({
-                      unitId: transitionAssignment.unitId,
-                      toFeedId: band.feedId,
-                    })
-                    .then(() => setTransitionAssignment(null));
+                  void confirm({
+                    title: t('feedingV2.assignments.manualTransitionConfirm', {
+                      unit: transitionAssignment.unitCode,
+                      feed: label,
+                    }),
+                    variant: 'warning',
+                  }).then((ok) => {
+                    if (!ok) return;
+                    void transitionFeed
+                      .mutateAsync({
+                        unitId: transitionAssignment.unitId,
+                        toFeedId: band.feedId,
+                      })
+                      .then(() => setTransitionAssignment(null));
+                  });
                 }}
-                className="flex w-full items-center justify-between rounded-md border border-gray-200 px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50"
+                className="flex w-full items-center justify-between rounded-md border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
               >
                 <span>
                   {band.feedName} ({band.feedCode})
                 </span>
-                <span className="text-xs text-gray-500">
+                <span className="text-xs text-gray-500 dark:text-gray-400">
                   {band.minWeightG}–{band.maxWeightG} g
                 </span>
               </button>

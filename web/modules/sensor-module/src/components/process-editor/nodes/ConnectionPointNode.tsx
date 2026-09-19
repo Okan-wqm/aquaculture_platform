@@ -6,6 +6,7 @@
 import React, { useState, useEffect } from 'react';
 import { Handle, useUpdateNodeInternals, NodeProps, type Node } from '@xyflow/react';
 import { useProcessStore } from '../../../store/processStore';
+import { colors, colors as themeColors } from '@aquaculture/shared-ui';
 
 type HandleType = 'source' | 'target';
 
@@ -46,7 +47,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
     updateNodeInternals(id);
   }, [topType, bottomType, leftType, rightType, id, updateNodeInternals]);
 
-  const getColor = (type: HandleType) => type === 'source' ? '#22c55e' : '#3b82f6';
+  const getColor = (type: HandleType) => type === 'source' ? colors.success[500] : colors.info[500];
 
   return (
     <div
@@ -54,7 +55,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
         position: 'relative',
         width: 30,
         height: 30,
-        border: selected ? '2px solid #3b82f6' : '2px solid transparent',
+        border: selected ? `2px solid ${themeColors.info[500]}` : '2px solid transparent',
         borderRadius: '50%',
       }}
     >
@@ -63,7 +64,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
           cx="15"
           cy="15"
           r="12"
-          fill={data?.fillColor || '#ffcc00'}
+          fill={data?.fillColor || colors.warning[500]}
           stroke={data?.strokeColor || '#333'}
           strokeWidth="2"
         />
@@ -71,15 +72,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
 
       {/* Top Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 15,
-          top: 3,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[15px] top-[3px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -108,15 +101,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
 
       {/* Bottom Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 15,
-          top: 27,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[15px] top-[27px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -145,15 +130,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
 
       {/* Left Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 3,
-          top: 15,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[3px] top-[15px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -182,15 +159,7 @@ const ConnectionPointNode: React.FC<NodeProps<Node<ConnectionPointNodeData>>> = 
 
       {/* Right Handle */}
       <div
-        style={{
-          position: 'absolute',
-          left: 27,
-          top: 15,
-          width: 10,
-          height: 10,
-          transform: 'translate(-50%, -50%)',
-          pointerEvents: 'all',
-        }}
+        className="absolute left-[27px] top-[15px] w-[10px] h-[10px] -translate-x-1/2 -translate-y-1/2 [pointer-events:all]"
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();

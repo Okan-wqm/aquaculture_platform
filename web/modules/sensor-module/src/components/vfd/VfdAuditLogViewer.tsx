@@ -8,12 +8,12 @@
 import React, { useState, useMemo } from 'react';
 import {
   ChevronDown,
-  Loader2,
   AlertTriangle,
   History,
   Filter,
 } from 'lucide-react';
 import { VfdParameterAuditLog, VfdRiskLevel } from '../../types/vfd.types';
+import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -69,15 +69,66 @@ export function VfdAuditLogViewer({
     );
   }
 
+  const vfdParameterAuditLogColumns: DataTableColumn<VfdParameterAuditLog>[] = [
+    {
+      key: 'timestamp',
+      header: 'Timestamp',
+      render: (_value, log) => formatTimestamp(log.timestamp),
+    },
+    {
+      key: 'parameter',
+      header: 'Parameter',
+      render: (_value, log) => log.parameterName,
+    },
+    {
+      key: 'oldValue',
+      header: 'Old Value',
+      render: (_value, log) => log.previousValue !== null ? log.previousValue : '-',
+    },
+    {
+      key: 'newValue',
+      header: 'New Value',
+      render: (_value, log) => log.newValue,
+    },
+    {
+      key: 'by',
+      header: 'By',
+      render: (_value, log) => log.performedBy,
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: (_value, log) => log.action,
+    },
+    {
+      key: 'risk',
+      header: 'Risk',
+      render: (_value, log) => {
+        const risk = (log.metadata?.riskLevel as string) ?? VfdRiskLevel.LOW;
+        const riskClass = RISK_COLORS[risk] ?? RISK_COLORS[VfdRiskLevel.LOW];
+        return (
+          <>
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}
+              data-testid={`risk-${log.id}`}
+            >
+              {risk}
+            </span>
+          </>
+        );
+      },
+    }
+  ];
+
   return (
     <div data-testid="vfd-audit-log">
       {/* Filter bar */}
       <div className="mb-4 flex items-center gap-3">
-        <Filter className="h-4 w-4 text-gray-400" />
+        <Filter className="h-4 w-4 text-gray-400 dark:text-gray-500" />
         <select
           value={paramFilter}
           onChange={(e) => handleFilterChange(e.target.value)}
-          className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+          className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
           aria-label="Filter by parameter"
         >
           <option value="">All Parameters</option>
@@ -87,7 +138,7 @@ export function VfdAuditLogViewer({
             </option>
           ))}
         </select>
-        <span className="ml-auto text-xs text-gray-400">
+        <span className="ml-auto text-xs text-gray-400 dark:text-gray-500">
           {logs.length} log entr{logs.length !== 1 ? 'ies' : 'y'}
         </span>
       </div>
@@ -95,71 +146,24 @@ export function VfdAuditLogViewer({
       {/* Table */}
       {loading && logs.length === 0 ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          <Spinner size="md" />
         </div>
       ) : logs.length === 0 ? (
         <div className="py-12 text-center">
           <History className="mx-auto mb-2 h-8 w-8 text-gray-300" />
-          <p className="text-sm text-gray-500">No audit log entries</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">No audit log entries</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm" data-testid="audit-table">
-            <thead>
-              <tr className="border-b text-left text-xs font-medium text-gray-500">
-                <th className="pb-2 pr-4">Timestamp</th>
-                <th className="pb-2 pr-4">Parameter</th>
-                <th className="pb-2 pr-4">Old Value</th>
-                <th className="pb-2 pr-4">New Value</th>
-                <th className="pb-2 pr-4">By</th>
-                <th className="pb-2 pr-4">Source</th>
-                <th className="pb-2">Risk</th>
-              </tr>
-            </thead>
-            <tbody>
-              {logs.map((log) => {
-                // Derive risk level from metadata if present
-                const risk = (log.metadata?.riskLevel as string) ?? VfdRiskLevel.LOW;
-                const riskClass = RISK_COLORS[risk] ?? RISK_COLORS[VfdRiskLevel.LOW];
-
-                return (
-                  <tr
-                    key={log.id}
-                    className="border-b border-gray-100 hover:bg-gray-50"
-                    data-testid={`audit-row-${log.id}`}
-                  >
-                    <td className="py-2 pr-4 text-xs text-gray-600">
-                      {formatTimestamp(log.timestamp)}
-                    </td>
-                    <td className="py-2 pr-4 font-mono text-xs font-medium">
-                      {log.parameterName}
-                    </td>
-                    <td className="py-2 pr-4 text-xs text-gray-600">
-                      {log.previousValue !== null ? log.previousValue : '-'}
-                    </td>
-                    <td className="py-2 pr-4 text-xs font-medium text-indigo-700">
-                      {log.newValue}
-                    </td>
-                    <td className="py-2 pr-4 text-xs text-gray-600">
-                      {log.performedBy}
-                    </td>
-                    <td className="py-2 pr-4 text-xs text-gray-500">
-                      {log.action}
-                    </td>
-                    <td className="py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskClass}`}
-                        data-testid={`risk-${log.id}`}
-                      >
-                        {risk}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <DataTable<VfdParameterAuditLog>
+          data={logs}
+          columns={vfdParameterAuditLogColumns}
+          keyExtractor={(log) => log.id}
+          emptyMessage="No audit log entries"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+          compact
+        />
       )}
 
       {/* Load more */}
@@ -169,9 +173,9 @@ export function VfdAuditLogViewer({
             type="button"
             onClick={onLoadMore}
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ChevronDown className="h-4 w-4" />}
+            {loading ? <Spinner size="sm" color="inherit" /> : <ChevronDown className="h-4 w-4" />}
             Load More
           </button>
         </div>

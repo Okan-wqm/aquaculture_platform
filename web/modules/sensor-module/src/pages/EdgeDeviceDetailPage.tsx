@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { ConfirmModal, Modal, useConfirm, colors as themeColors, DataTable, type DataTableColumn, Spinner, PageHeader, qualityColor, normalizeQuality } from '@aquaculture/shared-ui';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -24,7 +25,6 @@ import {
   RefreshCw,
   AlertTriangle,
   CheckCircle,
-  Loader2,
   Shield,
   Tag,
   MapPin,
@@ -35,7 +35,6 @@ import {
   Power,
   Plus,
   Pencil,
-  X,
   Upload,
   Search,
   Copy,
@@ -87,7 +86,7 @@ const StatusBadge: React.FC<{ state: DeviceLifecycleState }> = ({ state }) => {
   const color = getDeviceStatusColor(state);
   const colorMap: Record<string, string> = {
     green: 'bg-green-100 text-green-800',
-    gray: 'bg-gray-100 text-gray-800',
+    gray: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
     yellow: 'bg-yellow-100 text-yellow-800',
     red: 'bg-red-100 text-red-800',
     blue: 'bg-blue-100 text-blue-800',
@@ -108,10 +107,10 @@ const MetricBar: React.FC<{ label: string; value?: number; unit?: string; icon: 
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <span className="flex items-center gap-1.5 text-sm text-gray-600">{icon}{label}</span>
-        <span className="text-sm font-medium text-gray-900">{value.toFixed(1)}{unit}</span>
+        <span className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-400">{icon}{label}</span>
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">{value.toFixed(1)}{unit}</span>
       </div>
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
       </div>
     </div>
@@ -122,8 +121,8 @@ const InfoRow: React.FC<{ label: string; value?: string | number | null; icon?: 
   label, value, icon,
 }) => (
   <div className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
-    <span className="text-sm text-gray-500">{label}</span>
-    <span className="text-sm font-medium text-gray-900 flex items-center gap-1.5">
+    <span className="text-sm text-gray-500 dark:text-gray-400">{label}</span>
+    <span className="text-sm font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
       {icon}{value ?? 'Belirtilmemiş'}
     </span>
   </div>
@@ -455,16 +454,6 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
     }
   }, [editConfig, isOpen]);
 
-  // Escape tuşu ile kapatma — modal accessibility best practice
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [isOpen, onClose]);
-
   // Compute the filtered Modbus function codes based on current IO type,
   // plus the current selection if it is incompatible (backward compat for legacy configs).
   // Declared before the `!isOpen` early return so the hook call order stays
@@ -549,331 +538,315 @@ const IoConfigFormModal: React.FC<IoConfigFormModalProps> = ({
     }
   };
 
-  /** Backdrop'a tıklama ile modal kapatma */
-  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onClose();
-  };
-
-  const inputCls = 'w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden disabled:bg-gray-50 disabled:text-gray-500';
-  const labelCls = 'block text-xs font-medium text-gray-600 mb-1';
+  const inputCls = 'w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400';
+  const labelCls = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1';
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={handleBackdropClick}
-      role="dialog"
-      aria-modal="true"
-      aria-label={isEdit ? 'I/O Kanal Düzenle' : 'Yeni I/O Kanal Ekle'}
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      size="lg"
+      title={isEdit ? 'I/O Kanal Düzenle' : 'Yeni I/O Kanal Ekle'}
+      showCloseButton={!isSubmitting}
+      closeOnEscape={!isSubmitting}
+      closeOnOverlayClick={!isSubmitting}
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 overflow-y-auto"
     >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">
-            {isEdit ? 'I/O Kanal Düzenle' : 'Yeni I/O Kanal Ekle'}
-          </h3>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded-lg"
-            aria-label="Kapat"
-          >
-            <X className="w-5 h-5 text-gray-500" />
-          </button>
+      <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        {/* Validation / mutation error banner */}
+        {(validationError || submitError) && (
+          <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+            <span className="text-sm text-red-800">{validationError || submitError}</span>
+          </div>
+        )}
+
+        {/* Basic Fields */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>Tag Adi *</label>
+            <input
+              className={inputCls}
+              value={form.tagName}
+              onChange={(e) => set('tagName', e.target.value.toUpperCase())}
+              required
+              disabled={isEdit}
+              placeholder="TANK_LEVEL_01"
+              pattern="[A-Z][A-Z0-9_]{1,63}"
+              title="Büyük harf ile başlamalı, A-Z, 0-9, _ (maks 64 karakter)"
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Açıklama</label>
+            <input
+              className={inputCls}
+              value={form.description}
+              onChange={(e) => set('description', e.target.value)}
+              placeholder="Tank seviye sensoru"
+            />
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Validation / mutation error banner */}
-          {(validationError || submitError) && (
-            <div className="p-3 rounded-lg bg-red-50 border border-red-200 flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-              <span className="text-sm text-red-800">{validationError || submitError}</span>
-            </div>
-          )}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelCls}>I/O Tipi *</label>
+            <select
+              className={inputCls}
+              value={form.ioType}
+              onChange={(e) => set('ioType', e.target.value as IoType)}
+              disabled={isEdit}
+            >
+              <option value={IoType.DI}>Digital Input (DI)</option>
+              <option value={IoType.DO}>Digital Output (DO)</option>
+              <option value={IoType.AI}>Analog Input (AI)</option>
+              <option value={IoType.AO}>Analog Output (AO)</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelCls}>Veri Tipi *</label>
+            <select
+              className={inputCls}
+              value={form.dataType}
+              onChange={(e) => set('dataType', e.target.value as IoDataType)}
+              disabled={isEdit}
+            >
+              {Object.values(IoDataType).map((dt) => (
+                <option key={dt} value={dt}>{dt}</option>
+              ))}
+            </select>
+          </div>
+        </div>
 
-          {/* Basic Fields */}
+        {/* Module Address / Channel — immutable after creation (hardware binding) */}
+        {!isEdit && (
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelCls}>Tag Adi *</label>
+              <label className={labelCls}>Modul Adresi *</label>
               <input
+                type="number"
                 className={inputCls}
-                value={form.tagName}
-                onChange={(e) => set('tagName', e.target.value.toUpperCase())}
+                value={form.moduleAddress}
+                onChange={(e) => set('moduleAddress', e.target.value)}
                 required
-                disabled={isEdit}
-                placeholder="TANK_LEVEL_01"
-                pattern="[A-Z][A-Z0-9_]{1,63}"
-                title="Büyük harf ile başlamalı, A-Z, 0-9, _ (maks 64 karakter)"
+                min={0}
               />
             </div>
             <div>
-              <label className={labelCls}>Açıklama</label>
+              <label className={labelCls}>Kanal *</label>
               <input
+                type="number"
                 className={inputCls}
-                value={form.description}
-                onChange={(e) => set('description', e.target.value)}
-                placeholder="Tank seviye sensoru"
+                value={form.channel}
+                onChange={(e) => set('channel', e.target.value)}
+                required
+                min={0}
               />
             </div>
           </div>
+        )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelCls}>I/O Tipi *</label>
-              <select
-                className={inputCls}
-                value={form.ioType}
-                onChange={(e) => set('ioType', e.target.value as IoType)}
-                disabled={isEdit}
-              >
-                <option value={IoType.DI}>Digital Input (DI)</option>
-                <option value={IoType.DO}>Digital Output (DO)</option>
-                <option value={IoType.AI}>Analog Input (AI)</option>
-                <option value={IoType.AO}>Analog Output (AO)</option>
-              </select>
-            </div>
-            <div>
-              <label className={labelCls}>Veri Tipi *</label>
-              <select
-                className={inputCls}
-                value={form.dataType}
-                onChange={(e) => set('dataType', e.target.value as IoDataType)}
-                disabled={isEdit}
-              >
-                {Object.values(IoDataType).map((dt) => (
-                  <option key={dt} value={dt}>{dt}</option>
-                ))}
-              </select>
+        {/* Protocol Selection — immutable after creation (hardware binding) */}
+        {!isEdit && (
+          <div>
+            <label className={labelCls}>Protokol</label>
+            <div className="flex gap-3 mt-1">
+              {(['modbus', 'gpio', 'manual'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => set('protocolMode', p)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    form.protocolMode === p
+                      ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
+                      : 'bg-white dark:bg-gray-900 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
+                  }`}
+                >
+                  {p === 'modbus' ? 'Modbus' : p === 'gpio' ? 'GPIO' : 'Manuel'}
+                </button>
+              ))}
             </div>
           </div>
+        )}
 
-          {/* Module Address / Channel — immutable after creation (hardware binding) */}
-          {!isEdit && (
-            <div className="grid grid-cols-2 gap-4">
+        {/* Modbus RTU/TCP fields — Slave ID: 1-247 (Modbus spec), FC1-16 filtered by IO type */}
+        {!isEdit && form.protocolMode === 'modbus' && (
+          <div className="p-4 bg-blue-50 rounded-lg space-y-3">
+            <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className={labelCls}>Modul Adresi *</label>
+                <label className={labelCls}>Slave ID</label>
                 <input
                   type="number"
                   className={inputCls}
-                  value={form.moduleAddress}
-                  onChange={(e) => set('moduleAddress', e.target.value)}
-                  required
-                  min={0}
+                  value={form.modbusSlaveId}
+                  onChange={(e) => set('modbusSlaveId', e.target.value)}
+                  min={1}
+                  max={247}
                 />
               </div>
               <div>
-                <label className={labelCls}>Kanal *</label>
+                <label className={labelCls}>Register</label>
                 <input
                   type="number"
                   className={inputCls}
-                  value={form.channel}
-                  onChange={(e) => set('channel', e.target.value)}
-                  required
+                  value={form.modbusRegister}
+                  onChange={(e) => set('modbusRegister', e.target.value)}
                   min={0}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Protocol Selection — immutable after creation (hardware binding) */}
-          {!isEdit && (
-            <div>
-              <label className={labelCls}>Protokol</label>
-              <div className="flex gap-3 mt-1">
-                {(['modbus', 'gpio', 'manual'] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => set('protocolMode', p)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                      form.protocolMode === p
-                        ? 'bg-cyan-50 border-cyan-300 text-cyan-700'
-                        : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    {p === 'modbus' ? 'Modbus' : p === 'gpio' ? 'GPIO' : 'Manuel'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Modbus RTU/TCP fields — Slave ID: 1-247 (Modbus spec), FC1-16 filtered by IO type */}
-          {!isEdit && form.protocolMode === 'modbus' && (
-            <div className="p-4 bg-blue-50 rounded-lg space-y-3">
-              <div className="grid grid-cols-3 gap-4">
-                <div>
-                  <label className={labelCls}>Slave ID</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={form.modbusSlaveId}
-                    onChange={(e) => set('modbusSlaveId', e.target.value)}
-                    min={1}
-                    max={247}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>Register</label>
-                  <input
-                    type="number"
-                    className={inputCls}
-                    value={form.modbusRegister}
-                    onChange={(e) => set('modbusRegister', e.target.value)}
-                    min={0}
-                    max={65535}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>Function Code</label>
-                  <select
-                    className={`${inputCls} ${currentFcIncompatible ? 'border-amber-400 bg-amber-50' : ''}`}
-                    value={form.modbusFunction}
-                    onChange={(e) => set('modbusFunction', e.target.value)}
-                  >
-                    {filteredFunctionCodes.map((fc) => (
-                      <option key={fc.value} value={String(fc.value)}>{fc.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              {/* Warning banner for legacy configs with incompatible function code */}
-              {currentFcIncompatible && (
-                <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 border border-amber-200">
-                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                  <span className="text-xs text-amber-800">
-                    FC{form.modbusFunction} is a {Number(form.modbusFunction) <= 4 ? 'read' : 'write'} function
-                    and is incompatible with {form.ioType} ({form.ioType === IoType.DO || form.ioType === IoType.AO ? 'output requires write' : 'input requires read'}).
-                    Select a compatible function code or the backend will reject this configuration.
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* GPIO fields — doğrudan pin erişimi (RPi/RevPi) */}
-          {!isEdit && form.protocolMode === 'gpio' && (
-            <div className="grid grid-cols-3 gap-4 p-4 bg-green-50 rounded-lg">
-              <div>
-                <label className={labelCls}>GPIO Pin</label>
-                <input
-                  type="number"
-                  className={inputCls}
-                  value={form.gpioPin}
-                  onChange={(e) => set('gpioPin', e.target.value)}
-                  min={0}
+                  max={65535}
                 />
               </div>
               <div>
-                <label className={labelCls}>GPIO Modu</label>
+                <label className={labelCls}>Function Code</label>
                 <select
-                  className={inputCls}
-                  value={form.gpioMode}
-                  onChange={(e) => set('gpioMode', e.target.value)}
+                  className={`${inputCls} ${currentFcIncompatible ? 'border-amber-400 bg-amber-50' : ''}`}
+                  value={form.modbusFunction}
+                  onChange={(e) => set('modbusFunction', e.target.value)}
                 >
-                  <option value="input">Input</option>
-                  <option value="output">Output</option>
+                  {filteredFunctionCodes.map((fc) => (
+                    <option key={fc.value} value={String(fc.value)}>{fc.label}</option>
+                  ))}
                 </select>
               </div>
-              <div className="flex items-end pb-2">
-                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.invertValue}
-                    onChange={(e) => set('invertValue', e.target.checked)}
-                    className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-                  />
-                  Invert Value
-                </label>
-              </div>
             </div>
-          )}
+            {/* Warning banner for legacy configs with incompatible function code */}
+            {currentFcIncompatible && (
+              <div className="flex items-start gap-2 p-2 rounded-md bg-amber-50 border border-amber-200">
+                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                <span className="text-xs text-amber-800">
+                  FC{form.modbusFunction} is a {Number(form.modbusFunction) <= 4 ? 'read' : 'write'} function
+                  and is incompatible with {form.ioType} ({form.ioType === IoType.DO || form.ioType === IoType.AO ? 'output requires write' : 'input requires read'}).
+                  Select a compatible function code or the backend will reject this configuration.
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
-          {/* Analog Scaling — Raw ADC -> Engineering Unit dönüşümü (linear interpolation) */}
-          {isAnalog && (
-            <div className="p-4 bg-purple-50 rounded-lg space-y-3">
-              <p className="text-xs font-medium text-purple-700 uppercase">Analog Olceklendirme</p>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={labelCls}>Raw Min</label>
-                  <input type="number" step="any" className={inputCls} value={form.rawMin} onChange={(e) => set('rawMin', e.target.value)} />
-                </div>
-                <div>
-                  <label className={labelCls}>Raw Max</label>
-                  <input type="number" step="any" className={inputCls} value={form.rawMax} onChange={(e) => set('rawMax', e.target.value)} />
-                </div>
-                <div>
-                  <label className={labelCls}>Eng Min</label>
-                  <input type="number" step="any" className={inputCls} value={form.engMin} onChange={(e) => set('engMin', e.target.value)} />
-                </div>
-                <div>
-                  <label className={labelCls}>Eng Max</label>
-                  <input type="number" step="any" className={inputCls} value={form.engMax} onChange={(e) => set('engMax', e.target.value)} />
-                </div>
-              </div>
-              <div>
-                <label className={labelCls}>Muhendislik Birimi</label>
-                <input className={inputCls} value={form.engUnit} onChange={(e) => set('engUnit', e.target.value)} placeholder="pH, mg/L, °C ..." />
-              </div>
+        {/* GPIO fields — doğrudan pin erişimi (RPi/RevPi) */}
+        {!isEdit && form.protocolMode === 'gpio' && (
+          <div className="grid grid-cols-3 gap-4 p-4 bg-green-50 rounded-lg">
+            <div>
+              <label className={labelCls}>GPIO Pin</label>
+              <input
+                type="number"
+                className={inputCls}
+                value={form.gpioPin}
+                onChange={(e) => set('gpioPin', e.target.value)}
+                min={0}
+              />
             </div>
-          )}
-
-          {/* Alarm Thresholds — ISA-18.2 alarm yönetimi standardı sıralaması: LL < L < H < HH */}
-          <div className="p-4 bg-orange-50 rounded-lg space-y-3">
-            <p className="text-xs font-medium text-orange-700 uppercase">Alarm Esikleri (ISA-18.2)</p>
-            <div className="grid grid-cols-5 gap-3">
-              <div>
-                <label className={labelCls}>HH</label>
-                <input type="number" step="any" className={inputCls} value={form.alarmHH} onChange={(e) => set('alarmHH', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>H</label>
-                <input type="number" step="any" className={inputCls} value={form.alarmH} onChange={(e) => set('alarmH', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>L</label>
-                <input type="number" step="any" className={inputCls} value={form.alarmL} onChange={(e) => set('alarmL', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>LL</label>
-                <input type="number" step="any" className={inputCls} value={form.alarmLL} onChange={(e) => set('alarmLL', e.target.value)} />
-              </div>
-              <div>
-                <label className={labelCls}>Deadband</label>
-                <input type="number" step="any" className={inputCls} value={form.deadband} onChange={(e) => set('deadband', e.target.value)} min={0} />
-              </div>
+            <div>
+              <label className={labelCls}>GPIO Modu</label>
+              <select
+                className={inputCls}
+                value={form.gpioMode}
+                onChange={(e) => set('gpioMode', e.target.value)}
+              >
+                <option value="input">Input</option>
+                <option value="output">Output</option>
+              </select>
+            </div>
+            <div className="flex items-end pb-2">
+              <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.invertValue}
+                  onChange={(e) => set('invertValue', e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+                />
+                Invert Value
+              </label>
             </div>
           </div>
+        )}
 
-          {/* Active Toggle */}
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={form.isActive}
-              onChange={(e) => set('isActive', e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
-            />
-            <span className="text-sm font-medium text-gray-700">Aktif</span>
-          </label>
-
-          {/* Actions */}
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-            >
-              İptal
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || !form.tagName.trim()}
-              className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
-            >
-              {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isEdit ? 'Güncelle' : 'Ekle'}
-            </button>
+        {/* Analog Scaling — Raw ADC -> Engineering Unit dönüşümü (linear interpolation) */}
+        {isAnalog && (
+          <div className="p-4 bg-purple-50 rounded-lg space-y-3">
+            <p className="text-xs font-medium text-purple-700 uppercase">Analog Olceklendirme</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelCls}>Raw Min</label>
+                <input type="number" step="any" className={inputCls} value={form.rawMin} onChange={(e) => set('rawMin', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Raw Max</label>
+                <input type="number" step="any" className={inputCls} value={form.rawMax} onChange={(e) => set('rawMax', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Eng Min</label>
+                <input type="number" step="any" className={inputCls} value={form.engMin} onChange={(e) => set('engMin', e.target.value)} />
+              </div>
+              <div>
+                <label className={labelCls}>Eng Max</label>
+                <input type="number" step="any" className={inputCls} value={form.engMax} onChange={(e) => set('engMax', e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label className={labelCls}>Muhendislik Birimi</label>
+              <input className={inputCls} value={form.engUnit} onChange={(e) => set('engUnit', e.target.value)} placeholder="pH, mg/L, °C ..." />
+            </div>
           </div>
-        </form>
-      </div>
-    </div>
+        )}
+
+        {/* Alarm Thresholds — ISA-18.2 alarm yönetimi standardı sıralaması: LL < L < H < HH */}
+        <div className="p-4 bg-orange-50 rounded-lg space-y-3">
+          <p className="text-xs font-medium text-orange-700 uppercase">Alarm Esikleri (ISA-18.2)</p>
+          <div className="grid grid-cols-5 gap-3">
+            <div>
+              <label className={labelCls}>HH</label>
+              <input type="number" step="any" className={inputCls} value={form.alarmHH} onChange={(e) => set('alarmHH', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>H</label>
+              <input type="number" step="any" className={inputCls} value={form.alarmH} onChange={(e) => set('alarmH', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>L</label>
+              <input type="number" step="any" className={inputCls} value={form.alarmL} onChange={(e) => set('alarmL', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>LL</label>
+              <input type="number" step="any" className={inputCls} value={form.alarmLL} onChange={(e) => set('alarmLL', e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Deadband</label>
+              <input type="number" step="any" className={inputCls} value={form.deadband} onChange={(e) => set('deadband', e.target.value)} min={0} />
+            </div>
+          </div>
+        </div>
+
+        {/* Active Toggle */}
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.isActive}
+            onChange={(e) => set('isActive', e.target.checked)}
+            className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-cyan-600 focus:ring-cyan-500"
+          />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Aktif</span>
+        </label>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+          >
+            İptal
+          </button>
+          <button
+            type="submit"
+            disabled={isSubmitting || !form.tagName.trim()}
+            className="px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 flex items-center gap-2"
+          >
+            {isSubmitting && <Spinner size="sm" color="inherit" />}
+            {isEdit ? 'Güncelle' : 'Ekle'}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 };
 
@@ -896,62 +869,24 @@ const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
   onCancel,
   isDeleting,
 }) => {
-  // Escape tuşu desteği
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel();
-    };
-    document.addEventListener('keydown', handleEsc);
-    return () => document.removeEventListener('keydown', handleEsc);
-  }, [isOpen, onCancel]);
-
-  if (!isOpen) return null;
-
-  const handleBackdropClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) onCancel();
-  };
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={handleBackdropClick}
-      role="alertdialog"
-      aria-modal="true"
-      aria-label="I/O Kanal Silme Onayi"
-    >
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">I/O Kanal Sil</h3>
-            <p className="text-sm text-gray-500">Bu islem geri alinamaz.</p>
-          </div>
-        </div>
-        <p className="text-sm text-gray-700 mb-6">
+    <ConfirmModal
+      isOpen={isOpen}
+      onClose={onCancel}
+      onConfirm={onConfirm}
+      title="I/O Kanal Sil"
+      message={
+        <>
           <strong>{tagName}</strong> kanalini silmek istediginizden emin misiniz?
-          Bu kanal ile iliskili otomasyon programlari etkilenebilir.
-        </p>
-        <div className="flex justify-end gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            İptal
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isDeleting}
-            className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
-          >
-            {isDeleting && <Loader2 className="w-4 h-4 animate-spin" />}
-            Sil
-          </button>
-        </div>
-      </div>
-    </div>
+          Bu kanal ile iliskili otomasyon programlari etkilenebilir. Bu islem geri alinamaz.
+        </>
+      }
+      confirmText="Sil"
+      cancelText="İptal"
+      variant="danger"
+      isLoading={isDeleting}
+      loadingText="Siliniyor..."
+    />
   );
 };
 
@@ -975,14 +910,7 @@ function getAlarmStatus(
 }
 
 const QualityDot: React.FC<{ quality?: string }> = ({ quality }) => {
-  const colorMap: Record<string, string> = {
-    good: '#22c55e',
-    uncertain: '#eab308',
-    bad: '#ef4444',
-    comm_failure: '#ef4444',
-    not_initialized: '#9ca3af',
-  };
-  const color = quality ? colorMap[quality] ?? '#9ca3af' : '#9ca3af';
+  const color = qualityColor(normalizeQuality(quality));
   return (
     <span
       style={{
@@ -1001,7 +929,7 @@ const alarmColorMap: Record<string, string> = {
   red: 'bg-red-100 text-red-700',
   orange: 'bg-orange-100 text-orange-700',
   green: 'bg-green-100 text-green-700',
-  gray: 'bg-gray-100 text-gray-500',
+  gray: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
 };
 
 // ============================================================================
@@ -1136,13 +1064,13 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
   // ---- Empty state: henüz I/O konfigürasyonu yokken instructional CTA göster ----
   if (configs.length === 0 && !formOpen) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <div className="text-center py-12">
           <div className="w-16 h-16 rounded-full bg-cyan-50 flex items-center justify-center mx-auto mb-4">
             <Settings className="w-8 h-8 text-cyan-400" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-1">Henuz I/O konfigurasyonu yok</h3>
-          <p className="text-sm text-gray-500 mb-6 max-w-sm mx-auto">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-1">Henuz I/O konfigurasyonu yok</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-6 max-w-sm mx-auto">
             Edge cihaza analog/digital giris-cikis kanallari ekleyerek
             saha verilerini toplamaya baslayabilirsiniz.
           </p>
@@ -1154,7 +1082,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
               title={!device.isOnline ? 'Cihaz offline — auto-detect icin online olmali' : 'Donanimi tara'}
             >
               {scanHardware.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Spinner size="sm" color="inherit" />
               ) : (
                 <Search className="w-4 h-4" />
               )}
@@ -1214,13 +1142,147 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
     );
   }
 
+  const deviceIoConfigColumns: DataTableColumn<DeviceIoConfig>[] = [
+    {
+      key: 'tag',
+      header: 'Tag',
+      render: (_value, io) => io.tagName,
+    },
+    {
+      key: 'tip',
+      header: 'Tip',
+      render: (_value, io) => getIoTypeText(io.ioType),
+    },
+    {
+      key: 'modulKanal',
+      header: 'Modul/Kanal',
+      render: (_value, io) => (
+        <>
+          {io.moduleAddress}:{io.channel}
+        </>
+      ),
+    },
+    {
+      key: 'canliDeger',
+      header: 'Canli Deger',
+      render: (_value, io) => {
+        const live = liveValues?.[io.tagName] as IoTagValue | undefined;
+        const isDigital = io.ioType === IoType.DI || io.ioType === IoType.DO;
+        return (
+          <>
+            {live ? (
+              <span className="flex items-center gap-1">
+                <QualityDot quality={live.quality} />
+                {isDigital ? (
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                    (live.value === true || live.value === 1)
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-red-100 text-red-700'
+                  }`}>
+                    {(live.value === true || live.value === 1) ? 'ON' : 'OFF'}
+                  </span>
+                ) : (
+                  <span className="font-mono text-gray-900 dark:text-gray-100">
+                    {typeof live.value === 'number' ? live.value.toFixed(2) : String(live.value)}
+                    {io.engUnit ? ` ${io.engUnit}` : ''}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="text-gray-500 dark:text-gray-400">--</span>
+            )}
+          </>
+        );
+      },
+    },
+    {
+      key: 'alarm',
+      header: 'Alarm',
+      render: (_value, io) => {
+        const live = liveValues?.[io.tagName] as IoTagValue | undefined;
+        const alarm = getAlarmStatus(
+          live?.value as number | boolean | undefined,
+          io,
+        );
+        return (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${alarmColorMap[alarm.color] || alarmColorMap.gray}`}>
+            {alarm.status}
+          </span>
+        );
+      },
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, io) => (
+        <>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+            io.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+          }`}>
+            {io.isActive ? 'Aktif' : 'Pasif'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'islem',
+      header: 'Islem',
+      align: 'right',
+      render: (_value, io) => {
+        const live = liveValues?.[io.tagName] as IoTagValue | undefined;
+        return (
+          <div className="flex items-center justify-end gap-1">
+            {/* DO toggle */}
+            {io.ioType === IoType.DO && (
+              <button
+                onClick={() => {
+                  const currentVal = live?.value === true || live?.value === 1;
+                  setDoMutation.mutate({
+                    deviceId,
+                    ioConfigId: io.id,
+                    value: !currentVal,
+                  });
+                }}
+                disabled={setDoMutation.isPending}
+                className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                  (live?.value === true || live?.value === 1)
+                    ? 'bg-green-600 text-white hover:bg-green-700'
+                    : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300'
+                } disabled:opacity-50`}
+                title={`${io.tagName} ${(live?.value === true || live?.value === 1) ? 'OFF' : 'ON'} yap`}
+              >
+                {(live?.value === true || live?.value === 1) ? 'ON' : 'OFF'}
+              </button>
+            )}
+            <button
+              onClick={() => openEdit(io)}
+              className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg text-gray-500 dark:text-gray-400 hover:text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Düzenle"
+              aria-label={`${io.tagName} kanalini duzenle`}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setDeleteTarget(io)}
+              className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 dark:text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Sil"
+              aria-label={`${io.tagName} kanalini sil`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        );
+      },
+    }
+  ];
+
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       {/* Header with action buttons */}
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">I/O Konfigurasyonu</h3>
-          <span className="text-sm text-gray-500">{configs.length} kanal</span>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">I/O Konfigurasyonu</h3>
+          <span className="text-sm text-gray-500 dark:text-gray-400">{configs.length} kanal</span>
         </div>
         <div className="flex items-center gap-2">
           {/* Push to Device — mevcut konfigürasyonu fiziksel cihaza MQTT üzerinden gönderir */}
@@ -1230,7 +1292,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-orange-700 bg-orange-50 border border-orange-200 rounded-lg hover:bg-orange-100 transition-colors disabled:opacity-50"
           >
             {pushMutation.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <Upload className="w-4 h-4" />
             )}
@@ -1244,7 +1306,7 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             title={!device.isOnline ? 'Cihaz offline' : 'Donanimi tara ve I/O kanallarini kes\u0327fet'}
           >
             {scanHardware.isPending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Spinner size="sm" color="inherit" />
             ) : (
               <Search className="w-4 h-4" />
             )}
@@ -1311,127 +1373,25 @@ const IoConfigSection: React.FC<IoConfigSectionProps> = ({ device, refetch }) =>
             width: 8,
             height: 8,
             borderRadius: '50%',
-            backgroundColor: liveConnected ? '#22c55e' : '#9ca3af',
+            backgroundColor: liveConnected ? themeColors.success[500] : themeColors.neutral[400],
           }}
         />
-        <span className={`text-xs font-medium ${liveConnected ? 'text-green-700' : 'text-gray-500'}`}>
+        <span className={`text-xs font-medium ${liveConnected ? 'text-green-700' : 'text-gray-500 dark:text-gray-400'}`}>
           {liveConnected ? 'Canli' : 'Baglanti yok'}
         </span>
       </div>
 
       {/* I/O channel table */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tag</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tip</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Modul/Kanal</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Canli Deger</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Alarm</th>
-              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Durum</th>
-              <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Islem</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {configs.map((io) => {
-              const live = liveValues?.[io.tagName] as IoTagValue | undefined;
-              const isDigital = io.ioType === IoType.DI || io.ioType === IoType.DO;
-              const alarm = getAlarmStatus(
-                live?.value as number | boolean | undefined,
-                io,
-              );
-
-              return (
-                <tr key={io.id} className="hover:bg-gray-50 group">
-                  <td className="px-3 py-2 font-medium text-gray-900">{io.tagName}</td>
-                  <td className="px-3 py-2 text-gray-600">{getIoTypeText(io.ioType)}</td>
-                  <td className="px-3 py-2 text-gray-600">{io.moduleAddress}:{io.channel}</td>
-                  {/* Canli Deger */}
-                  <td className="px-3 py-2">
-                    {live ? (
-                      <span className="flex items-center gap-1">
-                        <QualityDot quality={live.quality} />
-                        {isDigital ? (
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                            (live.value === true || live.value === 1)
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-red-100 text-red-700'
-                          }`}>
-                            {(live.value === true || live.value === 1) ? 'ON' : 'OFF'}
-                          </span>
-                        ) : (
-                          <span className="font-mono text-gray-900">
-                            {typeof live.value === 'number' ? live.value.toFixed(2) : String(live.value)}
-                            {io.engUnit ? ` ${io.engUnit}` : ''}
-                          </span>
-                        )}
-                      </span>
-                    ) : (
-                      <span className="text-gray-500">--</span>
-                    )}
-                  </td>
-                  {/* Alarm */}
-                  <td className="px-3 py-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${alarmColorMap[alarm.color] || alarmColorMap.gray}`}>
-                      {alarm.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                      io.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {io.isActive ? 'Aktif' : 'Pasif'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      {/* DO toggle */}
-                      {io.ioType === IoType.DO && (
-                        <button
-                          onClick={() => {
-                            const currentVal = live?.value === true || live?.value === 1;
-                            setDoMutation.mutate({
-                              deviceId,
-                              ioConfigId: io.id,
-                              value: !currentVal,
-                            });
-                          }}
-                          disabled={setDoMutation.isPending}
-                          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                            (live?.value === true || live?.value === 1)
-                              ? 'bg-green-600 text-white hover:bg-green-700'
-                              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                          } disabled:opacity-50`}
-                          title={`${io.tagName} ${(live?.value === true || live?.value === 1) ? 'OFF' : 'ON'} yap`}
-                        >
-                          {(live?.value === true || live?.value === 1) ? 'ON' : 'OFF'}
-                        </button>
-                      )}
-                      <button
-                        onClick={() => openEdit(io)}
-                        className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-500 hover:text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Düzenle"
-                        aria-label={`${io.tagName} kanalini duzenle`}
-                      >
-                        <Pencil className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeleteTarget(io)}
-                        className="p-1.5 hover:bg-red-50 rounded-lg text-gray-500 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Sil"
-                        aria-label={`${io.tagName} kanalini sil`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <DataTable<DeviceIoConfig>
+        data={configs}
+        columns={deviceIoConfigColumns}
+        keyExtractor={(io) => io.id}
+        emptyMessage="I/O kanalı yok"
+        searchable={false}
+        sortable={false}
+        stickyHeader={false}
+        rowClassName={() => 'group'}
+      />
 
       {/* Form & delete modals */}
       <IoConfigFormModal
@@ -1486,10 +1446,10 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
         <div className="flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
-          <span className="text-sm text-gray-500">Kurulum komutlari yükleniyor...</span>
+          <Spinner size="sm" color="gray" />
+          <span className="text-sm text-gray-500 dark:text-gray-400">Kurulum komutlari yükleniyor...</span>
         </div>
       </div>
     );
@@ -1498,16 +1458,16 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
   if (!commands) return null;
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
       <div className="flex items-center gap-2 mb-4">
-        <Download className="w-5 h-5 text-gray-600" />
-        <h3 className="text-lg font-semibold text-gray-900">Kurulum Komutlari</h3>
+        <Download className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Kurulum Komutlari</h3>
       </div>
 
       <div className="space-y-4">
         {/* Install Command */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
             Kurulum Komutu (Install)
           </label>
           <div className="relative group">
@@ -1516,7 +1476,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
             </pre>
             <button
               onClick={() => handleCopy(commands.installCommand, 'install')}
-              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-500 hover:text-white transition-colors"
+              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-500 dark:text-gray-400 hover:text-white transition-colors"
               title="Kopyala"
             >
               {copiedField === 'install' ? (
@@ -1539,7 +1499,7 @@ const InstallCommandsSection: React.FC<InstallCommandsSectionProps> = ({ deviceI
             </pre>
             <button
               onClick={() => handleCopy(commands.uninstallCommand, 'uninstall')}
-              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-500 hover:text-white transition-colors"
+              className="absolute top-3 right-3 p-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-500 dark:text-gray-400 hover:text-white transition-colors"
               title="Kopyala"
             >
               {copiedField === 'uninstall' ? (
@@ -1598,13 +1558,13 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
   }, [selectedVersion, device.id, updateMutation, refetch]);
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">Firmware Yonetimi</h3>
+    <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Firmware Yonetimi</h3>
 
       {/* Current version */}
       <div className="flex items-center justify-between py-2.5 border-b border-gray-50">
-        <span className="text-sm text-gray-500">Mevcut Surum</span>
-        <span className="text-sm font-medium text-gray-900">
+        <span className="text-sm text-gray-500 dark:text-gray-400">Mevcut Surum</span>
+        <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
           {currentVersion || 'Bilinmiyor'}
         </span>
       </div>
@@ -1612,7 +1572,7 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
       {/* Updating indicator */}
       {isUpdating && (
         <div className="flex items-center gap-2 py-2.5 border-b border-gray-50">
-          <Loader2 className="w-4 h-4 animate-spin text-cyan-600" />
+          <Spinner size="sm" />
           <span className="text-sm text-cyan-700">
             Güncelleniyor: {device.targetFirmwareVersion}
           </span>
@@ -1621,12 +1581,12 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
 
       {/* Version selector */}
       <div className="mt-4">
-        <label className="block text-xs font-medium text-gray-600 mb-1">Hedef Surum</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Hedef Surum</label>
         <select
           value={selectedVersion}
           onChange={(e) => setSelectedVersion(e.target.value)}
           disabled={versionsLoading}
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden disabled:bg-gray-50 disabled:text-gray-500"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 outline-hidden disabled:bg-gray-50 dark:disabled:bg-gray-800 disabled:text-gray-500 dark:disabled:text-gray-400"
         >
           <option value="">Surum secin...</option>
           {versions.map((v) => {
@@ -1659,39 +1619,35 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
           disabled={!selectedVersion || selectedVersion === currentVersion || updateMutation.isPending}
           className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-50 transition-colors"
         >
-          {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+          {updateMutation.isPending && <Spinner size="sm" color="inherit" />}
           Güncelle
         </button>
       </div>
 
       {/* Confirmation modal */}
       {showConfirm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowConfirm(false); }}
-          role="alertdialog"
-          aria-modal="true"
-          aria-label="Firmware Güncelleme Onayi"
-        >
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDowngrade ? 'bg-orange-100' : 'bg-cyan-100'}`}>
+        <Modal
+          isOpen
+          onClose={() => setShowConfirm(false)}
+          size="sm"
+          showCloseButton={!updateMutation.isPending}
+          closeOnEscape={!updateMutation.isPending}
+          closeOnOverlayClick={!updateMutation.isPending}
+          title={
+            <span className="flex items-center gap-3">
+              <span className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDowngrade ? 'bg-orange-100' : 'bg-cyan-100'}`}>
                 <Upload className={`w-5 h-5 ${isDowngrade ? 'text-orange-600' : 'text-cyan-600'}`} />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">Firmware Güncelleme</h3>
-                <p className="text-sm text-gray-500">Bu islem cihaz yeniden baslatilmasina neden olabilir.</p>
-              </div>
-            </div>
-            <p className="text-sm text-gray-700 mb-6">
-              <strong>{currentVersion || 'Bilinmiyor'}</strong> &rarr; <strong>{selectedVersion}</strong>
-              {isDowngrade && <span className="text-orange-600 font-medium"> (downgrade)</span>}
-              {' '}kurulacak. Devam edilsin mi?
-            </p>
-            <div className="flex justify-end gap-3">
+              </span>
+              <span>Firmware Güncelleme</span>
+            </span>
+          }
+          description="Bu islem cihaz yeniden baslatilmasina neden olabilir."
+          bodyClassName="p-6"
+          footer={
+            <>
               <button
                 onClick={() => setShowConfirm(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 İptal
               </button>
@@ -1702,12 +1658,18 @@ const FirmwareManagementCard: React.FC<FirmwareManagementCardProps> = ({ device,
                   isDowngrade ? 'bg-orange-600 hover:bg-orange-700' : 'bg-cyan-600 hover:bg-cyan-700'
                 }`}
               >
-                {updateMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                {updateMutation.isPending && <Spinner size="sm" color="inherit" />}
                 Devam
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <p className="text-sm text-gray-700 dark:text-gray-300 mb-6">
+            <strong>{currentVersion || 'Bilinmiyor'}</strong> &rarr; <strong>{selectedVersion}</strong>
+            {isDowngrade && <span className="text-orange-600 font-medium"> (downgrade)</span>}
+            {' '}kurulacak. Devam edilsin mi?
+          </p>
+        </Modal>
       )}
 
       {/* Mutation error */}
@@ -1759,6 +1721,7 @@ const LoRaSection: React.FC<LoRaSectionProps> = ({ device }) => {
 // ============================================================================
 
 const EdgeDeviceDetailPage: React.FC = () => {
+  const confirm = useConfirm();
   const { deviceId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -1774,7 +1737,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-8 h-8 text-cyan-600 animate-spin" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -1799,8 +1762,8 @@ const EdgeDeviceDetailPage: React.FC = () => {
   const health = getHealthStatus(device);
   const healthColor = health === 'critical' ? 'text-red-600' : health === 'warning' ? 'text-yellow-600' : 'text-green-600';
 
-  const handleApprove = () => {
-    if (window.confirm('Bu cihazi onaylamak istediginizden emin misiniz?')) {
+  const handleApprove = async (): Promise<void> => {
+    if (await confirm({ title: 'Cihazı onayla?', message: 'Cihaz filoya alınır ve veri kabulü başlar.', confirmText: 'Onayla', cancelText: 'Vazgeç' })) {
       approveMutation.mutate(device.id, { onSuccess: () => refetch() });
     }
   };
@@ -1813,8 +1776,8 @@ const EdgeDeviceDetailPage: React.FC = () => {
     );
   };
 
-  const handleDecommission = () => {
-    if (window.confirm('Bu cihazi devre disi birakmak istediginizden emin misiniz? Bu islem geri alinamaz.')) {
+  const handleDecommission = async (): Promise<void> => {
+    if (await confirm({ title: 'Cihazı devre dışı bırak?', message: 'Bu işlem geri alınamaz; cihaz filodan çıkarılır.', confirmText: 'Devre dışı bırak', cancelText: 'Vazgeç', variant: 'danger' })) {
       decommissionMutation.mutate(
         { id: device.id, reason: 'User initiated decommission' },
         { onSuccess: () => navigate('/sensor/devices') },
@@ -1829,59 +1792,64 @@ const EdgeDeviceDetailPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link to="/sensor/devices" className="p-2 hover:bg-gray-100 rounded-lg transition-colors" aria-label="Cihaz listesine don">
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </Link>
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-gray-900">{device.deviceName}</h1>
+      <PageHeader
+        title={
+          <>
+            <span className="flex items-center gap-3">
+              {device.deviceName}
               <StatusBadge state={device.lifecycleState} />
               {device.isOnline ? (
                 <span className="flex items-center gap-1 text-xs text-green-600"><Wifi className="w-3.5 h-3.5" />Cevrimici</span>
               ) : (
-                <span className="flex items-center gap-1 text-xs text-gray-500"><WifiOff className="w-3.5 h-3.5" />Cevrimdisi</span>
+                <span className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"><WifiOff className="w-3.5 h-3.5" />Cevrimdisi</span>
               )}
-            </div>
-            <p className="text-gray-500 text-sm mt-0.5">
-              {device.deviceCode} · {getDeviceModelText(device.deviceModel)}
-              {device.serialNumber && ` · S/N: ${device.serialNumber}`}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handlePing}
-            disabled={pingMutation.isPending}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
-          >
-            <Activity className={`w-4 h-4 ${pingMutation.isPending ? 'animate-pulse' : ''}`} />
-            Ping
-          </button>
-          <button
-            onClick={() => refetch()}
-            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Yenile
-          </button>
-          {device.lifecycleState === DeviceLifecycleState.PENDING_APPROVAL && (
+            </span>
+          </>
+        }
+        description={
+          <>
+            {device.deviceCode} · {getDeviceModelText(device.deviceModel)}
+            {device.serialNumber && ` · S/N: ${device.serialNumber}`}
+          </>
+        }
+        leading={
+          <Link to="/sensor/devices" className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors" aria-label="Cihaz listesine don">
+            <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          </Link>
+        }
+        actions={
+          <div className="flex items-center gap-2">
             <button
-              onClick={handleApprove}
-              disabled={approveMutation.isPending}
-              className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+              onClick={handlePing}
+              disabled={pingMutation.isPending}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50"
             >
-              <CheckCircle className="w-4 h-4" />
-              Onayla
+              <Activity className={`w-4 h-4 ${pingMutation.isPending ? 'animate-pulse' : ''}`} />
+              Ping
             </button>
-          )}
-        </div>
-      </div>
+            <button
+              onClick={() => refetch()}
+              className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Yenile
+            </button>
+            {device.lifecycleState === DeviceLifecycleState.PENDING_APPROVAL && (
+              <button
+                onClick={() => void handleApprove()}
+                disabled={approveMutation.isPending}
+                className="flex items-center gap-2 px-3 py-2 text-sm text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50"
+              >
+                <CheckCircle className="w-4 h-4" />
+                Onayla
+              </button>
+            )}
+          </div>
+        }
+      />
 
       {/* Tabs */}
-      <div className="flex border-b border-gray-200" role="tablist">
+      <div className="flex border-b border-gray-200 dark:border-gray-700" role="tablist">
         {(['overview', 'io', 'config'] as const).map((tab) => (
           <button
             key={tab}
@@ -1891,7 +1859,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab
                 ? 'text-cyan-600 border-cyan-600'
-                : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+                : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
             }`}
           >
             {tab === 'overview' && <><Activity className="w-4 h-4" />Genel Bakis</>}
@@ -1914,7 +1882,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === 'lora'
                 ? 'text-cyan-600 border-cyan-600'
-                : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+                : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-100 hover:border-gray-300 dark:hover:border-gray-500'
             }`}
           >
             <Radio className="w-4 h-4" />
@@ -1927,13 +1895,13 @@ const EdgeDeviceDetailPage: React.FC = () => {
       {activeTab === 'overview' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Device Info */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
             <div className="flex flex-col items-center text-center mb-6">
-              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-3">
-                <Server className="w-8 h-8 text-gray-600" />
+              <div className="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-800 flex items-center justify-center mb-3">
+                <Server className="w-8 h-8 text-gray-600 dark:text-gray-400" />
               </div>
-              <h2 className="text-lg font-semibold text-gray-900">{device.deviceName}</h2>
-              <p className="text-sm text-gray-500">{getDeviceModelText(device.deviceModel)}</p>
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{device.deviceName}</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">{getDeviceModelText(device.deviceModel)}</p>
               <div className={`mt-2 flex items-center gap-1 text-sm font-medium ${healthColor}`}>
                 {health === 'good' && <><CheckCircle className="w-4 h-4" />Saglikli</>}
                 {health === 'warning' && <><AlertTriangle className="w-4 h-4" />Uyari</>}
@@ -1942,12 +1910,12 @@ const EdgeDeviceDetailPage: React.FC = () => {
             </div>
 
             <div className="space-y-0">
-              <InfoRow label="Cihaz Kodu" value={device.deviceCode} icon={<Tag className="w-3.5 h-3.5 text-gray-500" />} />
+              <InfoRow label="Cihaz Kodu" value={device.deviceCode} icon={<Tag className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />} />
               <InfoRow label="IP Adresi" value={device.ipAddress} />
               <InfoRow label="Firmware" value={device.firmwareVersion || 'Bilinmiyor'} />
-              <InfoRow label="Bolge" value={device.siteId} icon={<MapPin className="w-3.5 h-3.5 text-gray-500" />} />
+              <InfoRow label="Bolge" value={device.siteId} icon={<MapPin className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />} />
               <InfoRow label="Tarama Hizi" value={device.scanRateMs ? `${device.scanRateMs}ms` : null} />
-              <InfoRow label="Son Gorulme" value={formatLastSeen(device.lastSeenAt)} icon={<Clock className="w-3.5 h-3.5 text-gray-500" />} />
+              <InfoRow label="Son Gorulme" value={formatLastSeen(device.lastSeenAt)} icon={<Clock className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />} />
               <InfoRow label="Kayit Tarihi" value={new Date(device.createdAt).toLocaleDateString('tr-TR')} />
             </div>
           </div>
@@ -1955,8 +1923,8 @@ const EdgeDeviceDetailPage: React.FC = () => {
           {/* System Metrics + Stats */}
           <div className="lg:col-span-2 space-y-6">
             {/* Metrics */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Sistem Metrikleri</h3>
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Sistem Metrikleri</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <MetricBar label="CPU" value={device.cpuUsage} icon={<Cpu className="w-4 h-4 text-blue-500" />} />
                 <MetricBar label="Bellek" value={device.memoryUsage} icon={<MemoryStick className="w-4 h-4 text-purple-500" />} />
@@ -1964,32 +1932,32 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 <MetricBar label="Sicaklik" value={device.temperatureCelsius} unit="°C" icon={<Thermometer className="w-4 h-4 text-red-500" />} />
               </div>
               {!device.cpuUsage && !device.memoryUsage && !device.storageUsage && !device.temperatureCelsius && (
-                <p className="text-gray-500 text-sm text-center py-4">Metrik verisi henuz gelmedi</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm text-center py-4">Metrik verisi henuz gelmedi</p>
               )}
             </div>
 
             {/* Connection Info */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Baglanti Bilgileri</h3>
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Baglanti Bilgileri</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm text-gray-500">Baglanti Kalitesi</p>
-                  <p className="font-medium text-gray-900">{device.connectionQuality != null ? `${device.connectionQuality}%` : '-'}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Baglanti Kalitesi</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">{device.connectionQuality != null ? `${device.connectionQuality}%` : '-'}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">MQTT Client ID</p>
-                  <p className="font-medium text-gray-900 text-xs break-all">{device.mqttClientId || '-'}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">MQTT Client ID</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100 text-xs break-all">{device.mqttClientId || '-'}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Guvenlik Seviyesi</p>
-                  <p className="font-medium text-gray-900 flex items-center gap-1">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Guvenlik Seviyesi</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100 flex items-center gap-1">
                     <Shield className="w-4 h-4 text-blue-500" />
                     {device.securityLevel != null ? `SL-${device.securityLevel}` : '-'}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Sertifika</p>
-                  <p className="font-medium text-gray-900">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Sertifika</p>
+                  <p className="font-medium text-gray-900 dark:text-gray-100">
                     {device.certificateExpiresAt
                       ? new Date(device.certificateExpiresAt).toLocaleDateString('tr-TR')
                       : '-'}
@@ -2003,17 +1971,17 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
             {/* Summary stats */}
             <div className="grid grid-cols-3 gap-4">
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">{device.sensorCount ?? 0}</p>
-                <p className="text-sm text-gray-500">Sensor</p>
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 text-center">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{device.sensorCount ?? 0}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Sensor</p>
               </div>
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">{device.programCount ?? 0}</p>
-                <p className="text-sm text-gray-500">Program</p>
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 text-center">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{device.programCount ?? 0}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Program</p>
               </div>
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">{device.activeAlarmCount ?? 0}</p>
-                <p className="text-sm text-gray-500">Aktif Alarm</p>
+              <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 text-center">
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{device.activeAlarmCount ?? 0}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Aktif Alarm</p>
               </div>
             </div>
 
@@ -2035,7 +2003,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
                 )}
               </button>
               <button
-                onClick={handleDecommission}
+                onClick={() => void handleDecommission()}
                 disabled={decommissionMutation.isPending || device.lifecycleState === DeviceLifecycleState.DECOMMISSIONED}
                 className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 hover:bg-red-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
               >
@@ -2060,11 +2028,11 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Tags */}
           {device.tags && device.tags.length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Etiketler</h3>
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">Etiketler</h3>
               <div className="flex flex-wrap gap-2">
                 {device.tags.map((tag) => (
-                  <span key={tag} className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">{tag}</span>
+                  <span key={tag} className="px-3 py-1 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-full text-sm">{tag}</span>
                 ))}
               </div>
             </div>
@@ -2072,17 +2040,17 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Capabilities */}
           {device.capabilities && Object.keys(device.capabilities).length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Yetenekler</h3>
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">Yetenekler</h3>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {Object.entries(device.capabilities).map(([key, enabled]) => (
-                  <div key={key} className={`flex items-center gap-2 p-2 rounded-lg ${enabled ? 'bg-green-50' : 'bg-gray-50'}`}>
+                  <div key={key} className={`flex items-center gap-2 p-2 rounded-lg ${enabled ? 'bg-green-50' : 'bg-gray-50 dark:bg-gray-800'}`}>
                     {enabled ? (
                       <CheckCircle className="w-4 h-4 text-green-600" />
                     ) : (
-                      <span className="w-4 h-4 rounded-full border-2 border-gray-300" />
+                      <span className="w-4 h-4 rounded-full border-2 border-gray-300 dark:border-gray-600" />
                     )}
-                    <span className={`text-sm ${enabled ? 'text-green-800' : 'text-gray-500'}`}>{key}</span>
+                    <span className={`text-sm ${enabled ? 'text-green-800' : 'text-gray-500 dark:text-gray-400'}`}>{key}</span>
                   </div>
                 ))}
               </div>
@@ -2091,18 +2059,18 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
           {/* Raw Config */}
           {device.config && Object.keys(device.config).length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Cihaz Konfigurasyonu</h3>
-              <pre className="bg-gray-50 rounded-lg p-4 text-sm text-gray-700 overflow-x-auto">
+            <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">Cihaz Konfigurasyonu</h3>
+              <pre className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 text-sm text-gray-700 dark:text-gray-300 overflow-x-auto">
                 {JSON.stringify(device.config, null, 2)}
               </pre>
             </div>
           )}
 
           {/* Description */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Açıklama</h3>
-            <p className="text-gray-600">{device.description || 'Açıklama eklenmemis.'}</p>
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">Açıklama</h3>
+            <p className="text-gray-600 dark:text-gray-400">{device.description || 'Açıklama eklenmemis.'}</p>
           </div>
         </div>
       )}
@@ -2114,7 +2082,7 @@ const EdgeDeviceDetailPage: React.FC = () => {
 
       {/* Ping result toast */}
       {pingMutation.isSuccess && pingMutation.data && (
-        <div className="fixed bottom-6 right-6 bg-white rounded-lg shadow-lg border border-gray-200 p-4 z-50 animate-fade-in">
+        <div className="fixed bottom-6 right-6 bg-white dark:bg-gray-900 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-4 z-50 animate-fade-in">
           <div className="flex items-center gap-3">
             {pingMutation.data.success ? (
               <CheckCircle className="w-5 h-5 text-green-600" />
@@ -2122,11 +2090,11 @@ const EdgeDeviceDetailPage: React.FC = () => {
               <AlertTriangle className="w-5 h-5 text-red-600" />
             )}
             <div>
-              <p className="font-medium text-gray-900">
+              <p className="font-medium text-gray-900 dark:text-gray-100">
                 {pingMutation.data.success ? 'Ping Basarili' : 'Ping Basarisiz'}
               </p>
               {pingMutation.data.latencyMs != null && (
-                <p className="text-sm text-gray-500">{pingMutation.data.latencyMs}ms</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{pingMutation.data.latencyMs}ms</p>
               )}
             </div>
           </div>

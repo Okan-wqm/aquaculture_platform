@@ -5,6 +5,7 @@
 
 import React, { useMemo } from 'react';
 import { SensorReading, SensorStatus } from '../../../store/scadaViewerStore';
+import { colors } from '@aquaculture/shared-ui';
 
 interface SparklineWidgetProps {
   reading: SensorReading;
@@ -16,10 +17,10 @@ interface SparklineWidgetProps {
 }
 
 const statusColors: Record<SensorStatus, string> = {
-  normal: '#22c55e',
-  warning: '#eab308',
-  critical: '#ef4444',
-  offline: '#6b7280',
+  normal: colors.success[500],
+  warning: colors.warning[500],
+  critical: colors.error[500],
+  offline: colors.gray[400],
 };
 
 export const SparklineWidget: React.FC<SparklineWidgetProps> = ({
@@ -72,7 +73,7 @@ export const SparklineWidget: React.FC<SparklineWidgetProps> = ({
   return (
     <div className={`flex flex-col ${className}`}>
       {showLabel && (
-        <div className="text-xs text-gray-500 mb-1 capitalize">
+        <div className="text-xs text-gray-500 dark:text-gray-400 mb-1 capitalize">
           {type.replace('_', ' ')}
         </div>
       )}
@@ -132,10 +133,10 @@ export const SparklineWidget: React.FC<SparklineWidgetProps> = ({
         {/* Current value */}
         {showValue && (
           <div className="flex flex-col items-end">
-            <span className="text-sm font-semibold text-gray-900">
+            <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">
               {value.toFixed(1)}
             </span>
-            <span className="text-xs text-gray-500">{unit}</span>
+            <span className="text-xs text-gray-500 dark:text-gray-400">{unit}</span>
           </div>
         )}
       </div>
@@ -153,7 +154,7 @@ export const SparklineWidget: React.FC<SparklineWidgetProps> = ({
               : 'bg-gray-400'
           }`}
         />
-        <span className="text-xs text-gray-500 capitalize">{status}</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400 capitalize">{status}</span>
       </div>
     </div>
   );

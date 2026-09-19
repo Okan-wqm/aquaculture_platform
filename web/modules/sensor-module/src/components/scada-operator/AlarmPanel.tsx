@@ -10,7 +10,8 @@
  *  - History tab: date-range picker, re-queries server
  *  - Export to CSV (active or history)
  *  - Auto-refresh every 2 s while panel is open (re-emits status request)
- *  - Tailwind CSS + lucide-react icons
+ *  - Rows render through shared-ui DataTable (sticky header, loading and
+ *    empty states); severity tints the row, status and severity are pills
  */
 
 import React, {
@@ -40,6 +41,7 @@ import type {
   AlarmHistoryFilter,
 } from '../../types/scada-runtime.types';
 import { useAlarmRuntime } from '../../hooks/useAlarmRuntime';
+import { DataTable, type DataTableColumn, severityClasses } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -55,24 +57,24 @@ const SEVERITY_ORDER: AlarmSeverity[] = ['critical', 'high', 'warning', 'info'];
 
 const SEVERITY_STYLES: Record<AlarmSeverity, { badge: string; row: string; icon: React.ReactNode }> = {
   critical: {
-    badge: 'bg-red-600 text-white',
-    row: 'bg-red-50 dark:bg-red-950/20',
-    icon: <AlertCircle className="h-4 w-4 text-red-600" />,
+    badge: severityClasses('critical', 'solid'),
+    row: severityClasses('critical', 'row'),
+    icon: <AlertCircle className={`h-4 w-4 ${severityClasses('critical', 'text')}`} />,
   },
   high: {
-    badge: 'bg-orange-500 text-white',
-    row: 'bg-orange-50 dark:bg-orange-950/20',
-    icon: <AlertTriangle className="h-4 w-4 text-orange-500" />,
+    badge: severityClasses('high', 'solid'),
+    row: severityClasses('high', 'row'),
+    icon: <AlertTriangle className={`h-4 w-4 ${severityClasses('high', 'text')}`} />,
   },
   warning: {
-    badge: 'bg-yellow-400 text-gray-900',
-    row: 'bg-yellow-50 dark:bg-yellow-950/20',
-    icon: <AlertTriangle className="h-4 w-4 text-yellow-500" />,
+    badge: severityClasses('warning', 'solid'),
+    row: severityClasses('warning', 'row'),
+    icon: <AlertTriangle className={`h-4 w-4 ${severityClasses('warning', 'text')}`} />,
   },
   info: {
-    badge: 'bg-blue-500 text-white',
-    row: 'bg-blue-50 dark:bg-blue-950/20',
-    icon: <Info className="h-4 w-4 text-blue-500" />,
+    badge: severityClasses('info', 'solid'),
+    row: severityClasses('info', 'row'),
+    icon: <Info className={`h-4 w-4 ${severityClasses('info', 'text')}`} />,
   },
 };
 
@@ -132,87 +134,36 @@ function exportCsv(alarms: AlarmInstance[], filename: string): void {
 }
 
 /* ------------------------------------------------------------------ */
-/*  AlarmRow sub-component                                              */
+/*  Cell renderers                                                      */
 /* ------------------------------------------------------------------ */
 
-interface AlarmRowProps {
-  alarm: AlarmInstance;
-  onAck: (id: string) => void;
-  isHistory?: boolean;
-}
-
-const AlarmRow = memo(({ alarm, onAck, isHistory }: AlarmRowProps) => {
-  const styles = SEVERITY_STYLES[alarm.severity] ?? SEVERITY_STYLES.info;
-
+const SeverityBadge: React.FC<{ severity: AlarmSeverity }> = ({ severity }) => {
+  const styles = SEVERITY_STYLES[severity] ?? SEVERITY_STYLES.info;
   return (
-    <tr className={`border-b border-gray-200 dark:border-gray-700 ${styles.row}`}>
-      {/* Time */}
-      <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
-        {formatTime(alarm.onTime)}
-      </td>
-
-      {/* Severity */}
-      <td className="px-3 py-2">
-        <span
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${styles.badge}`}
-        >
-          {styles.icon}
-          {alarm.severity}
-        </span>
-      </td>
-
-      {/* Group */}
-      <td className="px-3 py-2 text-xs text-gray-600 dark:text-gray-400">
-        {alarm.group ?? '—'}
-      </td>
-
-      {/* Message */}
-      <td className="px-3 py-2 text-sm text-gray-900 dark:text-gray-100 max-w-xs truncate">
-        <span title={alarm.message}>{alarm.message}</span>
-      </td>
-
-      {/* Value vs Threshold */}
-      <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap font-mono">
-        {alarm.currentValue.toFixed(2)} / {alarm.threshold.toFixed(2)}
-      </td>
-
-      {/* Status */}
-      <td className="px-3 py-2 text-xs">
-        <span
-          className={`px-2 py-0.5 rounded font-medium ${
-            alarm.status === 'active'
-              ? 'text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-300'
-              : alarm.status === 'cleared'
-              ? 'text-orange-700 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-300'
-              : alarm.status === 'acknowledged'
-              ? 'text-green-700 bg-green-100 dark:bg-green-900/30 dark:text-green-300'
-              : 'text-gray-500 bg-gray-100 dark:bg-gray-800 dark:text-gray-400'
-          }`}
-        >
-          {STATUS_LABELS[alarm.status] ?? alarm.status}
-        </span>
-      </td>
-
-      {/* ACK button */}
-      {!isHistory && (
-        <td className="px-3 py-2">
-          {alarm.status !== 'acknowledged' && (
-            <button
-              onClick={() => onAck(alarm.id)}
-              title="Acknowledge alarm"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium
-                         bg-green-600 hover:bg-green-700 text-white transition-colors"
-            >
-              <CheckCircle className="h-3.5 w-3.5" />
-              ACK
-            </button>
-          )}
-        </td>
-      )}
-    </tr>
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wide ${styles.badge}`}
+    >
+      {styles.icon}
+      {severity}
+    </span>
   );
-});
-AlarmRow.displayName = 'AlarmRow';
+};
+
+const STATUS_PILL: Record<string, string> = {
+  active: 'text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-300',
+  cleared: 'text-orange-700 bg-orange-100 dark:bg-orange-900/30 dark:text-orange-300',
+  acknowledged: 'text-green-700 bg-green-100 dark:bg-green-900/30 dark:text-green-300',
+};
+
+const StatusPill: React.FC<{ status: string }> = ({ status }) => (
+  <span
+    className={`px-2 py-0.5 rounded text-xs font-medium ${
+      STATUS_PILL[status] ?? 'text-gray-500 bg-gray-100 dark:bg-gray-800 dark:text-gray-400'
+    }`}
+  >
+    {STATUS_LABELS[status] ?? status}
+  </span>
+);
 
 /* ------------------------------------------------------------------ */
 /*  AlarmPanel component                                                */
@@ -333,6 +284,74 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
     });
   }, []);
 
+  // ── Columns — the ACK column only on the active tab ─────────────────────
+  const columns = useMemo<DataTableColumn<AlarmInstance>[]>(() => {
+    const base: DataTableColumn<AlarmInstance>[] = [
+      {
+        key: 'onTime',
+        header: 'Time',
+        className: 'whitespace-nowrap',
+        render: (_value, alarm) => <span className="text-xs">{formatTime(alarm.onTime)}</span>,
+      },
+      {
+        key: 'severity',
+        header: 'Severity',
+        render: (_value, alarm) => <SeverityBadge severity={alarm.severity} />,
+      },
+      {
+        key: 'group',
+        header: 'Group',
+        render: (_value, alarm) => (
+          <span className="text-xs text-gray-600 dark:text-gray-400">{alarm.group ?? '—'}</span>
+        ),
+      },
+      {
+        key: 'message',
+        header: 'Message',
+        className: 'max-w-xs truncate',
+        render: (_value, alarm) => (
+          <span title={alarm.message} className="text-gray-900 dark:text-gray-100">
+            {alarm.message}
+          </span>
+        ),
+      },
+      {
+        key: 'currentValue',
+        header: 'Value / Threshold',
+        className: 'whitespace-nowrap',
+        render: (_value, alarm) => (
+          <span className="text-xs font-mono">
+            {alarm.currentValue.toFixed(2)} / {alarm.threshold.toFixed(2)}
+          </span>
+        ),
+      },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (_value, alarm) => <StatusPill status={alarm.status} />,
+      },
+    ];
+    if (tab === 'active') {
+      base.push({
+        key: 'ack',
+        header: 'ACK',
+        render: (_value, alarm) =>
+          alarm.status !== 'acknowledged' ? (
+            <button
+              onClick={() => acknowledgeAlarm(alarm.id)}
+              title="Acknowledge alarm"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium
+                         bg-green-600 hover:bg-green-700 text-white transition-colors"
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              ACK
+            </button>
+          ) : null,
+      });
+    }
+    return base;
+  }, [tab, acknowledgeAlarm]);
+
   /* ---------------------------------------------------------------- */
   /*  Render                                                            */
   /* ---------------------------------------------------------------- */
@@ -340,8 +359,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
   return (
     <div
       className={`flex flex-col bg-white dark:bg-gray-900 rounded-lg shadow-xl border
-                  border-gray-200 dark:border-gray-700 ${className}`}
-      style={{ minWidth: 720, maxHeight: '80vh' }}
+                  border-gray-200 dark:border-gray-700 ${className} min-w-[720px] max-h-[80vh]`}
     >
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
@@ -413,10 +431,10 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
       </div>
 
       {/* ── Filter bar ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-850">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
         {/* Text search */}
         <div className="relative flex-1 min-w-40">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Search alarms…"
@@ -509,7 +527,7 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
               className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600
                          bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
             />
-            <span className="text-gray-400 text-xs">to</span>
+            <span className="text-gray-400 dark:text-gray-500 text-xs">to</span>
             <input
               type="datetime-local"
               value={historyTo}
@@ -531,58 +549,24 @@ export const AlarmPanel = memo(({ onClose, className = '' }: AlarmPanelProps) =>
       </div>
 
       {/* ── Table ──────────────────────────────────────────────────── */}
-      <div className="flex-1 overflow-auto">
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12 text-gray-400">
-            <RefreshCw className="h-5 w-5 animate-spin mr-2" />
-            Loading…
-          </div>
-        ) : sortedAlarms.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-gray-400">
-            <CheckCircle className="h-8 w-8 mb-2 text-green-400" />
-            <p className="text-sm">No alarms{tab === 'active' ? ' active' : ' in history'}</p>
-          </div>
-        ) : (
-          <table className="w-full text-left border-collapse">
-            <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800 z-10">
-              <tr>
-                <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Time
-                </th>
-                <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Severity
-                </th>
-                <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Group
-                </th>
-                <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Message
-                </th>
-                <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Value / Threshold
-                </th>
-                <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                  Status
-                </th>
-                {tab === 'active' && (
-                  <th className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                    ACK
-                  </th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {sortedAlarms.map((alarm) => (
-                <AlarmRow
-                  key={alarm.id}
-                  alarm={alarm}
-                  onAck={acknowledgeAlarm}
-                  isHistory={tab === 'history'}
-                />
-              ))}
-            </tbody>
-          </table>
-        )}
+      <div className="flex-1 min-h-0">
+        <DataTable<AlarmInstance>
+          data={sortedAlarms}
+          columns={columns}
+          keyExtractor={(alarm) => alarm.id}
+          loading={isLoading}
+          loadingMessage="Loading…"
+          emptyIcon={<CheckCircle className="h-8 w-8 text-green-400" />}
+          emptyMessage={`No alarms${tab === 'active' ? ' active' : ' in history'}`}
+          searchable={false}
+          sortable={false}
+          compact
+          stickyHeader
+          flush
+          maxHeight="100%"
+          className="h-full"
+          rowClassName={(alarm) => (SEVERITY_STYLES[alarm.severity] ?? SEVERITY_STYLES.info).row}
+        />
       </div>
 
       {/* ── Footer ─────────────────────────────────────────────────── */}

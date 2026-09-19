@@ -131,7 +131,7 @@ const GeneralOptionsTab: React.FC = () => {
               of setField with an 'as any' cast. setField on readjustmentSettings was spreading
               undefined when nsType !== 'adjusting', silently producing partial objects. */}
           {visibility.showFirstReadjustment && mode.nsType === 'adjusting' && (
-            <div className="pt-3 border-t border-gray-100">
+            <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
               <Checkbox
                 label="Is this the first readjustment?"
                 checked={settings.readjustmentSettings?.isFirstReadjustment ?? true}
@@ -197,7 +197,7 @@ const GeneralOptionsTab: React.FC = () => {
 
           {/* Closed system extra fields */}
           {visibility.showTargetDrainagePercent && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-gray-100 dark:border-gray-700">
               <NumberInput
                 label="Target Drainage %"
                 value={g.serviceDefinition.targetDrainagePercent}
@@ -326,7 +326,7 @@ const GeneralOptionsTab: React.FC = () => {
             purityPercent={g.fertilizerOptions.chloride.purityPercent}
             onPurityChange={(v) => updateFertilizer('chloride', 'purityPercent', v)}
           />
-          <div className="pt-3 border-t border-gray-100 mt-3">
+          <div className="pt-3 border-t border-gray-100 dark:border-gray-700 mt-3">
             <Checkbox
               label="Use Ammonium Nitrate (NH4NO3)"
               checked={g.fertilizerOptions.useAmmoniumNitrate}

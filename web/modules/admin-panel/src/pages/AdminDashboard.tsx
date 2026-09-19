@@ -4,7 +4,7 @@
  * SUPER_ADMIN paneli ana sayfası - Sistem metrikleri ve hızlı erişim.
  */
 
-import { Badge, Card, MetricCard } from '@aquaculture/shared-ui';
+import { Badge, Card, MetricCard, PageHeader } from '@aquaculture/shared-ui';
 import React from 'react';
 import { Link } from 'react-router-dom';
 
@@ -71,8 +71,8 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Service Status</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Service Status</h3>
         <div className="flex items-center space-x-2 text-sm">
           <span className="text-green-600">{healthyCount} Healthy</span>
           {degradedCount > 0 && <span className="text-yellow-600">{degradedCount} Degraded</span>}
@@ -102,10 +102,10 @@ const ServiceStatusCard: React.FC<{ services: ServiceHealth[] }> = ({ services }
                       : 'bg-red-500'
                   }`}
                 />
-                <span className="text-sm font-medium text-gray-700">{service.name}</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{service.name}</span>
               </div>
               {service.responseTime && (
-                <p className="text-xs text-gray-500 mt-1">{service.responseTime}ms</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{service.responseTime}ms</p>
               )}
             </div>
           ))}
@@ -124,26 +124,26 @@ const DatabaseStatsCard: React.FC<{ database: SystemMetrics['database'] | undefi
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">Database</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Database</h3>
       </div>
       <div className="p-4">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <p className="text-xs text-gray-500">Size</p>
-            <p className="text-lg font-semibold text-gray-900">{database.databaseSize}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Size</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{database.databaseSize}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Table Count</p>
-            <p className="text-lg font-semibold text-gray-900">{database.tablesCount}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Table Count</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{database.tablesCount}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Active Connections</p>
-            <p className="text-lg font-semibold text-gray-900">{database.activeConnections}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Active Connections</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{database.activeConnections}</p>
           </div>
           <div>
-            <p className="text-xs text-gray-500">Total Connections</p>
-            <p className="text-lg font-semibold text-gray-900">{database.totalConnections}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Total Connections</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{database.totalConnections}</p>
           </div>
         </div>
       </div>
@@ -184,31 +184,31 @@ const RecentActivityCard: React.FC<{ logs: readonly AuditLog[] }> = ({ logs }) =
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Recent Activity</h3>
         <Link to={adminRoutes.audit} className="text-sm text-primary-600 hover:text-primary-700">
           View All
         </Link>
       </div>
-      <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
+      <div className="divide-y divide-gray-100 dark:divide-gray-700 max-h-80 overflow-y-auto">
         {logs.length === 0 ? (
-          <div className="p-4 text-center text-gray-500">No activity found</div>
+          <div className="p-4 text-center text-gray-500 dark:text-gray-400">No activity found</div>
         ) : (
           logs.map((log) => (
-            <div key={log.id} className="px-4 py-3 hover:bg-gray-50">
+            <div key={log.id} className="px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800">
               <div className="flex items-start justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center space-x-2">
-                    <p className="text-sm font-medium text-gray-900 truncate">{log.action}</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{log.action}</p>
                     <Badge variant={getSeverityColor(log.severity)} size="sm">
                       {log.severity}
                     </Badge>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                     {log.entityType} - {log.performedByEmail || log.performedBy}
                   </p>
                 </div>
-                <span className="text-xs text-gray-500 whitespace-nowrap ml-2">
+                <span className="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap ml-2">
                   {formatTime(log.createdAt)}
                 </span>
               </div>
@@ -256,8 +256,8 @@ const CircuitBreakerCard: React.FC<{
 
   return (
     <Card>
-      <div className="px-4 py-3 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-900">Circuit Breakers</h3>
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Circuit Breakers</h3>
       </div>
       <div className="p-4 space-y-3">
         {entries.map(([name, info]) => {
@@ -274,7 +274,7 @@ const CircuitBreakerCard: React.FC<{
                 <div className="flex items-center space-x-3">
                   <div className={`w-3 h-3 rounded-full ${style.dot}`} />
                   <div>
-                    <p className="text-sm font-semibold text-gray-900 uppercase">{name}</p>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 uppercase">{name}</p>
                     <Badge
                       variant={info.state === 'closed' ? 'success' : info.state === 'open' ? 'error' : 'warning'}
                       size="sm"
@@ -287,7 +287,7 @@ const CircuitBreakerCard: React.FC<{
                   <button
                     onClick={() => onReset(name)}
                     disabled={isResetting}
-                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                    className="inline-flex items-center px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
                   >
                     {isResetting ? 'Resetting...' : 'Reset'}
                   </button>
@@ -295,12 +295,12 @@ const CircuitBreakerCard: React.FC<{
               </div>
               <div className="mt-3 grid grid-cols-2 gap-4 text-xs">
                 <div>
-                  <span className="text-gray-500">Failures</span>
-                  <p className="font-semibold text-gray-900">{info.consecutiveFailures}</p>
+                  <span className="text-gray-500 dark:text-gray-400">Failures</span>
+                  <p className="font-semibold text-gray-900 dark:text-gray-100">{info.consecutiveFailures}</p>
                 </div>
                 <div>
-                  <span className="text-gray-500">Last failure</span>
-                  <p className="font-semibold text-gray-900">{formatTime(info.lastFailureTime)}</p>
+                  <span className="text-gray-500 dark:text-gray-400">Last failure</span>
+                  <p className="font-semibold text-gray-900 dark:text-gray-100">{formatTime(info.lastFailureTime)}</p>
                 </div>
               </div>
             </div>
@@ -399,34 +399,34 @@ const AdminDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Sayfa Basligi */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">System management and monitoring</p>
-        </div>
-        <button
-          onClick={() => {
-            refresh();
-          }}
-          disabled={loading}
-          className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-        >
-          <svg
-            className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+      <PageHeader
+        title="Admin Dashboard"
+        description="System management and monitoring"
+        actions={
+          <button
+            onClick={() => {
+              refresh();
+            }}
+            disabled={loading}
+            className="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-          Refresh
-        </button>
-      </div>
+            <svg
+              className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            Refresh
+          </button>
+        }
+      />
 
       {/* Whichever reads failed, named — where a rejected `/system/metrics`
           used to show as zeros and nothing else (ADMIN-HIGH-124). */}
@@ -484,14 +484,14 @@ const AdminDashboard: React.FC = () => {
 
       {/* Hizli Erisim */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Access</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Quick Access</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {quickLinks.map((link) => (
             <Link key={link.id} to={link.path}>
-              <Card className="p-4 hover:shadow-md hover:bg-gray-50 transition-all cursor-pointer h-full">
+              <Card className="p-4 hover:shadow-md hover:bg-gray-50 dark:hover:bg-gray-800 transition-all cursor-pointer h-full">
                 <div className="text-3xl mb-2">{link.icon}</div>
-                <p className="text-sm font-medium text-gray-900">{link.label}</p>
-                <p className="text-xs text-gray-500 mt-1">{link.description}</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{link.label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{link.description}</p>
               </Card>
             </Link>
           ))}
@@ -519,15 +519,15 @@ const AdminDashboard: React.FC = () => {
       {/* Kullanici Dagilimi */}
       {userStats && userStats.usersByRole.length > 0 && (
         <Card>
-          <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">User Distribution</h3>
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">User Distribution</h3>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               {userStats.usersByRole.map((item) => (
-                <div key={item.role} className="text-center p-4 bg-gray-50 rounded-lg">
+                <div key={item.role} className="text-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
                   <p className="text-2xl font-bold text-primary-600">{item.count}</p>
-                  <p className="text-sm text-gray-600 mt-1">{item.role}</p>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{item.role}</p>
                 </div>
               ))}
             </div>
@@ -538,35 +538,35 @@ const AdminDashboard: React.FC = () => {
       {/* Sistem Kaynak Kullanimi */}
       {metrics?.resources && (
         <Card>
-          <div className="px-4 py-3 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">System Resources</h3>
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">System Resources</h3>
           </div>
           <div className="p-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
-                <p className="text-xs text-gray-500">Heap Usage</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Heap Usage</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {Math.round(metrics.resources.memoryUsage.heapUsed / (1024 * 1024))} MB
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 dark:text-gray-400">
                   / {Math.round(metrics.resources.memoryUsage.heapTotal / (1024 * 1024))} MB
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">RSS Memory</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-xs text-gray-500 dark:text-gray-400">RSS Memory</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {Math.round(metrics.resources.memoryUsage.rss / (1024 * 1024))} MB
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Uptime</p>
-                <p className="text-lg font-semibold text-gray-900">
+                <p className="text-xs text-gray-500 dark:text-gray-400">Uptime</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {Math.round(metrics.resources.uptime / 3600)}h
                 </p>
               </div>
               <div>
-                <p className="text-xs text-gray-500">Node Version</p>
-                <p className="text-lg font-semibold text-gray-900">{metrics.resources.nodeVersion}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Node Version</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">{metrics.resources.nodeVersion}</p>
               </div>
             </div>
           </div>

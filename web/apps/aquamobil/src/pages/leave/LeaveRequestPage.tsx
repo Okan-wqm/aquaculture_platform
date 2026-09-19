@@ -1,10 +1,14 @@
 import { clsx } from 'clsx';
-import { List, ListInput, BlockTitle } from 'konsta/react';
-import { ArrowLeft, CalendarOff, AlertCircle } from 'lucide-react';
+import { CalendarOff, AlertCircle } from 'lucide-react';
 import { useState, useEffect, useCallback, ChangeEvent, type JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { SectionTitle, Input, Textarea, Switch } from '../../components/ui';
+
+import { LeaveTypeSwatch } from '@/components/LeaveTypeSwatch';
 import { QueuedStatusBadge } from '@/components/QueuedStatusBadge';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Spinner } from '@/components/ui/Spinner';
 import { useLeaveTypes, useMyLeaveBalances } from '@/hooks/useLeave';
 import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 import type { LeaveType, QueuedPayload } from '@/types';
@@ -125,19 +129,13 @@ export function LeaveRequestPage(): JSX.Element {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 pb-24">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-violet-600 to-violet-500 text-white">
-        <div className="flex items-center gap-3 px-4 py-4 pt-safe-top">
-          <button onClick={() => navigate(-1)} className="p-2 -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-            <ArrowLeft size={22} />
-          </button>
-          <div className="flex items-center gap-2.5">
-            <CalendarOff size={22} />
-            <h1 className="text-lg font-bold">New Leave Request</h1>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        tone="violet"
+        icon={CalendarOff}
+        title="New Leave Request"
+      />
 
       {/* Error Banner */}
       {errors.general && (
@@ -149,7 +147,7 @@ export function LeaveRequestPage(): JSX.Element {
 
       {/* Leave Type Selector */}
       <div className="px-4 mt-5">
-        <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">Leave Type</h3>
+        <h3 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-3">Leave Type</h3>
         <div className="grid grid-cols-2 gap-2">
           {leaveTypes.map((type: LeaveType) => (
             <button
@@ -166,10 +164,7 @@ export function LeaveRequestPage(): JSX.Element {
               )}
             >
               <div className="flex items-center gap-2">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: type.color || '#6366f1' }}
-                />
+                <LeaveTypeSwatch color={type.color} />
                 <span className="text-sm font-semibold text-gray-900 dark:text-white">{type.name}</span>
               </div>
               {type.isPaid && <span className="text-[10px] text-green-600 font-medium mt-1">Paid</span>}
@@ -190,9 +185,9 @@ export function LeaveRequestPage(): JSX.Element {
       )}
 
       {/* Dates */}
-      <BlockTitle>Dates</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
+      <SectionTitle>Dates</SectionTitle>
+      <div className="space-y-3 px-4">
+        <Input
           type="date"
           label="Start Date"
           value={startDate}
@@ -202,7 +197,7 @@ export function LeaveRequestPage(): JSX.Element {
           }}
           error={errors.startDate}
         />
-        <ListInput
+        <Input
           type="date"
           label="End Date"
           value={endDate}
@@ -212,19 +207,17 @@ export function LeaveRequestPage(): JSX.Element {
           }}
           error={errors.endDate}
         />
-      </List>
+      </div>
 
       {/* Half Day Toggle */}
-      <div className="px-4">
-        <label className="flex items-center gap-3 bg-white dark:bg-gray-900 rounded-xl p-3 border border-gray-100 dark:border-gray-800">
-          <input
-            type="checkbox"
-            checked={isHalfDay}
-            onChange={(e) => setIsHalfDay(e.target.checked)}
-            className="w-5 h-5 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
-          />
-          <span className="text-sm font-medium text-gray-900 dark:text-white">Half Day</span>
-        </label>
+      <div className="mt-3 px-4">
+        <Switch
+          label="Half Day"
+          checked={isHalfDay}
+          onChange={setIsHalfDay}
+          tone="violet"
+          className="rounded-xl border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-gray-900"
+        />
       </div>
 
       {/* Total Days */}
@@ -236,19 +229,19 @@ export function LeaveRequestPage(): JSX.Element {
       )}
 
       {/* Reason */}
-      <BlockTitle>Reason (Optional)</BlockTitle>
-      <List strongIos insetIos>
-        <ListInput
-          type="textarea"
+      <SectionTitle>Reason (Optional)</SectionTitle>
+      <div className="px-4">
+        <Textarea
+          label="Reason"
+          hideLabel
           placeholder="Why are you taking leave?"
           value={reason}
-          onInput={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
-          inputClassName="!h-24"
+          onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setReason(e.target.value)}
         />
-      </List>
+      </div>
 
       {/* Submit Button */}
-      <div className="px-4 pb-28">
+      <div className="px-4">
         <button
           onClick={() => { void handleSubmit(); }}
           disabled={!selectedTypeId || !startDate || !endDate || isSubmitting}
@@ -256,7 +249,7 @@ export function LeaveRequestPage(): JSX.Element {
         >
           {isSubmitting ? (
             <>
-              <span className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent" />
+              <Spinner size="md" color="white" />
               Submitting...
             </>
           ) : (

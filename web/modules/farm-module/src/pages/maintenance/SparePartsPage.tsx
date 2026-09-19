@@ -3,19 +3,7 @@
  * Displays and manages spare parts inventory with full CRUD operations
  */
 import React, { useState, useMemo } from 'react';
-import {
-  Card,
-  Button,
-  Modal,
-  Input,
-  Select,
-  Badge,
-  Spinner,
-  Alert,
-  formatCurrency as sharedFormatCurrency,
-  parseMoney,
-  DEFAULT_CURRENCY,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, formatCurrency as sharedFormatCurrency, parseMoney, DEFAULT_CURRENCY, useConfirm, PageHeader } from '@aquaculture/shared-ui';
 import {
   useSpareParts,
   useCreateSparePart,
@@ -29,6 +17,7 @@ import {
   CreateSparePartInput,
 } from '../../hooks/useMaintenance';
 import { isBlockingError } from '../../utils/list-view-state';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // Status colors
 const statusColors: Record<SparePartStatus, string> = {
@@ -36,7 +25,7 @@ const statusColors: Record<SparePartStatus, string> = {
   LOW_STOCK: 'bg-yellow-100 text-yellow-800',
   OUT_OF_STOCK: 'bg-red-100 text-red-800',
   ON_ORDER: 'bg-blue-100 text-blue-800',
-  DISCONTINUED: 'bg-gray-100 text-gray-800',
+  DISCONTINUED: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 // Status labels
@@ -251,8 +240,9 @@ export const SparePartsPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Bu yedek parçayı silmek istediğinizden emin misiniz?')) {
+    if (await confirm({ title: 'Yedek parçayı sil?', confirmText: 'Sil', cancelText: 'Vazgeç', variant: 'danger' })) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -290,6 +280,96 @@ export const SparePartsPage: React.FC = () => {
     );
   }
 
+  type ItemRow = (typeof filteredItems)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'kodSim',
+      header: 'Kod / İsim',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {item.code}
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">{item.name}</div>
+        </>
+      ),
+    },
+    {
+      key: 'parANo',
+      header: 'Parça No',
+      render: (_value, item) => item.partNumber,
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, item) => (
+        <Badge className={statusColors[item.status]}>
+          {statusLabels[item.status]}
+        </Badge>
+      ),
+    },
+    {
+      key: 'miktar',
+      header: 'Miktar',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`text-sm font-medium ${
+              item.quantity <= item.minStock
+                ? 'text-red-600'
+                : item.quantity <= item.reorderPoint
+                ? 'text-yellow-600'
+                : 'text-gray-900 dark:text-gray-100'
+            }`}
+          >
+            {item.quantity} {item.unit}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'minMax',
+      header: 'Min / Max',
+      render: (_value, item) => (
+        <>
+          {item.minStock} / {item.maxStock}
+        </>
+      ),
+    },
+    {
+      key: 'birimFiyat',
+      header: 'Birim Fiyat',
+      render: (_value, item) => formatCurrency(parseMoney(item.unitPriceDecimal), item.currency),
+    },
+    {
+      key: 'lemler',
+      header: 'İşlemler',
+      align: 'right',
+      render: (_value, item) => (
+        <>
+          <button
+            onClick={() => handleOpenStockMovement(item)}
+            className="text-green-600 hover:text-green-900 mr-3"
+          >
+            Stok
+          </button>
+          <button
+            onClick={() => handleOpenEdit(item)}
+            className="text-indigo-600 hover:text-indigo-900 mr-3"
+          >
+            Düzenle
+          </button>
+          <button
+            onClick={() => handleDelete(item.id)}
+            className="text-red-600 hover:text-red-900"
+          >
+            Sil
+          </button>
+        </>
+      ),
+    }
+  ];
+
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
@@ -303,37 +383,35 @@ export const SparePartsPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Yedek Parçalar</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Yedek parça envanterini görüntüleyin ve yönetin
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate}>Yeni Yedek Parça</Button>
-      </div>
+      <PageHeader
+        title="Yedek Parçalar"
+        description="Yedek parça envanterini görüntüleyin ve yönetin"
+        actions={
+          <Button onClick={handleOpenCreate}>Yeni Yedek Parça</Button>
+        }
+      />
 
       {/* Summary Cards */}
       {stockSummary && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Toplam Parça</div>
-            <div className="text-2xl font-bold text-gray-900">{stockSummary.totalParts}</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Parça</div>
+            <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stockSummary.totalParts}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Stokta</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Stokta</div>
             <div className="text-2xl font-bold text-green-600">{stockSummary.inStockCount}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Az Stok</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Az Stok</div>
             <div className="text-2xl font-bold text-yellow-600">{stockSummary.lowStockCount}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Stok Yok</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Stok Yok</div>
             <div className="text-2xl font-bold text-red-600">{stockSummary.outOfStockCount}</div>
           </Card>
           <Card className="p-4">
-            <div className="text-sm text-gray-500">Toplam Değer</div>
+            <div className="text-sm text-gray-500 dark:text-gray-400">Toplam Değer</div>
             <div className="text-2xl font-bold text-blue-600">{formatCurrency(parseMoney(stockSummary.totalValueDecimal))}</div>
           </Card>
         </div>
@@ -368,108 +446,21 @@ export const SparePartsPage: React.FC = () => {
             <Spinner size="lg" />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Kod / İsim
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Parça No
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Durum
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Miktar
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Min / Max
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Birim Fiyat
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    İşlemler
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      Henüz yedek parça bulunmuyor
-                    </td>
-                  </tr>
-                ) : (
-                  filteredItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {item.code}
-                        </div>
-                        <div className="text-sm text-gray-500">{item.name}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.partNumber}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge className={statusColors[item.status]}>
-                          {statusLabels[item.status]}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`text-sm font-medium ${
-                            item.quantity <= item.minStock
-                              ? 'text-red-600'
-                              : item.quantity <= item.reorderPoint
-                              ? 'text-yellow-600'
-                              : 'text-gray-900'
-                          }`}
-                        >
-                          {item.quantity} {item.unit}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {item.minStock} / {item.maxStock}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatCurrency(parseMoney(item.unitPriceDecimal), item.currency)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button
-                          onClick={() => handleOpenStockMovement(item)}
-                          className="text-green-600 hover:text-green-900 mr-3"
-                        >
-                          Stok
-                        </button>
-                        <button
-                          onClick={() => handleOpenEdit(item)}
-                          className="text-indigo-600 hover:text-indigo-900 mr-3"
-                        >
-                          Düzenle
-                        </button>
-                        <button
-                          onClick={() => handleDelete(item.id)}
-                          className="text-red-600 hover:text-red-900"
-                        >
-                          Sil
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ItemRow>
+            data={filteredItems}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="Henüz yedek parça bulunmuyor"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
 
         {/* Pagination */}
         {data && data.totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
+          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
               Toplam {data.total} kayıt, Sayfa {data.page} / {data.totalPages}
             </div>
             <div className="flex gap-2">
@@ -650,9 +641,9 @@ export const SparePartsPage: React.FC = () => {
       >
         <form onSubmit={handleStockMovementSubmit} className="space-y-4">
           {selectedPartForStock && (
-            <div className="bg-gray-50 p-4 rounded-lg mb-4">
-              <div className="text-sm text-gray-500">Mevcut Stok</div>
-              <div className="text-2xl font-bold text-gray-900">
+            <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg mb-4">
+              <div className="text-sm text-gray-500 dark:text-gray-400">Mevcut Stok</div>
+              <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                 {selectedPartForStock.quantity} {selectedPartForStock.unit}
               </div>
             </div>

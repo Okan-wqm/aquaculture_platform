@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { TagBrowser } from '../TagBrowser';
+import { colors } from '@aquaculture/shared-ui';
 
 interface DropdownOption {
   label: string;
@@ -51,7 +52,7 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
     <div className="space-y-3">
       {/* Tag binding */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Tag</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Tag</label>
         <TagBrowser
           deviceId={deviceId || null}
           value={(config.tagName as string) || ''}
@@ -62,36 +63,36 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
 
       {/* Label */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Label</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
         <input
           type="text"
           value={(config.label as string) || ''}
           onChange={(e) => onChange({ label: e.target.value })}
           placeholder="Selection"
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Placeholder */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Placeholder</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Placeholder</label>
         <input
           type="text"
           value={(config.placeholder as string) || ''}
           onChange={(e) => onChange({ placeholder: e.target.value })}
           placeholder="Select..."
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Show label toggle */}
       <div className="space-y-1">
-        <label className="flex items-center gap-2 text-xs text-gray-500">
+        <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           <input
             type="checkbox"
             checked={(config.showLabel as boolean) ?? true}
             onChange={(e) => onChange({ showLabel: e.target.checked })}
-            className="rounded border-gray-300"
+            className="rounded border-gray-300 dark:border-gray-600"
           />
           Show Label
         </label>
@@ -99,43 +100,43 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
 
       {/* Font size */}
       <div>
-        <label className="block text-xs text-gray-500 mb-1">Font Size (px)</label>
+        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Font Size (px)</label>
         <input
           type="number"
           min={8}
           max={24}
           value={(config.fontSize as number) ?? 12}
           onChange={(e) => onChange({ fontSize: Number(e.target.value) })}
-          className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+          className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
         />
       </div>
 
       {/* Colors */}
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Border Color</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Border Color</label>
           <input
             type="color"
-            value={(config.borderColor as string) ?? '#d1d5db'}
+            value={(config.borderColor as string) ?? colors.neutral[300]}
             onChange={(e) => onChange({ borderColor: e.target.value })}
-            className="w-full h-8 border border-gray-300 rounded cursor-pointer"
+            className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
           />
         </div>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">Background</label>
+          <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Background</label>
           <input
             type="color"
-            value={(config.backgroundColor as string) ?? '#ffffff'}
+            value={(config.backgroundColor as string) ?? colors.white}
             onChange={(e) => onChange({ backgroundColor: e.target.value })}
-            className="w-full h-8 border border-gray-300 rounded cursor-pointer"
+            className="w-full h-8 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
           />
         </div>
       </div>
 
       {/* Options list */}
-      <div className="pt-2 border-t border-gray-100">
+      <div className="pt-2 border-t border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between mb-2">
-          <label className="text-xs text-gray-500 font-medium">Options</label>
+          <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Options</label>
           <button
             onClick={addOption}
             className="text-xs text-cyan-600 hover:text-cyan-700"
@@ -151,14 +152,14 @@ export const DropdownSelectConfig: React.FC<WidgetConfigProps> = ({ config, onCh
                 value={opt.label}
                 onChange={(e) => updateOption(i, 'label', e.target.value)}
                 placeholder="Label"
-                className="flex-1 px-2 py-1 text-xs border border-gray-300 rounded"
+                className="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
               />
               <input
                 type="text"
                 value={String(opt.value)}
                 onChange={(e) => updateOption(i, 'value', e.target.value)}
                 placeholder="Value"
-                className="w-16 px-2 py-1 text-xs border border-gray-300 rounded"
+                className="w-16 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
               />
               <button
                 onClick={() => removeOption(i)}

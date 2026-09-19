@@ -4,47 +4,75 @@
  * Portal, animasyon ve erişilebilirlik desteği
  */
 
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useCallback, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
+
+import { dialogThemeAttributes, useDialogBehavior, type DialogTheme } from './useDialogBehavior';
 
 // ============================================================================
 // Tip Tanımlamaları
 // ============================================================================
+
+export type ModalSize = 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'full';
 
 export interface ModalProps {
   /** Modal açık mı */
   isOpen: boolean;
   /** Kapatma işleyicisi */
   onClose: () => void;
-  /** Modal başlığı */
-  title?: string;
+  /** Modal başlığı — ikonlu başlıklar için ReactNode da olabilir */
+  title?: React.ReactNode;
   /** Alt başlık veya açıklama */
-  description?: string;
-  /** Modal boyutu */
-  size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+  description?: React.ReactNode;
+  /** Modal boyutu (`2xl`: bir düzenleyici yüzeyi kadar geniş) */
+  size?: ModalSize;
   /** Overlay tıklaması ile kapatma */
   closeOnOverlayClick?: boolean;
   /** Escape tuşu ile kapatma */
   closeOnEscape?: boolean;
   /** Kapatma butonu göster */
   showCloseButton?: boolean;
+  /** Kapatma butonunun erişilebilir etiketi */
+  closeLabel?: string;
+  /**
+   * Renk şeması. `auto` (varsayılan) kabuğun `data-theme`'ini izler; `dark`
+   * diyaloğun kökünde `data-theme="dark"` sabitler, böylece her zaman koyu
+   * olan bir yüzey (ST editörü ve diyalogları) kendi `dark:` sınıflarını ve
+   * içeriğininkileri kabuk açıkken de alır (FE-MEDIUM-072).
+   */
+  theme?: DialogTheme;
+  /**
+   * Id of an element inside the body that names the dialog when no `title`
+   * is given (a centred confirmation renders its own heading). A dialog with
+   * neither is unnamed to assistive technology.
+   */
+  labelledBy?: string;
+  /** Id of an element inside the body that describes the dialog when no `description` is given. */
+  describedBy?: string;
   /** Footer içeriği */
   footer?: React.ReactNode;
   /** Modal içeriği */
   children: React.ReactNode;
-  /** Ek CSS sınıfları */
+  /** Panele ek CSS sınıfları */
   className?: string;
+  /**
+   * Gövde sarmalayıcısının sınıfları (varsayılan `p-4`). Kendi iç düzenini
+   * (sekmeler, kaydırılan liste, yapışkan alt şerit) getiren içerik `''` ya da
+   * `flex-1 min-h-0 overflow-y-auto` gibi bir değer geçer.
+   */
+  bodyClassName?: string;
 }
 
 // ============================================================================
 // Stil Sınıfları
 // ============================================================================
 
-const sizeStyles = {
+const sizeStyles: Record<ModalSize, string> = {
   sm: 'max-w-md',
   md: 'max-w-lg',
   lg: 'max-w-2xl',
   xl: 'max-w-4xl',
+  '2xl': 'max-w-6xl',
   full: 'max-w-full mx-4',
 };
 
@@ -90,19 +118,21 @@ export const Modal: React.FC<ModalProps> = ({
   closeOnOverlayClick = true,
   closeOnEscape = true,
   showCloseButton = true,
+  closeLabel = 'Close',
+  theme = 'auto',
+  labelledBy,
+  describedBy,
   footer,
   children,
   className = '',
+  bodyClassName = 'p-4',
 }) => {
   const modalRef = useRef<HTMLDivElement>(null);
-  const previousActiveElement = useRef<HTMLElement | null>(null);
-  // BUG-001/PERF-007: Store listener ref so removal always targets same identity
-  const listenerRef = useRef<((e: KeyboardEvent) => void) | null>(null);
-  // Store latest props in refs so the stable listener can access current values
-  const closeOnEscapeRef = useRef(closeOnEscape);
-  const onCloseRef = useRef(onClose);
-  useEffect(() => { closeOnEscapeRef.current = closeOnEscape; }, [closeOnEscape]);
-  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
+  const titleId = useId();
+  const descriptionId = useId();
+  // Escape, odak tuzağı, scroll kilidi, odak geri verme — Drawer ile ortak
+  // davranış useDialogBehavior'da (BUG-001/PERF-007, BUG-005, FE-HIGH-017).
+  useDialogBehavior({ isOpen, onClose, closeOnEscape, containerRef: modalRef });
 
   // Overlay tıklaması
   const handleOverlayClick = useCallback(
@@ -114,75 +144,6 @@ export const Modal: React.FC<ModalProps> = ({
     [closeOnOverlayClick, onClose]
   );
 
-  // Focus trap helper: cycle focus within modal (BUG-005)
-  const trapFocus = useCallback((event: KeyboardEvent) => {
-    if (!modalRef.current) return;
-    const focusable = modalRef.current.querySelectorAll<HTMLElement>(
-      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable.length === 0) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.key === 'Tab') {
-      if (event.shiftKey) {
-        if (document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (document.activeElement === last) {
-          event.preventDefault();
-          first.focus();
-        }
-      }
-    }
-  }, []);
-
-  // Modal açıldığında/kapandığında
-  useEffect(() => {
-    if (isOpen) {
-      // Önceki aktif elementi kaydet
-      previousActiveElement.current = document.activeElement as HTMLElement;
-
-      // Scroll'u engelle
-      document.body.style.overflow = 'hidden';
-
-      // BUG-001/PERF-007: Create stable listener using refs — avoids accumulating stale listeners
-      listenerRef.current = (event: KeyboardEvent) => {
-        if (event.key === 'Escape' && closeOnEscapeRef.current) {
-          onCloseRef.current();
-        }
-        trapFocus(event);
-      };
-      document.addEventListener('keydown', listenerRef.current);
-
-      // Modal'a focus
-      setTimeout(() => {
-        modalRef.current?.focus();
-      }, 0);
-    } else {
-      // Scroll'u geri aç
-      document.body.style.overflow = '';
-
-      // Remove by stable ref — guaranteed identity match
-      if (listenerRef.current) {
-        document.removeEventListener('keydown', listenerRef.current);
-        listenerRef.current = null;
-      }
-
-      // Önceki elemente focus
-      previousActiveElement.current?.focus();
-    }
-
-    return () => {
-      document.body.style.overflow = '';
-      if (listenerRef.current) {
-        document.removeEventListener('keydown', listenerRef.current);
-        listenerRef.current = null;
-      }
-    };
-  }, [isOpen, trapFocus]);
-
   // Modal kapalıysa render etme
   if (!isOpen) return null;
 
@@ -192,8 +153,9 @@ export const Modal: React.FC<ModalProps> = ({
       className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto"
       role="dialog"
       aria-modal="true"
-      aria-labelledby={title ? 'modal-title' : undefined}
-      aria-describedby={description ? 'modal-description' : undefined}
+      aria-labelledby={title ? titleId : labelledBy}
+      aria-describedby={description ? descriptionId : describedBy}
+      {...dialogThemeAttributes(theme)}
     >
       {/* Overlay */}
       <div
@@ -208,7 +170,7 @@ export const Modal: React.FC<ModalProps> = ({
         tabIndex={-1}
         className={`
           relative w-full ${sizeStyles[size]}
-          bg-white rounded-lg shadow-xl
+          bg-white rounded-lg shadow-xl dark:bg-gray-900 dark:border dark:border-gray-700
           transform transition-all
           my-8
           ${className}
@@ -216,20 +178,20 @@ export const Modal: React.FC<ModalProps> = ({
       >
         {/* Header */}
         {(title || showCloseButton) && (
-          <div className="flex items-start justify-between p-4 border-b border-gray-200">
+          <div className="flex items-start justify-between p-4 border-b border-gray-200 dark:border-gray-700">
             <div>
               {title && (
                 <h2
-                  id="modal-title"
-                  className="text-lg font-semibold text-gray-900"
+                  id={titleId}
+                  className="text-lg font-semibold text-gray-900 dark:text-gray-100"
                 >
                   {title}
                 </h2>
               )}
               {description && (
                 <p
-                  id="modal-description"
-                  className="mt-1 text-sm text-gray-500"
+                  id={descriptionId}
+                  className="mt-1 text-sm text-gray-500 dark:text-gray-400"
                 >
                   {description}
                 </p>
@@ -239,8 +201,8 @@ export const Modal: React.FC<ModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="p-1 text-gray-500 hover:text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
-                aria-label="Close"
+                className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-800"
+                aria-label={closeLabel}
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -251,11 +213,11 @@ export const Modal: React.FC<ModalProps> = ({
         )}
 
         {/* Body */}
-        <div className="p-4">{children}</div>
+        <div className={bodyClassName}>{children}</div>
 
         {/* Footer */}
         {footer && (
-          <div className="flex items-center justify-end space-x-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg">
+          <div className="flex items-center justify-end space-x-3 p-4 border-t border-gray-200 bg-gray-50 rounded-b-lg dark:border-gray-700 dark:bg-gray-800">
             {footer}
           </div>
         )}
@@ -292,6 +254,12 @@ export interface ConfirmModalProps {
   /** Onay butonu varyantı (alias for variant) */
   confirmVariant?: 'danger' | 'warning' | 'info';
   isLoading?: boolean;
+  /**
+   * Mesajın altında `role="alert"` ile gösterilen uyarı ya da hata satırı —
+   * tipik olarak başarısız bir denemenin nedeni. Diyaloğun içinde kalır ki
+   * kullanıcı bağlamı kaybetmeden yeniden deneyebilsin.
+   */
+  warning?: React.ReactNode;
   /**
    * Yüksek-riskli aksiyonlar için yazı-ile-onay kapısı. Buraya
    * `"ONAYLIYORUM"` gibi bir metin verirsen, kullanıcı onay butonuna
@@ -341,6 +309,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   confirmVariant,
   isLoading = false,
   requireTypedConfirmation,
+  warning,
   loadingText = 'İşleniyor...',
   typedConfirmationLabel,
 }) => {
@@ -351,6 +320,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   // onay butonu disabled kalır. Modal her açıldığında sıfırlanır (yanlış
   // yazıp iptal eden bir kullanıcı ikinci açışta "hazır onaylı" bulmasın).
   const [typedConfirmation, setTypedConfirmation] = React.useState('');
+  const headingId = React.useId();
+  const messageId = React.useId();
+  const gateId = React.useId();
   React.useEffect(() => {
     if (isOpen) {
       setTypedConfirmation('');
@@ -363,15 +335,15 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   // BUG-011: confirmVariant is now properly typed — use it directly with fallback to variant prop
   const variant: 'danger' | 'warning' | 'info' = confirmVariant ?? variantProp;
   const iconColors = {
-    danger: 'text-red-600 bg-red-100',
-    warning: 'text-yellow-600 bg-yellow-100',
-    info: 'text-blue-600 bg-blue-100',
+    danger: 'text-error-600 bg-error-100 dark:text-error-400 dark:bg-error-900/40',
+    warning: 'text-warning-600 bg-warning-100 dark:text-warning-400 dark:bg-warning-900/40',
+    info: 'text-info-600 bg-info-100 dark:text-info-400 dark:bg-info-900/40',
   };
 
   const buttonColors = {
-    danger: 'bg-red-600 hover:bg-red-700 focus:ring-red-500',
-    warning: 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500',
-    info: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500',
+    danger: 'bg-error-600 hover:bg-error-700 focus:ring-error-500',
+    warning: 'bg-warning-600 hover:bg-warning-700 focus:ring-warning-500',
+    info: 'bg-primary-600 hover:bg-primary-700 focus:ring-primary-500',
   };
 
   const icons = {
@@ -398,6 +370,8 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
       onClose={onClose}
       size="sm"
       showCloseButton={false}
+      labelledBy={headingId}
+      describedBy={messageId}
     >
       <div className="text-center">
         {/* İkon */}
@@ -406,21 +380,30 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
         </div>
 
         {/* Başlık ve mesaj */}
-        <h3 className="mt-4 text-lg font-semibold text-gray-900">{title}</h3>
+        <h3 id={headingId} className="mt-4 text-lg font-semibold text-gray-900 dark:text-gray-100">{title}</h3>
         {/*
           `message` ReactNode kabul ediyor — string ile tipografi
           `<p>` sarmalaması; ReactNode ile olduğu gibi render.
         */}
         {typeof message === 'string' ? (
-          <p className="mt-2 text-sm text-gray-500">{message}</p>
+          <p id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</p>
         ) : (
-          <div className="mt-2 text-sm text-gray-500">{message}</div>
+          <div id={messageId} className="mt-2 text-sm text-gray-500 dark:text-gray-400">{message}</div>
+        )}
+
+        {warning && (
+          <div
+            role="alert"
+            className="mt-4 rounded-lg border border-warning-100 bg-warning-50 p-3 text-left text-sm text-warning-700 dark:border-warning-800 dark:bg-warning-900/30 dark:text-warning-300"
+          >
+            {warning}
+          </div>
         )}
 
         {/* Yazı-ile-onay gate — yalnızca requireTypedConfirmation verilmişse */}
         {requireTypedConfirmation && (
           <div className="mt-4 text-left">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor={gateId} className="block text-sm font-medium text-gray-700 mb-1 dark:text-gray-300">
               {typedConfirmationLabel ? (
                 typedConfirmationLabel.split('{text}').map((part, idx, arr) => (
                   <React.Fragment key={idx}>
@@ -438,13 +421,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
               )}
             </label>
             <input
+              id={gateId}
               type="text"
               value={typedConfirmation}
               onChange={(e) => setTypedConfirmation(e.target.value)}
               disabled={isLoading}
               autoComplete="off"
-              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-blue-500 disabled:opacity-50"
-              aria-label="Typed confirmation"
+              className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-offset-0 focus:ring-primary-500 disabled:opacity-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100"
             />
           </div>
         )}
@@ -455,7 +438,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors disabled:opacity-50 dark:text-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700"
           >
             {cancelText}
           </button>

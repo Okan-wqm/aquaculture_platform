@@ -76,12 +76,14 @@ const NotFoundPage: React.FC<NotFoundPageProps> = ({ type = 'notfound' }) => {
   const content = pageContent[type];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-800 flex items-center justify-center p-4">
       <div className="text-center max-w-md">
         <div className="text-gray-300 mb-6 flex justify-center">{content.icon}</div>
         <div className="text-6xl font-bold text-gray-200 mb-4">{content.code}</div>
-        <h1 className="text-2xl font-bold text-gray-900 mb-2">{content.title}</h1>
-        <p className="text-gray-600 mb-8">{content.description}</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-2">
+          {content.title}
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400 mb-8">{content.description}</p>
 
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Link to="/">
@@ -92,7 +94,7 @@ const NotFoundPage: React.FC<NotFoundPageProps> = ({ type = 'notfound' }) => {
           </Button>
         </div>
 
-        <p className="mt-8 text-sm text-gray-500">
+        <p className="mt-8 text-sm text-gray-500 dark:text-gray-400">
           If the issue persists, please contact{' '}
           <a href="/support" className="text-primary-600 hover:text-primary-700 font-medium">
             support

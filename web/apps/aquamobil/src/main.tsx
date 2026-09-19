@@ -1,5 +1,4 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { App as KonstaApp } from 'konsta/react';
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -11,6 +10,7 @@ import { IdentityBoundary } from './components/IdentityBoundary';
 import { AuthProvider } from './hooks/useAuth';
 import { OfflineProvider } from './hooks/useOfflineQueue';
 import { I18nProvider } from './i18n';
+import { announceUpdate } from './pwa/update-available';
 import './styles/main.css';
 import { logger } from './utils/logger';
 
@@ -56,12 +56,14 @@ const queryClient = new QueryClient({
 // it is a plain assignment (no floating-promise concern).
 const updateSW = registerSW({
   onNeedRefresh() {
-    if (confirm('New version available. Reload to update?')) {
+    // Announced to <UpdatePrompt /> instead of a blocking browser confirm():
+    // the banner is stylable, dark-mode aware and does not freeze the tab.
+    announceUpdate(() => {
       // FE-HIGH-056: updateSW(true) returns a Promise; `void` marks it
       // intentionally un-awaited (we trigger the reload-on-activate and let the
       // SW take over) instead of leaving a floating promise.
       void updateSW(true);
-    }
+    });
   },
   onOfflineReady() {
     logger.info('App ready to work offline');
@@ -73,14 +75,6 @@ const updateSW = registerSW({
     logger.error('Service worker registration error:', error);
   },
 });
-
-// Detect iOS for Konsta theme
-// SEC-08: Use navigator.maxTouchPoints instead of the deprecated navigator.platform.
-// The maxTouchPoints check handles iPadOS 13+ which reports a Mac-like userAgent.
-const isIOS =
-  typeof navigator !== 'undefined' &&
-  (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.maxTouchPoints > 1 && /Mac/.test(navigator.userAgent)));
 
 // FE-HIGH-056: explicit null check for the mount node instead of a forbidden
 // non-null assertion. A missing #root is a deploy-shell error, not a runtime
@@ -108,9 +102,7 @@ ReactDOM.createRoot(rootElement).render(
             <AuthProvider>
               <IdentityBoundary>
                 <OfflineProvider>
-                  <KonstaApp theme={isIOS ? 'ios' : 'material'} safeAreas>
-                    <App />
-                  </KonstaApp>
+                  <App />
                 </OfflineProvider>
               </IdentityBoundary>
             </AuthProvider>

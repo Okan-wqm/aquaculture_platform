@@ -1,5 +1,6 @@
 import type { AnimationRule, AnimationState, ColorRange } from './types';
 import { DEFAULT_ANIMATION_STATE } from './types';
+import { colors } from '@aquaculture/shared-ui';
 
 function applyBitmask(value: number, bitmask?: number): number {
   if (!bitmask) return value;
@@ -59,9 +60,9 @@ export function evaluate(rules: AnimationRule[], tagValues: Record<string, unkno
         state.fillPercent = pct;
         state.fillColor = opts.fillColor;
         if (opts.fillCriticalThreshold != null && pct >= opts.fillCriticalThreshold) {
-          state.fillColor = opts.fillCriticalColor ?? '#ef4444';
+          state.fillColor = opts.fillCriticalColor ?? colors.error[500];
         } else if (opts.fillWarningThreshold != null && pct >= opts.fillWarningThreshold) {
-          state.fillColor = opts.fillWarningColor ?? '#eab308';
+          state.fillColor = opts.fillWarningColor ?? colors.warning[500];
         }
         break;
       }

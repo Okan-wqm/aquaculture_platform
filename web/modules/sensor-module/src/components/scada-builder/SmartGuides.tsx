@@ -10,6 +10,7 @@ import React, { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useScadaPackageStore } from '../../store/scada';
 import { GRID_CELL_W, GRID_CELL_H } from '../../constants/scada-widget-sizes';
+import { colors } from '@aquaculture/shared-ui';
 
 interface SmartGuidesProps {
   /** Currently dragging widget ID, or null when not dragging */
@@ -125,8 +126,7 @@ export const SmartGuides: React.FC<SmartGuidesProps> = ({
 
   return (
     <svg
-      className="absolute inset-0 pointer-events-none z-[100]"
-      style={{ width: '100%', height: '100%', overflow: 'visible' }}
+      className="absolute inset-0 pointer-events-none z-[100] w-full h-full overflow-visible"
     >
       {guides.map((guide, i) =>
         guide.orientation === 'vertical' ? (
@@ -136,7 +136,7 @@ export const SmartGuides: React.FC<SmartGuidesProps> = ({
             y1={guide.start}
             x2={guide.position}
             y2={guide.end}
-            stroke="#06b6d4"
+            stroke={colors.primary[400]}
             strokeWidth={1}
             strokeDasharray="4 3"
             opacity={0.7}
@@ -148,7 +148,7 @@ export const SmartGuides: React.FC<SmartGuidesProps> = ({
             y1={guide.position}
             x2={guide.end}
             y2={guide.position}
-            stroke="#06b6d4"
+            stroke={colors.primary[400]}
             strokeWidth={1}
             strokeDasharray="4 3"
             opacity={0.7}

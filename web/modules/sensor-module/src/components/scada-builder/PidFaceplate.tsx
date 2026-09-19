@@ -5,8 +5,9 @@
  * connection points, and status in a professional modal layout.
  */
 
-import React, { useEffect, useMemo } from 'react';
-import { X, Activity, Zap, CircleDot } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Activity, Zap, CircleDot } from 'lucide-react';
+import { Drawer, colors as themeColors, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import { CONNECTION_POINTS, CONNECTION_POINT_COLORS } from './equipment-symbols/types';
 import type { ConnectionPointKey, EquipmentConnectionPoint } from '../../types/scada-widget.types';
 import { WidgetRenderer } from './WidgetRenderer';
@@ -32,11 +33,11 @@ interface PidFaceplateProps {
 /* ------------------------------------------------------------------ */
 
 const STATE_COLORS: Record<string, string> = {
-  running: '#22c55e',
-  open:    '#22c55e',
-  stopped: '#9ca3af',
-  closed:  '#9ca3af',
-  fault:   '#ef4444',
+  running: themeColors.success[500],
+  open:    themeColors.success[500],
+  stopped: themeColors.neutral[400],
+  closed:  themeColors.neutral[400],
+  fault:   themeColors.error[500],
 };
 
 const STATE_LABELS: Record<string, string> = {
@@ -49,7 +50,7 @@ const STATE_LABELS: Record<string, string> = {
 
 function getStatusColor(state: unknown): string {
   if (typeof state === 'string' && STATE_COLORS[state]) return STATE_COLORS[state];
-  return '#9ca3af'; // default gray
+  return themeColors.neutral[400]; // default gray
 }
 
 function getStatusLabel(state: unknown): string {
@@ -74,15 +75,6 @@ const DIRECTION_LABELS: Record<string, string> = {
 
 export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) => {
   const { config, position: pos } = widget;
-
-  // Close on Escape key
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
 
   // Resolve connection points
   const connectionPoints = useMemo<EquipmentConnectionPoint[]>(() => {
@@ -136,152 +128,144 @@ export const PidFaceplate: React.FC<PidFaceplateProps> = ({ widget, onClose }) =
   );
 
   /* ---------- Render ---------------------------------------------- */
+  type FaceplateConnectionPoint = (typeof connectionPoints)[number];
+  const faceplateConnectionPointColumns: DataTableColumn<FaceplateConnectionPoint>[] = [
+    {
+      key: 'port',
+      header: 'Port',
+      render: (_value, pt) => pt.id,
+    },
+    {
+      key: 'side',
+      header: 'Side',
+      render: (_value, pt) => pt.side,
+    },
+    {
+      key: 'direction',
+      header: 'Direction',
+      render: (_value, pt) => DIRECTION_LABELS[pt.direction] || pt.direction,
+    },
+    {
+      key: 'color',
+      header: 'Color',
+      align: 'center',
+      render: (_value, pt) => (
+        <span
+          className="inline-block w-3 h-3 rounded-full border border-white shadow-sm"
+          style={{
+            backgroundColor: CONNECTION_POINT_COLORS[pt.direction],
+          }}
+          title={pt.direction}
+        />
+      ),
+    }
+  ];
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-      onClick={(e) => {
-        // Close when clicking overlay (not dialog content)
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="bg-white rounded-xl shadow-2xl w-[480px] max-h-[80vh] overflow-hidden flex flex-col">
-        {/* ── Header ──────────────────────────────────────────────── */}
-        <div className="bg-gray-800 text-white px-4 py-3 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            {/* Status indicator */}
-            <span
-              className="inline-block w-3 h-3 rounded-full shrink-0"
-              style={{ backgroundColor: getStatusColor(state) }}
-              title={getStatusLabel(state)}
-            />
-            {/* Equipment name */}
-            <span className="font-semibold text-sm truncate">{equipmentLabel}</span>
-            {/* Type badge */}
-            <span className="text-[10px] uppercase tracking-wider bg-gray-600 px-2 py-0.5 rounded font-medium shrink-0">
-              {widget.widgetType}
-            </span>
-          </div>
+    <Drawer
+      isOpen
+      onClose={onClose}
+      side="right"
+      size="lg"
+      closeLabel="Close"
+      title={
+        <span className="flex items-center gap-3 min-w-0">
+          {/* Status indicator */}
+          <span
+            className="inline-block w-3 h-3 rounded-full shrink-0"
+            style={{ backgroundColor: getStatusColor(state) }}
+            title={getStatusLabel(state)}
+          />
+          {/* Equipment name */}
+          <span className="truncate">{equipmentLabel}</span>
+          {/* Type badge */}
+          <span className="text-[10px] uppercase tracking-wider bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 px-2 py-0.5 rounded font-medium shrink-0">
+            {widget.widgetType}
+          </span>
+        </span>
+      }
+      footer={
+        <>
           <button
-            onClick={onClose}
-            className="p-1 hover:bg-gray-700 rounded transition-colors"
-            title="Close"
-          >
-            <X size={18} />
-          </button>
-        </div>
-
-        {/* ── Main Content ────────────────────────────────────────── */}
-        <div className="p-4 space-y-4 overflow-y-auto flex-1">
-          {/* Two-column layout: SVG preview + Properties */}
-          <div className="flex gap-4">
-            {/* Left column: Equipment SVG preview */}
-            <div className="w-[140px] h-[140px] shrink-0 border border-gray-200 rounded-lg bg-gray-50 flex items-center justify-center overflow-hidden">
-              <WidgetRenderer
-                widgetType={widget.widgetType}
-                config={config}
-                width={120}
-                height={120}
-                isEditing={false}
-              />
-            </div>
-
-            {/* Right column: Properties table */}
-            <div className="flex-1 min-w-0">
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <Activity size={12} />
-                Properties
-              </h3>
-              <table className="w-full text-sm">
-                <tbody>
-                  {propertyRows.map((row, idx) => (
-                    <tr
-                      key={row.label}
-                      className={idx % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
-                    >
-                      <td className="py-1 px-2 text-gray-500 font-medium whitespace-nowrap">
-                        {row.label}
-                      </td>
-                      <td className="py-1 px-2 text-gray-900">
-                        <span className="flex items-center gap-1.5">
-                          {row.color && (
-                            <span
-                              className="inline-block w-2 h-2 rounded-full shrink-0"
-                              style={{ backgroundColor: row.color }}
-                            />
-                          )}
-                          {row.value}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* ── Connection Points Section ─────────────────────────── */}
-          {connectionPoints.length > 0 && (
-            <div>
-              <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                <CircleDot size={12} />
-                Connection Points
-              </h3>
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="bg-gray-100 text-gray-600">
-                      <th className="py-1.5 px-2 text-left font-semibold">Port</th>
-                      <th className="py-1.5 px-2 text-left font-semibold">Side</th>
-                      <th className="py-1.5 px-2 text-left font-semibold">Direction</th>
-                      <th className="py-1.5 px-2 text-center font-semibold">Color</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {connectionPoints.map((pt, idx) => (
-                      <tr
-                        key={pt.id}
-                        className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}
-                      >
-                        <td className="py-1 px-2 font-mono text-gray-800">{pt.id}</td>
-                        <td className="py-1 px-2 text-gray-600 capitalize">{pt.side}</td>
-                        <td className="py-1 px-2 text-gray-600">
-                          {DIRECTION_LABELS[pt.direction] || pt.direction}
-                        </td>
-                        <td className="py-1 px-2 text-center">
-                          <span
-                            className="inline-block w-3 h-3 rounded-full border border-white shadow-sm"
-                            style={{
-                              backgroundColor: CONNECTION_POINT_COLORS[pt.direction],
-                            }}
-                            title={pt.direction}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── Footer ──────────────────────────────────────────────── */}
-        <div className="px-4 py-3 border-t border-gray-200 flex justify-end gap-2 shrink-0">
-          <button
-            className="px-4 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors flex items-center gap-1.5"
+            type="button"
+            className="px-4 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors flex items-center gap-1.5"
           >
             <Zap size={14} />
             Properties
           </button>
           <button
+            type="button"
             onClick={onClose}
             className="px-4 py-1.5 text-sm font-medium text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
           >
             Close
           </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {/* Two-column layout: SVG preview + Properties */}
+        <div className="flex gap-4">
+          {/* Left column: Equipment SVG preview */}
+          <div className="w-[140px] h-[140px] shrink-0 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 flex items-center justify-center overflow-hidden">
+            <WidgetRenderer
+              widgetType={widget.widgetType}
+              config={config}
+              width={120}
+              height={120}
+              isEditing={false}
+            />
+          </div>
+
+          {/* Right column: Properties table */}
+          <div className="flex-1 min-w-0">
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <Activity size={12} />
+              Properties
+            </h3>
+            <dl className="w-full text-sm">
+              {propertyRows.map((row, idx) => (
+                <div
+                  key={row.label}
+                  className={`flex items-center gap-3 py-1 px-2 ${idx % 2 === 0 ? 'bg-gray-50 dark:bg-gray-800' : 'bg-white dark:bg-gray-900'}`}
+                >
+                  <dt className="text-gray-500 dark:text-gray-400 font-medium whitespace-nowrap">{row.label}</dt>
+                  <dd className="flex items-center gap-1.5 text-gray-900 dark:text-gray-100">
+                    {row.color && (
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: row.color }}
+                      />
+                    )}
+                    {row.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </div>
         </div>
+
+        {/* ── Connection Points Section ─────────────────────────── */}
+        {connectionPoints.length > 0 && (
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <CircleDot size={12} />
+              Connection Points
+            </h3>
+            <DataTable<FaceplateConnectionPoint>
+              data={connectionPoints}
+              columns={faceplateConnectionPointColumns}
+              keyExtractor={(pt) => pt.id}
+              emptyMessage="No connection points"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              compact
+            />
+          </div>
+        )}
       </div>
-    </div>
+    </Drawer>
   );
 };
 

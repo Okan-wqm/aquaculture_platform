@@ -28,6 +28,8 @@ import type { DataProviderType } from '../../types/scada-runtime.types';
 import { OperatorHeader } from './OperatorHeader';
 import { OperatorSidenav } from './OperatorSidenav';
 import { ViewOverlayManager } from './ViewOverlayManager';
+import { AlarmAnnouncer } from './AlarmAnnouncer';
+import { severityClasses, normalizeSeverity } from '@aquaculture/shared-ui';
 
 /* ------------------------------------------------------------------ */
 /*  Props                                                               */
@@ -59,16 +61,9 @@ export interface OperatorShellProps {
 /*  Alarm severity badge helpers                                        */
 /* ------------------------------------------------------------------ */
 
-const SEVERITY_COLORS: Record<string, string> = {
-  critical: 'bg-red-600 text-white',
-  high: 'bg-orange-500 text-white',
-  warning: 'bg-yellow-500 text-black',
-  info: 'bg-blue-500 text-white',
-};
-
 function AlarmBadgeCount({ count, severity }: { count: number; severity: string }) {
   if (count === 0) return null;
-  const colorClass = SEVERITY_COLORS[severity] ?? 'bg-gray-500 text-white';
+  const colorClass = severityClasses(normalizeSeverity(severity), 'solid');
   return (
     <span
       className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold px-1 ${colorClass}`}
@@ -103,15 +98,15 @@ const AlarmPanel = React.memo(() => {
   const highCount     = activeAlarms.filter((a) => a.severity === 'high').length;
   const warningCount  = activeAlarms.filter((a) => a.severity === 'warning').length;
 
-  if (!alarmPanelOpen) return null;
+  if (!alarmPanelOpen) return <AlarmAnnouncer alarms={activeAlarms} />;
 
   return (
     <div
-      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col"
-      style={{ maxHeight: '40vh' }}
+      className="absolute bottom-0 left-0 right-0 bg-gray-900 border-t border-gray-700 shadow-2xl z-40 flex flex-col max-h-[40vh]"
       role="region"
       aria-label="Alarm panel"
     >
+      <AlarmAnnouncer alarms={activeAlarms} />
       {/* Panel header row */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700 shrink-0">
         <div className="flex items-center gap-3">
@@ -126,7 +121,7 @@ const AlarmPanel = React.memo(() => {
         <button
           type="button"
           onClick={toggleAlarmPanel}
-          className="text-gray-400 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400"
+          className="text-gray-400 dark:text-gray-500 hover:text-gray-100 text-xs px-2 py-1 rounded hover:bg-gray-700 transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-400"
           aria-label="Close alarm panel"
         >
           Close
@@ -136,7 +131,7 @@ const AlarmPanel = React.memo(() => {
       {/* Scrollable alarm list */}
       <div className="flex-1 overflow-y-auto">
         {activeAlarms.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-gray-400">
+          <div className="flex items-center justify-center gap-2 py-8 text-gray-400 dark:text-gray-500">
             <CheckCircle2 size={20} aria-hidden="true" />
             <span className="text-sm">No active alarms</span>
           </div>
@@ -164,16 +159,16 @@ const AlarmPanel = React.memo(() => {
                   <span className="text-xs font-medium text-gray-100 truncate block">
                     {alarm.ruleName}
                   </span>
-                  <span className="text-xs text-gray-400 truncate block">
+                  <span className="text-xs text-gray-400 dark:text-gray-500 truncate block">
                     {alarm.message}
                   </span>
                 </div>
-                <span className="text-[10px] text-gray-500 whitespace-nowrap">
+                <span className="text-[10px] text-gray-500 dark:text-gray-400 whitespace-nowrap">
                   {new Date(alarm.onTime).toLocaleTimeString()}
                 </span>
                 <span
                   className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-semibold shrink-0 ${
-                    SEVERITY_COLORS[alarm.severity] ?? 'bg-gray-600 text-white'
+                    severityClasses(normalizeSeverity(alarm.severity), 'solid')
                   }`}
                 >
                   {alarm.severity}
@@ -280,6 +275,7 @@ export const OperatorShell = React.memo<OperatorShellProps>(
         <div
           className="relative flex flex-col w-screen h-screen overflow-hidden bg-gray-950 text-gray-100"
           role="application"
+          data-theme="dark"
           aria-label="SCADA operator interface"
         >
           {/* ── Top header ── */}

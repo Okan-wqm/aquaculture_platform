@@ -99,14 +99,14 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
           </div>
           <span className={clsx('text-2xl font-bold tabular-nums', colors.text)}>
             {risk.riskScore}
-            <span className="text-xs font-medium text-gray-400 ml-0.5">/100</span>
+            <span className="text-xs font-medium text-gray-400 dark:text-gray-500 ml-0.5">/100</span>
           </span>
         </div>
 
         {/* WHY: Risk factors explain "why" the score is what it is — builds operator trust */}
         {risk.factors.length > 0 && (
           <div className="mb-3">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+            <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">
               Contributing Factors
             </p>
             <div className="flex flex-wrap gap-1.5">
@@ -126,7 +126,7 @@ export function TankRiskBadge({ tankId }: TankRiskBadgeProps): ReactElement | nu
             the risk assessment. Operators can act immediately without consulting a manual. */}
         {risk.recommendations.length > 0 && (
           <div>
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1.5">
+            <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1.5">
               Recommendations
             </p>
             <ul className="space-y-1">

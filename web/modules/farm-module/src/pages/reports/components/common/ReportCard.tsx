@@ -125,20 +125,20 @@ export const ReportCard: React.FC<ReportCardProps> = ({
   return (
     <div
       className={`
-        bg-white rounded-lg border shadow-sm hover:shadow-md transition-shadow
-        ${isUrgent ? 'border-red-200' : 'border-gray-200'}
+        bg-white dark:bg-gray-900 rounded-lg border shadow-sm hover:shadow-md transition-shadow
+        ${isUrgent ? 'border-red-200' : 'border-gray-200 dark:border-gray-700'}
         ${onClick ? 'cursor-pointer' : ''}
       `}
       onClick={onClick}
     >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-100">
+      <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className={`${isUrgent ? 'text-red-500' : 'text-gray-500'}`}>
+            <span className={`${isUrgent ? 'text-red-500' : 'text-gray-500 dark:text-gray-400'}`}>
               {typeConfig.icon}
             </span>
-            <span className="font-medium text-gray-900">{typeConfig.label}</span>
+            <span className="font-medium text-gray-900 dark:text-gray-100">{typeConfig.label}</span>
             {isUrgent && (
               <span className="px-1.5 py-0.5 text-xs font-medium text-red-700 bg-red-100 rounded">
                 URGENT
@@ -154,23 +154,23 @@ export const ReportCard: React.FC<ReportCardProps> = ({
         <div className="space-y-2">
           {/* Site */}
           <div className="flex items-center text-sm">
-            <span className="text-gray-500 w-20">Site:</span>
-            <span className="text-gray-900 font-medium">{report.siteName}</span>
+            <span className="text-gray-500 dark:text-gray-400 w-20">Site:</span>
+            <span className="text-gray-900 dark:text-gray-100 font-medium">{report.siteName}</span>
           </div>
 
           {/* Created */}
           <div className="flex items-center text-sm">
-            <span className="text-gray-500 w-20">Created:</span>
-            <span className="text-gray-700">{formatDate(report.createdAt)}</span>
+            <span className="text-gray-500 dark:text-gray-400 w-20">Created:</span>
+            <span className="text-gray-700 dark:text-gray-300">{formatDate(report.createdAt)}</span>
           </div>
 
           {/* Submitted (if applicable) */}
           {report.submittedAt && (
             <div className="flex items-center text-sm">
-              <span className="text-gray-500 w-20">Submitted:</span>
-              <span className="text-gray-700">{formatDate(report.submittedAt)}</span>
+              <span className="text-gray-500 dark:text-gray-400 w-20">Submitted:</span>
+              <span className="text-gray-700 dark:text-gray-300">{formatDate(report.submittedAt)}</span>
               {report.submittedBy && (
-                <span className="text-gray-400 ml-1">by {report.submittedBy}</span>
+                <span className="text-gray-400 dark:text-gray-500 ml-1">by {report.submittedBy}</span>
               )}
             </div>
           )}
@@ -191,7 +191,7 @@ export const ReportCard: React.FC<ReportCardProps> = ({
 
       {/* Actions */}
       {showActions && (
-        <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 rounded-b-lg">
+        <div className="px-4 py-3 bg-gray-50 dark:bg-gray-800 border-t border-gray-100 dark:border-gray-700 rounded-b-lg">
           <div className="flex items-center justify-end gap-2">
             {onView && (
               <button
@@ -200,7 +200,7 @@ export const ReportCard: React.FC<ReportCardProps> = ({
                   e.stopPropagation();
                   onView();
                 }}
-                className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 View
               </button>
@@ -212,7 +212,7 @@ export const ReportCard: React.FC<ReportCardProps> = ({
                   e.stopPropagation();
                   onEdit();
                 }}
-                className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className="px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
               >
                 Edit
               </button>

@@ -132,7 +132,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
   const ConfigComponent = selectedWidget ? widgetConfigMap[selectedWidget.type] : null;
 
   return (
-    <div className="w-80 bg-white border-l border-gray-200 flex flex-col h-full">
+    <div className="w-80 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-700 flex flex-col h-full">
       {/* 2-tier tab navigation */}
       <PropertiesTabNav
         activeGroup={activeGroup}
@@ -179,13 +179,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               </div>
             ) : selectedEdge && onEdgeDataChange ? (
               <div className="space-y-4">
-                <h4 className="text-sm font-medium text-gray-700">Connection Properties</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">Connection Properties</h4>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Connection Type</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Connection Type</label>
                   <select
                     value={selectedEdge.data.connectionType}
                     onChange={(e) => onEdgeDataChange(selectedEdge.id, { connectionType: e.target.value as ConnectionType })}
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   >
                     {CONNECTION_TYPES.map((ct) => (
                       <option key={ct.id} value={ct.id}>{ct.label}</option>
@@ -193,7 +193,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Line Type</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Line Type</label>
                   <div className="flex gap-1">
                     {([
                       { type: 'orthogonal' as const, label: 'Orthogonal' },
@@ -206,7 +206,7 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                         className={`flex-1 px-2 py-1.5 text-xs rounded border transition-colors ${
                           selectedEdge.type === opt.type
                             ? 'bg-cyan-50 border-cyan-300 text-cyan-700 font-medium'
-                            : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+                            : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800'
                         }`}
                       >
                         {opt.label}
@@ -215,13 +215,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                   </div>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Label</label>
+                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Label</label>
                   <input
                     type="text"
                     value={selectedEdge.data.label || ''}
                     onChange={(e) => onEdgeDataChange(selectedEdge.id, { label: e.target.value || undefined })}
                     placeholder="Connection label"
-                    className="w-full px-2 py-1.5 text-xs border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    className="w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -232,13 +232,13 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                     onChange={(e) => onEdgeDataChange(selectedEdge.id, { animated: e.target.checked })}
                     className="text-cyan-600 rounded focus:ring-cyan-500"
                   />
-                  <label htmlFor="edgeAnimated" className="text-xs text-gray-700">Animated flow</label>
+                  <label htmlFor="edgeAnimated" className="text-xs text-gray-700 dark:text-gray-300">Animated flow</label>
                 </div>
-                <div className="pt-3 border-t border-gray-200">
-                  <p className="text-[11px] text-gray-500">
+                <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
                     Source: {selectedEdge.source} ({selectedEdge.sourceHandle})
                   </p>
-                  <p className="text-[11px] text-gray-500">
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
                     Target: {selectedEdge.target} ({selectedEdge.targetHandle})
                   </p>
                 </div>
@@ -251,8 +251,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
                 </button>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 py-12">
-                <Settings className="w-10 h-10 mb-3 text-gray-500" />
+              <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 dark:text-gray-400 py-12">
+                <Settings className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
                 <p className="text-sm">Select a widget</p>
                 <p className="text-xs mt-1">Select a widget from the canvas</p>
               </div>
@@ -270,8 +270,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               scripts={scripts}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">
-              <Settings className="w-10 h-10 mb-3 text-gray-500" />
+            <div className="flex flex-col items-center justify-center text-center text-gray-500 dark:text-gray-400 py-12">
+              <Settings className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
               <p className="text-sm">Select a widget</p>
               <p className="text-xs mt-1">Select a widget to configure events</p>
             </div>
@@ -287,8 +287,8 @@ export const PropertiesPanel: React.FC<PropertiesPanelProps> = ({
               deviceId={deviceId}
             />
           ) : (
-            <div className="flex flex-col items-center justify-center text-center text-gray-500 py-12">
-              <Settings className="w-10 h-10 mb-3 text-gray-500" />
+            <div className="flex flex-col items-center justify-center text-center text-gray-500 dark:text-gray-400 py-12">
+              <Settings className="w-10 h-10 mb-3 text-gray-500 dark:text-gray-400" />
               <p className="text-sm">Select a widget</p>
               <p className="text-xs mt-1">Select a widget to configure animations</p>
             </div>

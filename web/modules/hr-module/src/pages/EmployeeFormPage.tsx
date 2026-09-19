@@ -34,6 +34,7 @@ import type {
   PersonnelCategory,
   Department,
 } from '../types';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -250,7 +251,7 @@ const EmployeeFormPage: React.FC = () => {
   if (isEditing && loadingEmployee) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+        <Spinner size="lg" />
       </div>
     );
   }
@@ -262,22 +263,18 @@ const EmployeeFormPage: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link
-          to={isEditing && employeeId ? `/hr/employees/${employeeId}` : '/hr/employees'}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors dark:hover:bg-gray-700"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
-        </Link>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {isEditing ? 'Edit Employee' : 'New Employee'}
-          </h1>
-          <p className="text-gray-500 dark:text-gray-400">
-            {isEditing ? 'Update employee information' : 'Create a new employee record'}
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title={isEditing ? 'Edit Employee' : 'New Employee'}
+        description={isEditing ? 'Update employee information' : 'Create a new employee record'}
+        leading={
+          <Link
+            to={isEditing && employeeId ? `/hr/employees/${employeeId}` : '/hr/employees'}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors dark:hover:bg-gray-700"
+          >
+            <ArrowLeft className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          </Link>
+        }
+      />
 
       {/* Error Banner */}
       {mutationError && (
@@ -756,7 +753,7 @@ const EmployeeFormPage: React.FC = () => {
             className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSubmitting ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              <Spinner size="sm" color="white" />
             ) : (
               <Save className="w-4 h-4" />
             )}

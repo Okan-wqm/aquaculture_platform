@@ -16,7 +16,7 @@ import {
 } from '../../../hooks/useFeedingRecords';
 import { useFeedList, type Feed } from '../../../hooks/useFeeds';
 import { isBlockingError } from '../../../utils/list-view-state';
-import { Modal, useAuth } from '@aquaculture/shared-ui';
+import { Modal, useAuth, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
 import type { Batch } from '../../../hooks/useBatches';
 
 // ============================================================================
@@ -160,7 +160,7 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        <Spinner size="xl" />
       </div>
     );
   }
@@ -175,6 +175,101 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
       </div>
     );
   }
+
+  type RecordRow = NonNullable<NonNullable<typeof data>['items']>[number];
+  const recordRowColumns: DataTableColumn<RecordRow>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, record) => formatDate(record.feedingDate),
+    },
+    {
+      key: 'batch',
+      header: 'Batch',
+      render: (_value, record) => batchMap[record.batchId] || record.batchId.slice(0, 8),
+    },
+    {
+      key: 'feed',
+      header: 'Feed',
+      render: (_value, record) => feedMap[record.feedId] || record.feedId.slice(0, 8),
+    },
+    {
+      key: 'time',
+      header: 'Time',
+      render: (_value, record) => (
+        <>
+          {record.feedingTime} ({record.feedingSequence}/{record.totalMealsToday})
+        </>
+      ),
+    },
+    {
+      key: 'plannedKg',
+      header: 'Planned (kg)',
+      align: 'right',
+      render: (_value, record) => Number(record.plannedAmount).toFixed(1),
+    },
+    {
+      key: 'actualKg',
+      header: 'Actual (kg)',
+      align: 'right',
+      render: (_value, record) => Number(record.actualAmount).toFixed(1),
+    },
+    {
+      key: 'variance',
+      header: 'Variance',
+      align: 'right',
+      render: (_value, record) => (
+        <>
+          <span
+            className={`${
+              record.isVarianceAcceptable
+                ? 'text-green-600'
+                : record.isBelowPlan
+                  ? 'text-red-600'
+                  : 'text-orange-600'
+            }`}
+          >
+            {Number(record.variancePercent) > 0 ? '+' : ''}
+            {Number(record.variancePercent).toFixed(1)}%
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'method',
+      header: 'Method',
+      render: (_value, record) => feedingMethodLabels[record.feedingMethod] || record.feedingMethod,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, record) => (
+        <>
+          {record.isVarianceAcceptable ? (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+              OK
+            </span>
+          ) : (
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+              Variance
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, record) => (
+        <>
+          <button onClick={() => handleEdit(record)} className="text-blue-600 hover:text-blue-900">
+            Edit
+          </button>
+        </>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
@@ -206,10 +301,10 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
                 setStartDate(e.target.value);
                 setPage(1);
               }}
-              className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="Start Date"
             />
-            <span className="text-gray-500">to</span>
+            <span className="text-gray-500 dark:text-gray-400">to</span>
             <input
               type="date"
               value={endDate}
@@ -217,7 +312,7 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
                 setEndDate(e.target.value);
                 setPage(1);
               }}
-              className="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               placeholder="End Date"
             />
           </div>
@@ -234,117 +329,21 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
       </div>
 
       {/* Records Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Batch
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Feed
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Time
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Planned (kg)
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actual (kg)
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Variance
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Method
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {data?.items?.length === 0 && (
-                <tr>
-                  <td colSpan={10} className="px-4 py-12 text-center text-gray-500">
-                    No feeding records found. Click "New Record" to create one.
-                  </td>
-                </tr>
-              )}
-              {data?.items?.map((record) => (
-                <tr key={record.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(record.feedingDate)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                    {batchMap[record.batchId] || record.batchId.slice(0, 8)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
-                    {feedMap[record.feedId] || record.feedId.slice(0, 8)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {record.feedingTime} ({record.feedingSequence}/{record.totalMealsToday})
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                    {Number(record.plannedAmount).toFixed(1)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-right text-gray-900">
-                    {Number(record.actualAmount).toFixed(1)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-right">
-                    <span
-                      className={`${
-                        record.isVarianceAcceptable
-                          ? 'text-green-600'
-                          : record.isBelowPlan
-                            ? 'text-red-600'
-                            : 'text-orange-600'
-                      }`}
-                    >
-                      {Number(record.variancePercent) > 0 ? '+' : ''}
-                      {Number(record.variancePercent).toFixed(1)}%
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
-                    {feedingMethodLabels[record.feedingMethod] || record.feedingMethod}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    {record.isVarianceAcceptable ? (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        OK
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                        Variance
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap text-right text-sm">
-                    <button
-                      onClick={() => handleEdit(record)}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      Edit
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="bg-white dark:bg-gray-900 shadow rounded-lg overflow-hidden">
+        <DataTable<RecordRow>
+          data={data?.items ?? []}
+          columns={recordRowColumns}
+          keyExtractor={(record) => record.id}
+          emptyMessage="No records found"
+          searchable={false}
+          sortable={false}
+          stickyHeader={false}
+        />
 
         {/* Pagination */}
         {data && data.total > 20 && (
-          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200">
-            <div className="text-sm text-gray-700">
+          <div className="bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
+            <div className="text-sm text-gray-700 dark:text-gray-300">
               Showing {(page - 1) * 20 + 1} to {Math.min(page * 20, data.total)} of {data.total}{' '}
               records
             </div>
@@ -352,14 +351,14 @@ export const FeedingRecordsTab: React.FC<FeedingRecordsTabProps> = ({
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Previous
               </button>
               <button
                 onClick={() => setPage((p) => p + 1)}
                 disabled={!data.hasNextPage}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                className="px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50 dark:hover:bg-gray-800"
               >
                 Next
               </button>
@@ -477,13 +476,15 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Batch */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Batch *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Batch *
+              </label>
               <select
                 name="batchId"
                 value={formData.batchId}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="">Select batch...</option>
                 {batches.map((b) => (
@@ -498,13 +499,15 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Feed */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feed *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feed *
+              </label>
               <select
                 name="feedId"
                 value={formData.feedId}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="">Select feed...</option>
                 {feeds.map((f: any) => (
@@ -519,14 +522,16 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Date */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feeding Date *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feeding Date *
+              </label>
               <input
                 type="date"
                 name="feedingDate"
                 value={formData.feedingDate}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               />
             </div>
           )}
@@ -534,14 +539,16 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Time */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feeding Time *</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feeding Time *
+              </label>
               <input
                 type="time"
                 name="feedingTime"
                 value={formData.feedingTime}
                 onChange={handleChange}
                 required
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               />
             </div>
           )}
@@ -549,7 +556,9 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Sequence */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Meal #</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Meal #
+              </label>
               <div className="flex items-center space-x-2">
                 <input
                   type="number"
@@ -557,16 +566,16 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
                   value={formData.feedingSequence}
                   onChange={handleChange}
                   min={1}
-                  className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="block w-20 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
-                <span className="text-gray-500">of</span>
+                <span className="text-gray-500 dark:text-gray-400">of</span>
                 <input
                   type="number"
                   name="totalMealsToday"
                   value={formData.totalMealsToday}
                   onChange={handleChange}
                   min={1}
-                  className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="block w-20 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
               </div>
             </div>
@@ -575,12 +584,14 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Method */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Method
+              </label>
               <select
                 name="feedingMethod"
                 value={formData.feedingMethod}
                 onChange={handleChange}
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               >
                 <option value="MANUAL">Manual</option>
                 <option value="AUTOMATIC">Automatic</option>
@@ -594,7 +605,7 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           {/* Planned Amount */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Planned Amount (kg) *
               </label>
               <input
@@ -605,14 +616,14 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
                 required
                 step="0.1"
                 min="0"
-                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
               />
             </div>
           )}
 
           {/* Actual Amount */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Actual Amount (kg) *
             </label>
             <input
@@ -623,13 +634,13 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
               required
               step="0.1"
               min="0"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
           </div>
 
           {/* Waste Amount */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Waste Amount (kg)
             </label>
             <input
@@ -639,14 +650,16 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
               onChange={handleChange}
               step="0.1"
               min="0"
-              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+              className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             />
           </div>
 
           {/* Feed Cost */}
           {!isEdit && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Feed Cost</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Feed Cost
+              </label>
               <div className="flex items-center space-x-2">
                 <input
                   type="number"
@@ -655,13 +668,13 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
                   onChange={handleChange}
                   step="0.01"
                   min="0"
-                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 />
                 <select
                   name="currency"
                   value={formData.currency}
                   onChange={handleChange}
-                  className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                  className="block w-24 rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                 >
                   <option value="NOK">NOK</option>
                   <option value="EUR">EUR</option>
@@ -675,13 +688,15 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
 
         {/* Notes */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Notes
+          </label>
           <textarea
             name="notes"
             value={formData.notes}
             onChange={handleChange}
             rows={2}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="Optional notes..."
           />
         </div>
@@ -691,7 +706,7 @@ const FeedingRecordFormModal: React.FC<FeedingRecordFormModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Cancel
           </button>

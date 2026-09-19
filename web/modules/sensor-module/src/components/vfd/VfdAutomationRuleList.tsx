@@ -12,13 +12,13 @@ import {
   Play,
   Trash2,
   Edit3,
-  Loader2,
   AlertTriangle,
   Zap,
   Clock,
 } from 'lucide-react';
 import { VfdAutomationRule } from '../../types/vfd.types';
 import { VfdAutomationRuleForm } from './VfdAutomationRuleForm';
+import { Spinner } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Props
@@ -104,7 +104,7 @@ export function VfdAutomationRuleList({
 
       {/* Header */}
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-medium text-gray-900">Automation Rules</h3>
+        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">Automation Rules</h3>
         <button
           type="button"
           onClick={handleCreate}
@@ -117,13 +117,13 @@ export function VfdAutomationRuleList({
       {/* List */}
       {loading && rules.length === 0 ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-6 w-6 animate-spin text-indigo-600" />
+          <Spinner size="md" />
         </div>
       ) : rules.length === 0 ? (
         <div className="py-12 text-center">
           <Zap className="mx-auto mb-2 h-8 w-8 text-gray-300" />
-          <p className="text-sm text-gray-500">No automation rules yet</p>
-          <p className="mt-1 text-xs text-gray-400">
+          <p className="text-sm text-gray-500 dark:text-gray-400">No automation rules yet</p>
+          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
             Create rules to automatically adjust VFD parameters based on conditions
           </p>
         </div>
@@ -132,7 +132,7 @@ export function VfdAutomationRuleList({
           {rules.map((rule) => (
             <div
               key={rule.id}
-              className="rounded-lg border border-gray-200 bg-white p-4"
+              className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4"
               data-testid={`rule-card-${rule.id}`}
             >
               <div className="flex items-start justify-between gap-3">
@@ -144,19 +144,19 @@ export function VfdAutomationRuleList({
                       }`}
                       aria-hidden="true"
                     />
-                    <h4 className="text-sm font-semibold text-gray-900">{rule.name}</h4>
+                    <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{rule.name}</h4>
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
                         rule.isActive
                           ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-500'
+                          : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
                       }`}
                     >
                       {rule.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </div>
-                  <p className="mt-1 text-xs text-gray-500">{rule.description}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-400">
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{rule.description}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-gray-400 dark:text-gray-500">
                     <span>
                       Trigger: {formatTriggerCondition(rule.triggerCondition)}
                     </span>
@@ -183,7 +183,7 @@ export function VfdAutomationRuleList({
                 <button
                   type="button"
                   onClick={() => handleEdit(rule)}
-                  className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                 >
                   <Edit3 className="h-3 w-3" /> Edit
                 </button>
@@ -217,7 +217,7 @@ export function VfdAutomationRuleList({
                     <button
                       type="button"
                       onClick={() => setConfirmDeleteId(null)}
-                      className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
+                      className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
                     >
                       No
                     </button>

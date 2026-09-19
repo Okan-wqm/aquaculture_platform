@@ -30,6 +30,7 @@ import {
   Activity,
 } from 'lucide-react';
 import { TagValueBus } from '../../engine/tags/TagValueBus';
+import { colors as themeColors, DataTable, type DataTableColumn, type SortConfig } from '@aquaculture/shared-ui';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,6 +68,10 @@ const MAX_HISTORY = 30;
  * Width is fixed at 80px, height at 24px — designed for table cells.
  * Normalizes values to fit within the chart height regardless of scale.
  */
+const SORT_FIELDS = ['name', 'value', 'lastUpdate'] as const;
+type SortField = (typeof SORT_FIELDS)[number];
+const isSortField = (key: string): key is SortField => (SORT_FIELDS as readonly string[]).includes(key);
+
 const MiniSparkline: React.FC<{ values: number[] }> = ({ values }) => {
   if (values.length < 2) return null;
 
@@ -89,7 +94,7 @@ const MiniSparkline: React.FC<{ values: number[] }> = ({ values }) => {
       <polyline
         points={points}
         fill="none"
-        stroke="#06b6d4"
+        stroke={themeColors.primary[400]}
         strokeWidth={1.5}
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -132,7 +137,7 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [search, setSearch] = useState('');
   const [paused, setPaused] = useState(false);
-  const [sortField, setSortField] = useState<'name' | 'value' | 'lastUpdate'>('name');
+  const [sortField, setSortField] = useState<SortField>('name');
   const [sortAsc, setSortAsc] = useState(true);
 
   // Mutable ref for tag entries — avoids re-render per individual tag update.
@@ -200,15 +205,16 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
     return result;
   }, [entries, search, sortField, sortAsc]);
 
-  const handleSort = useCallback((field: 'name' | 'value' | 'lastUpdate') => {
-    setSortField((prev) => {
-      if (prev === field) {
-        setSortAsc((a) => !a);
-        return prev;
-      }
+  // DataTable reports the sort it cycled to (asc, desc, none); the panel keeps
+  // its own comparator because tag values are mixed types.
+  const handleSort = useCallback((sort: SortConfig | null) => {
+    if (sort && isSortField(sort.key)) {
+      setSortField(sort.key);
+      setSortAsc(sort.direction === 'asc');
+    } else {
+      setSortField('name');
       setSortAsc(true);
-      return field;
-    });
+    }
   }, []);
 
   const handleClearHistory = useCallback(() => {
@@ -233,20 +239,49 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}.${d.getMilliseconds().toString().padStart(3, '0')}`;
   };
 
+  const tagWatchColumns: DataTableColumn<TagEntry>[] = [
+    {
+      key: 'name',
+      header: 'Tag',
+      render: (_value, entry) => (
+        <span className="block max-w-[200px] truncate font-mono text-gray-900 dark:text-gray-100">{entry.name}</span>
+      ),
+    },
+    {
+      key: 'value',
+      header: 'Value',
+      render: (_value, entry) => <span className="font-mono text-gray-700 dark:text-gray-300">{formatValue(entry.value)}</span>,
+    },
+    { key: 'type', header: 'Type', sortable: false, render: (_value, entry) => <span className="text-gray-500 dark:text-gray-400">{entry.type}</span> },
+    {
+      key: 'history',
+      header: 'Sparkline',
+      sortable: false,
+      align: 'center',
+      render: (_value, entry) => <MiniSparkline values={entry.history} />,
+    },
+    {
+      key: 'lastUpdate',
+      header: 'Last Update',
+      align: 'right',
+      render: (_value, entry) => <span className="font-mono text-gray-500 dark:text-gray-400">{formatTimestamp(entry.lastUpdate)}</span>,
+    },
+  ];
+
   return (
     <div
-      className="border-t border-gray-200 bg-white flex flex-col"
+      className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col"
       data-testid="tag-watch-panel"
     >
       {/* Toggle header */}
       <button
         onClick={() => setExpanded((e) => !e)}
-        className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 transition-colors"
+        className="flex items-center justify-between px-4 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
       >
-        <div className="flex items-center gap-2 text-xs font-medium text-gray-700">
+        <div className="flex items-center gap-2 text-xs font-medium text-gray-700 dark:text-gray-300">
           <Activity className="w-3.5 h-3.5 text-cyan-600" />
           Tag Watch
-          <span className="text-gray-400">({entries.size} tags)</span>
+          <span className="text-gray-400 dark:text-gray-500">({entries.size} tags)</span>
           {paused && (
             <span className="text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded text-[10px] font-semibold">
               PAUSED
@@ -254,31 +289,31 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
           )}
         </div>
         {expanded ? (
-          <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+          <ChevronDown className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
         ) : (
-          <ChevronUp className="w-3.5 h-3.5 text-gray-400" />
+          <ChevronUp className="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
         )}
       </button>
 
       {expanded && (
-        <div className="flex flex-col" style={{ maxHeight: 280 }}>
+        <div className="flex flex-col max-h-[280px]">
           {/* Toolbar */}
-          <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100">
+          <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex-1 relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search tags..."
-                className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 rounded focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
+                className="w-full pl-7 pr-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded focus:ring-1 focus:ring-cyan-500 focus:border-cyan-500"
                 data-testid="tag-watch-search"
               />
             </div>
             <button
               onClick={() => setPaused((p) => !p)}
               className={`p-1.5 rounded transition-colors ${
-                paused ? 'bg-yellow-50 text-yellow-600' : 'hover:bg-gray-100 text-gray-500'
+                paused ? 'bg-yellow-50 text-yellow-600' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400'
               }`}
               title={paused ? 'Resume' : 'Pause'}
             >
@@ -286,14 +321,14 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
             </button>
             <button
               onClick={handleCsvExport}
-              className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
               title="Export CSV"
             >
               <Download className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={handleClearHistory}
-              className="p-1.5 rounded hover:bg-gray-100 text-gray-500"
+              className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400"
               title="Clear history"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -302,61 +337,18 @@ export const TagWatchPanel: React.FC<TagWatchPanelProps> = ({
 
           {/* Table */}
           <div className="flex-1 overflow-auto">
-            <table className="w-full text-xs">
-              <thead className="sticky top-0 bg-gray-50">
-                <tr>
-                  <th
-                    className="text-left px-4 py-1.5 font-medium text-gray-500 cursor-pointer hover:text-gray-700"
-                    onClick={() => handleSort('name')}
-                  >
-                    Tag {sortField === 'name' && (sortAsc ? '\u25B2' : '\u25BC')}
-                  </th>
-                  <th
-                    className="text-left px-2 py-1.5 font-medium text-gray-500 cursor-pointer hover:text-gray-700"
-                    onClick={() => handleSort('value')}
-                  >
-                    Value {sortField === 'value' && (sortAsc ? '\u25B2' : '\u25BC')}
-                  </th>
-                  <th className="text-left px-2 py-1.5 font-medium text-gray-500">Type</th>
-                  <th className="text-center px-2 py-1.5 font-medium text-gray-500">Sparkline</th>
-                  <th
-                    className="text-right px-4 py-1.5 font-medium text-gray-500 cursor-pointer hover:text-gray-700"
-                    onClick={() => handleSort('lastUpdate')}
-                  >
-                    Last Update {sortField === 'lastUpdate' && (sortAsc ? '\u25B2' : '\u25BC')}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="text-center py-6 text-gray-400">
-                      {entries.size === 0
-                        ? 'No tag data received yet'
-                        : 'No tags match the search filter'}
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((entry) => (
-                    <tr key={entry.name} className="hover:bg-gray-50 border-t border-gray-50">
-                      <td className="px-4 py-1.5 font-mono text-gray-900 truncate max-w-[200px]">
-                        {entry.name}
-                      </td>
-                      <td className="px-2 py-1.5 font-mono text-gray-700">
-                        {formatValue(entry.value)}
-                      </td>
-                      <td className="px-2 py-1.5 text-gray-500">{entry.type}</td>
-                      <td className="px-2 py-1.5 text-center">
-                        <MiniSparkline values={entry.history} />
-                      </td>
-                      <td className="px-4 py-1.5 text-right text-gray-500 font-mono">
-                        {formatTimestamp(entry.lastUpdate)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+            <DataTable<TagEntry>
+              data={filtered}
+              columns={tagWatchColumns}
+              keyExtractor={(entry) => entry.name}
+              emptyMessage={entries.size === 0 ? 'No tag data received yet' : 'No tags match the search filter'}
+              searchable={false}
+              serverSideSort
+              defaultSort={{ key: sortField, direction: sortAsc ? 'asc' : 'desc' }}
+              onSort={handleSort}
+              compact
+              className="border-0 rounded-none shadow-none"
+            />
           </div>
         </div>
       )}

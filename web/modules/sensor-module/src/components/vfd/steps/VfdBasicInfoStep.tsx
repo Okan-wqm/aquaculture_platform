@@ -29,8 +29,8 @@ export function VfdBasicInfoStep({
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-medium text-gray-900 mb-2">Temel Bilgiler</h3>
-        <p className="text-sm text-gray-500">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Temel Bilgiler</h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
           VFD cihazınız için temel tanımlayıcı bilgileri girin.
         </p>
       </div>
@@ -38,7 +38,7 @@ export function VfdBasicInfoStep({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Device Name */}
         <div className="md:col-span-2">
-          <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Cihaz Adı <span className="text-red-500">*</span>
           </label>
           <input
@@ -48,17 +48,17 @@ export function VfdBasicInfoStep({
             value={values.name || ''}
             onChange={handleChange}
             placeholder="Örn: Ana Havuz Pompası VFD-1"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             required
           />
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Cihazı kolayca tanımlayabileceğiniz benzersiz bir ad girin.
           </p>
         </div>
 
         {/* Model Series */}
         <div>
-          <label htmlFor="modelSeries" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="modelSeries" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Model Serisi
           </label>
           <select
@@ -66,7 +66,7 @@ export function VfdBasicInfoStep({
             name="modelSeries"
             value={selectedModelSeries || ''}
             onChange={(e) => onModelSeriesChange(e.target.value || undefined)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           >
             <option value="">Seçiniz...</option>
             {brand.modelSeries.map((model) => (
@@ -75,14 +75,14 @@ export function VfdBasicInfoStep({
               </option>
             ))}
           </select>
-          <p className="mt-1 text-xs text-gray-500">
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Model serisi seçimi, varsayılan register ayarlarını yapılandırır.
           </p>
         </div>
 
         {/* Model */}
         <div>
-          <label htmlFor="model" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="model" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Model Numarası
           </label>
           <input
@@ -92,13 +92,13 @@ export function VfdBasicInfoStep({
             value={values.model || ''}
             onChange={handleChange}
             placeholder="Örn: FC-302P15KT5"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
 
         {/* Serial Number */}
         <div>
-          <label htmlFor="serialNumber" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="serialNumber" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Seri Numarası
           </label>
           <input
@@ -108,13 +108,13 @@ export function VfdBasicInfoStep({
             value={values.serialNumber || ''}
             onChange={handleChange}
             placeholder="Örn: SN123456789"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
 
         {/* Location */}
         <div>
-          <label htmlFor="location" className="block text-sm font-medium text-gray-700 mb-1">
+          <label htmlFor="location" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Konum
           </label>
           <input
@@ -124,19 +124,19 @@ export function VfdBasicInfoStep({
             value={values.location || ''}
             onChange={handleChange}
             placeholder="Örn: Bina A, Kat 2, Panel 3"
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
       </div>
 
       {/* Assignment Section */}
-      <div className="border-t border-gray-200 pt-6">
-        <h4 className="text-sm font-medium text-gray-900 mb-4">Atama (Opsiyonel)</h4>
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-4">Atama (Opsiyonel)</h4>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Farm ID */}
           <div>
-            <label htmlFor="farmId" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="farmId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Çiftlik
             </label>
             <select
@@ -144,7 +144,7 @@ export function VfdBasicInfoStep({
               name="farmId"
               value={values.farmId || ''}
               onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Seçiniz...</option>
               {/* Farm options would be loaded dynamically */}
@@ -153,7 +153,7 @@ export function VfdBasicInfoStep({
 
           {/* Tank ID */}
           <div>
-            <label htmlFor="tankId" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="tankId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Tank/Havuz
             </label>
             <select
@@ -161,7 +161,7 @@ export function VfdBasicInfoStep({
               name="tankId"
               value={values.tankId || ''}
               onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Seçiniz...</option>
               {/* Tank options would be loaded dynamically */}
@@ -170,7 +170,7 @@ export function VfdBasicInfoStep({
 
           {/* Pump ID */}
           <div>
-            <label htmlFor="pumpId" className="block text-sm font-medium text-gray-700 mb-1">
+            <label htmlFor="pumpId" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               Pompa
             </label>
             <select
@@ -178,7 +178,7 @@ export function VfdBasicInfoStep({
               name="pumpId"
               value={values.pumpId || ''}
               onChange={handleChange}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
               <option value="">Seçiniz...</option>
               {/* Pump options would be loaded dynamically */}
@@ -188,8 +188,8 @@ export function VfdBasicInfoStep({
       </div>
 
       {/* Notes Section */}
-      <div className="border-t border-gray-200 pt-6">
-        <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-6">
+        <label htmlFor="notes" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Notlar (Opsiyonel)
         </label>
         <textarea
@@ -199,13 +199,13 @@ export function VfdBasicInfoStep({
           onChange={handleChange}
           rows={3}
           placeholder="Cihaz hakkında ek notlar..."
-          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
         />
       </div>
 
       {/* Tags Section */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Etiketler (Opsiyonel)
         </label>
         <div className="flex flex-wrap gap-2">
@@ -223,7 +223,7 @@ export function VfdBasicInfoStep({
               className={`px-3 py-1 text-sm rounded-full border transition-colors ${
                 values.tags?.includes(tag)
                   ? 'bg-blue-100 border-blue-300 text-blue-700'
-                  : 'bg-gray-100 border-gray-300 text-gray-600 hover:bg-gray-200'
+                  : 'bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
               }`}
             >
               {tag}
@@ -234,16 +234,16 @@ export function VfdBasicInfoStep({
 
       {/* Selected model info */}
       {selectedModelSeries && (
-        <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
           <div className="flex items-start">
-            <svg className="w-5 h-5 text-gray-500 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+            <svg className="w-5 h-5 text-gray-500 dark:text-gray-400 mr-2 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
             </svg>
             <div>
-              <p className="text-sm font-medium text-gray-700">
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                 {brand.modelSeries.find((m) => m.code === selectedModelSeries)?.name}
               </p>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Güç Aralığı: {brand.modelSeries.find((m) => m.code === selectedModelSeries)?.powerRange || 'N/A'}
               </p>
             </div>

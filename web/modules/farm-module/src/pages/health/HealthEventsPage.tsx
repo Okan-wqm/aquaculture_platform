@@ -3,16 +3,7 @@
  * Displays and manages fish health events with full CRUD, treatment, and quarantine operations
  */
 import React, { useState, useMemo } from 'react';
-import {
-  Card,
-  Button,
-  Modal,
-  Input,
-  Select,
-  Badge,
-  Spinner,
-  Alert,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, useConfirm, PageHeader } from '@aquaculture/shared-ui';
 import {
   Activity,
   AlertTriangle,
@@ -50,6 +41,7 @@ import {
   CreateHealthEventInput,
 } from '../../hooks/useHealthEvents';
 import { isBlockingError } from '../../utils/list-view-state';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // CONSTANTS
@@ -60,7 +52,7 @@ const statusColors: Record<HealthEventStatus, string> = {
   monitoring: 'bg-yellow-100 text-yellow-800',
   resolved: 'bg-green-100 text-green-800',
   chronic: 'bg-purple-100 text-purple-800',
-  cancelled: 'bg-gray-100 text-gray-800',
+  cancelled: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
 };
 
 const statusLabels: Record<HealthEventStatus, string> = {
@@ -332,8 +324,9 @@ export const HealthEventsPage: React.FC = () => {
     }
   };
 
+  const confirm = useConfirm();
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this health event?')) {
+    if (await confirm({ title: 'Delete this health event?', confirmText: 'Delete', cancelText: 'Cancel', variant: 'danger' })) {
       try {
         await deleteMutation.mutateAsync(id);
         refetch();
@@ -387,7 +380,7 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndTreatment = async (event: HealthEvent) => {
-    if (window.confirm('Are you sure you want to end the treatment?')) {
+    if (await confirm({ title: 'End the treatment?', confirmText: 'End treatment', cancelText: 'Cancel', variant: 'warning' })) {
       try {
         await endTreatmentMutation.mutateAsync({ id: event.id });
         refetch();
@@ -424,7 +417,7 @@ export const HealthEventsPage: React.FC = () => {
   };
 
   const handleEndQuarantine = async (event: HealthEvent) => {
-    if (window.confirm('Are you sure you want to end the quarantine?')) {
+    if (await confirm({ title: 'End the quarantine?', confirmText: 'End quarantine', cancelText: 'Cancel', variant: 'warning' })) {
       try {
         await endQuarantineMutation.mutateAsync(event.id);
         refetch();
@@ -526,6 +519,174 @@ export const HealthEventsPage: React.FC = () => {
     );
   }
 
+  type ItemRow = (typeof filteredItems)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'event',
+      header: 'Event',
+      render: (_value, item) => (
+        <>
+          <div className="text-sm font-medium text-gray-900 dark:text-gray-100">{item.title}</div>
+          {item.diseaseName && (
+            <div className="text-sm text-gray-500 dark:text-gray-400">{item.diseaseName}</div>
+          )}
+          {item.description && (
+            <div className="text-xs text-gray-400 dark:text-gray-500 truncate max-w-xs">
+              {item.description}
+            </div>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (_value, item) => eventTypeLabels[item.eventType],
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (_value, item) => (
+        <Badge className={statusColors[item.status]}>
+          {statusLabels[item.status]}
+        </Badge>
+      ),
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (_value, item) => (
+        <Badge className={severityColors[item.severity]}>
+          {severityLabels[item.severity]}
+        </Badge>
+      ),
+    },
+    {
+      key: 'date',
+      header: 'Date',
+      render: (_value, item) => formatDate(item.eventDate),
+    },
+    {
+      key: 'flags',
+      header: 'Flags',
+      render: (_value, item) => (
+        <div className="flex items-center gap-2">
+          {item.isUnderTreatment && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800"
+              title="Under Treatment"
+            >
+              <Pill className="w-3 h-3 mr-1" />
+              Rx
+            </span>
+          )}
+          {item.isQuarantined && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800"
+              title="Quarantined"
+            >
+              <Shield className="w-3 h-3 mr-1" />
+              Q
+            </span>
+          )}
+          {item.labConfirmed && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
+              title="Lab Confirmed"
+            >
+              Lab
+            </span>
+          )}
+          {item.followUpRequired && (
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800"
+              title="Follow-up Required"
+            >
+              F/U
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, item) => (
+        <div className="flex items-center justify-end gap-2">
+          {/* Treatment actions */}
+          {item.status !== 'resolved' && item.status !== 'cancelled' && (
+            <>
+              {!item.isUnderTreatment ? (
+                <button
+                  onClick={() => handleOpenStartTreatment(item)}
+                  className="text-purple-600 hover:text-purple-900"
+                  title="Start Treatment"
+                >
+                  <Play className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleEndTreatment(item)}
+                  className="text-purple-600 hover:text-purple-900"
+                  title="End Treatment"
+                >
+                  <Square className="w-4 h-4" />
+                </button>
+              )}
+
+              {/* Quarantine actions */}
+              {!item.isQuarantined ? (
+                <button
+                  onClick={() => handleOpenStartQuarantine(item)}
+                  className="text-yellow-600 hover:text-yellow-900"
+                  title="Start Quarantine"
+                >
+                  <Shield className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  onClick={() => handleEndQuarantine(item)}
+                  className="text-yellow-600 hover:text-yellow-900"
+                  title="End Quarantine"
+                >
+                  <Shield className="w-4 h-4 fill-current" />
+                </button>
+              )}
+
+              {/* Resolve */}
+              <button
+                onClick={() => handleOpenResolve(item)}
+                className="text-green-600 hover:text-green-900"
+                title="Resolve Event"
+              >
+                <CheckCircle className="w-4 h-4" />
+              </button>
+            </>
+          )}
+
+          {/* Edit */}
+          <button
+            onClick={() => handleOpenEdit(item)}
+            className="text-indigo-600 hover:text-indigo-900"
+            title="Edit"
+          >
+            <Edit className="w-4 h-4" />
+          </button>
+
+          {/* Delete */}
+          <button
+            onClick={() => handleDelete(item.id)}
+            className="text-red-600 hover:text-red-900"
+            title="Delete"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div className="p-6 space-y-6">
       {/* Non-blocking refresh error — keeps the last-loaded data visible. */}
@@ -539,18 +700,16 @@ export const HealthEventsPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Health Events</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Track and manage fish health events, treatments, and quarantine
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate} className="flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          New Health Event
-        </Button>
-      </div>
+      <PageHeader
+        title="Health Events"
+        description="Track and manage fish health events, treatments, and quarantine"
+        actions={
+          <Button onClick={handleOpenCreate} className="flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            New Health Event
+          </Button>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (
@@ -561,8 +720,8 @@ export const HealthEventsPage: React.FC = () => {
                 <Activity className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Total Events</div>
-                <div className="text-2xl font-bold text-gray-900">{stats.total}</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Total Events</div>
+                <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats.total}</div>
               </div>
             </div>
           </Card>
@@ -572,7 +731,7 @@ export const HealthEventsPage: React.FC = () => {
                 <AlertTriangle className="w-5 h-5 text-red-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Active</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Active</div>
                 <div className="text-2xl font-bold text-red-600">{stats.active}</div>
               </div>
             </div>
@@ -583,7 +742,7 @@ export const HealthEventsPage: React.FC = () => {
                 <AlertTriangle className="w-5 h-5 text-orange-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Critical</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Critical</div>
                 <div className="text-2xl font-bold text-orange-600">{stats.critical}</div>
               </div>
             </div>
@@ -594,7 +753,7 @@ export const HealthEventsPage: React.FC = () => {
                 <Pill className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Under Treatment</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Under Treatment</div>
                 <div className="text-2xl font-bold text-purple-600">{stats.underTreatment}</div>
               </div>
             </div>
@@ -605,7 +764,7 @@ export const HealthEventsPage: React.FC = () => {
                 <Shield className="w-5 h-5 text-yellow-600" />
               </div>
               <div>
-                <div className="text-sm text-gray-500">Quarantined</div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">Quarantined</div>
                 <div className="text-2xl font-bold text-yellow-600">{stats.quarantined}</div>
               </div>
             </div>
@@ -619,7 +778,7 @@ export const HealthEventsPage: React.FC = () => {
           {/* Search and toggle */}
           <div className="flex items-center gap-4">
             <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-gray-500" />
               <Input
                 placeholder="Search events..."
                 value={searchTerm}
@@ -645,7 +804,7 @@ export const HealthEventsPage: React.FC = () => {
 
           {/* Extended filters */}
           {showFilters && (
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t border-gray-200">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
               <Select
                 value={filter.status || ''}
                 onChange={(e) => handleFilterChange('status', e.target.value)}
@@ -680,7 +839,7 @@ export const HealthEventsPage: React.FC = () => {
                 ]}
               />
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
+                <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   type="date"
                   placeholder="From Date"
@@ -689,7 +848,7 @@ export const HealthEventsPage: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-400" />
+                <Calendar className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 <Input
                   type="date"
                   placeholder="To Date"
@@ -709,192 +868,21 @@ export const HealthEventsPage: React.FC = () => {
             <Spinner size="lg" />
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Event
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Severity
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Flags
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
-                      No health events found
-                    </td>
-                  </tr>
-                ) : (
-                  filteredItems.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <div className="text-sm font-medium text-gray-900">{item.title}</div>
-                        {item.diseaseName && (
-                          <div className="text-sm text-gray-500">{item.diseaseName}</div>
-                        )}
-                        {item.description && (
-                          <div className="text-xs text-gray-400 truncate max-w-xs">
-                            {item.description}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {eventTypeLabels[item.eventType]}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge className={statusColors[item.status]}>
-                          {statusLabels[item.status]}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Badge className={severityColors[item.severity]}>
-                          {severityLabels[item.severity]}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {formatDate(item.eventDate)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          {item.isUnderTreatment && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800"
-                              title="Under Treatment"
-                            >
-                              <Pill className="w-3 h-3 mr-1" />
-                              Rx
-                            </span>
-                          )}
-                          {item.isQuarantined && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800"
-                              title="Quarantined"
-                            >
-                              <Shield className="w-3 h-3 mr-1" />
-                              Q
-                            </span>
-                          )}
-                          {item.labConfirmed && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800"
-                              title="Lab Confirmed"
-                            >
-                              Lab
-                            </span>
-                          )}
-                          {item.followUpRequired && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800"
-                              title="Follow-up Required"
-                            >
-                              F/U
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex items-center justify-end gap-2">
-                          {/* Treatment actions */}
-                          {item.status !== 'resolved' && item.status !== 'cancelled' && (
-                            <>
-                              {!item.isUnderTreatment ? (
-                                <button
-                                  onClick={() => handleOpenStartTreatment(item)}
-                                  className="text-purple-600 hover:text-purple-900"
-                                  title="Start Treatment"
-                                >
-                                  <Play className="w-4 h-4" />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleEndTreatment(item)}
-                                  className="text-purple-600 hover:text-purple-900"
-                                  title="End Treatment"
-                                >
-                                  <Square className="w-4 h-4" />
-                                </button>
-                              )}
-
-                              {/* Quarantine actions */}
-                              {!item.isQuarantined ? (
-                                <button
-                                  onClick={() => handleOpenStartQuarantine(item)}
-                                  className="text-yellow-600 hover:text-yellow-900"
-                                  title="Start Quarantine"
-                                >
-                                  <Shield className="w-4 h-4" />
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => handleEndQuarantine(item)}
-                                  className="text-yellow-600 hover:text-yellow-900"
-                                  title="End Quarantine"
-                                >
-                                  <Shield className="w-4 h-4 fill-current" />
-                                </button>
-                              )}
-
-                              {/* Resolve */}
-                              <button
-                                onClick={() => handleOpenResolve(item)}
-                                className="text-green-600 hover:text-green-900"
-                                title="Resolve Event"
-                              >
-                                <CheckCircle className="w-4 h-4" />
-                              </button>
-                            </>
-                          )}
-
-                          {/* Edit */}
-                          <button
-                            onClick={() => handleOpenEdit(item)}
-                            className="text-indigo-600 hover:text-indigo-900"
-                            title="Edit"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-
-                          {/* Delete */}
-                          <button
-                            onClick={() => handleDelete(item.id)}
-                            className="text-red-600 hover:text-red-900"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<ItemRow>
+            data={filteredItems}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No health events found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
 
         {/* Pagination info */}
         {data && (
-          <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
-            <div className="text-sm text-gray-500">
+          <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
               Showing {filteredItems.length} of {data.total} events
             </div>
             {data.hasNextPage && (
@@ -1035,9 +1023,9 @@ export const HealthEventsPage: React.FC = () => {
                 onChange={(e) =>
                   setFormData({ ...formData, followUpRequired: e.target.checked })
                 }
-                className="rounded border-gray-300"
+                className="rounded border-gray-300 dark:border-gray-600"
               />
-              <label htmlFor="followUpRequired" className="text-sm text-gray-700">
+              <label htmlFor="followUpRequired" className="text-sm text-gray-700 dark:text-gray-300">
                 Follow-up Required
               </label>
             </div>

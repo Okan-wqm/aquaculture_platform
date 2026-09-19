@@ -11,7 +11,7 @@
  * komut olduğundan zarf ZORUNLUDUR (C-17) — hook zarfı üretir.
  */
 import React, { useMemo, useState } from 'react';
-import { Modal, useCanMutate, useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { Modal, useCanMutate, useI18n, type MessageKey, useConfirm, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 import {
   useFeedingDayPlans,
   useFeedingProtocolsV2,
@@ -45,12 +45,12 @@ const MEAL_STATUS_KEY: Record<FeedingMealStatus, MessageKey> = {
 };
 
 const MEAL_STATUS_BADGE: Record<FeedingMealStatus, string> = {
-  SCHEDULED: 'bg-gray-100 text-gray-700',
+  SCHEDULED: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300',
   FED: 'bg-green-100 text-green-800',
   PARTIALLY_FED: 'bg-blue-100 text-blue-800',
   SKIPPED: 'bg-yellow-100 text-yellow-800',
   MISSED: 'bg-red-100 text-red-800',
-  CANCELLED: 'bg-gray-100 text-gray-500',
+  CANCELLED: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400',
 };
 
 const PLAN_STATUS_KEY: Record<FeedingDayPlanStatus, MessageKey> = {
@@ -205,8 +205,9 @@ export function MealBoardTab(): React.ReactElement {
     }
   };
 
+  const confirm = useConfirm();
   const onRegenerate = async (plan: FeedingDayPlanView): Promise<void> => {
-    if (!window.confirm(t('feedingV2.mealBoard.regenerateConfirm', { unit: plan.unitCode }))) {
+    if (!(await confirm({ title: t('feedingV2.mealBoard.regenerateConfirm', { unit: plan.unitCode }), variant: 'warning' }))) {
       return;
     }
     setActionError(null);
@@ -217,29 +218,187 @@ export function MealBoardTab(): React.ReactElement {
     }
   };
 
+  type PlanMeal = NonNullable<FeedingDayPlanView['meals']>[number];
+  const planMealColumns = (plan: FeedingDayPlanView): DataTableColumn<PlanMeal>[] => [
+    {
+      key: 'tFeedingv2MealboardMeal',
+      header: t('feedingV2.mealBoard.meal'),
+      render: (_value, meal) => (
+        <>
+          #{meal.mealIndex + 1}
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2MealboardTime',
+      header: t('feedingV2.mealBoard.time'),
+      render: (_value, meal) => timeOf(meal.scheduledAt),
+    },
+    {
+      key: 'tFeedingv2MealboardPlanned',
+      header: t('feedingV2.mealBoard.planned'),
+      render: (_value, meal) => (
+        <>
+          {Number(meal.plannedKg).toFixed(2)} kg
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2MealboardActual',
+      header: t('feedingV2.mealBoard.actual'),
+      render: (_value, meal) => (
+        <>
+          {Number(meal.actualKg || 0).toFixed(2)} kg
+          {meal.variancePercent != null && (
+            <span
+              className={`ml-2 text-xs ${
+                meal.variancePercent < 0 ? 'text-red-600' : 'text-green-600'
+              }`}
+            >
+              {meal.variancePercent > 0 ? '+' : ''}
+              {Number(meal.variancePercent).toFixed(1)}%
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2Statuslabel',
+      header: t('feedingV2.statusLabel'),
+      render: (_value, meal) => (
+        <>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${MEAL_STATUS_BADGE[meal.status]}`}
+          >
+            {t(MEAL_STATUS_KEY[meal.status])}
+          </span>
+          {/*
+            W7/FARM-MEDIUM-271 — öğün öncesi oksijen verdikti.
+            Damganın YOKLUĞU bir onay değildir (ünitenin DO
+            sensörü olmayabilir), bu yüzden olumlu rozet YOK.
+          */}
+          {meal.readiness && (
+            <span
+              className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
+              title={
+                meal.readiness.status === 'low_oxygen'
+                  ? t('feedingV2.mealBoard.lowOxygenTitle', {
+                      observed: (meal.readiness.observedDissolvedOxygen ?? 0).toFixed(
+                        1,
+                      ),
+                      min: meal.readiness.minDissolvedOxygen.toFixed(1),
+                    })
+                  : t('feedingV2.mealBoard.noOxygenReadingTitle', {
+                      min: meal.readiness.minDissolvedOxygen.toFixed(1),
+                    })
+              }
+            >
+              {meal.readiness.status === 'low_oxygen'
+                ? t('feedingV2.mealBoard.lowOxygen')
+                : t('feedingV2.mealBoard.noOxygenReading')}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'tFeedingv2MealboardPours',
+      header: t('feedingV2.mealBoard.pours'),
+      render: (_value, meal) => (
+        <>
+          {(meal.pours ?? []).map((pour) => (
+            <span key={pour.pourIndex} className="mr-2 inline-flex items-center gap-1">
+              {pour.kg} kg
+              {canCorrect && meal.status !== 'CANCELLED' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCorrectModal({ meal, pourIndex: pour.pourIndex });
+                    setCorrectedKg(String(pour.kg));
+                  }}
+                  className="text-blue-600 underline"
+                >
+                  {t('feedingV2.mealBoard.correctPour')}
+                </button>
+              )}
+            </span>
+          ))}
+        </>
+      ),
+    },
+    {
+      key: 'col',
+      header: '',
+      render: (_value, meal) => {
+        const open = meal.status === 'SCHEDULED' || meal.status === 'PARTIALLY_FED';
+        return (
+          <>
+            {open && canRecord && (
+              <button
+                type="button"
+                onClick={() => setPourModal({ meal, unitCode: plan.unitCode })}
+                className="mr-2 rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
+              >
+                {t('feedingV2.mealBoard.addPour')}
+              </button>
+            )}
+            {/*
+              W8/FARM-MEDIUM-269 — balık doyduğunda öğünü döküm
+              EKLEMEDEN kapat. Öncesinde tek çıkış uydurma bir
+              0.001 kg dökümdü (sahte yem kaydı + sahte stok
+              düşümü). Yalnız PARTIALLY_FED'de görünür: hiç dökümü
+              olmayan öğünün doğru fiili "atla"dır.
+            */}
+            {meal.status === 'PARTIALLY_FED' && canFinalize && (
+              <button
+                type="button"
+                disabled={finalizeMeal.isPending}
+                onClick={() => {
+                  void finalizeMeal.mutateAsync({ mealId: meal.id });
+                }}
+                className="mr-2 rounded-md border border-green-600 px-2 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
+              >
+                {t('feedingV2.mealBoard.finalizeMeal')}
+              </button>
+            )}
+            {meal.status === 'SCHEDULED' && canSkip && (
+              <button
+                type="button"
+                onClick={() => setSkipModalMeal(meal)}
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              >
+                {t('feedingV2.mealBoard.skip')}
+              </button>
+            )}
+          </>
+        );
+      },
+    }
+  ];
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">{t('feedingV2.mealBoard.title')}</h2>
-          <p className="text-sm text-gray-500">{t('feedingV2.mealBoard.subtitle')}</p>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">{t('feedingV2.mealBoard.title')}</h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('feedingV2.mealBoard.subtitle')}</p>
         </div>
         <div className="flex items-end gap-3">
           <label className="block text-sm">
-            <span className="text-gray-600">{t('feedingV2.mealBoard.date')}</span>
+            <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.date')}</span>
             <input
               type="date"
               value={planDate}
               onChange={(event) => setPlanDate(event.target.value)}
-              className="mt-1 block rounded-md border-gray-300 text-sm"
+              className="mt-1 block rounded-md border-gray-300 dark:border-gray-600 text-sm"
             />
           </label>
           <label className="block text-sm">
-            <span className="text-gray-600">{t('feedingV2.mealBoard.site')}</span>
+            <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.site')}</span>
             <select
               value={siteId}
               onChange={(event) => setSiteId(event.target.value)}
-              className="mt-1 block rounded-md border-gray-300 text-sm"
+              className="mt-1 block rounded-md border-gray-300 dark:border-gray-600 text-sm"
             >
               <option value="">{t('feedingV2.mealBoard.allSites')}</option>
               {(sitesPage?.items ?? []).map((site) => (
@@ -280,10 +439,10 @@ export function MealBoardTab(): React.ReactElement {
         </div>
       )}
 
-      {isLoading && <div className="py-8 text-center text-sm text-gray-500">…</div>}
+      {isLoading && <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">…</div>}
 
       {!isLoading && (plans ?? []).length === 0 && (
-        <div className="rounded-md border border-dashed border-gray-300 py-10 text-center text-sm text-gray-500">
+        <div className="rounded-md border border-dashed border-gray-300 dark:border-gray-600 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
           {t('feedingV2.mealBoard.empty')}
         </div>
       )}
@@ -301,18 +460,18 @@ export function MealBoardTab(): React.ReactElement {
         const snapshot = plan.snapshot;
 
         return (
-          <div key={plan.id} className="rounded-lg border border-gray-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
+          <div key={plan.id} className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 dark:border-gray-700 px-4 py-3">
               <div className="flex items-center gap-3">
-                <span className="text-base font-semibold text-gray-900">{plan.unitCode}</span>
-                <span className="text-sm text-gray-500">{plan.unitName}</span>
+                <span className="text-base font-semibold text-gray-900 dark:text-gray-100">{plan.unitCode}</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">{plan.unitName}</span>
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs ${
                     plan.status === 'COMPLETED'
                       ? 'bg-green-100 text-green-800'
                       : plan.status === 'IN_PROGRESS'
                         ? 'bg-blue-100 text-blue-800'
-                        : 'bg-gray-100 text-gray-700'
+                        : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
                   }`}
                 >
                   {t(PLAN_STATUS_KEY[plan.status])}
@@ -341,7 +500,7 @@ export function MealBoardTab(): React.ReactElement {
                     </span>
                   )}
               </div>
-              <div className="flex items-center gap-3 text-sm text-gray-600">
+              <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-400">
                 <span>
                   {t('feedingV2.mealBoard.planned')}: <strong>{planned.toFixed(2)} kg</strong>
                 </span>
@@ -357,7 +516,7 @@ export function MealBoardTab(): React.ReactElement {
                   <button
                     type="button"
                     onClick={() => void onRegenerate(plan)}
-                    className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                    className="rounded-md border border-gray-300 dark:border-gray-600 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
                   >
                     {t('feedingV2.mealBoard.regenerate')}
                   </button>
@@ -365,7 +524,7 @@ export function MealBoardTab(): React.ReactElement {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-4 border-b border-gray-100 px-4 py-2 text-xs text-gray-600">
+            <div className="flex flex-wrap gap-4 border-b border-gray-100 dark:border-gray-700 px-4 py-2 text-xs text-gray-600 dark:text-gray-400">
               <span>
                 {t('feedingV2.mealBoard.biomass')}: {snapshot.biomassKg.toFixed(1)} kg
               </span>
@@ -383,7 +542,7 @@ export function MealBoardTab(): React.ReactElement {
               </span>
               <span>
                 {t('feedingV2.mealBoard.expectedFcr')}: {snapshot.expectedFcr.toFixed(2)}{' '}
-                <span className="rounded bg-gray-100 px-1">
+                <span className="rounded bg-gray-100 dark:bg-gray-800 px-1">
                   {t(FCR_SOURCE_KEY[snapshot.fcrResolvedSource])}
                 </span>
               </span>
@@ -401,135 +560,16 @@ export function MealBoardTab(): React.ReactElement {
               )}
             </div>
 
-            <table className="min-w-full divide-y divide-gray-100 text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase text-gray-500">
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.meal')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.time')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.planned')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.actual')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.statusLabel')}</th>
-                  <th className="px-4 py-2">{t('feedingV2.mealBoard.pours')}</th>
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {(plan.meals ?? []).map((meal) => {
-                  const open = meal.status === 'SCHEDULED' || meal.status === 'PARTIALLY_FED';
-                  return (
-                    <tr key={meal.id}>
-                      <td className="px-4 py-2">#{meal.mealIndex + 1}</td>
-                      <td className="px-4 py-2">{timeOf(meal.scheduledAt)}</td>
-                      <td className="px-4 py-2">{Number(meal.plannedKg).toFixed(2)} kg</td>
-                      <td className="px-4 py-2">
-                        {Number(meal.actualKg || 0).toFixed(2)} kg
-                        {meal.variancePercent != null && (
-                          <span
-                            className={`ml-2 text-xs ${
-                              meal.variancePercent < 0 ? 'text-red-600' : 'text-green-600'
-                            }`}
-                          >
-                            {meal.variancePercent > 0 ? '+' : ''}
-                            {Number(meal.variancePercent).toFixed(1)}%
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs ${MEAL_STATUS_BADGE[meal.status]}`}
-                        >
-                          {t(MEAL_STATUS_KEY[meal.status])}
-                        </span>
-                        {/*
-                          W7/FARM-MEDIUM-271 — öğün öncesi oksijen verdikti.
-                          Damganın YOKLUĞU bir onay değildir (ünitenin DO
-                          sensörü olmayabilir), bu yüzden olumlu rozet YOK.
-                        */}
-                        {meal.readiness && (
-                          <span
-                            className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
-                            title={
-                              meal.readiness.status === 'low_oxygen'
-                                ? t('feedingV2.mealBoard.lowOxygenTitle', {
-                                    observed: (meal.readiness.observedDissolvedOxygen ?? 0).toFixed(
-                                      1,
-                                    ),
-                                    min: meal.readiness.minDissolvedOxygen.toFixed(1),
-                                  })
-                                : t('feedingV2.mealBoard.noOxygenReadingTitle', {
-                                    min: meal.readiness.minDissolvedOxygen.toFixed(1),
-                                  })
-                            }
-                          >
-                            {meal.readiness.status === 'low_oxygen'
-                              ? t('feedingV2.mealBoard.lowOxygen')
-                              : t('feedingV2.mealBoard.noOxygenReading')}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-xs text-gray-600">
-                        {(meal.pours ?? []).map((pour) => (
-                          <span key={pour.pourIndex} className="mr-2 inline-flex items-center gap-1">
-                            {pour.kg} kg
-                            {canCorrect && meal.status !== 'CANCELLED' && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setCorrectModal({ meal, pourIndex: pour.pourIndex });
-                                  setCorrectedKg(String(pour.kg));
-                                }}
-                                className="text-blue-600 underline"
-                              >
-                                {t('feedingV2.mealBoard.correctPour')}
-                              </button>
-                            )}
-                          </span>
-                        ))}
-                      </td>
-                      <td className="px-4 py-2 text-right">
-                        {open && canRecord && (
-                          <button
-                            type="button"
-                            onClick={() => setPourModal({ meal, unitCode: plan.unitCode })}
-                            className="mr-2 rounded-md bg-blue-600 px-2 py-1 text-xs text-white hover:bg-blue-700"
-                          >
-                            {t('feedingV2.mealBoard.addPour')}
-                          </button>
-                        )}
-                        {/*
-                          W8/FARM-MEDIUM-269 — balık doyduğunda öğünü döküm
-                          EKLEMEDEN kapat. Öncesinde tek çıkış uydurma bir
-                          0.001 kg dökümdü (sahte yem kaydı + sahte stok
-                          düşümü). Yalnız PARTIALLY_FED'de görünür: hiç dökümü
-                          olmayan öğünün doğru fiili "atla"dır.
-                        */}
-                        {meal.status === 'PARTIALLY_FED' && canFinalize && (
-                          <button
-                            type="button"
-                            disabled={finalizeMeal.isPending}
-                            onClick={() => {
-                              void finalizeMeal.mutateAsync({ mealId: meal.id });
-                            }}
-                            className="mr-2 rounded-md border border-green-600 px-2 py-1 text-xs text-green-700 hover:bg-green-50 disabled:opacity-50"
-                          >
-                            {t('feedingV2.mealBoard.finalizeMeal')}
-                          </button>
-                        )}
-                        {meal.status === 'SCHEDULED' && canSkip && (
-                          <button
-                            type="button"
-                            onClick={() => setSkipModalMeal(meal)}
-                            className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
-                          >
-                            {t('feedingV2.mealBoard.skip')}
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <DataTable<PlanMeal>
+              data={plan.meals ?? []}
+              columns={planMealColumns(plan)}
+              keyExtractor={(meal) => meal.id}
+              emptyMessage={t('feedingV2.mealBoard.meal')}
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+              compact
+            />
           </div>
         );
       })}
@@ -542,17 +582,17 @@ export function MealBoardTab(): React.ReactElement {
         >
           <div className="space-y-4">
             <label className="block text-sm">
-              <span className="text-gray-600">{t('feedingV2.mealBoard.pourKg')}</span>
+              <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.pourKg')}</span>
               <input
                 type="number"
                 min={0.001}
                 step={0.1}
                 value={pourKg}
                 onChange={(event) => setPourKg(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
               />
             </label>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
+            <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
               <input
                 type="checkbox"
                 checked={finalize}
@@ -560,12 +600,12 @@ export function MealBoardTab(): React.ReactElement {
               />
               {t('feedingV2.mealBoard.finalize')}
             </label>
-            <p className="text-xs text-gray-500">{t('feedingV2.mealBoard.finalizeHint')}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{t('feedingV2.mealBoard.finalizeHint')}</p>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setPourModal(null)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
               >
                 {t('feedingV2.mealBoard.cancel')}
               </button>
@@ -586,20 +626,20 @@ export function MealBoardTab(): React.ReactElement {
         <Modal isOpen onClose={() => setSkipModalMeal(null)} title={t('feedingV2.mealBoard.skip')}>
           <div className="space-y-4">
             <label className="block text-sm">
-              <span className="text-gray-600">{t('feedingV2.mealBoard.skipReason')}</span>
+              <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.skipReason')}</span>
               <input
                 type="text"
                 maxLength={500}
                 value={skipReason}
                 onChange={(event) => setSkipReason(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
               />
             </label>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setSkipModalMeal(null)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
               >
                 {t('feedingV2.mealBoard.cancel')}
               </button>
@@ -624,21 +664,21 @@ export function MealBoardTab(): React.ReactElement {
         >
           <div className="space-y-4">
             <label className="block text-sm">
-              <span className="text-gray-600">{t('feedingV2.mealBoard.correctedKg')}</span>
+              <span className="text-gray-600 dark:text-gray-400">{t('feedingV2.mealBoard.correctedKg')}</span>
               <input
                 type="number"
                 min={0.001}
                 step={0.1}
                 value={correctedKg}
                 onChange={(event) => setCorrectedKg(event.target.value)}
-                className="mt-1 block w-full rounded-md border-gray-300 text-sm"
+                className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 text-sm"
               />
             </label>
             <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setCorrectModal(null)}
-                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm"
+                className="rounded-md border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm"
               >
                 {t('feedingV2.mealBoard.cancel')}
               </button>

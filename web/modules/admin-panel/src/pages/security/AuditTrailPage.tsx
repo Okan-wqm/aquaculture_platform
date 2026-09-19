@@ -16,12 +16,12 @@ import {
   Plus,
   Edit2,
   Trash2,
-  X,
   Archive,
   XCircle,
   Info,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -239,7 +239,7 @@ const getActionColor = (action: AuditAction): string => {
     case 'config_change':
       return 'bg-indigo-100 text-indigo-800';
     default:
-      return 'bg-gray-100 text-gray-800';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200';
   }
 };
 
@@ -250,7 +250,7 @@ const getSeverityColor = (severity: AuditSeverity): string => {
     case 'warning':
       return 'bg-yellow-100 text-yellow-800 border-yellow-200';
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-200 dark:border-gray-700';
   }
 };
 
@@ -261,7 +261,7 @@ const getSeverityIcon = (severity: AuditSeverity): React.ReactElement => {
     case 'warning':
       return <AlertTriangle className="w-4 h-4 text-yellow-600" />;
     default:
-      return <Info className="w-4 h-4 text-gray-600" />;
+      return <Info className="w-4 h-4 text-gray-600 dark:text-gray-400" />;
   }
 };
 
@@ -296,138 +296,141 @@ const AuditDetailModal: React.FC<{
   onClose: () => void;
 }> = ({ entry, onClose }) => {
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold text-gray-900">Audit Entry Details</h2>
-            <button onClick={onClose} className="text-gray-500 hover:text-gray-600">
-              <X className="w-6 h-6" />
-            </button>
-          </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="lg"
+      title="Audit Entry Details"
+      bodyClassName="p-6 space-y-6"
+      footer={
+        <button
+          type="button"
+          onClick={onClose}
+          className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600"
+        >
+          Close
+        </button>
+      }
+    >
+      {/* Basic Info */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">ID</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{entry.id}</p>
         </div>
-        <div className="p-6 space-y-6">
-          {/* Basic Info */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm font-medium text-gray-500">ID</span>
-              <p className="text-sm text-gray-900 font-mono">{entry.id}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Timestamp</span>
-              <p className="text-sm text-gray-900">{formatDate(entry.createdAt)}</p>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Action</span>
-              <span
-                className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
-              >
-                {entry.action}
-              </span>
-            </div>
-            <div>
-              <span className="text-sm font-medium text-gray-500">Severity</span>
-              <span
-                className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
-              >
-                {getSeverityIcon(entry.severity)}
-                {entry.severity}
-              </span>
-            </div>
-          </div>
-
-          {/* Entity Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Entity Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-xs text-gray-500">Type</span>
-                <p className="text-sm text-gray-900">{entry.entityType}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">ID</span>
-                <p className="text-sm text-gray-900 font-mono">{entry.entityId}</p>
-              </div>
-              {entry.entityName && (
-                <div className="col-span-2">
-                  <span className="text-xs text-gray-500">Name</span>
-                  <p className="text-sm text-gray-900">{entry.entityName}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* User Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-700 mb-3">User Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <span className="text-xs text-gray-500">User</span>
-                <p className="text-sm text-gray-900">{entry.userName || 'System'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Email</span>
-                <p className="text-sm text-gray-900">{entry.userEmail || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">Tenant</span>
-                <p className="text-sm text-gray-900">{entry.tenantName || 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-gray-500">IP Address</span>
-                <p className="text-sm text-gray-900 font-mono">{entry.ipAddress || 'N/A'}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Changes */}
-          {entry.changes && entry.changes.length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Changes</h3>
-              <div className="space-y-2">
-                {entry.changes.map((change, idx) => (
-                  <div key={idx} className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-sm font-medium text-gray-700">{change.field}</p>
-                    <div className="grid grid-cols-2 gap-4 mt-2">
-                      <div>
-                        <span className="text-xs text-red-600">Old:</span>
-                        <pre className="text-xs text-gray-600 mt-1 overflow-auto">
-                          {JSON.stringify(change.oldValue)}
-                        </pre>
-                      </div>
-                      <div>
-                        <span className="text-xs text-green-600">New:</span>
-                        <pre className="text-xs text-gray-600 mt-1 overflow-auto">
-                          {JSON.stringify(change.newValue)}
-                        </pre>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Metadata */}
-          {entry.metadata && Object.keys(entry.metadata).length > 0 && (
-            <div>
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Metadata</h3>
-              <pre className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto">
-                {JSON.stringify(entry.metadata)}
-              </pre>
-            </div>
-          )}
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Timestamp</span>
+          <p className="text-sm text-gray-900 dark:text-gray-100">{formatDate(entry.createdAt)}</p>
         </div>
-        <div className="p-6 border-t border-gray-200 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Action</span>
+          <span
+            className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
           >
-            Close
-          </button>
+            {entry.action}
+          </span>
+        </div>
+        <div>
+          <span className="text-sm font-medium text-gray-500 dark:text-gray-400">Severity</span>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
+          >
+            {getSeverityIcon(entry.severity)}
+            {entry.severity}
+          </span>
         </div>
       </div>
-    </div>
+
+      {/* Entity Info */}
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          Entity Information
+        </h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Type</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{entry.entityType}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">ID</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">{entry.entityId}</p>
+          </div>
+          {entry.entityName && (
+            <div className="col-span-2">
+              <span className="text-xs text-gray-500 dark:text-gray-400">Name</span>
+              <p className="text-sm text-gray-900 dark:text-gray-100">{entry.entityName}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* User Info */}
+      <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          User Information
+        </h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">User</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{entry.userName || 'System'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Email</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{entry.userEmail || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">Tenant</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100">{entry.tenantName || 'N/A'}</p>
+          </div>
+          <div>
+            <span className="text-xs text-gray-500 dark:text-gray-400">IP Address</span>
+            <p className="text-sm text-gray-900 dark:text-gray-100 font-mono">
+              {entry.ipAddress || 'N/A'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Changes */}
+      {entry.changes && entry.changes.length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Changes</h3>
+          <div className="space-y-2">
+            {entry.changes.map((change, idx) => (
+              <div key={idx} className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {change.field}
+                </p>
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  <div>
+                    <span className="text-xs text-red-600">Old:</span>
+                    <pre className="text-xs text-gray-600 dark:text-gray-400 mt-1 overflow-auto">
+                      {JSON.stringify(change.oldValue)}
+                    </pre>
+                  </div>
+                  <div>
+                    <span className="text-xs text-green-600">New:</span>
+                    <pre className="text-xs text-gray-600 dark:text-gray-400 mt-1 overflow-auto">
+                      {JSON.stringify(change.newValue)}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Metadata */}
+      {entry.metadata && Object.keys(entry.metadata).length > 0 && (
+        <div>
+          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Metadata</h3>
+          <pre className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 p-3 rounded-lg overflow-auto">
+            {JSON.stringify(entry.metadata)}
+          </pre>
+        </div>
+      )}
+    </Modal>
   );
 };
 
@@ -556,6 +559,139 @@ export const AuditTrailPage: React.FC = () => {
     return <QueryFailureNotice errors={queryErrors} hasContent={false} onRetry={loadData} />;
   }
 
+  const retentionPolicyColumns: DataTableColumn<RetentionPolicy>[] = [
+    {
+      key: 'policy',
+      header: 'Policy',
+      render: (_value, policy) => policy.id,
+    },
+    {
+      key: 'table',
+      header: 'Table',
+      render: (_value, policy) => policy.table,
+    },
+    {
+      key: 'ageColumn',
+      header: 'Age column',
+      render: (_value, policy) => policy.timestampColumn,
+    },
+    {
+      key: 'window',
+      header: 'Window',
+      render: (_value, policy) => <>{policy.retentionDays} days</>,
+    },
+    {
+      key: 'owner',
+      header: 'Owner',
+      render: (_value, policy) => policy.ownerTag,
+    },
+    {
+      key: 'legalHold',
+      header: 'Legal hold',
+      render: (_value, policy) => (
+        <>
+          {policy.legalHoldAware ? (
+            <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+              held rows preserved
+            </span>
+          ) : (
+            <span className="text-gray-400 dark:text-gray-500">n/a</span>
+          )}
+        </>
+      ),
+    },
+  ];
+
+  const auditEntryColumns: DataTableColumn<AuditEntry>[] = [
+    {
+      key: 'timestamp',
+      header: 'Timestamp',
+      render: (_value, entry) => (
+        <>
+          <div className="text-sm text-gray-900 dark:text-gray-100">
+            {formatTimeAgo(entry.createdAt)}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            {formatDate(entry.createdAt)}
+          </div>
+        </>
+      ),
+    },
+    {
+      key: 'action',
+      header: 'Action',
+      render: (_value, entry) => (
+        <>
+          <span
+            className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
+          >
+            {entry.action}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'entity',
+      header: 'Entity',
+      render: (_value, entry) => (
+        <>
+          <div className="text-sm text-gray-900 dark:text-gray-100">{entry.entityType}</div>
+          <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">{entry.entityId}</div>
+        </>
+      ),
+    },
+    {
+      key: 'user',
+      header: 'User',
+      render: (_value, entry) => (
+        <>
+          <div className="text-sm text-gray-900 dark:text-gray-100">
+            {entry.userName || 'System'}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{entry.tenantName}</div>
+        </>
+      ),
+    },
+    {
+      key: 'severity',
+      header: 'Severity',
+      render: (_value, entry) => (
+        <>
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
+          >
+            {getSeverityIcon(entry.severity)}
+            {entry.severity}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'ipAddress',
+      header: 'IP Address',
+      render: (_value, entry) => (
+        <span className="text-sm font-mono text-gray-600 dark:text-gray-400">
+          {entry.ipAddress || '-'}
+        </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (_value, entry) => (
+        <>
+          <button
+            onClick={() => setSelectedEntry(entry)}
+            className="text-blue-600 hover:text-blue-800"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        </>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-6">
       {/* The partial case: entries loaded but the summary, the retention
@@ -566,80 +702,82 @@ export const AuditTrailPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent={entries.length > 0} onRetry={loadData} />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Audit Trail</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Comprehensive audit logging with retention policies and alerts
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-          <button
-            onClick={() => void loadData()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Audit Trail"
+        description="Comprehensive audit logging with retention policies and alerts"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </button>
+            <button
+              onClick={() => void loadData()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-blue-100 rounded-lg">
                 <FileText className="w-5 h-5 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Total Entries</p>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Total Entries</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {(stats?.totalEntries ?? 0).toLocaleString()}
                 </p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-green-100 rounded-lg">
                 <Clock className="w-5 h-5 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Last 24 Hours</p>
-                <p className="text-2xl font-bold text-gray-900">{stats?.last24Hours ?? 0}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Last 24 Hours</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats?.last24Hours ?? 0}
+                </p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-purple-100 rounded-lg">
                 <Archive className="w-5 h-5 text-purple-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Retention Policies</p>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="text-sm text-gray-500 dark:text-gray-400">Retention Policies</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
                   {stats?.retentionPoliciesCount ?? 0}
                 </p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-orange-100 rounded-lg">
                 <Bell className="w-5 h-5 text-orange-600" />
               </div>
               <div>
-                <p className="text-sm text-gray-500">Alert Rules</p>
-                <p className="text-2xl font-bold text-gray-900">{stats?.alertRulesCount ?? 0}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">Alert Rules</p>
+                <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                  {stats?.alertRulesCount ?? 0}
+                </p>
               </div>
             </div>
           </div>
@@ -647,7 +785,7 @@ export const AuditTrailPage: React.FC = () => {
       )}
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="flex gap-8">
           {[
             { id: 'entries', label: 'Audit Entries', icon: FileText },
@@ -660,7 +798,7 @@ export const AuditTrailPage: React.FC = () => {
               className={`flex items-center gap-2 px-1 py-4 border-b-2 font-medium text-sm ${
                 activeTab === id
                   ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-100'
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -674,22 +812,22 @@ export const AuditTrailPage: React.FC = () => {
       {activeTab === 'entries' && (
         <div className="space-y-4">
           {/* Search & Filters */}
-          <div className="bg-white rounded-lg border border-gray-200 p-4">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-4">
               <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500 dark:text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search by entity, user, or action..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <select
                 value={actionFilter}
                 onChange={(e) => setActionFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Actions</option>
                 <option value="create">Create</option>
@@ -702,7 +840,7 @@ export const AuditTrailPage: React.FC = () => {
               <select
                 value={severityFilter}
                 onChange={(e) => setSeverityFilter(e.target.value)}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">All Severities</option>
                 <option value="info">Info</option>
@@ -713,109 +851,35 @@ export const AuditTrailPage: React.FC = () => {
           </div>
 
           {/* Entries Table */}
-          <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Timestamp
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Action
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Entity
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    User
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Severity
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    IP Address
-                  </th>
-                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {entries.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                      No audit entries found
-                    </td>
-                  </tr>
-                ) : (
-                  entries.map((entry) => (
-                    <tr key={entry.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">
-                          {formatTimeAgo(entry.createdAt)}
-                        </div>
-                        <div className="text-xs text-gray-500">{formatDate(entry.createdAt)}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getActionColor(entry.action)}`}
-                        >
-                          {entry.action}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm text-gray-900">{entry.entityType}</div>
-                        <div className="text-xs text-gray-500 font-mono">{entry.entityId}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="text-sm text-gray-900">{entry.userName || 'System'}</div>
-                        <div className="text-xs text-gray-500">{entry.tenantName}</div>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(entry.severity)}`}
-                        >
-                          {getSeverityIcon(entry.severity)}
-                          {entry.severity}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-sm font-mono text-gray-600">
-                          {entry.ipAddress || '-'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => setSelectedEntry(entry)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <DataTable<AuditEntry>
+              data={entries}
+              columns={auditEntryColumns}
+              keyExtractor={(entry) => entry.id}
+              emptyMessage="No audit entries found"
+              searchable={false}
+              sortable={false}
+              stickyHeader={false}
+            />
 
             {/* Pagination */}
-            <div className="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
-              <div className="text-sm text-gray-500">
+            <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="text-sm text-gray-500 dark:text-gray-400">
                 Showing {entries.length} of {total} entries
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPage(Math.max(1, page - 1))}
                   disabled={page === 1}
-                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
+                  className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                 >
                   Previous
                 </button>
-                <span className="text-sm text-gray-600">Page {page}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Page {page}</span>
                 <button
                   onClick={() => setPage(page + 1)}
                   disabled={entries.length < limit}
-                  className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-100 disabled:opacity-50"
+                  className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
                 >
                   Next
                 </button>
@@ -832,58 +896,21 @@ export const AuditTrailPage: React.FC = () => {
             platform&apos;s single retention service. They are reviewed as code, not edited here.
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 overflow-x-auto">
+          <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
             {retentionPolicies.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">No retention policies registered</div>
+              <div className="p-8 text-center text-gray-500 dark:text-gray-400">
+                No retention policies registered
+              </div>
             ) : (
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Policy
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Table
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Age column
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Window
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Owner
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                      Legal hold
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {retentionPolicies.map((policy) => (
-                    <tr key={policy.id}>
-                      <td className="px-6 py-3 text-sm font-medium text-gray-900">{policy.id}</td>
-                      <td className="px-6 py-3 text-sm text-gray-700 font-mono">{policy.table}</td>
-                      <td className="px-6 py-3 text-sm text-gray-700 font-mono">
-                        {policy.timestampColumn}
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-900">
-                        {policy.retentionDays} days
-                      </td>
-                      <td className="px-6 py-3 text-sm text-gray-700">{policy.ownerTag}</td>
-                      <td className="px-6 py-3 text-sm">
-                        {policy.legalHoldAware ? (
-                          <span className="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            held rows preserved
-                          </span>
-                        ) : (
-                          <span className="text-gray-400">n/a</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable<RetentionPolicy>
+                data={retentionPolicies}
+                columns={retentionPolicyColumns}
+                keyExtractor={(policy) => policy.id}
+                emptyMessage="No retention policies"
+                searchable={false}
+                sortable={false}
+                stickyHeader={false}
+              />
             )}
           </div>
         </div>
@@ -900,21 +927,26 @@ export const AuditTrailPage: React.FC = () => {
 
           <div className="grid gap-4">
             {alertRules.length === 0 ? (
-              <div className="bg-white rounded-lg border border-gray-200 p-8 text-center text-gray-500">
+              <div className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-8 text-center text-gray-500 dark:text-gray-400">
                 No alert rules configured
               </div>
             ) : (
               alertRules.map((rule) => (
-                <div key={rule.id} className="bg-white rounded-lg border border-gray-200 p-6">
+                <div
+                  key={rule.id}
+                  className="bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-6"
+                >
                   <div className="flex items-start justify-between">
                     <div>
                       <div className="flex items-center gap-3">
-                        <h3 className="text-lg font-semibold text-gray-900">{rule.name}</h3>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+                          {rule.name}
+                        </h3>
                         <span
                           className={`px-2 py-1 rounded-full text-xs font-medium ${
                             rule.enabled
                               ? 'bg-green-100 text-green-800'
-                              : 'bg-gray-100 text-gray-800'
+                              : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
                           }`}
                         >
                           {rule.enabled ? 'Active' : 'Disabled'}
@@ -926,13 +958,15 @@ export const AuditTrailPage: React.FC = () => {
                           {rule.severity}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-500 mt-1">Condition: {rule.condition}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        Condition: {rule.condition}
+                      </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button className="p-2 text-gray-500 hover:text-gray-600">
+                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button className="p-2 text-gray-500 hover:text-red-600">
+                      <button className="p-2 text-gray-500 dark:text-gray-400 hover:text-red-600">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -940,20 +974,26 @@ export const AuditTrailPage: React.FC = () => {
 
                   <div className="mt-4 grid grid-cols-4 gap-4 text-sm">
                     <div>
-                      <span className="text-gray-500">Threshold:</span>{' '}
-                      <span className="text-gray-900 font-medium">{rule.threshold || 'N/A'}</span>
+                      <span className="text-gray-500 dark:text-gray-400">Threshold:</span>{' '}
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">
+                        {rule.threshold || 'N/A'}
+                      </span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Actions:</span>{' '}
-                      <span className="text-gray-900">{rule.actions.join(', ')}</span>
+                      <span className="text-gray-500 dark:text-gray-400">Actions:</span>{' '}
+                      <span className="text-gray-900 dark:text-gray-100">
+                        {rule.actions.join(', ')}
+                      </span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Triggered:</span>{' '}
-                      <span className="text-gray-900 font-medium">{rule.triggeredCount} times</span>
+                      <span className="text-gray-500 dark:text-gray-400">Triggered:</span>{' '}
+                      <span className="text-gray-900 dark:text-gray-100 font-medium">
+                        {rule.triggeredCount} times
+                      </span>
                     </div>
                     <div>
-                      <span className="text-gray-500">Last Triggered:</span>{' '}
-                      <span className="text-gray-900">
+                      <span className="text-gray-500 dark:text-gray-400">Last Triggered:</span>{' '}
+                      <span className="text-gray-900 dark:text-gray-100">
                         {rule.lastTriggered ? formatTimeAgo(rule.lastTriggered) : 'Never'}
                       </span>
                     </div>

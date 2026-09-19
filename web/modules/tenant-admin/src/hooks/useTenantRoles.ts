@@ -14,6 +14,8 @@ import {
   type UseMutationResult,
 } from '@tanstack/react-query';
 import { createTenantQueryKey, createTenantInvalidationKey, getTenantId } from '@aquaculture/shared-ui';
+
+import { DEFAULT_ROLE_COLOR } from '../lib/constants';
 import {
   getTenantRoles,
   getTenantRole,
@@ -256,7 +258,7 @@ export function useCreateTenantRole(): UseCreateTenantRoleMutationResult {
         id: generateTempId(),
         name: input.name,
         description: input.description ?? undefined,
-        color: input.color ?? '#6366F1',
+        color: input.color ?? DEFAULT_ROLE_COLOR,
         icon: input.icon ?? 'shield',
         level: input.level ?? 50,
         isSystem: false,

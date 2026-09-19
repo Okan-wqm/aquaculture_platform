@@ -1,8 +1,9 @@
 import { clsx } from 'clsx';
-import { ArrowLeft, Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
+import { Bell, CheckCheck, AlertCircle, RefreshCw } from 'lucide-react';
 import type { JSX } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { PageHeader } from '@/components/ui/PageHeader';
 import { VirtualList } from '@/components/VirtualList';
 import { useNotifications } from '@/hooks/useNotifications';
 import type { InAppNotification } from '@/types';
@@ -67,32 +68,28 @@ export function NotificationsPage(): JSX.Element {
   };
 
   return (
-    <div className="h-full min-h-screen flex flex-col bg-gray-50 dark:bg-gray-950">
+    <div className="h-screen-nav flex flex-col bg-gray-50 dark:bg-gray-950">
       {/* Header */}
-      <div className="bg-gradient-to-r from-amber-600 to-amber-500 text-white">
-        <div className="flex items-center justify-between px-4 py-4 pt-safe-top">
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate(-1)} className="min-h-touch min-w-touch flex items-center justify-center -ml-2 rounded-xl hover:bg-white/10 touch-feedback">
-              <ArrowLeft size={22} />
-            </button>
-            <div className="flex items-center gap-2.5">
-              <Bell size={22} />
-              <h1 className="text-lg font-bold">Notifications</h1>
-            </div>
-          </div>
-          {unreadCount > 0 && (
-            <button
-              onClick={() => {
-                runAsyncAction(markAllAsRead, 'notifications-mark-all-read');
-              }}
-              className="flex items-center gap-1.5 text-sm font-medium bg-white/20 px-3 py-1.5 rounded-lg touch-feedback"
-            >
-              <CheckCheck size={16} />
-              Mark All Read
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        tone="amber"
+        icon={Bell}
+        title="Notifications"
+        actions={
+          <>
+            {unreadCount > 0 && (
+              <button
+                onClick={() => {
+                  runAsyncAction(markAllAsRead, 'notifications-mark-all-read');
+                }}
+                className="flex items-center gap-1.5 text-sm font-medium bg-white/20 dark:bg-gray-900/20 px-3 py-1.5 rounded-lg touch-feedback"
+              >
+                <CheckCheck size={16} />
+                Mark All Read
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Notification list — virtualized (MOB-MEDIUM-012): only the visible
           window mounts, so a long history cannot jank low-end devices. */}
@@ -109,7 +106,7 @@ export function NotificationsPage(): JSX.Element {
             <p className="font-medium text-gray-600 dark:text-gray-300">
               Notifications are not available yet
             </p>
-            <p className="text-sm text-gray-400 mt-1">Please try again later</p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Please try again later</p>
             <button
               onClick={() => {
                 void refetch();
@@ -121,7 +118,7 @@ export function NotificationsPage(): JSX.Element {
             </button>
           </div>
         ) : notifications.length === 0 ? (
-          <div className="text-center py-12 text-gray-400">
+          <div className="text-center py-12 text-gray-400 dark:text-gray-500">
             <Bell size={48} className="mx-auto mb-3 opacity-30" />
             <p className="font-medium">No notifications yet</p>
             <p className="text-sm mt-1">You will see alerts and updates here</p>
@@ -132,7 +129,7 @@ export function NotificationsPage(): JSX.Element {
             getKey={(notification) => notification.id}
             estimateSize={() => 96}
             gapPx={8}
-            className="flex-1 min-h-0 pb-24"
+            className="flex-1 min-h-0"
             renderItem={(notification) => (
               <button
                 onClick={() => {
@@ -165,8 +162,8 @@ export function NotificationsPage(): JSX.Element {
                     >
                       {notification.title}
                     </h3>
-                    <p className="text-xs text-gray-500 line-clamp-2">{notification.body}</p>
-                    <p className="text-[11px] text-gray-400 mt-1.5">{formatTimeAgo(notification.createdAt)}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-2">{notification.body}</p>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-1.5">{formatTimeAgo(notification.createdAt)}</p>
                   </div>
                 </div>
               </button>

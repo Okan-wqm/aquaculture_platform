@@ -17,6 +17,7 @@ import { getEdgeStyle, ConnectionType } from '../../../config/connectionTypes';
 import { useEdgeStoreContext } from '../EdgeStoreContext';
 import { useEdgeFlowState } from './useEdgeFlowState';
 import type { EdgeFlowConfig } from '../../../types/scada-edge.types';
+import { colors } from '@aquaculture/shared-ui';
 
 /* -------------------------------------------------- */
 /*  Types                                             */
@@ -211,10 +212,10 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
         <path
           d={guidePath}
           fill="none"
-          stroke="#d1d5db"
+          stroke={colors.neutral[300]}
           strokeWidth={1}
           strokeDasharray="4,3"
-          style={{ pointerEvents: 'none' }}
+          className="pointer-events-none"
         />
       )}
 
@@ -246,10 +247,10 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
         <path
           d={edgePath}
           fill="none"
-          stroke="#3b82f6"
+          stroke={colors.info[500]}
           strokeWidth={(edgeStyle.strokeWidth || 2) + 4}
           strokeOpacity={0.3}
-          style={{ pointerEvents: 'none' }}
+          className="pointer-events-none"
         />
       )}
 
@@ -276,7 +277,7 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
             points="-7,-5 0,0 -7,5"
             fill={edgeStyle.stroke}
             transform={`translate(${mx},${my}) rotate(${angle})`}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           >
             <animate attributeName="opacity" values="1;0.2;1" dur="1.5s" repeatCount="indefinite" />
           </polygon>
@@ -291,14 +292,10 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
             cx={controlPoint.x}
             cy={controlPoint.y}
             r={hoveredCP === 1 ? CONTROL_RADIUS_HOVER : CONTROL_RADIUS}
-            fill="#f97316"
-            stroke="#ea580c"
+            fill={colors.accent[600]}
+            stroke={colors.warning[600]}
             strokeWidth={2}
-            style={{
-              pointerEvents: 'all',
-              cursor: 'grab',
-              transition: 'r 0.1s ease-out',
-            }}
+            className="[pointer-events:all] cursor-grab transition-[r] duration-100 ease-out"
             onMouseDown={(e) => handleMouseDown(e, 1)}
             onMouseEnter={() => setHoveredCP(1)}
             onMouseLeave={() => setHoveredCP(null)}
@@ -312,14 +309,10 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
               cx={controlPoint2.x}
               cy={controlPoint2.y}
               r={hoveredCP === 2 ? CONTROL_RADIUS_HOVER : CONTROL_RADIUS}
-              fill="#8b5cf6"
-              stroke="#7c3aed"
+              fill={colors.primary[700]}
+              stroke={colors.primary[800]}
               strokeWidth={2}
-              style={{
-                pointerEvents: 'all',
-                cursor: 'grab',
-                transition: 'r 0.1s ease-out',
-              }}
+              className="[pointer-events:all] cursor-grab transition-[r] duration-100 ease-out"
               onMouseDown={(e) => handleMouseDown(e, 2)}
               onMouseEnter={() => setHoveredCP(2)}
               onMouseLeave={() => setHoveredCP(null)}
@@ -337,19 +330,19 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
             cx={sourceX}
             cy={sourceY}
             r={4}
-            fill="#22c55e"
-            stroke="#16a34a"
+            fill={colors.success[500]}
+            stroke={colors.success[600]}
             strokeWidth={1.5}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           />
           <circle
             cx={targetX}
             cy={targetY}
             r={4}
-            fill="#ef4444"
-            stroke="#dc2626"
+            fill={colors.error[500]}
+            stroke={colors.error[600]}
             strokeWidth={1.5}
-            style={{ pointerEvents: 'none' }}
+            className="pointer-events-none"
           />
         </>
       )}
@@ -363,7 +356,7 @@ const DraggableEdge: React.FC<EdgeProps<Edge<DraggableEdgeData>>> = (props) => {
             textAnchor="middle"
             style={{
               fontSize: 11,
-              fill: '#374151',
+              fill: colors.neutral[700],
               fontWeight: 500,
             }}
           >

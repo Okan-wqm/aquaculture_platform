@@ -52,19 +52,19 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
   return (
     <div
       className={`
-        bg-white rounded-lg shadow-sm border border-gray-200
+        bg-white dark:bg-gray-900 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700
         ${draggable ? 'cursor-move' : ''}
         ${className}
       `}
     >
       {/* Header */}
       {showHeader && (
-        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+        <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-700">
           <div className="flex items-center gap-2">
             {draggable && (
-              <MoreVertical size={14} className="text-gray-500 cursor-grab" />
+              <MoreVertical size={14} className="text-gray-500 dark:text-gray-400 cursor-grab" />
             )}
-            <h4 className="text-sm font-medium text-gray-700 truncate">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate">
               {title || reading.type.replace('_', ' ')}
             </h4>
           </div>
@@ -72,10 +72,10 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
             {onExpand && (
               <button
                 onClick={onExpand}
-                className="p-1 hover:bg-gray-100 rounded transition-colors"
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                 title="Expand"
               >
-                <Maximize2 size={14} className="text-gray-500" />
+                <Maximize2 size={14} className="text-gray-500 dark:text-gray-400" />
               </button>
             )}
             {onRemove && (
@@ -84,7 +84,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
                 className="p-1 hover:bg-red-50 rounded transition-colors"
                 title="Remove"
               >
-                <X size={14} className="text-gray-500 hover:text-red-500" />
+                <X size={14} className="text-gray-500 dark:text-gray-400 hover:text-red-500" />
               </button>
             )}
           </div>
@@ -95,7 +95,7 @@ export const WidgetContainer: React.FC<WidgetContainerProps> = ({
       <div className="p-3">{renderWidget()}</div>
 
       {/* Last update */}
-      <div className="px-3 pb-2 text-xs text-gray-500 text-right">
+      <div className="px-3 pb-2 text-xs text-gray-500 dark:text-gray-400 text-right">
         {formatTimestamp(reading.timestamp)}
       </div>
     </div>
@@ -165,7 +165,7 @@ export const CompactWidget: React.FC<CompactWidgetProps> = ({
     normal: 'bg-green-100 text-green-700 border-green-200',
     warning: 'bg-yellow-100 text-yellow-700 border-yellow-200',
     critical: 'bg-red-100 text-red-700 border-red-200',
-    offline: 'bg-gray-100 text-gray-500 border-gray-200',
+    offline: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 border-gray-200 dark:border-gray-700',
   };
 
   return (
@@ -179,7 +179,7 @@ export const CompactWidget: React.FC<CompactWidgetProps> = ({
       title={`${reading.type}: ${reading.value}${reading.unit}`}
     >
       <span>{reading.value.toFixed(1)}</span>
-      <span className="text-gray-500">{reading.unit}</span>
+      <span className="text-gray-500 dark:text-gray-400">{reading.unit}</span>
     </div>
   );
 };

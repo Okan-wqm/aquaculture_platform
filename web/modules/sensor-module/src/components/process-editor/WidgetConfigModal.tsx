@@ -10,7 +10,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { X, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Modal, Spinner } from '@aquaculture/shared-ui';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 import { useDataChannelList, DataChannel } from '../../hooks/useDataChannelList';
 import { WIDGET_TYPES, TIME_RANGES, REFRESH_INTERVALS, WidgetType } from '../dashboard/types';
@@ -120,26 +121,15 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-
-      <div className="relative bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Widget Configuration</h3>
-            <button
-              onClick={onClose}
-              className="p-1 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-              aria-label="Close"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-          <p className="text-sm text-gray-500 mt-1">
-            {step === 'type' ? 'Step 1: Select widget type' : 'Step 2: Configure data source'}
-          </p>
-        </div>
+    <Modal
+      isOpen
+      onClose={onClose}
+      size="md"
+      className="max-h-[90vh] overflow-hidden flex flex-col"
+      bodyClassName="flex-1 min-h-0 flex flex-col"
+      title="Widget Configuration"
+      description={step === 'type' ? 'Step 1: Select widget type' : 'Step 2: Configure data source'}
+    >
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">
@@ -152,12 +142,12 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                   className={`p-4 border rounded-lg text-left transition-all hover:border-cyan-500 hover:shadow-md ${
                     selectedType === wt.type
                       ? 'border-cyan-500 bg-cyan-50 ring-2 ring-cyan-200'
-                      : 'border-gray-200 bg-white'
+                      : 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900'
                   }`}
                 >
                   <div className="text-2xl mb-2">{WIDGET_ICONS[wt.type] || '📊'}</div>
-                  <div className="font-medium text-gray-900">{wt.label}</div>
-                  <div className="text-xs text-gray-500 mt-1">{wt.description}</div>
+                  <div className="font-medium text-gray-900 dark:text-gray-100">{wt.label}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{wt.description}</div>
                 </button>
               ))}
             </div>
@@ -165,9 +155,9 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
 
           {step === 'config' && (
             <div className="space-y-4">
-              <div className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <span className="text-xl">{WIDGET_ICONS[selectedType || 'line-chart'] || '📊'}</span>
-                <span className="font-medium text-gray-700">
+                <span className="font-medium text-gray-700 dark:text-gray-300">
                   {PROCESS_WIDGET_TYPES.find((t) => t.type === selectedType)?.label || 'Widget'}
                 </span>
                 <button
@@ -179,25 +169,25 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Title</label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                   placeholder="Widget title (auto-fills from channel)"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Select Data Channel
                 </label>
 
                 {loading && (
                   <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-6 h-6 text-cyan-600 animate-spin" />
-                    <span className="ml-2 text-gray-500">Loading channels...</span>
+                    <Spinner size="md" />
+                    <span className="ml-2 text-gray-500 dark:text-gray-400">Loading channels...</span>
                   </div>
                 )}
 
@@ -206,45 +196,45 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                 )}
 
                 {!loading && !error && groupedBySensor.length === 0 && (
-                  <div className="p-4 bg-gray-50 text-gray-500 rounded-lg text-sm text-center">
+                  <div className="p-4 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400 rounded-lg text-sm text-center">
                     No data channels available. Register sensors first.
                   </div>
                 )}
 
                 {!loading && !error && groupedBySensor.length > 0 && (
-                  <div className="border border-gray-200 rounded-lg divide-y divide-gray-200 max-h-64 overflow-y-auto">
+                  <div className="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-64 overflow-y-auto">
                     {groupedBySensor.map((group) => (
                       <div key={group.sensorId}>
                         <button
                           onClick={() => toggleSensor(group.sensorId)}
-                          className="w-full px-3 py-2 flex items-center justify-between bg-gray-50 hover:bg-gray-100 transition-colors"
+                          className="w-full px-3 py-2 flex items-center justify-between bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                         >
                           <div className="flex items-center gap-2">
                             {expandedSensors.has(group.sensorId) ? (
-                              <ChevronDown className="w-4 h-4 text-gray-500" />
+                              <ChevronDown className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                             ) : (
-                              <ChevronRight className="w-4 h-4 text-gray-500" />
+                              <ChevronRight className="w-4 h-4 text-gray-500 dark:text-gray-400" />
                             )}
-                            <span className="font-medium text-sm text-gray-700">
+                            <span className="font-medium text-sm text-gray-700 dark:text-gray-300">
                               {group.sensorName}
                             </span>
                             {group.sensorType && (
-                              <span className="text-xs text-gray-500">({group.sensorType})</span>
+                              <span className="text-xs text-gray-500 dark:text-gray-400">({group.sensorType})</span>
                             )}
                           </div>
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
                             {group.channels.length} channel
                             {group.channels.length !== 1 ? 's' : ''}
                           </span>
                         </button>
 
                         {expandedSensors.has(group.sensorId) && (
-                          <div className="divide-y divide-gray-100">
+                          <div className="divide-y divide-gray-100 dark:divide-gray-700">
                             {group.channels.map((channel) => (
                               <label
                                 key={channel.id}
                                 className={`flex items-center gap-3 px-4 py-2 cursor-pointer transition-colors ${
-                                  selectedChannelId === channel.id ? 'bg-cyan-50' : 'hover:bg-gray-50'
+                                  selectedChannelId === channel.id ? 'bg-cyan-50' : 'hover:bg-gray-50 dark:hover:bg-gray-800'
                                 }`}
                               >
                                 <input
@@ -255,10 +245,10 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                                   className="text-cyan-600 focus:ring-cyan-500"
                                 />
                                 <div className="flex-1 min-w-0">
-                                  <div className="text-sm text-gray-900 truncate">
+                                  <div className="text-sm text-gray-900 dark:text-gray-100 truncate">
                                     {channel.displayLabel}
                                   </div>
-                                  <div className="text-xs text-gray-500">
+                                  <div className="text-xs text-gray-500 dark:text-gray-400">
                                     {channel.channelKey}
                                     {channel.unit && ` • ${channel.unit}`}
                                   </div>
@@ -279,11 +269,11 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Time Range</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Time Range</label>
                 <select
                   value={timeRange}
                   onChange={(e) => setTimeRange(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 >
                   {TIME_RANGES.map((tr) => (
                     <option key={tr.value} value={tr.value}>
@@ -294,13 +284,13 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Refresh Interval
                 </label>
                 <select
                   value={refreshInterval}
                   onChange={(e) => setRefreshInterval(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
                 >
                   {REFRESH_INTERVALS.map((ri) => (
                     <option key={ri.value} value={ri.value}>
@@ -314,33 +304,33 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
                 ['line-chart', 'area-chart', 'bar-chart', 'sparkline', 'gauge', 'radial-gauge'].includes(
                   selectedType,
                 ) && (
-                  <div className="pt-3 border-t border-gray-200">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <div className="pt-3 border-t border-gray-200 dark:border-gray-700">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                       Y-Axis Range (optional)
                     </label>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Min Value</label>
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Min Value</label>
                         <input
                           type="number"
                           value={yAxisMin}
                           onChange={(e) => setYAxisMin(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-sm"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-sm"
                           placeholder="Auto"
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-gray-500 mb-1">Max Value</label>
+                        <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">Max Value</label>
                         <input
                           type="number"
                           value={yAxisMax}
                           onChange={(e) => setYAxisMax(e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-sm"
+                          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-sm"
                           placeholder="Auto"
                         />
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                       Leave empty for automatic range based on data
                     </p>
                   </div>
@@ -350,7 +340,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 border-t border-gray-200 flex justify-between items-center bg-gray-50">
+        <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-800">
           {step === 'config' && (
             <button
               onClick={() => setStep('type')}
@@ -363,7 +353,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800"
             >
               Cancel
             </button>
@@ -382,8 +372,7 @@ export const WidgetConfigModal: React.FC<WidgetConfigModalProps> = ({ data, onCl
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

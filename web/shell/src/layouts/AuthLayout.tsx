@@ -7,14 +7,7 @@
 
 import React from 'react';
 import { Outlet, Navigate } from 'react-router-dom';
-import {
-  BRAND,
-  getAccessToken,
-  tokenLifecycle,
-  useAuthContext,
-  useI18n,
-  I18nProvider,
-} from '@aquaculture/shared-ui';
+import { BRAND, getAccessToken, tokenLifecycle, useAuthContext, useI18n, I18nProvider, Spinner } from '@aquaculture/shared-ui';
 import FishBackground from '../components/FishBackground';
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -44,11 +37,9 @@ const AuthLayout: React.FC = () => {
   if (isLoading) {
     return (
       <div className="industrial-auth-loading min-h-screen flex items-center justify-center">
-        <div
-          className="animate-spin w-8 h-8 border-2 border-[#7fd6e1]/35 border-t-[#7fd6e1] rounded-full"
-          role="status"
-          aria-label="Loading authentication"
-        />
+        <div role="status" aria-label="Loading authentication">
+          <Spinner size="lg" color="inherit" className="text-primary-300" />
+        </div>
       </div>
     );
   }

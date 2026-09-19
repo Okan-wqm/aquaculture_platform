@@ -21,14 +21,14 @@ import {
   Clock,
   AlertTriangle,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import {
   useWorkRotations,
   useEmployees,
   useCurrentlyOffshore,
 } from '../../hooks';
-import { DataTable, StatusBadge, EmployeeAvatar } from '../../components/common';
-import type { Column } from '../../components/common';
+import { derivePaginationMetadataV1 } from '@platform/pagination-contracts';
+import { StatusBadge, EmployeeAvatar } from '../../components/common';
 import type { WorkRotation, Employee, RotationType, PaginationInput } from '../../types';
 import { RotationStatus } from '../../types';
 
@@ -141,7 +141,7 @@ const UpcomingTransitionCard: React.FC<{ rotation: WorkRotation }> = ({ rotation
                 )}
                 {ROTATION_TYPE_CONFIG[rotation.rotationType].label}
               </span>
-              <ArrowRight className="h-3 w-3 text-gray-400" />
+              <ArrowRight className="h-3 w-3 text-gray-400 dark:text-gray-500" />
               <span className="text-gray-600 dark:text-gray-400">
                 {rotation.rotationType === ('OFFSHORE' as RotationType) ? 'Onshore' : 'Offshore'}
               </span>
@@ -157,7 +157,7 @@ const UpcomingTransitionCard: React.FC<{ rotation: WorkRotation }> = ({ rotation
           >
             {daysUntil} day{daysUntil !== 1 ? 's' : ''}
           </p>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-gray-500 dark:text-gray-400">
             {new Date(rotation.endDate).toLocaleDateString()}
           </p>
         </div>
@@ -175,6 +175,7 @@ export function OffshoreRotationsPage() {
   const [activeTab, setActiveTab] = useState<'schedule' | 'calendar' | 'history'>('schedule');
   const [rotationFilter, setRotationFilter] = useState<RotationType | ''>('');
   const [pagination, setPagination] = useState<PaginationInput>({ limit: 20, page: 1 });
+  const [historyPage, setHistoryPage] = useState(1);
   const [calendarMonth, setCalendarMonth] = useState(new Date());
 
   // Data fetching
@@ -186,6 +187,13 @@ export function OffshoreRotationsPage() {
 
   // Calculate stats
   const activeRotations = rotations?.filter((r) => r.status === RotationStatus.IN_PROGRESS) || [];
+  const completedRotations = rotations?.filter((r) => r.status === RotationStatus.COMPLETED) || [];
+  // The rotations query returns a flat array, so page it client-side: the
+  // pagination bar has to move what the table shows, not only its label.
+  const pageSize = pagination.limit || 20;
+  const currentPage = pagination.page || 1;
+  const pagedActiveRotations = activeRotations.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pagedCompletedRotations = completedRotations.slice((historyPage - 1) * pageSize, historyPage * pageSize);
   const upcomingTransitions = rotations
     ?.filter((r) => {
       const endDate = new Date(r.endDate);
@@ -204,12 +212,11 @@ export function OffshoreRotationsPage() {
   }, [calendarMonth]);
 
   // Rotation columns
-  const rotationColumns: Column<WorkRotation>[] = [
+  const rotationColumns: DataTableColumn<WorkRotation>[] = [
     {
       key: 'employee',
       header: 'Employee',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="flex items-center gap-3">
           {row.employee && (
             <>
@@ -222,7 +229,7 @@ export function OffshoreRotationsPage() {
                 <p className="font-medium text-gray-900 dark:text-white">
                   {row.employee.firstName} {row.employee.lastName}
                 </p>
-                <p className="text-sm text-gray-500">{row.employee.employeeNumber}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{row.employee.employeeNumber}</p>
               </div>
             </>
           )}
@@ -232,7 +239,7 @@ export function OffshoreRotationsPage() {
     {
       key: 'rotationType',
       header: 'Rotation Type',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span
           className={cn(
             'inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium',
@@ -251,7 +258,7 @@ export function OffshoreRotationsPage() {
     {
       key: 'pattern',
       header: 'Pattern',
-      accessor: (row) => (
+      render: (_value, row) => (
         <span className="text-gray-900 dark:text-white">
           {row.daysOn}/{row.daysOff}
         </span>
@@ -260,15 +267,14 @@ export function OffshoreRotationsPage() {
     {
       key: 'dates',
       header: 'Current Period',
-      sortable: true,
-      accessor: (row) => (
+      render: (_value, row) => (
         <div className="text-sm">
           <p className="text-gray-900 dark:text-white">
             {new Date(row.startDate).toLocaleDateString()} -{' '}
             {new Date(row.endDate).toLocaleDateString()}
           </p>
           {row.status === RotationStatus.IN_PROGRESS && (
-            <p className="text-gray-500">
+            <p className="text-gray-500 dark:text-gray-400">
               {Math.ceil(
                 (new Date(row.endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
               )}{' '}
@@ -283,7 +289,7 @@ export function OffshoreRotationsPage() {
       header: 'Status',
       // WHY: GraphQL returns UPPERCASE enum keys (IN_PROGRESS, SCHEDULED, etc.)
       // not lowercase DB values. The status lookup map must use UPPERCASE keys.
-      accessor: (row) => {
+      render: (_value, row) => {
         const statusConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'error' | 'neutral' }> = {
           IN_PROGRESS: { label: 'Active', variant: 'success' },
           SCHEDULED: { label: 'Scheduled', variant: 'warning' },
@@ -315,27 +321,25 @@ export function OffshoreRotationsPage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Offshore Rotations</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Manage work rotation schedules and crew transitions
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/hr/crew"
-            className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <Users className="h-4 w-4" />
-            Crew
-          </Link>
-          <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            <Plus className="h-4 w-4" />
-            New Rotation
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Offshore Rotations"
+        description="Manage work rotation schedules and crew transitions"
+        actions={
+          <div className="flex items-center gap-3">
+            <Link
+              to="/hr/crew"
+              className="flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <Users className="h-4 w-4" />
+              Crew
+            </Link>
+            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+              <Plus className="h-4 w-4" />
+              New Rotation
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -397,7 +401,7 @@ export function OffshoreRotationsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'schedule'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Active Schedule
@@ -408,7 +412,7 @@ export function OffshoreRotationsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'calendar'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           Calendar View
@@ -419,7 +423,7 @@ export function OffshoreRotationsPage() {
             'border-b-2 pb-3 text-sm font-medium transition-colors',
             activeTab === 'history'
               ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+              : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-500 hover:text-gray-700 dark:hover:text-gray-100'
           )}
         >
           History
@@ -448,16 +452,17 @@ export function OffshoreRotationsPage() {
           </div>
 
           {/* Rotations Table */}
-          <DataTable
-            data={activeRotations}
+          <DataTable<WorkRotation>
+            data={pagedActiveRotations}
             columns={rotationColumns}
             keyExtractor={(row) => row.id}
-            isLoading={loadingRotations}
+            loading={loadingRotations}
             emptyMessage="No active rotations found"
-            total={activeRotations.length}
-            page={pagination.page || 1}
-            pageSize={pagination.limit || 20}
+            pagination={derivePaginationMetadataV1(activeRotations.length, currentPage, pageSize)}
             onPageChange={handlePageChange}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
           />
         </div>
       )}
@@ -570,7 +575,7 @@ export function OffshoreRotationsPage() {
                         </div>
                       ))}
                       {dayRotations.length > 3 && (
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
                           +{dayRotations.length - 3} more
                         </div>
                       )}
@@ -585,16 +590,17 @@ export function OffshoreRotationsPage() {
 
       {activeTab === 'history' && (
         <div className="space-y-4">
-          <DataTable
-            data={rotations?.filter((r) => r.status === ('COMPLETED' as RotationStatus)) || []}
+          <DataTable<WorkRotation>
+            data={pagedCompletedRotations}
             columns={rotationColumns}
             keyExtractor={(row) => row.id}
-            isLoading={loadingRotations}
+            loading={loadingRotations}
             emptyMessage="No rotation history found"
-            total={rotations?.filter((r) => r.status === ('COMPLETED' as RotationStatus)).length}
-            page={1}
-            pageSize={20}
-            onPageChange={() => {}}
+            pagination={derivePaginationMetadataV1(completedRotations.length, historyPage, pageSize)}
+            onPageChange={setHistoryPage}
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
           />
         </div>
       )}

@@ -99,16 +99,19 @@ export const WaterTemperatureModal: React.FC<WaterTemperatureModalProps> = ({
     <Modal isOpen={isOpen} onClose={handleClose} title="Record Water Temperature" size="sm">
       <div className="space-y-6">
         {/* Tank context */}
-        <div className="bg-gray-50 rounded-lg p-4">
-          <h3 className="font-medium text-gray-900">{tankName}</h3>
-          <p className="mt-1 text-sm text-gray-500">
+        <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+          <h3 className="font-medium text-gray-900 dark:text-gray-100">{tankName}</h3>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Records the latest manual water temperature used by the feeding-rate calculation.
           </p>
         </div>
 
         {/* Temperature input */}
         <div>
-          <label htmlFor="water-temperature" className="block text-sm font-medium text-gray-700">
+          <label
+            htmlFor="water-temperature"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Water Temperature (°C) <span className="text-red-500">*</span>
           </label>
           <input
@@ -119,7 +122,7 @@ export const WaterTemperatureModal: React.FC<WaterTemperatureModalProps> = ({
             max={MAX_TEMPERATURE_C}
             value={temperature}
             onChange={(e) => setTemperature(e.target.value)}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+            className="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
             placeholder="e.g. 12.5"
           />
         </div>

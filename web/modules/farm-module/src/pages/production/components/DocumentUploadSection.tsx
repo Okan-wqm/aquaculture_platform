@@ -3,7 +3,7 @@
  * Handles file uploads for batch documents (health certificates, import documents)
  */
 import React, { useRef, useState, useCallback } from 'react';
-import { useToast } from '@aquaculture/shared-ui';
+import { useToast, Spinner } from '@aquaculture/shared-ui';
 import { validateDocumentFile, formatFileSize } from '../../../hooks/useFileUpload';
 import type { BatchDocumentInput, BatchDocumentType } from '../../../hooks/useBatches';
 import type { UploadedDocument } from '../../../hooks/useFileUpload';
@@ -222,10 +222,10 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-sm font-medium text-gray-700">
+        <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
           {title} {required && <span className="text-red-500">*</span>}
         </h4>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-gray-500 dark:text-gray-400">
           {documents.length}/{maxDocuments} documents
         </span>
       </div>
@@ -241,14 +241,14 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
                   ? 'border-red-300 bg-red-50'
                   : doc.isUploading
                   ? 'border-yellow-300 bg-yellow-50'
-                  : 'border-gray-200 bg-gray-50'
+                  : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
               }`}
             >
               <div className="flex items-center space-x-3">
                 {getFileIcon(doc.mimeType)}
                 <div>
-                  <p className="text-sm font-medium text-gray-900">{doc.documentName}</p>
-                  <div className="flex items-center space-x-2 text-xs text-gray-500">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{doc.documentName}</p>
+                  <div className="flex items-center space-x-2 text-xs text-gray-500 dark:text-gray-400">
                     <span>{doc.originalFilename}</span>
                     <span>-</span>
                     <span>{formatFileSize(doc.fileSize)}</span>
@@ -267,10 +267,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
 
               <div className="flex items-center space-x-2">
                 {doc.isUploading && (
-                  <svg className="animate-spin h-5 w-5 text-yellow-600" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                  </svg>
+                  <Spinner size="md" />
                 )}
                 {doc.isUploaded && (
                   <svg className="h-5 w-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
@@ -289,7 +286,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
                 <button
                   type="button"
                   onClick={() => handleRemoveDocument(doc.id)}
-                  className="p-1 text-gray-400 hover:text-red-600"
+                  className="p-1 text-gray-400 dark:text-gray-500 hover:text-red-600"
                   title="Remove document"
                 >
                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -304,29 +301,29 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
 
       {/* Add Document Form */}
       {showAddForm ? (
-        <div className="p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-3">
+        <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-800 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Document Name <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
                 value={newDocName}
                 onChange={(e) => setNewDocName(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="e.g., Health Certificate 2024"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Document Number
               </label>
               <input
                 type="text"
                 value={newDocNumber}
                 onChange={(e) => setNewDocNumber(e.target.value)}
-                className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 placeholder="e.g., HC-2024-001"
               />
             </div>
@@ -340,7 +337,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
             className={`border-2 border-dashed rounded-lg p-4 text-center transition-colors ${
               dragOver
                 ? 'border-blue-400 bg-blue-50'
-                : 'border-gray-300 hover:border-gray-400'
+                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
             }`}
           >
             <input
@@ -350,10 +347,10 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               onChange={(e) => handleFileSelect(e.target.files)}
               className="hidden"
             />
-            <svg className="mx-auto h-10 w-10 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="mx-auto h-10 w-10 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
             </svg>
-            <p className="mt-2 text-sm text-gray-600">
+            <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -363,7 +360,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
               </button>
               {' '}or drag and drop
             </p>
-            <p className="mt-1 text-xs text-gray-500">PDF, DOC, PNG, JPG up to 15MB</p>
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">PDF, DOC, PNG, JPG up to 15MB</p>
           </div>
 
           <div className="flex justify-end space-x-2">
@@ -374,7 +371,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
                 setNewDocName('');
                 setNewDocNumber('');
               }}
-              className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-800"
+              className="px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-100"
             >
               Cancel
             </button>
@@ -385,7 +382,7 @@ export const DocumentUploadSection: React.FC<DocumentUploadSectionProps> = ({
           <button
             type="button"
             onClick={() => setShowAddForm(true)}
-            className="w-full py-2 px-4 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-600 hover:border-gray-400 hover:text-gray-800 transition-colors"
+            className="w-full py-2 px-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:border-gray-400 dark:hover:border-gray-500 hover:text-gray-800 dark:hover:text-gray-100 transition-colors"
           >
             <span className="flex items-center justify-center">
               <svg className="w-5 h-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">

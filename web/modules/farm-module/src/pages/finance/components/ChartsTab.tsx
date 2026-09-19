@@ -7,7 +7,7 @@
  * its color regardless of filtering), magnitude breakdowns use one hue,
  * legends present for two-series charts.
  */
-import { parseMoney } from '@aquaculture/shared-ui';
+import { parseMoney, chartChrome, colors } from '@aquaculture/shared-ui';
 import React from 'react';
 import {
   Bar,
@@ -27,8 +27,8 @@ import { useBatchList } from '../../../hooks/useBatches';
 import type { FinancePeriod } from '../FinancePage';
 
 /** Fixed series hues — expense/revenue never swap or cycle. */
-const EXPENSE_COLOR = '#2563eb'; // blue-600
-const REVENUE_COLOR = '#16a34a'; // green-600
+const EXPENSE_COLOR = colors.info[600]; // blue-600
+const REVENUE_COLOR = colors.success[600]; // green-600
 
 interface ChartsTabProps {
   summary: FinanceSummary | undefined;
@@ -59,10 +59,10 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
   const batchesQuery = useBatchList({});
 
   if (isLoading) {
-    return <div className="py-16 text-center text-gray-500">Loading charts…</div>;
+    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">Loading charts…</div>;
   }
   if (!summary) {
-    return <div className="py-16 text-center text-gray-500">No finance data to chart.</div>;
+    return <div className="py-16 text-center text-gray-500 dark:text-gray-400">No finance data to chart.</div>;
   }
 
   const trendData = summary.series.map((bucket) => ({
@@ -90,13 +90,13 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
   return (
     <div className="space-y-6">
       {/* Trend over time */}
-      <div className="rounded-lg bg-white p-5 shadow">
-        <h2 className="mb-4 text-base font-semibold text-gray-900">
+      <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+        <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
           Cost & revenue trend ({period.granularity.toLowerCase()} buckets, {summary.currency})
         </h2>
         <ResponsiveContainer width="100%" height={320}>
           <LineChart data={trendData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+            <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} />
             <XAxis dataKey="bucket" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} />
             <Tooltip />
@@ -109,12 +109,12 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         {/* Cost by category — magnitude job, one hue */}
-        <div className="rounded-lg bg-white p-5 shadow">
-          <h2 className="mb-4 text-base font-semibold text-gray-900">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+          <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
             Operational cost by category ({summary.currency})
           </h2>
           {categoryData.length === 0 ? (
-            <p className="py-12 text-center text-sm text-gray-500">No expense data in this period</p>
+            <p className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">No expense data in this period</p>
           ) : (
             <ResponsiveContainer width="100%" height={Math.max(240, categoryData.length * 34)}>
               <BarChart
@@ -122,7 +122,7 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
                 layout="vertical"
                 margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 12 }} />
                 <YAxis type="category" dataKey="name" width={170} tick={{ fontSize: 12 }} />
                 <Tooltip />
@@ -133,12 +133,12 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
         </div>
 
         {/* Cost & revenue per batch */}
-        <div className="rounded-lg bg-white p-5 shadow">
-          <h2 className="mb-4 text-base font-semibold text-gray-900">
+        <div className="rounded-lg bg-white dark:bg-gray-900 p-5 shadow">
+          <h2 className="mb-4 text-base font-semibold text-gray-900 dark:text-gray-100">
             Cost & revenue per batch ({summary.currency})
           </h2>
           {batchData.length === 0 ? (
-            <p className="py-12 text-center text-sm text-gray-500">
+            <p className="py-12 text-center text-sm text-gray-500 dark:text-gray-400">
               No batch-linked finance data in this period
             </p>
           ) : (
@@ -148,7 +148,7 @@ export const ChartsTab: React.FC<ChartsTabProps> = ({ summary, isLoading, period
                 layout="vertical"
                 margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartChrome.grid} horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 12 }} />
                 <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
                 <Tooltip />

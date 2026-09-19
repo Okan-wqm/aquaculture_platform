@@ -14,6 +14,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import type { ColorRange } from '../../../engine/animation/types';
+import { colors as themeColors } from '@aquaculture/shared-ui';
 
 export type { ColorRange } from '../../../engine/animation/types';
 
@@ -31,8 +32,8 @@ interface RangeColorMappingProps {
 }
 
 /** Default fill color for newly created ranges */
-const DEFAULT_FILL = '#22c55e';
-const DEFAULT_STROKE = '#16a34a';
+const DEFAULT_FILL = themeColors.success[500];
+const DEFAULT_STROKE = themeColors.success[600];
 
 /**
  * Detects overlapping ranges. Two ranges overlap when one starts before
@@ -113,14 +114,14 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
   return (
     <div className="space-y-2" data-testid="range-color-mapping">
       <div className="flex items-center justify-between">
-        <label className="text-xs text-gray-500 font-medium">Color Ranges</label>
+        <label className="text-xs text-gray-500 dark:text-gray-400 font-medium">Color Ranges</label>
         <button
           type="button"
           onClick={addRange}
           disabled={ranges.length >= maxRanges}
           className={`flex items-center gap-1 text-xs transition-colors ${
             ranges.length >= maxRanges
-              ? 'text-gray-400 cursor-not-allowed'
+              ? 'text-gray-400 dark:text-gray-500 cursor-not-allowed'
               : 'text-cyan-600 hover:text-cyan-700'
           }`}
           data-testid="add-range-btn"
@@ -142,7 +143,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
       )}
 
       {ranges.length === 0 && (
-        <p className="text-xs text-gray-500 py-3 text-center">No color ranges defined.</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 py-3 text-center">No color ranges defined.</p>
       )}
 
       {ranges.map((range, idx) => {
@@ -164,7 +165,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
               value={range.min}
               onChange={(e) => updateRange(idx, 'min', Number(e.target.value))}
               className={`w-14 px-2 py-1 text-xs border rounded ${
-                isInvalid ? 'border-red-400' : 'border-gray-300'
+                isInvalid ? 'border-red-400' : 'border-gray-300 dark:border-gray-600'
               }`}
               placeholder="Min"
               aria-label="Range minimum"
@@ -175,7 +176,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
               value={range.max}
               onChange={(e) => updateRange(idx, 'max', Number(e.target.value))}
               className={`w-14 px-2 py-1 text-xs border rounded ${
-                isInvalid ? 'border-red-400' : 'border-gray-300'
+                isInvalid ? 'border-red-400' : 'border-gray-300 dark:border-gray-600'
               }`}
               placeholder="Max"
               aria-label="Range maximum"
@@ -185,7 +186,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
               type="color"
               value={range.fill}
               onChange={(e) => updateRange(idx, 'fill', e.target.value)}
-              className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
+              className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
               title="Fill color"
               aria-label="Fill color"
             />
@@ -195,7 +196,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
                 type="color"
                 value={range.stroke || DEFAULT_STROKE}
                 onChange={(e) => updateRange(idx, 'stroke', e.target.value)}
-                className="w-8 h-7 border border-gray-300 rounded cursor-pointer"
+                className="w-8 h-7 border border-gray-300 dark:border-gray-600 rounded cursor-pointer"
                 title="Stroke color"
                 aria-label="Stroke color"
               />
@@ -206,7 +207,7 @@ export const RangeColorMapping: React.FC<RangeColorMappingProps> = ({
                 type="text"
                 value={range.label || ''}
                 onChange={(e) => updateRange(idx, 'label', e.target.value)}
-                className="w-16 px-2 py-1 text-xs border border-gray-300 rounded"
+                className="w-16 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded"
                 placeholder="Label"
                 aria-label="Range label"
               />

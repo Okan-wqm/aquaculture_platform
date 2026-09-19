@@ -51,6 +51,7 @@ import {
   useSubEquipmentByParent,
 } from '../../../hooks/useSubEquipment';
 import { SubEquipmentModal } from './SubEquipmentModal';
+import { DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
 
 interface SubEquipmentSectionProps {
   parentEquipmentId: string;
@@ -60,7 +61,7 @@ interface SubEquipmentSectionProps {
 const STATUS_BADGES: Record<string, string> = {
   ACTIVE: 'bg-green-100 text-green-800',
   MAINTENANCE: 'bg-yellow-100 text-yellow-800',
-  INACTIVE: 'bg-gray-100 text-gray-800',
+  INACTIVE: 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200',
   RETIRED: 'bg-red-100 text-red-800',
 };
 
@@ -101,10 +102,74 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
     }
   };
 
+  type ItemRow = (typeof items)[number];
+  const itemRowColumns: DataTableColumn<ItemRow>[] = [
+    {
+      key: 'ad',
+      header: 'Ad',
+      render: (_value, item) => (
+        <>
+          <div className="font-medium text-gray-900 dark:text-gray-100">
+            {item.name}
+          </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">{item.code}</div>
+        </>
+      ),
+    },
+    {
+      key: 'tR',
+      header: 'Tür',
+      render: (_value, item) => item.subEquipmentType?.name ?? '—',
+    },
+    {
+      key: 'durum',
+      header: 'Durum',
+      render: (_value, item) => (
+        <>
+          <span
+            className={`px-2 py-0.5 text-xs rounded-full ${
+              STATUS_BADGES[item.status ?? 'ACTIVE'] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200'
+            }`}
+          >
+            {item.status ?? 'ACTIVE'}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: 'lem',
+      header: 'İşlem',
+      align: 'right',
+      render: (_value, item) => (
+        <div className="flex items-center justify-end gap-3">
+          {canUpdate && (
+            <button
+              type="button"
+              onClick={() => setEditing(item)}
+              className="text-indigo-600 hover:text-indigo-900"
+            >
+              Düzenle
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => setDeleting(item)}
+              className="text-red-600 hover:text-red-800"
+              disabled={deleteMutation.isPending}
+            >
+              Sil
+            </button>
+          )}
+        </div>
+      ),
+    }
+  ];
+
   return (
     <div className="mt-4">
       <div className="flex items-center justify-between mb-2">
-        <label className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
           Alt Ekipmanlar
         </label>
         {canCreate && (
@@ -118,83 +183,27 @@ export const SubEquipmentSection: React.FC<SubEquipmentSectionProps> = ({
         )}
       </div>
 
-      <div className="border border-gray-200 rounded-md overflow-hidden">
+      <div className="border border-gray-200 dark:border-gray-700 rounded-md overflow-hidden">
         {subEquipmentQuery.isLoading ? (
-          <div className="p-3 text-sm text-gray-500">Yükleniyor…</div>
+          <div className="p-3 text-sm text-gray-500 dark:text-gray-400">Yükleniyor…</div>
         ) : subEquipmentQuery.isError ? (
           <div className="p-3 text-sm text-red-700">
             Alt ekipmanlar yüklenemedi.
           </div>
         ) : items.length === 0 ? (
-          <div className="p-3 text-sm text-gray-500">
+          <div className="p-3 text-sm text-gray-500 dark:text-gray-400">
             Bu ekipmana bağlı alt ekipman yok.
           </div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                  Ad
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                  Tür
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase">
-                  Durum
-                </th>
-                <th className="px-3 py-2 text-right text-xs font-semibold text-gray-600 uppercase">
-                  İşlem
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {items.map((item) => (
-                <tr key={item.id} className="hover:bg-gray-50">
-                  <td className="px-3 py-2 text-sm">
-                    <div className="font-medium text-gray-900">
-                      {item.name}
-                    </div>
-                    <div className="text-xs text-gray-500">{item.code}</div>
-                  </td>
-                  <td className="px-3 py-2 text-sm text-gray-700">
-                    {item.subEquipmentType?.name ?? '—'}
-                  </td>
-                  <td className="px-3 py-2 text-sm">
-                    <span
-                      className={`px-2 py-0.5 text-xs rounded-full ${
-                        STATUS_BADGES[item.status ?? 'ACTIVE'] ?? 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {item.status ?? 'ACTIVE'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-right text-sm">
-                    <div className="flex items-center justify-end gap-3">
-                      {canUpdate && (
-                        <button
-                          type="button"
-                          onClick={() => setEditing(item)}
-                          className="text-indigo-600 hover:text-indigo-900"
-                        >
-                          Düzenle
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          type="button"
-                          onClick={() => setDeleting(item)}
-                          className="text-red-600 hover:text-red-800"
-                          disabled={deleteMutation.isPending}
-                        >
-                          Sil
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable<ItemRow>
+            data={items}
+            columns={itemRowColumns}
+            keyExtractor={(item) => item.id}
+            emptyMessage="No records found"
+            searchable={false}
+            sortable={false}
+            stickyHeader={false}
+          />
         )}
       </div>
 

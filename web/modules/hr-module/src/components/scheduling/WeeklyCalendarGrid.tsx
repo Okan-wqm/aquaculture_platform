@@ -111,7 +111,7 @@ export function WeeklyCalendarGrid({
               className={cn(
                 'text-center py-2 rounded-t-lg',
                 day === 'saturday' || day === 'sunday'
-                  ? 'bg-gray-100 text-gray-600'
+                  ? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
                   : 'bg-indigo-50 text-indigo-700'
               )}
             >
@@ -119,7 +119,7 @@ export function WeeklyCalendarGrid({
                 {compact ? getWeekdayShortTR(day) : WEEKDAY_LABELS[day]}
               </div>
               {!compact && (
-                <div className="text-xs text-gray-500">{dayDates[day]}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400">{dayDates[day]}</div>
               )}
             </div>
           ))}
@@ -150,26 +150,26 @@ export function WeeklyCalendarGrid({
       {/* Summary Row */}
       <div className="mt-2 flex items-center justify-between text-sm" aria-hidden="true">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 text-gray-600">
+          <div className="flex items-center gap-1 text-gray-600 dark:text-gray-400">
             <Clock className="h-4 w-4" aria-hidden="true" />
             <span>
               <span className="font-medium">{totalHours}</span>
-              <span className="text-gray-400 ml-1">toplam</span>
+              <span className="text-gray-400 dark:text-gray-500 ml-1">toplam</span>
             </span>
           </div>
 
-          <div className="text-gray-400" aria-hidden="true">|</div>
+          <div className="text-gray-400 dark:text-gray-500" aria-hidden="true">|</div>
 
-          <div className="text-gray-600">
+          <div className="text-gray-600 dark:text-gray-400">
             <span className="font-medium">{plan.plannedWorkDays}</span>
-            <span className="text-gray-400 ml-1">is gunu</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">is gunu</span>
           </div>
 
-          <div className="text-gray-400" aria-hidden="true">|</div>
+          <div className="text-gray-400 dark:text-gray-500" aria-hidden="true">|</div>
 
-          <div className="text-gray-600">
+          <div className="text-gray-600 dark:text-gray-400">
             <span className="font-medium">{plan.plannedOffDays}</span>
-            <span className="text-gray-400 ml-1">tatil</span>
+            <span className="text-gray-400 dark:text-gray-500 ml-1">tatil</span>
           </div>
         </div>
 

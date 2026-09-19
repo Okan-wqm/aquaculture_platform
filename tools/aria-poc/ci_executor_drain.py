@@ -451,7 +451,7 @@ def _executor_policy(repo_root: Path) -> dict:
 # worktree, and nx writes its cache to `<worktree>/.nx/cache` (nx.json's
 # cacheDirectory is workspace-relative and the worktree carries nx.json),
 # which goes with the worktree when it is removed.
-REQUEST_WORKTREES_DIR = "aria-worktrees"
+from aria_kernel.request_worktree import REQUEST_WORKTREES_DIR  # noqa: E402 — the kernel's one spelling
 
 
 
@@ -469,39 +469,24 @@ WORKTREE_UNANSWERED_BREAKER_KIND = "subprocess_timeout"
 WORKTREE_UNAVAILABLE_STOP_REASON = "worktree_unavailable"
 
 
-@dataclass(frozen=True)
-class _RequestWorktree:
-    """What `git worktree add` came back with: a tree, a refusal, or no answer.
-
-    ``path`` is the worktree when git created it; ``None`` with no
-    ``unanswered_reason`` means git ANSWERED that it could not (the shared
-    checkout is used instead, as before); ``unanswered_reason`` names why
-    git did not answer inside its bound — the harness's condition, on which
-    the child is not started and the request stays PENDING.
-    """
-
-    path: Path | None
-    unanswered_reason: str | None = None
+from aria_kernel.request_worktree import (  # noqa: E402 — after the kernel path insert above
+    RequestWorktree as _RequestWorktree,
+    add_request_worktree as _kernel_add_request_worktree,
+    remove_request_worktree as _kernel_remove_request_worktree,
+    request_worktree_path as _kernel_request_worktree_path,
+    run_worktree_git as _kernel_run_worktree_git,
+)
 
 
-def _run_worktree_git(argv: list[str], *, cwd: Path) -> tuple[subprocess.CompletedProcess[str] | None, str | None]:
-    """One bounded worktree call: (answer, None) or (None, why it did not answer)."""
-    try:
-        done = subprocess.run(
-            argv, cwd=str(cwd), capture_output=True, text=True, check=False,
-            timeout=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
-        )
-    except subprocess.TimeoutExpired:
-        return None, "timeout"
-    except OSError as exc:
-        return None, f"spawn_failed:{type(exc).__name__}"
-    return done, None
-
+def _drain_git_runner(*args: Any, **kwargs: Any) -> "subprocess.CompletedProcess[str]":
+    """The drain's own bounded runner — `ci_executor_drain.subprocess.run`
+    resolved at call time, so the bracket tests that patch it see every
+    worktree call."""
+    return subprocess.run(*args, **kwargs)
 
 
 def _request_worktree_path(repo_root: Path, request_id: str) -> Path:
-    safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in str(request_id))[:64]
-    return Path(repo_root) / REQUEST_WORKTREES_DIR / f"req-{safe}"
+    return _kernel_request_worktree_path(repo_root, request_id)
 
 
 def request_worktree_target(request: Mapping[str, Any]) -> str | None:
@@ -515,77 +500,29 @@ def request_worktree_target(request: Mapping[str, Any]) -> str | None:
     the tree the child admits. None means the checkout's HEAD (the read-only
     roles)."""
     from aria_kernel.agent_invocations import request_anchor_sha
-
     return request_anchor_sha(request)
 
 
+def _run_worktree_git(argv: list[str], *, cwd: Path) -> tuple[subprocess.CompletedProcess[str] | None, str | None]:
+    """One bounded worktree call: (answer, None) or (None, why it did not answer)."""
+    return _kernel_run_worktree_git(argv, cwd=cwd, timeout_seconds=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
+                                    run=_drain_git_runner)
+
+
 def _add_request_worktree(repo_root: Path, request_id: str, target_sha: object) -> _RequestWorktree:
-    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`, bounded; `path=None` = fall back to the shared checkout.
-
-    WHY a worktree per request: under managed_subscription the native
-    admission binds request.target_sha == the checkout's HEAD, so a request
-    can only be served from a tree at its own target_sha; the shared
-    checkout (main, moving nightly) refuses every request minted before its
-    last advance. The child inherits ARIA_TOOLS_DIR (the persistent store,
-    exported by restore-aria-state as an absolute path), so its ledgers
-    never land inside the worktree; ARIA_WORKSPACE_ROOT points every
-    workspace-bound path at the worktree.
-
-    A leftover registration is reconciled first: a run reaped mid-child
-    leaves `.git/worktrees/req-<id>` registered — with its directory gone
-    (the next checkout's clean) `git worktree add` refuses "missing but
-    already registered" until pruned; with the directory still there it
-    refuses "already exists" until removed. Both are git's own reconcile
-    commands, run before the add, so the same request id can be drained
-    again tomorrow instead of falling back to the shared checkout and its
-    target mismatch.
-    """
-    path = _request_worktree_path(repo_root, request_id)
-    ref = str(target_sha or "").strip() or "HEAD"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    pruned, unanswered = _run_worktree_git(["git", "worktree", "prune"], cwd=Path(repo_root))
-    if pruned is None:
-        _engine._stage(
-            f"drain_worktree_prune_unanswered request_id={request_id} reason={unanswered} "
-            f"bound={REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS}s"
-        )
-        return _RequestWorktree(path=None, unanswered_reason=unanswered)
-    if pruned.returncode != 0:
-        _engine._stage(f"drain_worktree_prune_failed rc={pruned.returncode} {(pruned.stderr or '').strip()[:120]}")
-    if path.exists():
-        _engine._stage(f"drain_worktree_leftover_removed request_id={request_id} path={path}")
-        leftover_unanswered = _remove_request_worktree(repo_root, path)
-        if leftover_unanswered is not None:
-            return _RequestWorktree(path=None, unanswered_reason=leftover_unanswered)
-    done, unanswered = _run_worktree_git(
-        ["git", "worktree", "add", "--detach", str(path), ref], cwd=Path(repo_root),
-    )
-    if done is None:
-        _engine._stage(
-            f"drain_worktree_add_unanswered request_id={request_id} reason={unanswered} "
-            f"bound={REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS}s"
-        )
-        return _RequestWorktree(path=None, unanswered_reason=unanswered)
-    if done.returncode != 0:
-        _engine._stage(f"drain_worktree_add_failed request_id={request_id} rc={done.returncode} {(done.stderr or '').strip()[:120]}")
-        return _RequestWorktree(path=None)
-    return _RequestWorktree(path=path)
+    """`git worktree add --detach aria-worktrees/req-<id> <target_sha|HEAD>`, bounded;
+    `path=None` = fall back to the shared checkout. The one spelling lives in
+    `aria_kernel.request_worktree` (ARIA-HIGH-176: the planner dispatch hook
+    serves its requests from the same tree)."""
+    return _kernel_add_request_worktree(repo_root, request_id, target_sha,
+                                        timeout_seconds=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
+                                        log=_engine._stage, run=_drain_git_runner)
 
 
 def _remove_request_worktree(repo_root: Path, path: Path) -> str | None:
     """`git worktree remove --force <path>`, bounded; returns why git did not answer, if it did not."""
-    done, unanswered = _run_worktree_git(
-        ["git", "worktree", "remove", "--force", str(path)], cwd=Path(repo_root),
-    )
-    if done is None:
-        _engine._stage(
-            f"drain_worktree_remove_unanswered path={path} reason={unanswered} "
-            f"bound={REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS}s"
-        )
-        return unanswered
-    if done.returncode != 0:
-        _engine._stage(f"drain_worktree_remove_failed path={path} rc={done.returncode}")
-    return None
+    return _kernel_remove_request_worktree(repo_root, path, timeout_seconds=REQUEST_WORKTREE_GIT_TIMEOUT_SECONDS,
+                                           log=_engine._stage, run=_drain_git_runner)
 
 
 def _operator_paused(tools_dir: Path) -> bool:

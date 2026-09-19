@@ -479,6 +479,52 @@ def dispatch_one_pending_planner_request(
     claim_id: str = claim["claim_id"]
     lease_token: str = claim["lease_token"]
 
+    # ARIA-HIGH-176 — the child is served from a tree at the request's own
+    # anchor, as the drain serves its requests: under managed_subscription
+    # the native admission binds request.target_sha to the checkout's HEAD,
+    # and the cycle's shared checkout is main, which moves hourly here. A
+    # git that refuses (an unknown sha) falls back to the shared checkout
+    # as before; a git that does not answer starts no child — the lease is
+    # released as the harness's condition (control unavailable on this
+    # host), the daemon backs off, and the request stays PENDING.
+    from .agent_invocations import request_anchor_sha
+    from .request_worktree import add_request_worktree, remove_request_worktree
+    from .state_store import GIT_TIMEOUT_SECONDS as _worktree_git_timeout
+
+    def _worktree_log(line: str) -> None:
+        nonlocal governance_count
+        append_tools_governance(root, "planner_dispatch_worktree", {"request_id": request_id, "line": line})
+        governance_count += 1
+
+    anchor = request_anchor_sha(request)
+    worktree = add_request_worktree(
+        repo_root, request_id, anchor, timeout_seconds=_worktree_git_timeout,
+        log=_worktree_log, stage_prefix="planner_dispatch",
+    ) if anchor else None
+    if worktree is not None and worktree.unanswered_reason is not None:
+        if _release_abandoned_claim(
+            root=root, claim_id=claim_id, agent_id=agent_id, lease_token=lease_token,
+            reason=NATIVE_RUNTIME_CONTROL_UNAVAILABLE,
+        ):
+            governance_count += 1
+        append_tools_governance(
+            root, "planner_dispatch_worktree_unavailable",
+            {
+                "request_id": request_id, "claim_id": claim_id, "target_agent": target_agent,
+                "anchor": anchor, "reason": worktree.unanswered_reason,
+            },
+        )
+        governance_count += 1
+        return {
+            "status": PROVIDER_CONTROL_UNAVAILABLE_STATUS,
+            "request_id": request_id,
+            "claim_id": claim_id,
+            "exit_code": None,
+            "governance_event_count": governance_count,
+            "stderr_redacted": f"worktree_unavailable:{worktree.unanswered_reason}",
+        }
+    task_root = worktree.path if worktree is not None and worktree.path is not None else repo_root
+
     # Step 3 — invoke ci_executor.py as a subprocess. Lease token via
     # env var; argv carries only public identifiers. Plan 026R §B.5 —
     # the claim-metadata FILE carries the fused envelope + ledger-
@@ -508,7 +554,7 @@ def dispatch_one_pending_planner_request(
     env: dict[str, str] = {
         **os.environ,
         "PYTHONPATH": os.pathsep.join((str(code_root), str(code_root / "aria-kernel"))),
-        "ARIA_WORKSPACE_ROOT": str(repo_root),
+        "ARIA_WORKSPACE_ROOT": str(task_root),
         "ARIA_TOOLS_DIR": str(root),
         LEASE_TOKEN_ENV_VAR: lease_token,
         CLAIM_METADATA_FILE_ENV_VAR: str(metadata_path),
@@ -525,10 +571,15 @@ def dispatch_one_pending_planner_request(
                 text=True,
                 timeout=timeout_seconds,
                 env=env,
-                cwd=str(repo_root),
+                cwd=str(task_root),
             )
         finally:
             metadata_path.unlink(missing_ok=True)
+            if worktree is not None and worktree.path is not None:
+                remove_request_worktree(
+                    repo_root, worktree.path, timeout_seconds=_worktree_git_timeout,
+                    log=_worktree_log, stage_prefix="planner_dispatch",
+                )
         exit_code = proc.returncode
         stderr_text = proc.stderr or ""
     except subprocess.TimeoutExpired:

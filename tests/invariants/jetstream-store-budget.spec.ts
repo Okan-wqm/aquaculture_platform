@@ -48,7 +48,7 @@ const ALERT_FRACTION = 0.75;
  */
 function evaluateByteProduct(expression: string): number {
   const inner = /^Number\(this\.configService\.get\('[A-Z_]+',\s*(.+)\)\)$/.exec(expression.trim());
-  const product = (inner ? inner[1] : expression).trim();
+  const product = (inner?.[1] ?? expression).trim();
   if (!/^\d+(?:\s*\*\s*\d+)*$/.test(product)) {
     throw new Error(`unrecognised max_bytes expression in ${EVENT_BUS}: ${expression}`);
   }
@@ -57,9 +57,11 @@ function evaluateByteProduct(expression: string): number {
 
 function declaredStreamBudgets(): number[] {
   const source = read(EVENT_BUS);
-  const budgets = [...source.matchAll(/^\s*max_bytes:\s*(.+?),\s*(?:\/\/.*)?$/gm)].map((m) =>
-    evaluateByteProduct(m[1]),
-  );
+  const budgets = [...source.matchAll(/^\s*max_bytes:\s*(.+?),\s*(?:\/\/.*)?$/gm)].map((m) => {
+    const expression = m[1];
+    if (expression === undefined) throw new Error(`max_bytes match without a value: ${m[0]}`);
+    return evaluateByteProduct(expression);
+  });
   if (budgets.length !== 3) {
     throw new Error(
       `expected the event bus to declare exactly three stream budgets (telemetry, events, DLQ); found ${budgets.length}`,
@@ -79,8 +81,9 @@ function parseNatsSize(value: string): number {
 
 function configuredMaxFileStore(): number {
   const m = /^\s*max_file_store:\s*(\S+)\s*$/m.exec(read(NATS_CONF));
-  if (!m) throw new Error(`${NATS_CONF} declares no jetstream.max_file_store`);
-  return parseNatsSize(m[1]);
+  const value = m?.[1];
+  if (value === undefined) throw new Error(`${NATS_CONF} declares no jetstream.max_file_store`);
+  return parseNatsSize(value);
 }
 
 function capacityGateDefaultFloor(): number {

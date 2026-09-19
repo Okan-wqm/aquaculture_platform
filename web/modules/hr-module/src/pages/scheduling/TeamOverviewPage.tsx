@@ -13,7 +13,7 @@ import {
   Umbrella,
   AlertTriangle,
 } from 'lucide-react';
-import { cn } from '@aquaculture/shared-ui';
+import { cn, PageHeader } from '@aquaculture/shared-ui';
 import {
   WeekNavigator,
   PrintScheduleButton,
@@ -145,32 +145,31 @@ export function TeamOverviewPage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <PageHeader
+          title={
+            <>
               <Users className="h-6 w-6 text-indigo-600" />
               Takim Gorunumu
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Tum calisanlarin haftalik programlari
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <WeekNavigator
-              currentWeekStart={currentWeekStart}
-              onChange={setCurrentWeekStart}
-            />
-
-            {overview && (
-              <PrintScheduleButton
-                overview={overview}
-                siteName="Site"
-                departmentName={departmentFilter}
+            </>
+          }
+          description="Tum calisanlarin haftalik programlari"
+          actions={
+            <div className="flex items-center gap-4">
+              <WeekNavigator
+                currentWeekStart={currentWeekStart}
+                onChange={setCurrentWeekStart}
               />
-            )}
-          </div>
-        </div>
+
+              {overview && (
+                <PrintScheduleButton
+                  overview={overview}
+                  siteName="Site"
+                  departmentName={departmentFilter}
+                />
+              )}
+            </div>
+          }
+        />
       </div>
 
       {/* Stats Bar */}

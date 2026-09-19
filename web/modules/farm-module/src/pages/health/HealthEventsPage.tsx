@@ -3,17 +3,7 @@
  * Displays and manages fish health events with full CRUD, treatment, and quarantine operations
  */
 import React, { useState, useMemo } from 'react';
-import {
-  Card,
-  Button,
-  Modal,
-  Input,
-  Select,
-  Badge,
-  Spinner,
-  Alert,
-  useConfirm,
-} from '@aquaculture/shared-ui';
+import { Card, Button, Modal, Input, Select, Badge, Spinner, Alert, useConfirm, PageHeader } from '@aquaculture/shared-ui';
 import {
   Activity,
   AlertTriangle,
@@ -710,18 +700,16 @@ export const HealthEventsPage: React.FC = () => {
       )}
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Health Events</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Track and manage fish health events, treatments, and quarantine
-          </p>
-        </div>
-        <Button onClick={handleOpenCreate} className="flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          New Health Event
-        </Button>
-      </div>
+      <PageHeader
+        title="Health Events"
+        description="Track and manage fish health events, treatments, and quarantine"
+        actions={
+          <Button onClick={handleOpenCreate} className="flex items-center gap-2">
+            <Plus className="w-4 h-4" />
+            New Health Event
+          </Button>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (

@@ -18,6 +18,7 @@ import type {
   MeterBreakdown,
 } from '../services/types';
 import { AggregationPeriod, MeterType } from '../services/types';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Constants
@@ -512,28 +513,26 @@ const UsageDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Usage Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Monitor metered billing usage across all tenants
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link
-            to="/admin/billing"
-            className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            Billing Overview
-          </Link>
-          <button
-            onClick={refreshSummary}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Refresh Data
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Usage Dashboard"
+        description="Monitor metered billing usage across all tenants"
+        actions={
+          <div className="flex gap-2">
+            <Link
+              to="/admin/billing"
+              className="px-4 py-2 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Billing Overview
+            </Link>
+            <button
+              onClick={refreshSummary}
+              className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Refresh Data
+            </button>
+          </div>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

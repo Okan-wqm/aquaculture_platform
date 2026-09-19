@@ -1,3 +1,4 @@
+import { PageHeader } from '@aquaculture/shared-ui';
 import { MessageSquare, Sparkles, Users, RefreshCw, AlertCircle } from 'lucide-react';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -18,7 +19,7 @@ const ChannelListPage: React.FC = () => {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <h1 className="mb-4 text-2xl font-bold text-gray-900">Messages</h1>
+      <PageHeader title="Messages" className="mb-4" />
 
       {isLoading && (
         <div className="flex items-center gap-2 text-sm text-gray-500">

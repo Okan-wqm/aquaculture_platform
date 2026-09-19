@@ -5,7 +5,7 @@
  * single `hrLabourCost` snapshot so the numbers never drift between
  * views. Charts and the manual HR expense ledger complete the surface.
  */
-import { useAuth } from '@aquaculture/shared-ui';
+import { useAuth, PageHeader } from '@aquaculture/shared-ui';
 import React, { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -88,31 +88,29 @@ const HRFinancePage: React.FC = () => {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">HR Finance</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Personnel headcounts, salaries, labour cost and workforce expenses
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <label htmlFor="hr-finance-year" className="text-sm text-gray-600 dark:text-gray-400">
-            Year:
-          </label>
-          <select
-            id="hr-finance-year"
-            value={year}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
-          >
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <PageHeader
+        title="HR Finance"
+        description="Personnel headcounts, salaries, labour cost and workforce expenses"
+        actions={
+          <div className="flex items-center gap-2">
+            <label htmlFor="hr-finance-year" className="text-sm text-gray-600 dark:text-gray-400">
+              Year:
+            </label>
+            <select
+              id="hr-finance-year"
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200"
+            >
+              {yearOptions.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          </div>
+        }
+      />
 
       {/* Tab bar */}
       <div className="border-b border-gray-200 dark:border-gray-700">

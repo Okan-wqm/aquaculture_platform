@@ -35,7 +35,7 @@ import { supportApi } from '../services/adminApi';
 import type { OnboardingStep as ApiOnboardingStep, TenantOnboarding } from '../services/adminApi';
 import { adminKeys, useAdminMutation, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -274,19 +274,19 @@ export const OnboardingPage: React.FC = () => {
 
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Onboarding & Training</h1>
-            <p className="text-gray-500 mt-1">Manage tenant onboarding and training resources</p>
-          </div>
-          <button
-            onClick={reload}
-            className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <RefreshCw size={14} />
-            Refresh
-          </button>
-        </div>
+        <PageHeader
+          title="Onboarding & Training"
+          description="Manage tenant onboarding and training resources"
+          actions={
+            <button
+              onClick={reload}
+              className="flex items-center gap-2 px-3 py-1.5 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+          }
+        />
 
         {/* Stats */}
         <div className="grid grid-cols-5 gap-3 mt-4">

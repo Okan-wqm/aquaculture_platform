@@ -5,7 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Badge, Table, Input, Select, Modal, Alert, formatDate, Spinner } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, Table, Input, Select, Modal, Alert, formatDate, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import type { TableColumn } from '@aquaculture/shared-ui';
 import {
   tenantsApi,
@@ -324,42 +324,44 @@ const TenantManagementPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tenant Management</h1>
-          {/* The FILTERED result total, so it is labelled as one. It sat here
+      {/* The FILTERED result total, so it is labelled as one. It sat here
               as "Total N tenants" beside a "Total" card holding the platform
               figure, and with a status filter applied the two disagreed by
               design while both claimed to be the total. */}
-          <p className="mt-1 text-sm text-gray-500">
+      <PageHeader
+        title="Tenant Management"
+        description={
+          <>
             {matchingTenants.toLocaleString()} tenant
             {matchingTenants === 1 ? '' : 's'} match
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
-          {selectedIds.size > 0 && (
-            <>
-              {tenants
-                .filter((tenant) => selectedIds.has(tenant.id))
-                .every((tenant) => tenant.status === TenantStatus.SUSPENDED) && (
-                <Button variant="outline" onClick={handleBulkActivate} disabled={saving}>
-                  Activate Selected ({selectedIds.size})
-                </Button>
-              )}
-              {tenants
-                .filter((tenant) => selectedIds.has(tenant.id))
-                .every((tenant) => tenant.status === TenantStatus.ACTIVE) && (
-                <Button variant="danger" onClick={() => setIsBulkSuspendModalOpen(true)}>
-                  Suspend Selected ({selectedIds.size})
-                </Button>
-              )}
-            </>
-          )}
-          <Button variant="outline" onClick={reload} disabled={tenantsQuery.isFetching}>
-            Refresh
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <div className="mt-4 sm:mt-0 flex flex-wrap gap-2">
+            {selectedIds.size > 0 && (
+              <>
+                {tenants
+                  .filter((tenant) => selectedIds.has(tenant.id))
+                  .every((tenant) => tenant.status === TenantStatus.SUSPENDED) && (
+                  <Button variant="outline" onClick={handleBulkActivate} disabled={saving}>
+                    Activate Selected ({selectedIds.size})
+                  </Button>
+                )}
+                {tenants
+                  .filter((tenant) => selectedIds.has(tenant.id))
+                  .every((tenant) => tenant.status === TenantStatus.ACTIVE) && (
+                  <Button variant="danger" onClick={() => setIsBulkSuspendModalOpen(true)}>
+                    Suspend Selected ({selectedIds.size})
+                  </Button>
+                )}
+              </>
+            )}
+            <Button variant="outline" onClick={reload} disabled={tenantsQuery.isFetching}>
+              Refresh
+            </Button>
+          </div>
+        }
+      />
 
       <QueryFailureNotice errors={queryErrors} hasContent={tenants.length > 0} onRetry={reload} />
 

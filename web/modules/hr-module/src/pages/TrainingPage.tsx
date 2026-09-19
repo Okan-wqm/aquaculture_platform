@@ -7,7 +7,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { GraduationCap, Users, Clock, Award, Plus, Shield } from 'lucide-react';
-import { cn, Spinner } from '@aquaculture/shared-ui';
+import { cn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { useTrainingCourses, useCurrentEmployeeId } from '../hooks';
 const TrainingPage: React.FC = () => {
   const employeeId = useCurrentEmployeeId();
@@ -25,27 +25,25 @@ const TrainingPage: React.FC = () => {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Training</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Training programs and certifications
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Link
-            to="/hr/training/certifications"
-            className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
-          >
-            <Shield className="h-4 w-4" />
-            Certifications
-          </Link>
-          <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-            <Plus className="h-4 w-4" />
-            New Course
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Training"
+        description="Training programs and certifications"
+        actions={
+          <div className="flex items-center gap-3">
+            <Link
+              to="/hr/training/certifications"
+              className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200"
+            >
+              <Shield className="h-4 w-4" />
+              Certifications
+            </Link>
+            <button className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+              <Plus className="h-4 w-4" />
+              New Course
+            </button>
+          </div>
+        }
+      />
 
       {/* Courses */}
       {isLoading ? (

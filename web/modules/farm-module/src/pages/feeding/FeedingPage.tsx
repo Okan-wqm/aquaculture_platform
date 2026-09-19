@@ -14,7 +14,7 @@
  */
 import React, { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useI18n, type MessageKey } from '@aquaculture/shared-ui';
+import { useI18n, type MessageKey, PageHeader } from '@aquaculture/shared-ui';
 import { useSiteList } from '../../hooks/useSites';
 import { useBatchList, BatchStatus } from '../../hooks/useBatches';
 
@@ -302,17 +302,10 @@ const FeedingPage: React.FC = () => {
       {/* Header */}
       <div className="bg-white shadow">
         <div className="px-4 sm:px-6 py-6">
-          <div className="md:flex md:items-center md:justify-between">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
-                Feeding Management
-              </h1>
-              <p className="mt-1 text-sm text-gray-500">
-                Plan, monitor, and optimize feed consumption across your facilities
-              </p>
-            </div>
-
-          </div>
+          <PageHeader
+            title="Feeding Management"
+            description="Plan, monitor, and optimize feed consumption across your facilities"
+          />
         </div>
       </div>
 

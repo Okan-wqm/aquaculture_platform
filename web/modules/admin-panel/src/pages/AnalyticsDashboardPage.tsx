@@ -6,7 +6,7 @@
  * Connected to real backend API endpoints.
  */
 
-import { Card, Button, chartChrome, colors, Spinner } from '@aquaculture/shared-ui';
+import { Card, Button, chartChrome, colors, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -473,37 +473,37 @@ const AnalyticsDashboardPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analytics Dashboard</h1>
-          <p className="text-gray-500 mt-1">Platform metrikleri ve performans analizi</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <div className="flex bg-gray-100 rounded-lg p-1">
-            {(['7d', '30d', '90d', '1y'] as const).map((period) => (
-              <button
-                key={period}
-                onClick={() => setSelectedPeriod(period)}
-                className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  selectedPeriod === period
-                    ? 'bg-white text-gray-900 shadow'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                {period}
-              </button>
-            ))}
+      <PageHeader
+        title="Analytics Dashboard"
+        description="Platform metrikleri ve performans analizi"
+        actions={
+          <div className="flex items-center gap-3">
+            <div className="flex bg-gray-100 rounded-lg p-1">
+              {(['7d', '30d', '90d', '1y'] as const).map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setSelectedPeriod(period)}
+                  className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                    selectedPeriod === period
+                      ? 'bg-white text-gray-900 shadow'
+                      : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {period}
+                </button>
+              ))}
+            </div>
+            <Button variant="secondary" onClick={() => {
+              void loadData();
+            }}>
+              Refresh
+            </Button>
+            <Link to={adminRoutes.analyticsReports}>
+              <Button variant="primary">Reports</Button>
+            </Link>
           </div>
-          <Button variant="secondary" onClick={() => {
-            void loadData();
-          }}>
-            Refresh
-          </Button>
-          <Link to={adminRoutes.analyticsReports}>
-            <Button variant="primary">Reports</Button>
-          </Link>
-        </div>
-      </div>
+        }
+      />
 
       {/* A read that failed, named — the page used to render a zero-filled
           dashboard for it and say nothing (ADMIN-HIGH-125). */}

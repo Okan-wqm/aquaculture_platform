@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Input, Badge, Alert, Modal, DataTable, type DataTableColumn, type SortConfig, Spinner } from '@aquaculture/shared-ui';
+import { Card, Button, Input, Badge, Alert, Modal, DataTable, type DataTableColumn, type SortConfig, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { databaseApi } from '../services/adminApi';
 import { saveBlob } from '../services/blob-client';
 import { useAdminQuery, useAdminMutation, adminKeys } from '../hooks';
@@ -601,79 +601,77 @@ const DatabaseExplorerPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Database Explorer</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            View and manage database tables
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0 flex gap-2">
-          <select
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-            value={selectedSchema}
-            onChange={(e) => handleSchemaSelect(e.target.value)}
-          >
-            {schemas.map((schema) => (
-              <option key={schema} value={schema}>
-                {schema}
-              </option>
-            ))}
-          </select>
-          {selectedTable && (
-            <>
-              {/* Export Dropdown */}
-              <div className="relative">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                  disabled={exportTable.isPending}
-                >
-                  {exportTable.isPending ? (
-                    <Spinner size="sm" color="gray" className="mr-2" />
-                  ) : (
-                    <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+      <PageHeader
+        title="Database Explorer"
+        description="View and manage database tables"
+        actions={
+          <div className="mt-4 sm:mt-0 flex gap-2">
+            <select
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              value={selectedSchema}
+              onChange={(e) => handleSchemaSelect(e.target.value)}
+            >
+              {schemas.map((schema) => (
+                <option key={schema} value={schema}>
+                  {schema}
+                </option>
+              ))}
+            </select>
+            {selectedTable && (
+              <>
+                {/* Export Dropdown */}
+                <div className="relative">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowExportMenu(!showExportMenu)}
+                    disabled={exportTable.isPending}
+                  >
+                    {exportTable.isPending ? (
+                      <Spinner size="sm" color="gray" className="mr-2" />
+                    ) : (
+                      <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    )}
+                    Export
+                    <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                     </svg>
+                  </Button>
+                  {showExportMenu && (
+                    <div className="absolute right-0 mt-1 w-36 bg-white rounded-lg shadow-lg border z-50">
+                      <button
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-t-lg"
+                        onClick={() => handleExport('csv')}
+                      >
+                        <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        CSV
+                      </button>
+                      <button
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-b-lg"
+                        onClick={() => handleExport('json')}
+                      >
+                        <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        </svg>
+                        JSON
+                      </button>
+                    </div>
                   )}
-                  Export
-                  <svg className="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </div>
+                <Button onClick={handleCreateRow}>
+                  <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>
+                  New Row
                 </Button>
-                {showExportMenu && (
-                  <div className="absolute right-0 mt-1 w-36 bg-white rounded-lg shadow-lg border z-50">
-                    <button
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-t-lg"
-                      onClick={() => handleExport('csv')}
-                    >
-                      <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                      </svg>
-                      CSV
-                    </button>
-                    <button
-                      className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 rounded-b-lg"
-                      onClick={() => handleExport('json')}
-                    >
-                      <svg className="w-4 h-4 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-                      </svg>
-                      JSON
-                    </button>
-                  </div>
-                )}
-              </div>
-              <Button onClick={handleCreateRow}>
-                <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                New Row
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
+              </>
+            )}
+          </div>
+        }
+      />
 
       <QueryFailureNotice
         errors={queryErrors}

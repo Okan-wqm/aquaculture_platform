@@ -21,7 +21,7 @@ import useConsent, {
   type ConsentType,
   type UserConsentRecord,
 } from '../hooks/useConsent';
-import { DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Sub-components
@@ -203,12 +203,10 @@ const ConsentSettingsPage: React.FC = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-8">
       {/* Page Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Privacy & Consent</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Manage your data privacy preferences. You have full control over how your data is processed and shared.
-        </p>
-      </div>
+      <PageHeader
+        title="Privacy & Consent"
+        description="Manage your data privacy preferences. You have full control over how your data is processed and shared."
+      />
 
       {/* Outdated Warning */}
       {isOutdated && (

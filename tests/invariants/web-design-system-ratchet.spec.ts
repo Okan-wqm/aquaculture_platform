@@ -22,7 +22,7 @@
  *      and a reason; every listed file must still contain one, so a migrated
  *      file cannot hold the ceiling up. The ceiling only decreases.
  *
- *   2. **Raw hex, inline style, raw tables and hand-rolled spinners are keyed by PACKAGE.** Each web package has
+ *   2. **Raw hex, inline style, raw tables, hand-rolled spinners and page titles are keyed by PACKAGE.** Each web package has
  *      an occurrence ceiling; a package not listed must be at zero. Counting is
  *      by occurrence, not by file, so moving colours between files is not
  *      progress and adding one to a listed file is caught. Inline style counts
@@ -34,6 +34,11 @@
  * way — 365 of them in the survey against 16 uses of shared-ui's `Spinner`.
  * An icon whose spin is conditional (a refresh arrow while refetching) is an
  * affordance, not a loading indicator, and is not counted.
+ *
+ * A hand-written page title (FE-MEDIUM-071) is an `h1` in `text-2xl`/`text-xl`
+ * bold or semibold outside shared-ui — the title row `PageHeader` owns (one
+ * h1, one description, the actions beside it, responsive and dark-aware),
+ * written by hand in a dozen spellings across 130 pages in the survey.
  *
  * Detection is deliberately textual and identical to the survey (`git
  * ls-files` + a regex on the raw source, tests and generated code excluded) so
@@ -79,6 +84,9 @@ const SVG_SPINNER = /<svg\b[^>]*className="[^"]*\banimate-spin\b/g;
 /** A className literal carrying `animate-spin`; a ring when it also draws a border or a circle. */
 const CLASS_WITH_SPIN = /className=(?:"[^"]*\banimate-spin\b[^"]*"|'[^']*\banimate-spin\b[^']*'|\{`[^`]*\banimate-spin\b[^`]*`\})/g;
 const RING = /\brounded-full\b|\bborder(?:-[tblrxy])?-\d\b/;
+
+/** A page title written by hand — PageHeader renders the h1. */
+const RAW_PAGE_TITLE = /<h1 className="[^"]*\b(?:text-2xl|text-xl)\b[^"]*\bfont-(?:bold|semibold)\b[^"]*"/g;
 
 function handRolledSpinners(source: string): number {
   let hits = (source.match(LOADER_ICON_SPINNER) ?? []).length + (source.match(SVG_SPINNER) ?? []).length;
@@ -181,6 +189,7 @@ interface Allowlist {
   inlineStyle: { entries: PackageCeiling[] };
   rawTable: { entries: PackageCeiling[] };
   rawSpinner: { entries: PackageCeiling[] };
+  rawPageTitle: { entries: PackageCeiling[] };
 }
 
 /** Tracked source files under ROOTS, tests and generated code excluded (see admin-panel-data-layer.spec.ts on why not a `**` pathspec). */
@@ -233,7 +242,7 @@ function assertGoverned(
   expect(expiryIso(entry.expiry) > today).toBe(true);
 }
 
-describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070): web design-system adoption ratchet', () => {
+describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070/071): web design-system adoption ratchet', () => {
   const files = sourceFiles();
   const doc = yaml.load(read(ALLOWLIST)) as Allowlist;
   const today = new Date().toISOString().slice(0, 10);
@@ -333,6 +342,29 @@ describe('INVARIANT (FE-HIGH-065/077, FE-MEDIUM-067/070): web design-system adop
       }
     }
     for (const entry of doc.rawSpinner.entries) {
+      assertGoverned(entry, today);
+      expect(
+        (actual.get(entry.package) ?? 0) === entry.ceiling
+          ? ''
+          : `${entry.package}: ceiling ${entry.ceiling}, live ${actual.get(entry.package) ?? 0}`,
+      ).toBe('');
+    }
+  });
+
+  it('ratchets hand-written page titles per package (FE-MEDIUM-071)', () => {
+    const actual = countByPackage(files.filter((file) => !isPrimitive(file)), RAW_PAGE_TITLE);
+    const ceilings = new Map(doc.rawPageTitle.entries.map((entry) => [entry.package, entry]));
+
+    for (const [pkg, count] of actual) {
+      const entry = ceilings.get(pkg);
+      expect(entry === undefined ? `${pkg}: ${count} hand-written page titles, no ceiling` : '').toBe('');
+      if (entry && count > entry.ceiling) {
+        throw new Error(
+          `${pkg}: ${count} hand-written page titles, ceiling ${entry.ceiling}. Open the page with shared-ui PageHeader (title, description, actions, eyebrow, leading); lower the ceiling when you migrate one.`,
+        );
+      }
+    }
+    for (const entry of doc.rawPageTitle.entries) {
       assertGoverned(entry, today);
       expect(
         (actual.get(entry.package) ?? 0) === entry.ceiling

@@ -9,6 +9,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layers, ArrowRight } from 'lucide-react';
 import IndustryTemplateSelector from '../components/templates/IndustryTemplateSelector';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 const IndustrySetupPage: React.FC = () => {
   const navigate = useNavigate();
@@ -25,18 +26,21 @@ const IndustrySetupPage: React.FC = () => {
     <div className="min-h-[calc(100vh-64px)] bg-gray-50">
       <div className="max-w-5xl mx-auto px-6 py-10">
         {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-3 mb-3">
+        <PageHeader
+          title="Sektor Secimi"
+          description={
+            <>
+              Sensor modulunu sektorunuze gore yapilandirin. Bir sablon secerek
+              uygun sensor tipleri ve alarm esikleri otomatik olarak olusturulur.
+            </>
+          }
+          leading={
             <div className="p-2 rounded-lg bg-cyan-50">
               <Layers className="w-6 h-6 text-cyan-600" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Sektor Secimi</h1>
-          </div>
-          <p className="text-gray-500 ml-14">
-            Sensor modulunu sektorunuze gore yapilandirin. Bir sablon secerek
-            uygun sensor tipleri ve alarm esikleri otomatik olarak olusturulur.
-          </p>
-        </div>
+          }
+          className="mb-8"
+        />
 
         {/* Template Selector */}
         <IndustryTemplateSelector onTemplateApplied={handleTemplateApplied} />

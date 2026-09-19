@@ -33,7 +33,7 @@ import {
   type TicketStatus,
   type TicketCategory,
 } from '../services/adminApi';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Types
@@ -366,18 +366,18 @@ export const TicketsPage: React.FC = () => {
     <div className="h-full flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Support Tickets</h1>
-            <p className="text-gray-500 mt-1">Manage and resolve customer support requests</p>
-          </div>
-          <button
-            onClick={() => { fetchTickets(); fetchStats(); }}
-            className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
-          >
-            <RefreshCw size={18} />
-          </button>
-        </div>
+        <PageHeader
+          title="Support Tickets"
+          description="Manage and resolve customer support requests"
+          actions={
+            <button
+              onClick={() => { fetchTickets(); fetchStats(); }}
+              className="p-2 text-gray-500 hover:text-gray-600 rounded-lg hover:bg-gray-100"
+            >
+              <RefreshCw size={18} />
+            </button>
+          }
+        />
 
         {/* Stats */}
         {stats && (

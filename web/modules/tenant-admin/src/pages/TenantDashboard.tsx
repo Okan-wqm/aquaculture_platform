@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { createTenantQueryKey, createTenantInvalidationKey, getTenantId, parseMoney } from '@aquaculture/shared-ui';
+import { createTenantQueryKey, createTenantInvalidationKey, getTenantId, parseMoney, PageHeader } from '@aquaculture/shared-ui';
 import {
   Users,
   Package,
@@ -271,29 +271,27 @@ const TenantDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Welcome back! Here's what's happening with your tenant.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-5 h-5 text-gray-500" />
-          </button>
-          <button
-            onClick={() => navigate('/tenant/users')}
-            className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
-          >
-            Add User
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description="Welcome back! Here's what's happening with your tenant."
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRefresh}
+              className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5 text-gray-500" />
+            </button>
+            <button
+              onClick={() => navigate('/tenant/users')}
+              className="px-4 py-2 text-sm font-medium text-white bg-tenant-600 rounded-lg hover:bg-tenant-700 transition-colors"
+            >
+              Add User
+            </button>
+          </div>
+        }
+      />
 
       {/* Error Message */}
       {error && (

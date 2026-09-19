@@ -11,6 +11,7 @@ import { modulesApi } from '../services/adminApi';
 // byte-identical copies of the canonical declarations, which is how a copy
 // stops matching the endpoint it describes without anything saying so.
 import type { ModuleStats, PaginatedResult, SystemModule } from '../services/types';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 /**
  * What a stat card shows when `/modules/stats` did not answer.
@@ -130,20 +131,18 @@ const ModulesPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">System Modules</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage platform modules and their availability to tenants
-          </p>
-        </div>
-        <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
-          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
-          Add Module
-        </button>
-      </div>
+      <PageHeader
+        title="System Modules"
+        description="Manage platform modules and their availability to tenants"
+        actions={
+          <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Add Module
+          </button>
+        }
+      />
 
       {/* Filters */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">

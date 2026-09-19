@@ -10,7 +10,7 @@ import { Link } from 'react-router-dom';
 import { BarChart3, TrendingUp, Users, Calendar, Award, Clock, Download } from 'lucide-react';
 import { useHRDashboardStats, useDepartments } from '../hooks';
 import { useHrFinanceSummary } from '../hooks/useHrFinance';
-import { colors } from '@aquaculture/shared-ui';
+import { colors, PageHeader } from '@aquaculture/shared-ui';
 
 const HRAnalyticsPage: React.FC = () => {
   const { data: stats, isLoading: loadingStats } = useHRDashboardStats();
@@ -47,18 +47,16 @@ const HRAnalyticsPage: React.FC = () => {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">HR Analytics</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Human resources metrics and insights
-          </p>
-        </div>
-        <button className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
-          <Download className="h-4 w-4" />
-          Export Report
-        </button>
-      </div>
+      <PageHeader
+        title="HR Analytics"
+        description="Human resources metrics and insights"
+        actions={
+          <button className="flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-600">
+            <Download className="h-4 w-4" />
+            Export Report
+          </button>
+        }
+      />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">

@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Users, Plus, ChevronRight, Pencil } from 'lucide-react';
-import { Modal, colors } from '@aquaculture/shared-ui';
+import { Modal, colors, PageHeader } from '@aquaculture/shared-ui';
 import { useDepartments, useCreateDepartment, useUpdateDepartment } from '../hooks';
 import type { Department, CreateDepartmentInput, UpdateDepartmentInput } from '../types';
 
@@ -210,21 +210,19 @@ const DepartmentsPage: React.FC = () => {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Departments</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            {departments?.length ?? '-'} departments
-          </p>
-        </div>
-        <button
-          onClick={handleCreate}
-          className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-        >
-          <Plus className="h-4 w-4" />
-          New Department
-        </button>
-      </div>
+      <PageHeader
+        title="Departments"
+        description={<>{departments?.length ?? '-'} departments</>}
+        actions={
+          <button
+            onClick={handleCreate}
+            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          >
+            <Plus className="h-4 w-4" />
+            New Department
+          </button>
+        }
+      />
 
       {/* Error */}
       {error && (

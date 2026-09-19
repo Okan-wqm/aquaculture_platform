@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Card, useCanMutate, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, useCanMutate, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import {
   EnvironmentAvailabilityStatus,
@@ -723,35 +723,39 @@ const EnvironmentPage: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
         <div className="px-4 py-6 sm:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            <div>
+          <PageHeader
+            title="Environmental monitoring"
+            description={
+              <>
+                Weather, Copernicus Marine model values and exact Sentinel-2 scenes for your
+                authorized sea-cage sites.
+              </>
+            }
+            eyebrow={
               <p className="text-xs font-semibold uppercase tracking-widest text-blue-700">
                 Site-specific
               </p>
-              <h1 className="mt-1 text-2xl font-bold text-gray-950">Environmental monitoring</h1>
-              <p className="mt-1 max-w-3xl text-sm text-gray-600">
-                Weather, Copernicus Marine model values and exact Sentinel-2 scenes for your
-                authorized sea-cage sites.
-              </p>
-            </div>
-            <label className="block min-w-64 text-sm font-medium text-gray-700">
-              Sea-cage site
-              <select
-                aria-label="Sea-cage site"
-                value={selectedSite.id}
-                onChange={(event) => {
-                  navigate(`/sites/environment/${encodeURIComponent(event.target.value)}`);
-                }}
-                className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                {eligibleSites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name} ({site.code})
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+            }
+            actions={
+              <label className="block min-w-64 text-sm font-medium text-gray-700">
+                Sea-cage site
+                <select
+                  aria-label="Sea-cage site"
+                  value={selectedSite.id}
+                  onChange={(event) => {
+                    navigate(`/sites/environment/${encodeURIComponent(event.target.value)}`);
+                  }}
+                  className="mt-1 block min-h-10 w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {eligibleSites.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.name} ({site.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            }
+          />
           <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-600">
             <span>
               Coordinates: {selectedSite.location.latitude.toFixed(5)},{' '}

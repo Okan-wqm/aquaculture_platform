@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { messagingApi } from '../../services/api/messaging';
 import type {
@@ -392,22 +392,20 @@ const MessagingCompliancePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Messaging Compliance</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Legal holds, data exports, retention compliance, and audit log summary
-          </p>
-        </div>
-        <Button
-          onClick={() => void handleRefresh()}
-          disabled={loading}
-          variant="secondary"
-          size="sm"
-        >
-          {loading ? 'Refreshing...' : 'Refresh'}
-        </Button>
-      </div>
+      <PageHeader
+        title="Messaging Compliance"
+        description="Legal holds, data exports, retention compliance, and audit log summary"
+        actions={
+          <Button
+            onClick={() => void handleRefresh()}
+            disabled={loading}
+            variant="secondary"
+            size="sm"
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
 
       {/* Error banners */}
       {queryError && (

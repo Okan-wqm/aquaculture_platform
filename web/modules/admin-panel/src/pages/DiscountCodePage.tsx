@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { Card, Button, Badge, DataTable, Input, Modal, useConfirm, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, Input, Modal, useConfirm, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import {
   billingApi,
   DiscountCode,
@@ -323,19 +323,17 @@ const DiscountCodePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Discount Codes</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage promotional codes and discounts
-          </p>
-        </div>
-        <div className="mt-4 sm:mt-0">
-          <Button onClick={() => setShowCreateModal(true)}>
-            Create Discount Code
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        title="Discount Codes"
+        description="Manage promotional codes and discounts"
+        actions={
+          <div className="mt-4 sm:mt-0">
+            <Button onClick={() => setShowCreateModal(true)}>
+              Create Discount Code
+            </Button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (

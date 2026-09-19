@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import NutrientProfileManager from './setup/NutrientProfileManager';
+import { PageHeader } from '@aquaculture/shared-ui';
 
 const SETUP_TABS = [
   { id: 'sites', label: 'Sites' },
@@ -12,12 +13,11 @@ const SetupPage: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Hydroponics Setup</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Manage your hydroponic sites, systems, and nutrient profiles
-        </p>
-      </div>
+      <PageHeader
+        title="Hydroponics Setup"
+        description="Manage your hydroponic sites, systems, and nutrient profiles"
+        className="mb-6"
+      />
 
       {/* Tab Bar */}
       <div className="border-b border-gray-200 mb-6">

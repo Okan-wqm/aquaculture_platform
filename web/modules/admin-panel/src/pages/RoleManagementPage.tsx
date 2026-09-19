@@ -5,7 +5,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Badge, Spinner } from '@aquaculture/shared-ui';
+import { Card, Badge, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { usersApi, Permission, RoleHierarchyItem } from '../services/adminApi';
 import { adminKeys, useAdminQuery } from '../hooks';
 import { QueryFailureNotice } from '../components/QueryFailureNotice';
@@ -98,14 +98,10 @@ const RoleManagementPage: React.FC = () => {
       <QueryFailureNotice errors={queryErrors} hasContent onRetry={reload} />
 
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Role Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            System roles and permissions hierarchy
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Role Management"
+        description="System roles and permissions hierarchy"
+      />
 
       {/* Role Hierarchy Visualization */}
       <Card className="p-6">

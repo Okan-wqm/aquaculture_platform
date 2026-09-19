@@ -25,7 +25,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
-import { DataTable, Modal, type DataTableColumn } from '@aquaculture/shared-ui';
+import { DataTable, Modal, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 
 import { securityApi } from '../../services/adminApi';
 import { adminKeys, useAdminQuery } from '../../hooks';
@@ -666,31 +666,29 @@ export const ActivityLogPage: React.FC = () => {
       />
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Activity Log</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Monitor all system activities, user actions, and security events
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleExport}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            <Download className="w-4 h-4" />
-            Export
-          </button>
-          <button
-            onClick={() => void loadData()}
-            disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Activity Log"
+        description="Monitor all system activities, user actions, and security events"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+            >
+              <Download className="w-4 h-4" />
+              Export
+            </button>
+            <button
+              onClick={() => void loadData()}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+        }
+      />
 
       {/* Stats Cards */}
       {stats && (

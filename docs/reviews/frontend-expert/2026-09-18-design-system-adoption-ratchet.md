@@ -26,7 +26,8 @@ against 24.070 raw Tailwind defaults; 96 files build their own `fixed inset-0`
 overlay (55 without an accessible close label, 111 stacked on one `z-50`);
 2.136 raw hex colours sit outside `theme.css`; 683 inline `style={{}}` blocks
 bypass tokens; 87 call sites used the browser's `confirm()` / `alert()` /
-`prompt()`; 365 loading spinners were drawn by hand beside `Spinner`.
+`prompt()`; 365 loading spinners were drawn by hand beside `Spinner`; 130
+page title rows were written by hand with no `PageHeader` to write them with.
 
 The first wave closed the browser-dialog class outright (ESLint `no-alert`
 error, `useConfirm`/`usePrompt` + `ConfirmProvider`, Drawer, AquaMobil update
@@ -331,6 +332,35 @@ loader icon or an inline `<svg>` spun by a literal `animate-spin`, or a
 bordered ring spun the same way. An icon whose spin is conditional (a refresh
 arrow while refetching) is an affordance, not a loading indicator, and is not
 counted. **Owner:** okan · **Expiry:** 2027-06-30.
+
+#### FE-MEDIUM-071 — Page title rows hand-written beside no `PageHeader`
+
+130 pages opened with a title row written by hand (admin-panel 44, sensor 27,
+hr 20, farm 17, tenant-admin 14, shell 4, hydroponics 3, dashboard 2,
+messaging 1): a `justify-between` row in three layouts (fixed, responsive
+under `sm`, responsive under `md`), an `h1` in twelve class spellings (some
+with dark variants, some `text-xl`, one `sm:text-3xl`), a description in five
+sizes, and the back link, icon box or badges placed differently each time.
+shared-ui had `Header` and `Sidebar` for the app chrome and nothing for the
+page.
+
+**Root cause:** no primitive; each page copied the nearest page's markup.
+
+**Fix (this cycle):** shared-ui gains `PageHeader` — one `h1`, one
+description, `actions` beside the title, an `eyebrow` above it (a back
+link, a category label), a `leading` element beside it (an icon box, a back
+button) and children beneath (tabs, a filter strip) — responsive by default
+and dark-aware. Batch 24: 119 title rows render through it (the converter
+took the canonical shapes, the back-link, icon-box, badge-row, eyebrow and
+band-header variants followed by structure), and the ratchet gains a
+per-package `rawPageTitle` ceiling: an `h1` in `text-2xl`/`text-xl` bold or
+semibold outside shared-ui. What remains is not a page header: the SCADA
+view, widget dashboard and water-chemistry monitor toolbars and the pH
+simulator strip (the title is one control in a dense tool strip, compact by
+design), the 404 page and the HR module's load-failure state. AquaMobil's 39
+mobile top bars (back arrow, icon, title, right action on the ocean band)
+are one primitive of their own and follow in their own batch.
+**Owner:** okan · **Expiry:** 2027-06-30.
 
 ## Enforcement
 

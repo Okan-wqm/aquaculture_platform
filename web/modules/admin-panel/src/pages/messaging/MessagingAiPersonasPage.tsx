@@ -17,7 +17,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Card, Button, Badge, DataTable, type DataTableColumn, Spinner } from '@aquaculture/shared-ui';
+import { Card, Button, Badge, DataTable, type DataTableColumn, Spinner, PageHeader } from '@aquaculture/shared-ui';
 import { messagingApi } from '../../services/adminApi';
 import type { AiPersonaDefinition } from '../../services/api/messaging';
 import type { ApiError } from '../../services/http-client';
@@ -203,17 +203,15 @@ function MessagingAiPersonasPage(): React.ReactElement {
   return (
     <div className="space-y-6">
       {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            AI Personas Configuration
-          </h1>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+      <PageHeader
+        title="AI Personas Configuration"
+        description={
+          <>
             View AI assistant personas from the backend registry.
             Each persona maps to a specialized ai-service profile with real actuation policies.
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {/* LIFE-SAFETY Warning */}
       <Card className="p-4 bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800">

@@ -8,7 +8,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Clock, Calendar, Users, CheckCircle, Filter, Download, Search } from 'lucide-react';
-import { cn, DataTable, type DataTableColumn } from '@aquaculture/shared-ui';
+import { cn, DataTable, type DataTableColumn, PageHeader } from '@aquaculture/shared-ui';
 import {
   useAttendanceRecords,
   useDailyAttendanceOverview,
@@ -114,21 +114,19 @@ export function AttendancePage() {
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Attendance</h1>
-          <p className="mt-1 text-gray-500 dark:text-gray-400">
-            Track employee time and attendance
-          </p>
-        </div>
-        <Link
-          to="/hr/scheduling"
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto"
-        >
-          <Calendar className="h-4 w-4" />
-          Schedule
-        </Link>
-      </div>
+      <PageHeader
+        title="Attendance"
+        description="Track employee time and attendance"
+        actions={
+          <Link
+            to="/hr/scheduling"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 sm:w-auto"
+          >
+            <Calendar className="h-4 w-4" />
+            Schedule
+          </Link>
+        }
+      />
 
       {/* Overview Cards */}
       {activeTab === 'overview' && (

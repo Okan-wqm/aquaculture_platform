@@ -41,7 +41,7 @@ import {
   PlcAlarmStats,
   TelemetrySummary,
 } from '../../hooks/usePlcControl';
-import { Spinner } from '@aquaculture/shared-ui';
+import { Spinner, PageHeader } from '@aquaculture/shared-ui';
 
 // ============================================================================
 // Status Helpers
@@ -229,23 +229,22 @@ const PlcDashboardPage: React.FC = () => {
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">PLC Kontrol Paneli</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            PLC bağlantıları, telemetri ve alarm durumuna genel bakış
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => refetchConnections()}
-            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Yenile
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="PLC Kontrol Paneli"
+        description="PLC bağlantıları, telemetri ve alarm durumuna genel bakış"
+        actions={
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => refetchConnections()}
+              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Yenile
+            </button>
+          </div>
+        }
+        className="mb-6"
+      />
 
       {isLoading ? (
         <div className="flex h-64 items-center justify-center">

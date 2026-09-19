@@ -40,6 +40,7 @@ vi.mock('@aquaculture/shared-ui', async (importOriginal) => ({
   Modal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).Modal,
   ConfirmModal: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).ConfirmModal,
   DataTable: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).DataTable,
+  PageHeader: (await importOriginal<typeof import('@aquaculture/shared-ui')>()).PageHeader,
   useAuth: () => ({
     hasPermission: mockHasPermission,
     user: { id: 'u1', email: 'admin@test.com', role: mockAuthState.role },

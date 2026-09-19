@@ -352,20 +352,16 @@ const DocumentsSection: React.FC<{
               />
             </div>
             <div className="w-40">
-              <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                Type
-              </label>
-              <select
+              <Select
+                label="Type"
+                size="sm"
                 value={uploadType}
                 onChange={(e) => setUploadType(e.target.value as ChemicalDocumentType)}
-                className="w-full border border-gray-300 dark:border-gray-600 rounded-md py-1.5 px-3 text-sm"
-              >
-                {Object.entries(documentTypeLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+                options={Object.entries(documentTypeLabels).map(([value, label]) => ({
+                  value,
+                  label,
+                }))}
+              />
             </div>
             <Button
               variant="primary"
@@ -759,18 +755,16 @@ export const ChemicalsTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Category filter"
+            fullWidth={false}
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Categories</option>
-            {chemicalTypes.map((type) => (
-              <option key={type.id} value={type.code}>
-                {type.name}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Categories' },
+              ...chemicalTypes.map((type) => ({ value: type.code, label: type.name })),
+            ]}
+          />
         </div>
         <Button
           variant="primary"
@@ -900,76 +894,48 @@ export const ChemicalsTab: React.FC = () => {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Category *
-                    </label>
-                    <FormField
+                    <Select
+                      label="Category"
+                      required
+                      placeholder="Select Category"
+                      value={formData.type}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, type: e.target.value as ChemicalType }))
+                      }
                       error={formData.type ? undefined : fieldErrors.type}
-                      className="mb-0"
-                    >
-                      <select
-                        required
-                        value={formData.type}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, type: e.target.value as ChemicalType }))
-                        }
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                      >
-                        <option value="">Select Category</option>
-                        {chemicalTypes.map((type) => (
-                          <option key={type.id} value={type.code}>
-                            {type.name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
+                      options={chemicalTypes.map((type) => ({
+                        value: type.code,
+                        label: type.name,
+                      }))}
+                    />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Site *
-                    </label>
-                    <FormField
+                    <Select
+                      label="Site"
+                      required
+                      placeholder="Select Site"
+                      value={formData.siteId}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, siteId: e.target.value }))}
                       error={formData.siteId ? undefined : fieldErrors.siteId}
-                      className="mb-0"
-                    >
-                      <select
-                        required
-                        value={formData.siteId}
-                        onChange={(e) =>
-                          setFormData((prev) => ({ ...prev, siteId: e.target.value }))
-                        }
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                      >
-                        <option value="">Select Site</option>
-                        {sites.map((site) => (
-                          <option key={site.id} value={site.id}>
-                            {site.name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
+                      options={sites.map((site) => ({ value: site.id, label: site.name }))}
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Manufacturer (Supplier)
-                    </label>
-                    <select
-                      value={formData.supplierId}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                    >
-                      <option value="">Select Supplier</option>
-                      {suppliers.map((supplier) => (
-                        <option key={supplier.id} value={supplier.id}>
-                          {supplier.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label="Manufacturer (Supplier)"
+                    value={formData.supplierId}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
+                    }
+                    options={[
+                      { value: '', label: 'Select Supplier' },
+                      ...suppliers.map((supplier) => ({
+                        value: supplier.id,
+                        label: supplier.name,
+                      })),
+                    ]}
+                  />
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Unit *
@@ -1002,24 +968,14 @@ export const ChemicalsTab: React.FC = () => {
                     rows={2}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, status: e.target.value as ChemicalStatus }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    {Object.entries(statusLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Status"
+                  value={formData.status}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, status: e.target.value as ChemicalStatus }))
+                  }
+                  options={Object.entries(statusLabels).map(([value, label]) => ({ value, label }))}
+                />
               </div>
             </CollapsibleSection>
 
@@ -1091,24 +1047,14 @@ export const ChemicalsTab: React.FC = () => {
             >
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Storage Requirements
-                    </label>
-                    <select
-                      value={formData.storageRequirements}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
-                      }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                    >
-                      {storageOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <Select
+                    label="Storage Requirements"
+                    value={formData.storageRequirements}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, storageRequirements: e.target.value }))
+                    }
+                    options={storageOptions.map((opt) => ({ value: opt.value, label: opt.label }))}
+                  />
                   <div>
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Hazard Class

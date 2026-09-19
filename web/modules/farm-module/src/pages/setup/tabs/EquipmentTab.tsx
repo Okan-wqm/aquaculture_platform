@@ -34,6 +34,8 @@ import {
   Spinner,
   Button,
   Input,
+  Select,
+  type SelectOption,
 } from '@aquaculture/shared-ui';
 import { FeederCalibrationSection } from '../components/FeederCalibrationSection';
 import { SubEquipmentSection } from '../components/SubEquipmentSection';
@@ -56,6 +58,30 @@ import {
   Wind,
   Zap,
 } from 'lucide-react';
+
+/** Lifecycle states every piece of equipment can be in. */
+const EQUIPMENT_STATUS_OPTIONS: readonly SelectOption[] = [
+  { value: 'OPERATIONAL', label: 'Operational' },
+  { value: 'MAINTENANCE', label: 'Maintenance' },
+  { value: 'REPAIR', label: 'Repair' },
+  { value: 'STANDBY', label: 'Standby' },
+  { value: 'OUT_OF_SERVICE', label: 'Out of Service' },
+  { value: 'DECOMMISSIONED', label: 'Decommissioned' },
+];
+
+/** The extra states a tank, pond or cage can be in — holding stock, not running. */
+const TANK_STATUS_OPTIONS: readonly SelectOption[] = [
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'PREPARING', label: 'Preparing' },
+  { value: 'CLEANING', label: 'Cleaning' },
+  { value: 'HARVESTING', label: 'Harvesting' },
+  { value: 'FALLOW', label: 'Fallow' },
+  { value: 'QUARANTINE', label: 'Quarantine' },
+];
+
+/** The same states under a heading, which is what Select renders as an optgroup. */
+const grouped = (options: readonly SelectOption[], group: string): SelectOption[] =>
+  options.map((option) => ({ ...option, group }));
 
 // Equipment categories for two-stage selection.
 // Values match GraphQL enum wire values; normalizeCategory accepts legacy
@@ -767,41 +793,27 @@ export const EquipmentTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Type filter"
+            fullWidth={false}
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Types</option>
-            {types.map((type) => (
-              <option key={type.value} value={type.value}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Types' },
+              ...types.map((type) => ({ value: type.value, label: type.label })),
+            ]}
+          />
+          <Select
+            aria-label="Status filter"
+            fullWidth={false}
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Status</option>
-            <optgroup label="Equipment">
-              <option value="OPERATIONAL">Operational</option>
-              <option value="MAINTENANCE">Maintenance</option>
-              <option value="REPAIR">Repair</option>
-              <option value="STANDBY">Standby</option>
-              <option value="OUT_OF_SERVICE">Out of Service</option>
-              <option value="DECOMMISSIONED">Decommissioned</option>
-            </optgroup>
-            <optgroup label="Tank / Pond / Cage">
-              <option value="ACTIVE">Active</option>
-              <option value="PREPARING">Preparing</option>
-              <option value="CLEANING">Cleaning</option>
-              <option value="HARVESTING">Harvesting</option>
-              <option value="FALLOW">Fallow</option>
-              <option value="QUARANTINE">Quarantine</option>
-            </optgroup>
-          </select>
+            options={[
+              { value: 'all', label: 'All Status' },
+              ...grouped(EQUIPMENT_STATUS_OPTIONS, 'Equipment'),
+              ...grouped(TANK_STATUS_OPTIONS, 'Tank / Pond / Cage'),
+            ]}
+          />
           <label className="flex items-center text-sm text-gray-600 dark:text-gray-400 ml-2">
             <input
               type="checkbox"
@@ -1069,102 +1081,59 @@ export const EquipmentTab: React.FC = () => {
 
                 {/* Two-stage type selection */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Category *
-                    </label>
-                    <select
-                      value={formData.selectedCategory}
-                      onChange={(e) => handleCategoryChange(e.target.value)}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                      required
-                    >
-                      <option value="">Select Category...</option>
-                      {EQUIPMENT_CATEGORIES.map((cat) => (
-                        <option key={cat.value} value={cat.value}>
-                          {cat.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Type *
-                    </label>
-                    <FormField
-                      error={formData.equipmentTypeId ? undefined : fieldErrors.equipmentTypeId}
-                      className="mb-0"
-                    >
-                      <select
-                        value={formData.equipmentTypeId}
-                        onChange={(e) => handleTypeChange(e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                        required
-                        disabled={!formData.selectedCategory}
-                      >
-                        <option value="">
-                          {formData.selectedCategory
-                            ? 'Select Type...'
-                            : 'Select category first...'}
-                        </option>
-                        {filteredTypesByCategory.map((type) => (
-                          <option key={type.id} value={type.id}>
-                            {type.name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  </div>
+                  <Select
+                    label="Category"
+                    required
+                    placeholder="Select Category..."
+                    value={formData.selectedCategory}
+                    onChange={(e) => handleCategoryChange(e.target.value)}
+                    options={EQUIPMENT_CATEGORIES.map((cat) => ({
+                      value: cat.value,
+                      label: cat.label,
+                    }))}
+                  />
+                  <Select
+                    label="Type"
+                    required
+                    placeholder={
+                      formData.selectedCategory ? 'Select Type...' : 'Select category first...'
+                    }
+                    value={formData.equipmentTypeId}
+                    onChange={(e) => handleTypeChange(e.target.value)}
+                    disabled={!formData.selectedCategory}
+                    error={formData.equipmentTypeId ? undefined : fieldErrors.equipmentTypeId}
+                    options={filteredTypesByCategory.map((type) => ({
+                      value: type.id,
+                      label: type.name,
+                    }))}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                  <Select
+                    label="Status"
+                    required
+                    value={formData.status}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
+                    options={[
+                      ...grouped(EQUIPMENT_STATUS_OPTIONS, 'General'),
+                      ...(TANK_CATEGORIES.includes(formData.selectedCategory)
+                        ? grouped(TANK_STATUS_OPTIONS, 'Tank / Pond / Cage')
+                        : []),
+                    ]}
+                  />
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Status *
-                    </label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, status: e.target.value }))}
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                    >
-                      <optgroup label="General">
-                        <option value="OPERATIONAL">Operational</option>
-                        <option value="MAINTENANCE">Maintenance</option>
-                        <option value="REPAIR">Repair</option>
-                        <option value="STANDBY">Standby</option>
-                        <option value="OUT_OF_SERVICE">Out of Service</option>
-                        <option value="DECOMMISSIONED">Decommissioned</option>
-                      </optgroup>
-                      {TANK_CATEGORIES.includes(formData.selectedCategory) && (
-                        <optgroup label="Tank / Pond / Cage">
-                          <option value="ACTIVE">Active</option>
-                          <option value="PREPARING">Preparing</option>
-                          <option value="CLEANING">Cleaning</option>
-                          <option value="HARVESTING">Harvesting</option>
-                          <option value="FALLOW">Fallow</option>
-                          <option value="QUARANTINE">Quarantine</option>
-                        </optgroup>
-                      )}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Supplier
-                    </label>
-                    <select
+                    <Select
+                      label="Supplier"
                       value={formData.supplierId}
                       onChange={(e) =>
                         setFormData((prev) => ({ ...prev, supplierId: e.target.value }))
                       }
-                      className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                    >
-                      <option value="">Select Supplier...</option>
-                      {suppliers.map((sup) => (
-                        <option key={sup.id} value={sup.id}>
-                          {sup.name}
-                        </option>
-                      ))}
-                    </select>
+                      options={[
+                        { value: '', label: 'Select Supplier...' },
+                        ...suppliers.map((sup) => ({ value: sup.id, label: sup.name })),
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
@@ -1175,60 +1144,34 @@ export const EquipmentTab: React.FC = () => {
                   Location
                 </h4>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Select
+                    label="Site"
+                    required
+                    placeholder="Select Site..."
+                    value={formData.siteId}
+                    onChange={(e) => handleSiteChange(e.target.value)}
+                    error={formData.siteId ? undefined : fieldErrors.siteId}
+                    options={sites.map((site) => ({ value: site.id, label: site.name }))}
+                  />
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Site *
-                    </label>
-                    <FormField
-                      error={formData.siteId ? undefined : fieldErrors.siteId}
-                      className="mb-0"
-                    >
-                      <select
-                        value={formData.siteId}
-                        onChange={(e) => handleSiteChange(e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                        required
-                      >
-                        <option value="">Select Site...</option>
-                        {sites.map((site) => (
-                          <option key={site.id} value={site.id}>
-                            {site.name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                      Department *
-                    </label>
-                    <FormField
+                    <Select
+                      label="Department"
+                      required
+                      placeholder={
+                        deptError
+                          ? 'Departmanlar yüklenemedi'
+                          : !formData.siteId
+                            ? 'Önce site seçin...'
+                            : departments.length === 0
+                              ? 'Bu site için departman bulunamadı'
+                              : 'Departman seçin...'
+                      }
+                      value={formData.departmentId}
+                      onChange={(e) => handleDepartmentChange(e.target.value)}
+                      disabled={!formData.siteId}
                       error={formData.departmentId ? undefined : fieldErrors.departmentId}
-                      className="mb-0"
-                    >
-                      <select
-                        value={formData.departmentId}
-                        onChange={(e) => handleDepartmentChange(e.target.value)}
-                        className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                        required
-                        disabled={!formData.siteId}
-                      >
-                        <option value="">
-                          {deptError
-                            ? 'Departmanlar yüklenemedi'
-                            : !formData.siteId
-                              ? 'Önce site seçin...'
-                              : departments.length === 0
-                                ? 'Bu site için departman bulunamadı'
-                                : 'Departman seçin...'}
-                        </option>
-                        {departments.map((dept) => (
-                          <option key={dept.id} value={dept.id}>
-                            {dept.name}
-                          </option>
-                        ))}
-                      </select>
-                    </FormField>
+                      options={departments.map((dept) => ({ value: dept.id, label: dept.name }))}
+                    />
                     {deptError && (
                       <p className="text-xs text-error-500 mt-1">
                         Departmanlar yüklenirken hata oluştu
@@ -1291,28 +1234,21 @@ export const EquipmentTab: React.FC = () => {
                 <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider border-b border-gray-200 dark:border-gray-700 pb-2 mb-4">
                   Hierarchy
                 </h4>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Parent Equipment
-                  </label>
-                  <select
-                    value={formData.parentEquipmentId}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    <option value="">None (Root Equipment)</option>
-                    {availableParentEquipment.map((eq) => (
-                      <option key={eq.id} value={eq.id}>
-                        {eq.name} ({eq.code}) - {eq.equipmentType?.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Optional. Select if this equipment is a sub-component of another equipment.
-                  </p>
-                </div>
+                <Select
+                  label="Parent Equipment"
+                  value={formData.parentEquipmentId}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, parentEquipmentId: e.target.value }))
+                  }
+                  helperText="Optional. Select if this equipment is a sub-component of another equipment."
+                  options={[
+                    { value: '', label: 'None (Root Equipment)' },
+                    ...availableParentEquipment.map((eq) => ({
+                      value: eq.id,
+                      label: `${eq.name} (${eq.code}) - ${eq.equipmentType?.name}`,
+                    })),
+                  ]}
+                />
 
                 {/* Show current child equipment when editing */}
                 {editingId &&
@@ -1459,27 +1395,21 @@ export const EquipmentTab: React.FC = () => {
                   tank's feed-rate calculation. */}
               {TANK_CATEGORIES.includes(formData.selectedCategory) && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Temperature Sensor
-                  </label>
-                  <select
+                  <Select
+                    label="Temperature Sensor"
                     value={formData.temperatureSensorId}
                     onChange={(e) =>
                       setFormData((prev) => ({ ...prev, temperatureSensorId: e.target.value }))
                     }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    <option value="">No sensor</option>
-                    {sensors.map((sensor) => (
-                      <option key={sensor.id} value={sensor.id}>
-                        {sensor.name} ({sensor.type})
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                    Optional. Links a sensor whose live temperature drives this tank&apos;s
-                    feed-rate calculation.
-                  </p>
+                    helperText="Optional. Links a sensor whose live temperature drives this tank's feed-rate calculation."
+                    options={[
+                      { value: '', label: 'No sensor' },
+                      ...sensors.map((sensor) => ({
+                        value: sensor.id,
+                        label: `${sensor.name} (${sensor.type})`,
+                      })),
+                    ]}
+                  />
                 </div>
               )}
 

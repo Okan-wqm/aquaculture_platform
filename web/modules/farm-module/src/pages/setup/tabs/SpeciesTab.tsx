@@ -25,7 +25,15 @@ import {
 // ARCH-NOTE: Always use SupplierType enum, never hardcode string values. GraphQL enums are case-sensitive.
 import { useSupplierList, SupplierType } from '../../../hooks/useSuppliers';
 import { useFeedList } from '../../../hooks/useFeeds';
-import { Modal, useConfirm, Spinner, Button, Input, Textarea } from '@aquaculture/shared-ui';
+import {
+  Modal,
+  useConfirm,
+  Spinner,
+  Button,
+  Input,
+  Select,
+  Textarea,
+} from '@aquaculture/shared-ui';
 import {
   Box,
   ChartColumn,
@@ -437,42 +445,36 @@ export const SpeciesTab: React.FC = () => {
               aria-hidden="true"
             />
           </div>
-          <select
+          <Select
+            aria-label="Category filter"
+            fullWidth={false}
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Categories</option>
-            {Object.entries(speciesCategoryLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Categories' },
+              ...Object.entries(speciesCategoryLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
+          <Select
+            aria-label="Water type filter"
+            fullWidth={false}
             value={selectedWaterType}
             onChange={(e) => setSelectedWaterType(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Water Types</option>
-            {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <select
+            options={[
+              { value: 'all', label: 'All Water Types' },
+              ...Object.entries(speciesWaterTypeLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
+          <Select
+            aria-label="Status filter"
+            fullWidth={false}
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-info-500 focus:border-transparent"
-          >
-            <option value="all">All Statuses</option>
-            {Object.entries(speciesStatusLabels).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { value: 'all', label: 'All Statuses' },
+              ...Object.entries(speciesStatusLabels).map(([value, label]) => ({ value, label })),
+            ]}
+          />
         </div>
         <Button variant="primary" onClick={openAddModal}>
           <Plus className="w-5 h-5 mr-2" aria-hidden="true" />
@@ -905,52 +907,38 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('classification')}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Category *
-                  </label>
-                  <select
-                    required
-                    value={formData.category}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        category: e.target.value as SpeciesCategory,
-                      }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    <option value="">Select Category</option>
-                    {Object.entries(speciesCategoryLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Water Type *
-                  </label>
-                  <select
-                    required
-                    value={formData.waterType}
-                    onChange={(e) =>
-                      setFormData((prev) => ({
-                        ...prev,
-                        waterType: e.target.value as SpeciesWaterType,
-                      }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    <option value="">Select Water Type</option>
-                    {Object.entries(speciesWaterTypeLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Category"
+                  required
+                  placeholder="Select Category"
+                  value={formData.category}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      category: e.target.value as SpeciesCategory,
+                    }))
+                  }
+                  options={Object.entries(speciesCategoryLabels).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
+                <Select
+                  label="Water Type"
+                  required
+                  placeholder="Select Water Type"
+                  value={formData.waterType}
+                  onChange={(e) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      waterType: e.target.value as SpeciesWaterType,
+                    }))
+                  }
+                  options={Object.entries(speciesWaterTypeLabels).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
                 <div>
@@ -986,26 +974,16 @@ export const SpeciesTab: React.FC = () => {
               isOpen={openSections.supplier}
               onToggle={() => toggleSection('supplier')}
             >
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Supplier
-                </label>
-                <select
-                  value={formData.supplierId}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, supplierId: e.target.value }))}
-                  className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                >
-                  <option value="">Select Supplier (Optional)</option>
-                  {suppliers.map((supplier) => (
-                    <option key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  Optional: Select the primary supplier for fry/eggs of this species
-                </p>
-              </div>
+              <Select
+                label="Supplier"
+                value={formData.supplierId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, supplierId: e.target.value }))}
+                helperText="Optional: Select the primary supplier for fry/eggs of this species"
+                options={[
+                  { value: '', label: 'Select Supplier (Optional)' },
+                  ...suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name })),
+                ]}
+              />
             </CollapsibleSection>
 
             {/* Section 4: Optimal Conditions */}
@@ -1339,24 +1317,17 @@ export const SpeciesTab: React.FC = () => {
               onToggle={() => toggleSection('status')}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Status
-                  </label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) =>
-                      setFormData((prev) => ({ ...prev, status: e.target.value as SpeciesStatus }))
-                    }
-                    className="mt-1 block w-full border border-gray-300 dark:border-gray-600 rounded-md shadow-sm py-2 px-3 focus:outline-hidden focus:ring-info-500 focus:border-info-500"
-                  >
-                    {Object.entries(speciesStatusLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  label="Status"
+                  value={formData.status}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, status: e.target.value as SpeciesStatus }))
+                  }
+                  options={Object.entries(speciesStatusLabels).map(([value, label]) => ({
+                    value,
+                    label,
+                  }))}
+                />
               </div>
               <div className="mt-4">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">

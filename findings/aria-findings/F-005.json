@@ -1,0 +1,78 @@
+{
+  "$schema": "aria/finding/v1",
+  "certainty": "OBSERVED",
+  "claim_summary": "ui_option_drift: 'leaverequest' value sets diverge across 2 surfaces (cross_service=True)",
+  "claim_type": "spine_drift",
+  "closes_in_commit": null,
+  "created_at": "2026-09-19T00:21:08Z",
+  "evidence_chain_id": "chain_fb9145c6ba4cd082",
+  "evidences": [
+    {
+      "evidence_envelope": {
+        "canonical_ref": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx",
+        "content_hash": "sha256:a9a6ccfb570210d9ec262e9ad140cedafeb1469265dec19e75eb2bbcc59216c8",
+        "envelope_hash": "sha256:bad757ac86ac832606e1c223eed38e3f98abb275a6979c310b03ee5fba8e0acb",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 358,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "281d9703e9b31341719a8dd40caf0f6413c011cc",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx:358",
+      "summary": "leave-filter-status values: ['approved', 'cancelled', 'pending', 'rejected']"
+    },
+    {
+      "evidence_envelope": {
+        "canonical_ref": "apps/hr-service/src/leave/entities/leave-request.entity.ts",
+        "content_hash": "sha256:8c53db33c77c961f6238a8ffe2f7118a53fc0a69fb1c90437b5598ed931c24b2",
+        "envelope_hash": "sha256:ee277205b1dcaeca14c36f93dc3ec2afef6004b515c96fbb178f760348e92f32",
+        "exists": true,
+        "glob_match_count": null,
+        "is_glob": false,
+        "line": 18,
+        "self_output_class": null,
+        "source_hint": "repo_source",
+        "target_sha": "281d9703e9b31341719a8dd40caf0f6413c011cc",
+        "trust_grade": "repo_verified",
+        "validation_errors": []
+      },
+      "ref": "apps/hr-service/src/leave/entities/leave-request.entity.ts:18",
+      "summary": "LeaveRequestStatus values: ['APPROVED', 'CANCELLED', 'DRAFT', 'PENDING', 'REJECTED', 'WITHDRAWN']"
+    }
+  ],
+  "facts": [
+    "missing in ts/ui: ['draft', 'withdrawn']",
+    "missing in sql: []"
+  ],
+  "finding_id": "F-005",
+  "interpretations": [],
+  "originating_pressure_event_id": null,
+  "originating_run_id": null,
+  "originating_skill": "seed:drift-scan",
+  "recommendation": null,
+  "related_specialized_agent_domains": [
+    "accessibility-auditor",
+    "frontend-expert",
+    "hr-expert"
+  ],
+  "schema_version": 1,
+  "scope": {
+    "files": [
+      "apps/hr-service/src/leave/entities/leave-request.entity.ts",
+      "web/modules/hr-module/src/pages/leaves/LeavesPage.tsx"
+    ]
+  },
+  "service": null,
+  "services": [
+    "hr-service",
+    "web:hr-module"
+  ],
+  "severity": "HIGH",
+  "source_event_id": "finding:F-005:emitted",
+  "source_ledger_hash": "sha256:80a2b2c19f3433463c46d249220f824cb1b4630f84ae6d142ada4770834e165d",
+  "status": "OPEN"
+}
